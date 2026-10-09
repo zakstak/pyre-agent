@@ -5,7 +5,7 @@ description: Carry an explicitly assigned implementation task through a draft PR
 
 # Deliver a draft PR
 
-Use this workflow only after the user explicitly invokes it. The invocation sets the task, repository, context, scope, and authorized operations. It permits scoped implementation, relevant checks, pushing the task branch, creating or updating its draft PR, and the review replies and resolutions described below, subject to actual tool permissions. It does not authorize merge, deployment, installing tooling, credential changes, changing repository or bot configuration, unrelated work, or destructive overwrite. If essential intent or authority is missing, ask one focused question before the dependent action.
+Use this workflow only after the user explicitly invokes it. The invocation sets the task, repository, context, scope, and authorized operations. It permits scoped implementation, relevant checks, pushing the task branch, creating or updating its draft PR, and the review replies and resolutions described below, subject to actual tool permissions. It does not authorize merging the PR, deployment, installing tooling, credential changes, changing repository or bot configuration, unrelated work, or destructive overwrite. If essential intent or authority is missing, ask one focused question before the dependent action.
 
 Keep routine implementation, review assessment, retries and branch integration autonomous. Interact when human judgment is needed, a hard blocker prevents progress, or the current PR qualifies for the ready decision. Honor required harness progress reporting without turning updates into routine approval questions. Receiving human feedback is an interaction point; resume clear authorized work without asking again.
 
