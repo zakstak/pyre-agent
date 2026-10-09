@@ -1,3 +1,7 @@
+# principle-guard-the-context-window
+
+## Required notice
+
 MIT License
 
 Copyright (c) 2026 Lauren Tan
