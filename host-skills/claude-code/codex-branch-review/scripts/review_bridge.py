@@ -63,7 +63,7 @@ def child_environment():
     # A caller launched by Git may export GIT_DIR, GIT_WORK_TREE, config routing,
     # replacement/object paths, etc. They must not redirect the requested repo.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_PAGER="cat", PAGER="cat",
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", GIT_PAGER="cat", PAGER="cat",
                GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="core.fsmonitor", GIT_CONFIG_VALUE_0="false",
                GIT_CONFIG_KEY_1="core.untrackedCache", GIT_CONFIG_VALUE_1="false")
     return env
@@ -187,8 +187,27 @@ def validate_request(data):
 
 
 def git(repo: Path, *args: str, deadline: float):
-    code, out, _ = run(["git", "--no-pager", "--no-replace-objects", "--no-optional-locks", "-c", "core.fsmonitor=false",
-                         "-c", "core.untrackedCache=false", "-C", str(repo), *args], cwd=repo, deadline=deadline)
+    prefix = ["git", "--no-pager", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks",
+              "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", str(repo)]
+    if args and args[0] == "status":
+        # Status may execute conversion filters while comparing dirty files.
+        # Config enumeration reads keys without opening or converting content.
+        code, keys, _ = run([*prefix, "config", "--null", "--name-only", "--get-regexp",
+                             r"^filter\..*\.(clean|process|required)$"], cwd=repo, deadline=deadline)
+        if code not in (0, 1):
+            reject("invalid_git_target", "Cannot safely inspect Git conversion filter configuration.")
+        names = set()
+        for key in keys.split("\0"):
+            if not key:
+                continue
+            match = re.fullmatch(r"filter\.(.*)\.(?:clean|process|required)", key, re.DOTALL)
+            if not match or "\ufffd" in key or "=" in key:
+                reject("invalid_git_target", "Cannot safely decode Git conversion filter configuration.")
+            names.add(match[1])
+        for name in sorted(names):
+            for suffix, value in (("clean", ""), ("process", ""), ("required", "false")):
+                prefix += ["-c", f"filter.{name}.{suffix}={value}"]
+    code, out, _ = run([*prefix, *args], cwd=repo, deadline=deadline)
     if code:
         reject("invalid_git_target", "Git target or history is unavailable. Verify repository, base/head refs and local history; nothing was fetched.")
     return out.removesuffix("\n")
@@ -208,7 +227,7 @@ def resolve_scope(request, deadline):
     bases = git(repo, "merge-base", "--all", refs["base_sha"], refs["head_sha"], deadline=deadline).splitlines()
     if len(bases) != 1:
         reject("invalid_git_target", "Review requires one unambiguous merge base.")
-    dirty = bool(git(repo, "status", "--porcelain", "--untracked-files=normal", deadline=deadline))
+    dirty = bool(git(repo, "status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all", deadline=deadline))
     changed = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-only", bases[0], refs["head_sha"], "--", deadline=deadline)
     return {"repo": str(repo), "base": request["base"], "head": request["head"], **refs,
             "merge_base": bases[0], "local_changes_excluded": dirty, "empty_diff": not bool(changed)}

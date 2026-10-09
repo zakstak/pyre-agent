@@ -10,6 +10,8 @@ import tempfile
 import time
 import unittest
 import importlib.util
+import hashlib
+import shlex
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -342,6 +344,83 @@ raise SystemExit(code)
         self.git("config", "core.fsmonitor", str(helper))
         result = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(sentinel.exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX executable filter fixture")
+    def test_dirty_check_neutralizes_clean_and_process_filters(self):
+        sentinel = self.root / "clean-filter-ran"
+        helper = self.root / "clean-filter.py"
+        helper.write_text("import pathlib,sys\npathlib.Path(" + repr(str(sentinel)) + ").touch()\nsys.stdout.buffer.write(sys.stdin.buffer.read())\n")
+        (self.repo / ".gitattributes").write_text("auth.py filter=sentinel\n")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-qm", "declare filter")
+        command = shlex.quote(sys.executable) + " " + shlex.quote(str(helper))
+        self.git("config", "filter.sentinel.clean", command)
+        (self.repo / "auth.py").write_text("def is_admin(user):\n    return None\n")
+        # Establish that the unchanged-size file really triggers the unsafe
+        # status path, then assert neither configured helper is used by bridge.
+        self.git("status", "--porcelain")
+        self.assertTrue(sentinel.exists())
+        sentinel.unlink()
+        self.git("config", "filter.sentinel.process", command)
+        self.git("config", "filter.sentinel.required", "true")
+        for check in (False, True):
+            with self.subTest(check_only=check):
+                result = self.invoke(extra=("--check",) if check else ())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["scope"]["local_changes_excluded"])
+                self.assertFalse(sentinel.exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX remote-helper fixture")
+    def test_missing_promised_tree_never_fetches_or_writes_objects(self):
+        partial = self.root / "partial"
+        self.git("config", "uploadpack.allowFilter", "true")
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout", "--no-local", "--filter=tree:0",
+                        self.repo.as_uri(), str(partial)], check=True)
+        tree = self.git("rev-parse", self.base + "^{tree}").strip()
+        present = subprocess.run(["git", "--no-lazy-fetch", "-C", str(partial), "cat-file", "-e", tree],
+                                 capture_output=True)
+        self.assertNotEqual(present.returncode, 0, "Fixture must lack the promised tree")
+        sentinel = self.root / "remote-helper-ran"
+        helper = self.root / "git-remote-sentinel"
+        helper.write_text("#!/usr/bin/env python3\nimport pathlib\npathlib.Path(" + repr(str(sentinel)) + ").touch()\nraise SystemExit(1)\n")
+        helper.chmod(0o700)
+        subprocess.run(["git", "-C", str(partial), "config", "remote.origin.url", "sentinel::forbidden"], check=True)
+        subprocess.run(["git", "-C", str(partial), "config", "protocol.sentinel.allow", "always"], check=True)
+        self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
+        # Prove this fixture attempts remote access without protection. The
+        # controlled helper writes a sentinel and exits; it performs no network.
+        subprocess.run(["git", "-C", str(partial), "cat-file", "-e", tree], capture_output=True,
+                       env={**self.env, "GIT_NO_LAZY_FETCH": "0"}, timeout=8)
+        self.assertTrue(sentinel.exists(), "Unprotected object read must invoke the fixture remote")
+        sentinel.unlink()
+        self.env["GIT_NO_LAZY_FETCH"] = "1"
+        request = dict(self.request, repo=str(partial))
+        objects = partial / ".git/objects"
+        def snapshot():
+            return {str(p.relative_to(objects)): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in objects.rglob("*") if p.is_file()}
+        before = snapshot()
+        for check in (False, True):
+            with self.subTest(check_only=check):
+                self.assert_error(self.invoke(request=request, extra=("--check",) if check else ()), "invalid_git_target")
+                self.assertFalse(sentinel.exists())
+                self.assertEqual(snapshot(), before)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX executable filter fixture")
+    def test_filter_name_that_cannot_be_overridden_fails_closed(self):
+        sentinel = self.root / "unusual-filter-ran"
+        helper = self.root / "unusual-filter.py"
+        helper.write_text("import pathlib,sys\npathlib.Path(" + repr(str(sentinel)) + ").touch()\nsys.stdout.buffer.write(sys.stdin.buffer.read())\n")
+        (self.repo / ".gitattributes").write_text("auth.py filter=sentinel=key\n")
+        self.git("add", ".gitattributes")
+        self.git("commit", "-qm", "declare unusual filter")
+        self.git("config", "filter.sentinel=key.clean", shlex.quote(sys.executable) + " " + shlex.quote(str(helper)))
+        (self.repo / "auth.py").write_text("def is_admin(user):\n    return None\n")
+        self.git("status", "--porcelain")
+        self.assertTrue(sentinel.exists())
+        sentinel.unlink()
+        self.assert_error(self.invoke(extra=("--check",)), "invalid_git_target")
         self.assertFalse(sentinel.exists())
 
     def test_isolated_global_copy_with_bundled_profile(self):

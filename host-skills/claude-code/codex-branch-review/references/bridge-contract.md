@@ -2,7 +2,7 @@
 
 ## Requirements and discovery
 
-Requires Python 3.11+, Git, and an already installed/authenticated Codex CLI with
+Requires Python 3.11+, Git supporting `--no-lazy-fetch`, and an already installed/authenticated Codex CLI with
 access to `gpt-6.1-sol`. CLI flags were checked on 0.159.2; bounded live inference also passed on 0.162.0 on 2026-10-09. This integration
 never installs tools, logs in, changes `CODEX_HOME`, reads auth files, or writes
 configuration. Account entitlement can only be established by a successful call;
@@ -33,7 +33,7 @@ up to four objects with unique lowercase `name` slugs and a `task` string.
 Refs are resolved with Git's end-of-options protection, then pinned to commit
 hashes. The scope is `merge-base(base, head)..head`. Missing refs, unavailable
 history, unrelated histories, and ambiguous merge bases fail without fetching.
-Dirty or untracked work is excluded and flagged. Nothing switches the checkout.
+Dirty or untracked work in the target repository is excluded and flagged. Submodule worktrees are not inspected; the review covers committed gitlink changes in the target repository. Nothing switches the checkout.
 
 Each specialist is an independent Codex subprocess, not a native Codex agent
 role. Specialists run concurrently; the lead starts only after all return valid
@@ -72,9 +72,9 @@ CLI stderr, and authentication status text are not forwarded to the caller.
 
 The bridge uses argument arrays and stdin, never a shell. Wrapper Git calls
 disable fsmonitor and untracked-cache helpers per process without changing Git
-configuration. Git replacement objects and pagers are disabled. Inherited
+configuration. The dirty check enumerates conversion filter keys and disables clean/process commands and required-filter enforcement for that invocation; it does not recurse into submodule worktrees. Git replacement objects, pagers and lazy fetching are disabled. Unsupported no-lazy-fetch flags or missing local objects fail without an unprotected retry. Inherited
 `GIT_*` repository/config routing variables are removed before subprocess launch;
-normal Codex authentication environment remains available. A private temporary
+`GIT_NO_LAZY_FETCH=1` is set again for wrapper and reviewer object reads; normal Codex authentication environment remains available. A private temporary
 launch directory keeps repository Codex configuration out of automatic discovery.
 It refuses launch directories inside the target repository or beneath an
 ancestor `.codex/config.toml`. `--ignore-user-config` keeps existing authentication
@@ -115,6 +115,7 @@ an agent role by placing an arbitrary TOML file under an `agents` directory.
 
 ## Official references checked 2026-10-09
 
+- [Git command reference](https://git-scm.com/docs/git): `--no-lazy-fetch` and `GIT_NO_LAZY_FETCH`
 - [Claude Code skills](https://code.claude.com/docs/en/skills): discovery,
   explicit invocation, skill-directory substitution, and host-only frontmatter
 - [Codex CLI reference](https://learn.chatgpt.com/docs/cli/reference): exec,
