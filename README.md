@@ -36,9 +36,9 @@ The bridge pins `gpt-6.1-sol`, uses read-only model-command sandboxing, disables
 
 ## Optional collaboration guidance
 
-The candidate at `guidance/AGENTS.md` retains Zak's reusable communication, architecture, planning, preservation-of-work and scope preferences. Project, operating-system, machine-path and computer-operation instructions were removed; the installed original remains unchanged.
+The candidate at `guidance/collaboration-guidance.md` retains Zak's reusable communication, architecture, planning, preservation-of-work and scope preferences. Project, operating-system, machine-path and computer-operation instructions were removed; the installed original remains unchanged.
 
-Review and reconcile it with your existing global guidance before adopting it. Use the instruction mechanism documented by your selected agent. It is optional, is not a repository-wide instruction file here, grants no additional authority and does not install or replace any global file. Installing skills does not require adopting it.
+Review and reconcile it with your existing global guidance before adopting it. Use the instruction mechanism documented by your selected agent. It is optional proposal text, grants no additional authority and does not install or replace any global file. Keep its filename outside configured instruction-file fallback names until deliberate adoption; rename a reconciled copy to the selected agent's supported instruction filename only at that adoption destination. Installing skills does not require adopting it.
 
 ## Scope and private reviews
 
