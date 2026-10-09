@@ -17,8 +17,8 @@
     <main id="content" tabindex="-1" class="sections">
       <section class="reading stack" aria-labelledby="decisions">
         <h2 id="decisions">Decisions</h2>
-        <p>Atkinson Hyperlegible Next is the reading font. Dark and light modes, readable spacing, and content-driven layouts are confirmed.</p>
-        <p>The palette and theme below are provisional examples. The final palette, theme treatment, banner, and technical mono remain undecided. JetBrains Mono is a candidate only.</p>
+        <p>Atkinson Hyperlegible Next is the reading font. Atkinson Hyperlegible Mono is the technical font. Dark and light modes, readable spacing, and content-driven layouts are confirmed.</p>
+        <p>The palette and theme below are provisional examples. The final palette, theme treatment, and banner remain undecided. Both fonts are confirmed.</p>
         <p>Use this reference for plans, review pages, reports, and ad hoc visual artifacts without a specific product design system. Product-specific branding takes precedence.</p>
       </section>
       <div class="columns">
@@ -42,14 +42,14 @@
             <li><span class="status success">Passed: row export</span></li>
             <li><span class="status warning">Warning: phone check pending</span></li>
             <li><span class="status danger">Failed: filename check</span></li>
-            <li><span class="status neutral">Undecided: mono font</span></li>
+            <li><span class="status neutral">Undecided: palette</span></li>
           </ul>
           <p>Use status colors for results with these meanings. Use neutral text for ordinary progress and unresolved choices.</p>
         </section>
       </div>
       <section class="stack" aria-labelledby="technical">
         <h2 id="technical">Technical text</h2>
-        <p class="reading">System monospace fallback is shown here. A technical mono has not been selected. Wide code scrolls within its own keyboard-focusable region.</p>
+        <p class="reading">Atkinson Hyperlegible Mono is the chosen font for code and technical text. Wide code scrolls within its own keyboard-focusable region.</p>
         <div class="surface code-region" role="region" aria-label="Example report command" tabindex="0"><pre><code>report export --format html --include selected-rows --output ./artifacts/release-review.html
 result: 42 selected rows exported; filename check failed</code></pre></div>
       </section>
@@ -62,6 +62,7 @@ result: 42 selected rows exported; filename check failed</code></pre></div>
     </main>
     <footer class="rule stack small muted">
       <p id="font-status" role="status">Reading font: loading check pending. The system fallback is available.</p>
+      <p id="technical-font-status" role="status">Technical font: loading check pending. The system fallback is available.</p>
       <noscript><p>JavaScript is off. Theme follows the system preference. Font loading is unverified.</p></noscript>
       <p>Local specimen. Palette and theme are provisional. No banner is selected.</p>
     </footer>

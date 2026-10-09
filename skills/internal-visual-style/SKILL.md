@@ -9,4 +9,4 @@ Select the task's explicit visual instructions and existing product design syste
 
 The reference owns the design guidance. [assets/tokens.css](assets/tokens.css) owns semantic token values. Inspect the [plain HTML example](assets/reference.html) when implementing browser output, or [assets/tailwind.css](assets/tailwind.css) for compiled Tailwind v4. Adapt the layout to the content. Preserve the reference's distinction between confirmed decisions and provisional examples.
 
-Copy the complete folder when installing this skill. Its references, styles, script, and reading font are bundled. It requires no sibling skills or external service. Validate the resulting artifact using the checks in the reference and disclose any unverified behavior or font fallback.
+Copy the complete folder when installing this skill. Its references, styles, script, and chosen reading and technical fonts are bundled. It requires no sibling skills or external service. Validate the resulting artifact using the checks in the reference and disclose any unverified behavior or font fallback.

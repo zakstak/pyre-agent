@@ -1,7 +1,7 @@
-/* Single source of semantic values. Palette/theme/mono values are PROVISIONAL. */
+/* Single source of semantic values. Palette/theme values are PROVISIONAL. Both Atkinson fonts are chosen. */
 :root {
   --font-reading: "Atkinson Hyperlegible Next", system-ui, sans-serif;
-  --font-technical: ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
+  --font-technical: "Atkinson Hyperlegible Mono", ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
   --size-reading: 1.125rem;
   --size-small: 1rem;
   --size-title: 1.75rem;

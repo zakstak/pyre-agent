@@ -8,18 +8,19 @@ This file owns the shared guidance. [../assets/tokens.css](../assets/tokens.css)
 
 ## Confirmed decisions
 
-- Use Atkinson Hyperlegible Next for reading text. The example bundles the upright variable font. Technical text can use the system monospace fallback until a mono is selected.
+- Use Atkinson Hyperlegible Next for reading text and Atkinson Hyperlegible Mono for code and technical text. Both fonts are chosen and bundled as upright variable fonts. System font stacks are fallbacks if a bundled font cannot load.
 - Support dark and light modes with a keyboard-accessible control, visible state, and visible focus. Start with the system preference unless the reader has selected a mode.
 - Keep character quiet and layouts uncluttered. Use short, literal headings that identify content. Omit marketing headings, ornamental subtitles, filler, and decoration that competes with the work.
 - Give status colors consistent meanings and use them sparingly. Always pair status color with text. Separate neutral progress or pending decisions from success, warning, and failure.
 - Let content determine the layout. Use readable prose widths, wider code or comparison areas when needed, and flexible sections. The example is a specimen, not a required dashboard or card template.
 - Support readers who find dense text difficult. Use left-aligned prose, comfortable line height, clear paragraph spacing, concise sections, and ordinary casing. Avoid full justification, long italic passages, and text embedded in images. Preserve zoom and user text-spacing overrides. Do not claim that a font treats dyslexia or guarantees medical benefits.
 
+Typography is confirmed. JetBrains Mono is not selected.
+
 ## Unresolved choices
 
 The final palette, theme treatment, and banner are not selected. The values in tokens.css are provisional accessible examples that make structure and behavior reviewable. No banner is implemented. Do not present these examples as approved brand colors or a finished theme.
 
-The technical mono is undecided. JetBrains Mono is a candidate only. It is neither bundled nor declared as the selected font. The example uses `ui-monospace` with platform fallbacks and labels that choice explicitly. Changing the mono later requires a token update, font loading and licensing checks, and another layout pass.
 
 ## Semantic tokens
 
@@ -37,9 +38,9 @@ When copying assets, preserve their relative paths. A compiler may leave the fon
 
 ## Typography and fallback
 
-The bundled Atkinson Hyperlegible Next upright font covers weights 200 through 800. Use weights 400, 600, or 700 for ordinary reading and hierarchy. Avoid synthetic italics. Code uses the provisional system mono stack. The example reports reading font load success or fallback in the page. Verify actual font loading in the target output, not just a font-family declaration. System mono appearance varies by device.
+Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights 400, 600, or 700 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
 
-The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the redistributed font. That is the font's required third-party notice; project instructions and code use the single repository root MIT license. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
+The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. The technical font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblemono). Its SHA-256 is `5ce8b1698d1ded7dff2178c1a3ad159470085a58ea239e8b2cb88f4fb4a6f646`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the reading font and [../assets/fonts/atkinson-hyperlegible-mono-OFL.txt](../assets/fonts/atkinson-hyperlegible-mono-OFL.txt) with the technical font. These are required third-party font notices; project instructions and code use the single repository root MIT license. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
 
 ## Validation for each output
 
@@ -49,4 +50,4 @@ Use keyboard alone to reach the content, switch modes, follow links, and operate
 
 Measure text contrast against its actual background in both modes. Target WCAG AA ratios of at least 4.5:1 for ordinary text, 3:1 for large text, and 3:1 for necessary control boundaries and focus indicators. Check every status foreground against its paired tint. Color alone must never carry a result. Automated checks support inspection; they do not establish complete accessibility certification.
 
-Inspect font requests and rendered fonts. Test a missing-font case and show or disclose fallback. Verify every local reference and copy dependency, including font notices and compiled asset URLs. Report tested browsers, sizes, actual font results, and remaining limitations. Retest contrast and layout when provisional colors, theme treatment, or mono change.
+Inspect font requests and rendered fonts. Test a missing-font case and show or disclose fallback. Verify every local reference and copy dependency, including font notices and compiled asset URLs. Report tested browsers, sizes, actual font results, and remaining limitations. Retest contrast and layout when provisional colors or theme treatment change, or when typography is revised.

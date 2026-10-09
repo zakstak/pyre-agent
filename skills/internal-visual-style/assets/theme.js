@@ -32,11 +32,19 @@
     }
   });
   window.addEventListener('load', () => {
-    const status = document.querySelector('#font-status');
-    if (status) {
-      document.fonts.load('400 18px "Atkinson Hyperlegible Next"').then(faces => {
-        status.textContent = faces.length ? 'Reading font: Atkinson Hyperlegible Next loaded.' : 'Reading font: system fallback. Atkinson Hyperlegible Next did not load.';
-      }).catch(() => { status.textContent = 'Reading font: system fallback. Atkinson Hyperlegible Next did not load.'; });
+    const tokens = getComputedStyle(root);
+    for (const [id, role, token] of [
+      ['font-status', 'Reading', '--font-reading'],
+      ['technical-font-status', 'Technical', '--font-technical'],
+    ]) {
+      const status = document.getElementById(id);
+      if (!status) continue;
+      const family = tokens.getPropertyValue(token).split(',')[0].trim();
+      const name = family.replace(/^"|"$/g, '');
+      const fallback = `${role} font: system fallback. ${name} did not load.`;
+      document.fonts.load(`400 18px ${family}`).then(faces => {
+        status.textContent = faces.length ? `${role} font: ${name} loaded.` : fallback;
+      }).catch(() => { status.textContent = fallback; });
     }
   });
 })();

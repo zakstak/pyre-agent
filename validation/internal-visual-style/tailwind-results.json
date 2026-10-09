@@ -9,6 +9,8 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -28,6 +30,8 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -47,6 +51,8 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -66,6 +72,8 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -85,6 +93,8 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -104,6 +114,8 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: off",
+      "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
@@ -123,11 +135,13 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 52.796875,
@@ -142,11 +156,13 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 105.59375,
@@ -161,11 +177,13 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 52.796875,
@@ -180,11 +198,13 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 163.1875,
@@ -199,11 +219,13 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "18px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 52.796875,
@@ -218,11 +240,13 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "36px",
+      "modeLabel": "Dark mode: on",
+      "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 141.1875,
-          "text": "Dark mode: off"
+          "text": "Dark mode: on"
         },
         {
           "height": 163.1875,
@@ -459,13 +483,14 @@
   ],
   "checks": [
     "complete installed-copy reference audit",
+    "chosen reading and technical fonts render custom glyphs",
     "user text spacing without page overflow",
     "keyboard skip, toggle, visible focus, persistence, disclosure, code scrolling, reference link",
     "system theme updates before manual selection; reduced-motion mode",
     "manual toggle survives unavailable storage",
-    "missing font disclosed visibly",
+    "both missing fonts disclosed visibly",
     "no-JS content and system colors in both modes",
-    "direct file URL font loading and toggle",
+    "direct file URL loads both chosen fonts and operates toggle",
     "compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults"
   ],
   "screenshots": [],
@@ -474,9 +499,18 @@
       "familyName": "Atkinson Hyperlegible Next",
       "postScriptName": "AtkinsonHyperlegibleNext-Regular",
       "isCustomFont": true,
-      "glyphCount": 128
+      "glyphCount": 178
     }
   ],
+  "renderedTechnicalFonts": [
+    {
+      "familyName": "Atkinson Hyperlegible Mono ExtraLight",
+      "postScriptName": "AtkinsonHyperlegibleMono-ExtraLight",
+      "isCustomFont": true,
+      "glyphCount": 148
+    }
+  ],
+  "technicalWeight": "400",
   "tailwindUtilities": {
     "headingSize": "36px",
     "weight": "400",
@@ -486,7 +520,8 @@
     "page": "rgb(23, 28, 32)",
     "status": "rgb(163, 215, 182)",
     "tint": "rgb(38, 60, 48)",
-    "font": "\"Atkinson Hyperlegible Next\", system-ui, sans-serif"
+    "font": "\"Atkinson Hyperlegible Next\", system-ui, sans-serif",
+    "mono": "\"Atkinson Hyperlegible Mono\", ui-monospace, \"Cascadia Code\", \"DejaVu Sans Mono\", monospace"
   },
   "result": "PASS"
 }

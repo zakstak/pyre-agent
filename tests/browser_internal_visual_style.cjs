@@ -75,7 +75,8 @@ function contrast(a, b) {
     page.on('requestfailed', request => failed.push(request.url()));
     page.on('request', request => { if (!request.url().startsWith(`http://127.0.0.1:${server.address().port}/`)) external.push(request.url()); });
     await page.goto(url);
-    await page.waitForFunction(() => document.querySelector('#font-status').textContent.includes('loaded.'), { timeout: 5000 }).catch(async error => { console.log(await page.evaluate(() => ({ status: document.querySelector('#font-status').textContent, font: getComputedStyle(document.querySelector('p')).fontFamily, fonts: [...document.fonts].map(f => ({ family: f.family, status: f.status })) })), { errors, failed }); throw error; });
+    await page.waitForFunction(() => document.querySelector('#font-status').textContent.includes('loaded.'), null, { timeout: 5000 }).catch(async error => { console.log(await page.evaluate(() => ({ status: document.querySelector('#font-status').textContent, font: getComputedStyle(document.querySelector('p')).fontFamily, fonts: [...document.fonts].map(f => ({ family: f.family, status: f.status })) })), { errors, failed }); throw error; });
+    await page.waitForFunction(() => document.querySelector('#technical-font-status').textContent.includes('Atkinson Hyperlegible Mono loaded.'));
     const session = await context.newCDPSession(page);
     await session.send('DOM.enable'); await session.send('CSS.enable');
     const documentNode = await session.send('DOM.getDocument');
@@ -83,17 +84,28 @@ function contrast(a, b) {
     const fonts = await session.send('CSS.getPlatformFontsForNode', { nodeId: paragraph.nodeId });
     assert.ok(fonts.fonts.some(font => font.isCustomFont && font.familyName === 'Atkinson Hyperlegible Next' && font.glyphCount > 0));
     report.renderedReadingFonts = fonts.fonts;
+    const code = await session.send('DOM.querySelector', { nodeId: documentNode.root.nodeId, selector: 'pre code' });
+    const codeFonts = await session.send('CSS.getPlatformFontsForNode', { nodeId: code.nodeId });
+    report.renderedTechnicalFonts = codeFonts.fonts;
+    assert.ok(codeFonts.fonts.some(font => font.isCustomFont && font.familyName === 'Atkinson Hyperlegible Mono ExtraLight' && font.glyphCount > 0));
+    report.technicalWeight = await page.locator('pre code').evaluate(e => getComputedStyle(e).fontWeight);
+    assert.equal(report.technicalWeight, '400');
+    report.checks.push('chosen reading and technical fonts render custom glyphs');
     for (const theme of ['light', 'dark']) {
+      if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
+      assert.equal(await page.locator('#theme-toggle').textContent(), theme === 'dark' ? 'Dark mode: on' : 'Dark mode: off');
+      assert.equal(await page.locator('#theme-toggle').getAttribute('aria-pressed'), String(theme === 'dark'));
       for (const width of [1440, 390, 320]) {
         for (const scale of [1, 2]) {
           await page.setViewportSize({ width, height: 1000 });
-          await page.evaluate(({ theme, scale }) => {
-            document.documentElement.dataset.theme = theme;
+          await page.evaluate(({ scale }) => {
             document.documentElement.style.fontSize = `${16 * scale}px`;
-          }, { theme, scale });
+          }, { scale });
           const state = await page.evaluate(() => ({
             pageWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth,
             readingSize: getComputedStyle(document.querySelector('#decisions + p')).fontSize,
+            modeLabel: document.querySelector('#theme-toggle').textContent,
+            modePressed: document.querySelector('#theme-toggle').getAttribute('aria-pressed'),
             colorScheme: getComputedStyle(document.documentElement).colorScheme,
             controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() }))
           }));
@@ -162,7 +174,8 @@ function contrast(a, b) {
     const missing = await browser.newContext(); const missingPage = await missing.newPage();
     await missingPage.route('**/*.ttf', route => route.abort()); await missingPage.goto(url);
     await missingPage.waitForFunction(() => document.querySelector('#font-status').textContent.includes('system fallback.'));
-    report.checks.push('missing font disclosed visibly');
+    await missingPage.waitForFunction(() => document.querySelector('#technical-font-status').textContent.includes('system fallback.'));
+    report.checks.push('both missing fonts disclosed visibly');
     for (const theme of ['light', 'dark']) {
       const noScript = await browser.newContext({ javaScriptEnabled: false, colorScheme: theme, viewport: { width: 390, height: 844 } });
       const staticPage = await noScript.newPage(); await staticPage.goto(url);
@@ -177,22 +190,24 @@ function contrast(a, b) {
     // Direct file use must work without a local server or network request.
     const localPage = await browser.newPage(); await localPage.goto('file://' + path.join(assets, 'reference.html'));
     await localPage.waitForFunction(() => document.querySelector('#font-status').textContent.includes('loaded.'));
-    await localPage.locator('#theme-toggle').click(); report.checks.push('direct file URL font loading and toggle');
+    await localPage.waitForFunction(() => document.querySelector('#technical-font-status').textContent.includes('Atkinson Hyperlegible Mono loaded.'));
+    await localPage.locator('#theme-toggle').click(); report.checks.push('direct file URL loads both chosen fonts and operates toggle');
     if (compiled) {
       await autoPage.evaluate(() => {
         const sample = document.createElement('section'); sample.id = 'utility-sample';
-        sample.innerHTML = '<h1 class="text-4xl font-normal dark:underline">Utility heading</h1><button class="bg-page p-8">Utility button</button><span class="font-sans text-success bg-success-tint">Passed</span>';
+        sample.innerHTML = '<h1 class="text-4xl font-normal dark:underline">Utility heading</h1><button class="bg-page p-8">Utility button</button><span class="font-sans text-success bg-success-tint">Passed</span><code class="font-mono">Technical utility</code>';
         document.body.append(sample);
       });
       const actual = await autoPage.locator('#utility-sample').evaluate(e => {
         const heading = getComputedStyle(e.querySelector('h1')), button = getComputedStyle(e.querySelector('button')), status = getComputedStyle(e.querySelector('span'));
         return { headingSize: heading.fontSize, weight: heading.fontWeight, decoration: heading.textDecorationLine, padding: button.paddingTop,
-          background: button.backgroundColor, page: getComputedStyle(document.documentElement).backgroundColor, status: status.color, tint: status.backgroundColor, font: status.fontFamily };
+          background: button.backgroundColor, page: getComputedStyle(document.documentElement).backgroundColor, status: status.color, tint: status.backgroundColor, font: status.fontFamily, mono: getComputedStyle(e.querySelector('code')).fontFamily };
       });
       assert.equal(actual.headingSize, '36px'); assert.equal(actual.weight, '400'); assert.equal(actual.decoration, 'underline');
       assert.equal(actual.padding, '32px'); assert.equal(actual.background, actual.page);
       assert.equal(actual.status, 'rgb(163, 215, 182)'); assert.equal(actual.tint, 'rgb(38, 60, 48)');
-      assert.ok(actual.font.includes('Atkinson Hyperlegible Next'));
+      assert.ok(actual.font.startsWith('\"Atkinson Hyperlegible Next\"'));
+      assert.ok(actual.mono.startsWith('\"Atkinson Hyperlegible Mono\"'));
       report.tailwindUtilities = actual; report.checks.push('compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults');
     }
     report.result = 'PASS';
