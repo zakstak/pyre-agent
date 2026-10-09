@@ -14,6 +14,10 @@ It does not change the current Claude model. Invocation is explicit:
 
 Caller instructions: $ARGUMENTS
 
+## Host permission preconditions
+
+Use the host's normal permission flow for file access, writing the private request, and running the exact bundled Python command through Bash. This skill grants no `allowed-tools` permissions. If a tool, file, network or runtime-storage access is denied, return the blocker; do not change permission settings or rerun through a different tool to avoid the denial. The read-only Codex setting limits reviewer commands; it does not exempt the Python wrapper or Codex process from Claude's outer permissions and sandbox.
+
 ## Prepare a bounded review
 
 1. Identify the repository and intended base. Resolve an obvious base from the
