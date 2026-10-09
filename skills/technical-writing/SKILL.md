@@ -7,6 +7,8 @@ description: "Layered technical-writing standard: Diátaxis structure, Google de
 
 The goal is writing a tired engineer understands on the first read. Four layers get you there, one question each: what kind of document is this, how do sentences address the reader, how much does each sentence carry, and can any sentence be read two ways. Apply all four.
 
+Apply the layers to authored prose. Preserve code syntax, expected output, literal quotations, URLs, and established templates unless the task includes changing them.
+
 Three rules sit above the layers:
 
 - **Cut every word that does no work.** If the sentence survives without a word, the word goes. "In order to" is "to". "It is important to note that" is nothing.
@@ -28,7 +30,7 @@ The layers decide what a document says and how much each sentence carries. A doc
 
 ## Pick the mode first (Diátaxis)
 
-One document, one mode. Two questions pick it: does the content inform action (doing) or understanding (thinking), and does it serve learning or work?
+Pick one mode per coherent section. A short document may use one mode; READMEs, RFCs, and established templates can combine sections with different purposes. Two questions pick the mode: does the content inform action (doing) or understanding (thinking), and does it serve learning or work?
 
 - Action + learning: **tutorial**.
 - Action + work: **how-to**.
@@ -45,7 +47,7 @@ Use the compass on a whole document or on one sentence.
 
 **Explanation: understanding and why.** One bounded topic, readable away from the product. Each title should tolerate an implicit "About..." in front. Anchor on a real why question. Give context: design decisions, history, constraints, alternatives. Opinion is allowed here and nowhere else.
 
-Don't mix modes: no reference tables inside a tutorial, no tutorial hand-holding inside reference, no arguing inside a how-to. Split and link instead.
+Keep each coherent section focused: limit reference digressions inside a tutorial, tutorial hand-holding inside reference, and arguments inside a how-to. Split and link when reorganization is within the task's scope and helps the reader. Preserve an intentionally consolidated README, RFC, or required template during a narrow edit.
 
 ## Write sentences to the reader (Google developer style)
 
