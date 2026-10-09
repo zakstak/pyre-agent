@@ -1,6 +1,6 @@
 # Claude → Codex review contract
 
-## Requirements and discovery
+## Requirements
 
 Requires Python 3.11+, Git supporting `--no-lazy-fetch`, and an already installed/authenticated Codex CLI with
 access to `gpt-6.1-sol`. CLI flags were checked on 0.159.2; bounded live inference also passed on 0.162.0 on 2026-10-09. This integration
@@ -8,20 +8,13 @@ never installs tools, logs in, changes `CODEX_HOME`, reads auth files, or writes
 configuration. Account entitlement can only be established by a successful call;
 model catalog membership alone is insufficient.
 
-For global Claude discovery, copy this entire `host-skills/claude-code/codex-branch-review` folder to `~/.claude/skills/codex-branch-review`. Its paired profile is already bundled under `references/`; do not copy a profile separately or modify global Codex configuration. Review an existing skill before overwriting it. The installed skill is independent of this checkout and of the current working directory.
-
-A symlink to the complete skill folder is another user-controlled option; it depends on retaining the source checkout. An explicit `--profile-file /absolute/path/to/adversarial-branch-review.config.toml` can select a paired profile from a trusted location. The bridge checks its exact model and safety settings. Resolution order: explicit path, then the bundled profile. A missing profile fails explicitly.
+An explicit `--profile-file /absolute/path/to/adversarial-branch-review.config.toml` can select a paired profile from a trusted location. The bridge checks its exact model and safety settings. Resolution order: explicit path, then the bundled profile. A missing profile fails explicitly.
 
 Cloning does not activate this skill. Explicit Claude invocation and disabled nested delegation prevent recursive calls; the reviewer also forbids invoking skills or loading agent memories.
 
 The paired TOML is both the reviewer personality and a valid optional modern
 Codex profile. The bridge reads it directly and passes invocation-local overrides;
-it does not require installing that profile globally. For manual profile use,
-Codex 0.134+ expects `$CODEX_HOME/adversarial-branch-review.config.toml`, selected
-by `codex --profile adversarial-branch-review`. Installing it is a separate action.
-Do not put it in the obsolete `[profiles.adversarial-branch-review]` table.
-The standalone profile does not provide the bridge's isolated launch, preflight or Git ancestry checks and process protections.
-
+it does not require installing that profile globally. 
 ## Input
 
 `python3 scripts/review_bridge.py --request /path/to/request.json`
