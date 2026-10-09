@@ -1,3 +1,7 @@
+# principle-encode-lessons-in-structure
+
+## Required notice
+
 MIT License
 
 Copyright (c) 2026 Lauren Tan
