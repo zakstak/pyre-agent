@@ -9,7 +9,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const compiler = process.argv[2];
 if (!compiler || !fs.existsSync(compiler)) throw new Error('Pass an existing TypeScript CLI path.');
-const docs = fs.readFileSync(path.join(__dirname, '../skills/typescript-best-practices/references/patterns.md'), 'utf8');
+const docs = fs.readFileSync(path.join(__dirname, '../skills/typescript-best-practices/references/patterns.md'), 'utf8').replace(/\r\n/g, '\n');
 function section(title) {
   const start = docs.indexOf('## ' + title + '\n');
   assert.ok(start >= 0, title);
@@ -20,6 +20,7 @@ const blocks = [...section('Constructive modeling').matchAll(/```ts\n([\s\S]*?)`
 assert.equal(blocks.length, 4);
 const nonEmpty = blocks[0].split('// Don\'t')[0] + blocks[0].slice(blocks[0].indexOf('// Do:'));
 const duration = blocks[3].slice(blocks[3].indexOf('type DurationMs'));
+const satisfies = [...section('`satisfies` over `as`').matchAll(/```ts\n([\s\S]*?)```/g)][0][1];
 const assertions = `
 function typeRejections(xs: NonEmpty<string>, pairs: Pairs<string>) {
   // @ts-expect-error A readonly non-empty snapshot cannot be emptied.
@@ -36,6 +37,12 @@ const snapshot = snapshotNonEmpty(source);
 source.pop();
 if (!snapshot || snapshot[0] !== 'x' || pickWinner(snapshot) !== 'x') throw new Error('Snapshot alias regression');
 if (snapshotNonEmpty([]) !== undefined) throw new Error('Empty snapshot accepted');
+if (snapshotNonEmpty(new Array<string>(1)) !== undefined) throw new Error('Sparse head accepted');
+const sparseTail = ['x', 'y'];
+delete sparseTail[1];
+if (snapshotNonEmpty(sparseTail) !== undefined) throw new Error('Sparse tail accepted');
+const exactTheme: 'dark' = config.theme;
+const exactColumns: 3 = config.cols;
 for (const n of [-1, NaN, Infinity, -Infinity]) {
   let rejected = false;
   try { parseDurationMs(n); } catch { rejected = true; }
@@ -46,7 +53,7 @@ for (const n of [0, 1, 1.5]) if (parseDurationMs(n) !== n) throw new Error('Vali
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pyre-ts-examples-'));
 try {
   const file = path.join(temp, 'examples.ts');
-  fs.writeFileSync(file, [nonEmpty, blocks[1], blocks[2], duration, assertions].join('\n'));
+  fs.writeFileSync(file, [nonEmpty, blocks[1], blocks[2], duration, satisfies, assertions].join('\n'));
   const result = spawnSync(process.execPath, [compiler, '--strict', '--noUncheckedIndexedAccess', '--target', 'ES2022', '--module', 'commonjs', '--outDir', path.join(temp, 'out'), file], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const runtime = spawnSync(process.execPath, [path.join(temp, 'out/examples.js')], { encoding: 'utf8' });

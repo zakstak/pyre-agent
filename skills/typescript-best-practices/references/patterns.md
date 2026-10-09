@@ -66,10 +66,15 @@ An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`; 
 const isNonEmpty = <T>(arr: readonly T[]): arr is NonEmpty<T> => arr.length > 0;
 
 function snapshotNonEmpty<T>(values: readonly T[]): NonEmpty<T> | undefined {
+  for (let index = 0; index < values.length; index++) {
+    if (!Object.hasOwn(values, index)) return undefined;
+  }
   const copy = [...values];
   return isNonEmpty(copy) ? copy : undefined;
 }
 ```
+
+Reject sparse arrays before copying: a hole otherwise becomes an undefined element. Validate element types with the domain schema first when data comes from outside the typed boundary.
 
 Even length, as pairs:
 
@@ -163,9 +168,9 @@ function parseUser(input: unknown): User {
 
 Use `safeParse` when failure is an expected branch. Use the equivalent inference helper when the repository uses another schema library. Do not add a new schema dependency for one guard. This rule prefers the schema system the codebase already trusts.
 
-## No `as` casts
+## No unchecked `as` casts
 
-Every `as` is a potential runtime crash. Cast only after the type system has verified the claim.
+Unchecked type assertions can hide runtime type errors. Validate or narrow before asserting a domain type. A const assertion records literal/readonly types without validating data; it is not a substitute for boundary checks.
 
 ```ts
 import { z } from "zod";
@@ -271,14 +276,16 @@ Return-style in value-returning switches, void-style in statement switches.
 
 ## `satisfies` over `as`
 
-`satisfies` validates without widening literal types.
+`satisfies` checks assignability without asserting the expression to the target type. Literal widening depends on context. Use `as const` when preserving these literal values is required; it records literal and readonly types, not runtime validation.
 
 ```ts
-// Don't. Widens, loses literal types.
-const config = { theme: "dark", cols: 3 } as Config;
+type Config = { theme: string; cols: number };
 
-// Do. Validates AND preserves literal types.
-const config = { theme: "dark", cols: 3 } satisfies Config;
+// Don't. Asserting the target type loses literal information.
+const widened = { theme: "dark", cols: 3 } as Config;
+
+// Do. Check assignability and retain literal information explicitly.
+const config = { theme: "dark", cols: 3 } as const satisfies Config;
 // config.theme is "dark" (literal), not string
 ```
 
