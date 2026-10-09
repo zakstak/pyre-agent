@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Internal visual reference</title>
+  <script src="./theme.js"></script>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <div class="work sections">
+    <header class="toolbar">
+      <h1>Internal visual reference</h1>
+      <button id="theme-toggle" type="button" aria-label="Dark mode" aria-pressed="false" hidden>Dark mode</button>
+    </header>
+    <main id="content" tabindex="-1" class="sections">
+      <section class="reading stack" aria-labelledby="decisions">
+        <h2 id="decisions">Decisions</h2>
+        <p>Atkinson Hyperlegible Next is the reading font. Dark and light modes, readable spacing, and content-driven layouts are confirmed.</p>
+        <p>The palette and theme below are provisional examples. The final palette, theme treatment, banner, and technical mono remain undecided. JetBrains Mono is a candidate only.</p>
+        <p>Use this reference for plans, review pages, reports, and ad hoc visual artifacts without a specific product design system. Product-specific branding takes precedence.</p>
+      </section>
+      <div class="columns">
+        <section class="stack" aria-labelledby="plan">
+          <h2 id="plan">Example developer plan</h2>
+          <p class="reading">This fictional plan checks a report export before release. Each step names the work and the evidence needed to finish it.</p>
+          <ol>
+            <li>Confirm that the exported report includes all selected rows.</li>
+            <li>Check the report on a phone and at enlarged text sizes.</li>
+            <li>Review failures before opening the draft pull request.</li>
+          </ol>
+          <details class="rule">
+            <summary>Acceptance checks</summary>
+            <p>Readers can identify the current result, reach every control by keyboard, and read the exported content without clipped text.</p>
+          </details>
+        </section>
+        <section class="surface stack" aria-labelledby="review">
+          <h2 id="review">Example review result</h2>
+          <p>No source changes are included in this fictional result. The warning identifies work that still needs attention.</p>
+          <ul class="statuses" aria-label="Example statuses">
+            <li><span class="status success">Passed: row export</span></li>
+            <li><span class="status warning">Warning: phone check pending</span></li>
+            <li><span class="status danger">Failed: filename check</span></li>
+            <li><span class="status neutral">Undecided: mono font</span></li>
+          </ul>
+          <p>Use status colors for results with these meanings. Use neutral text for ordinary progress and unresolved choices.</p>
+        </section>
+      </div>
+      <section class="stack" aria-labelledby="technical">
+        <h2 id="technical">Technical text</h2>
+        <p class="reading">System monospace fallback is shown here. A technical mono has not been selected. Wide code scrolls within its own keyboard-focusable region.</p>
+        <div class="surface code-region" role="region" aria-label="Example report command" tabindex="0"><pre><code>report export --format html --include selected-rows --output ./artifacts/release-review.html
+result: 42 selected rows exported; filename check failed</code></pre></div>
+      </section>
+      <section class="reading stack" aria-labelledby="reading">
+        <h2 id="reading">Reading specimen</h2>
+        <p>A reader needs enough space to distinguish each line and follow the next step. Short paragraphs keep the current idea visible. Wider comparison areas can sit beside prose when the content needs them.</p>
+        <p>Character check: I l 1, O 0, rn m. A font choice does not guarantee a reading outcome. Keep zoom, text spacing, and system accessibility settings available.</p>
+        <p><a href="../references/BRAND.md">Read the maintained visual reference</a></p>
+      </section>
+    </main>
+    <footer class="rule stack small muted">
+      <p id="font-status" role="status">Reading font: loading check pending. The system fallback is available.</p>
+      <noscript><p>JavaScript is off. Theme follows the system preference. Font loading is unverified.</p></noscript>
+      <p>Local specimen. Palette and theme are provisional. No banner is selected.</p>
+    </footer>
+  </div>
+</body>
+</html>
