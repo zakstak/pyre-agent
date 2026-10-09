@@ -15,7 +15,7 @@ When you catch yourself writing the same instruction a second time:
 2. If yes, encode it. Delete the instruction
 3. If no (requires judgment), make the instruction more prominent and add an example of the failure mode
 
-**Pick the strongest mechanism.** When more than one mechanism would work, choose the strongest the situation allows (an unrepresentable state that cannot compile, then a lint or banned API that fails CI, then a canonical helper, then a runtime check), because agents copy whatever the surrounding code already does and a weaker guard becomes the next template.
+**Pick the strongest mechanism.** When more than one mechanism would work, choose the strongest the situation allows (an unrepresentable state that cannot compile, then a lint or banned API that fails CI, then a runtime check on every applicable entry path; a canonical helper counts as enforcement only when callers cannot bypass its invariant checks), because agents copy whatever the surrounding code already does and a weaker guard becomes the next template.
 
 **Corollary:** If the fix is structural, only use the structural fix. The instruction is the symptom.
 
