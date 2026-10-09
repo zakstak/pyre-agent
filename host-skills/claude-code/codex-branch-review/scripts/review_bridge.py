@@ -63,7 +63,8 @@ def child_environment():
     # A caller launched by Git may export GIT_DIR, GIT_WORK_TREE, config routing,
     # replacement/object paths, etc. They must not redirect the requested repo.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", GIT_PAGER="cat", PAGER="cat",
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", GIT_GRAFT_FILE=os.devnull,
+               GIT_PAGER="cat", PAGER="cat",
                GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="core.fsmonitor", GIT_CONFIG_VALUE_0="false",
                GIT_CONFIG_KEY_1="core.untrackedCache", GIT_CONFIG_VALUE_1="false")
     return env
@@ -218,6 +219,8 @@ def resolve_scope(request, deadline):
     if not repo.is_dir():
         reject("invalid_git_target", "Repository directory does not exist.")
     repo = Path(git(repo, "rev-parse", "--show-toplevel", deadline=deadline)).resolve()
+    if git(repo, "rev-parse", "--is-shallow-repository", deadline=deadline) != "false":
+        reject("invalid_git_target", "Shallow repository ancestry is unavailable. Provide complete trusted local history separately; this bridge never fetches.")
     refs = {}
     for key in ("base", "head"):
         refs[key + "_sha"] = git(repo, "rev-parse", "--verify", "--end-of-options",

@@ -423,6 +423,43 @@ raise SystemExit(code)
         self.assert_error(self.invoke(extra=("--check",)), "invalid_git_target")
         self.assertFalse(sentinel.exists())
 
+    def test_legacy_grafts_do_not_rewrite_merge_base(self):
+        self.git("checkout", "-qb", "sibling", self.base)
+        (self.repo / "sibling.txt").write_text("sibling change\n")
+        self.git("add", "sibling.txt")
+        self.git("commit", "-qm", "sibling branch")
+        sibling = self.git("rev-parse", "HEAD").strip()
+        graft = self.repo / ".git/info/grafts"
+        graft.write_text(sibling + " " + self.head + "\n")
+        wrong = subprocess.check_output(["git", "-C", str(self.repo), "merge-base", sibling, self.head],
+                                        text=True, stderr=subprocess.DEVNULL).strip()
+        self.assertEqual(wrong, self.head, "Fixture must hide the branch through its graft")
+        contents = graft.read_bytes()
+        result = self.invoke(request=dict(self.request, base=sibling, head=self.head))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        scope = json.loads(result.stdout)["scope"]
+        self.assertEqual(scope["merge_base"], self.base)
+        self.assertFalse(scope["empty_diff"])
+        self.assertEqual(graft.read_bytes(), contents)
+
+    def test_shallow_history_with_successful_wrong_merge_base_is_rejected(self):
+        (self.repo / "descendant.txt").write_text("descendant\n")
+        self.git("add", "descendant.txt")
+        self.git("commit", "-qm", "descendant")
+        descendant = self.git("rev-parse", "HEAD").strip()
+        tree = self.git("rev-parse", "HEAD^{tree}").strip()
+        merge = self.git("commit-tree", tree, "-p", descendant, "-p", self.base,
+                         "-m", "merge with redundant ancestor parent").strip()
+        self.assertEqual(self.git("merge-base", self.head, merge).strip(), self.head)
+        (self.repo / ".git/shallow").write_text(descendant + "\n")
+        self.assertEqual(self.git("merge-base", self.head, merge).strip(), self.base,
+                         "Fixture must return a unique but wrong merge base")
+        request = dict(self.request, base=self.head, head=merge)
+        for check in (False, True):
+            with self.subTest(check_only=check):
+                self.assert_error(self.invoke(request=request, extra=("--check",) if check else ()), "invalid_git_target")
+                self.assertFalse(self.calls())
+
     def test_isolated_global_copy_with_bundled_profile(self):
         installed = self.root / "global/skills/codex-branch-review"
         shutil.copytree(SKILL, installed)

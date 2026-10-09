@@ -20,7 +20,7 @@ it does not require installing that profile globally. For manual profile use,
 Codex 0.134+ expects `$CODEX_HOME/adversarial-branch-review.config.toml`, selected
 by `codex --profile adversarial-branch-review`. Installing it is a separate action.
 Do not put it in the obsolete `[profiles.adversarial-branch-review]` table.
-The standalone profile does not provide the bridge's isolated launch/preflight.
+The standalone profile does not provide the bridge's isolated launch, preflight or Git ancestry checks and process protections.
 
 ## Input
 
@@ -32,7 +32,7 @@ is an array of up to 20 strings; `context` is a string; `subagents` is an array 
 up to four objects with unique lowercase `name` slugs and a `task` string.
 Refs are resolved with Git's end-of-options protection, then pinned to commit
 hashes. The scope is `merge-base(base, head)..head`. Missing refs, unavailable
-history, unrelated histories, and ambiguous merge bases fail without fetching.
+history, shallow repositories, unrelated histories, and ambiguous merge bases fail without fetching. Legacy grafts are ignored through an invocation-local `GIT_GRAFT_FILE` pointing at the platform's empty device, so local graft metadata cannot rewrite the committed ancestry.
 Dirty or untracked work in the target repository is excluded and flagged. Submodule worktrees are not inspected; the review covers committed gitlink changes in the target repository. Nothing switches the checkout.
 
 Each specialist is an independent Codex subprocess, not a native Codex agent
