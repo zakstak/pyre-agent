@@ -31,12 +31,12 @@ type DiffState = { loading: boolean; diff?: GitDiff; error?: string };
 
 // Do. Only valid states exist.
 type DiffState =
-  | { kind: "loading" }
-  | { kind: "ready"; diff: GitDiff }
-  | { kind: "error"; error: string };
+  | { kind: "loading"; diff?: never; error?: never }
+  | { kind: "ready"; diff: GitDiff; error?: never }
+  | { kind: "error"; error: string; diff?: never };
 ```
 
-Pick one discriminant name (`kind`, `type`, `tag`) and stick to it.
+The optional `never` fields reject conflicting payloads even when a value is first inferred in a variable. Raw runtime input still needs boundary validation. Pick one discriminant name (`kind`, `type`, `tag`) and stick to it.
 
 ## Constructive modeling
 

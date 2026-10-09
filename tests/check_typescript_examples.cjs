@@ -21,6 +21,23 @@ assert.equal(blocks.length, 4);
 const nonEmpty = blocks[0].split('// Don\'t')[0] + blocks[0].slice(blocks[0].indexOf('// Do:'));
 const duration = blocks[3].slice(blocks[3].indexOf('type DurationMs'));
 const satisfies = [...section('`satisfies` over `as`').matchAll(/```ts\n([\s\S]*?)```/g)][0][1];
+const variants = [...section('Discriminated unions').matchAll(/```ts\n([\s\S]*?)```/g)][0][1].split('// Do. Only valid states exist.')[1];
+const variantAssertions = `
+type GitDiff = { text: string };
+${variants}
+const loading: DiffState = { kind: 'loading' };
+const ready: DiffState = { kind: 'ready', diff: { text: 'patch' } };
+const failed: DiffState = { kind: 'error', error: 'failed' };
+const conflictingReady = { kind: 'ready' as const, diff: { text: 'patch' }, error: 'failed' };
+// @ts-expect-error An inferred variable cannot carry both success and failure payloads.
+const invalidReady: DiffState = conflictingReady;
+const conflictingLoading = { kind: 'loading' as const, diff: { text: 'patch' }, error: 'failed' };
+// @ts-expect-error Loading cannot carry either terminal payload.
+const invalidLoading: DiffState = conflictingLoading;
+const conflictingError = { kind: 'error' as const, error: 'failed', diff: { text: 'patch' } };
+// @ts-expect-error Error cannot carry a successful diff.
+const invalidError: DiffState = conflictingError;
+`;
 const assertions = `
 function typeRejections(xs: NonEmpty<string>, pairs: Pairs<string>) {
   // @ts-expect-error A readonly non-empty snapshot cannot be emptied.
@@ -63,7 +80,7 @@ for (const n of [0, 1, 1.5]) if (parseDurationMs(n) !== n) throw new Error('Vali
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pyre-ts-examples-'));
 try {
   const file = path.join(temp, 'examples.ts');
-  fs.writeFileSync(file, [nonEmpty, blocks[1], blocks[2], duration, satisfies, assertions].join('\n'));
+  fs.writeFileSync(file, [nonEmpty, blocks[1], blocks[2], duration, satisfies, assertions, variantAssertions].join('\n'));
   const result = spawnSync(process.execPath, [compiler, '--strict', '--noUncheckedIndexedAccess', '--target', 'ES2022', '--module', 'commonjs', '--outDir', path.join(temp, 'out'), file], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const runtime = spawnSync(process.execPath, [path.join(temp, 'out/examples.js')], { encoding: 'utf8' });
