@@ -2,6 +2,8 @@
 
 User-installed, reusable skills for Claude Code, Codex, and the agent providers inside T3 Code. Skills apply across your projects after you choose to install them at user scope. This repository does not install anything, change your agent settings, or grant a skill permission to expand a task.
 
+Zak's plain global instruction file is provided separately at [`global/AGENTS.md`](global/AGENTS.md).
+
 Each skill is proposed in its own draft pull request. Review the wording, companion dependencies, and checks before merging. No skill is approved merely because its PR exists. The initial main branch intentionally contains only this README.
 
 ## Install only what you approve
@@ -34,13 +36,13 @@ The bridge pins `gpt-6.1-sol`, uses read-only model-command sandboxing, disables
 
 `deliver-draft-pr` requires explicit invocation. Its Claude `disable-model-invocation` field and Codex `agents/openai.yaml` policy provide the documented host controls. Codex 0.162.0 accepted that combined metadata in a temporary discovery check. These CLI frontmatter extensions are not a claim of compatibility with strict generic skill upload packagers. No workflow was invoked. [Claude skills](https://code.claude.com/docs/en/skills), [Codex skills](https://learn.chatgpt.com/docs/build-skills)
 
-## Optional collaboration guidance
+## Global AGENTS.md
 
-The candidate at `guidance/collaboration-guidance.md` retains Zak's reusable communication, architecture, planning, preservation-of-work and scope preferences. Project, operating-system, machine-path and computer-operation instructions were removed; the installed original remains unchanged.
+[`global/AGENTS.md`](global/AGENTS.md) is Zak's plain global instruction file, with no skill metadata, triggers or wrapper. It retains the approved communication, architecture, planning, preservation-of-work and scope preferences. Saga, operating-system, machine-path and computer-operation specifics were removed; Forge's installed original remains unchanged.
 
-Review and reconcile it with your existing global guidance before adopting it. Use the instruction mechanism documented by your selected agent. It is optional proposal text, grants no additional authority and does not install or replace any global file. Keep its filename outside configured instruction-file fallback names until deliberate adoption; rename a reconciled copy to the selected agent's supported instruction filename only at that adoption destination. Installing skills does not require adopting it.
+Review and reconcile the file with your existing global instructions before manually copying its contents to the provider destination below. Preserve existing instructions rather than replacing them blindly. Cloning this repository does not install or replace your global file. Installing skills is separate from installing this file.
 
-After approval, integrate the reconciled text at the selected provider's user-level destination; preserve existing instructions rather than replacing the file blindly:
+After approval, manually install the reconciled file at the selected provider's user-level destination:
 
 | Provider | Deliberate activation destination |
 | --- | --- |
@@ -62,7 +64,7 @@ Discovery depends on your installed version and provider. These destinations are
 
 ## Proposal dependencies
 
-Merge this root-documentation proposal before merging the twelve upstream-derived skill imports (`correct`, `pr-review-canvas`, the seven `principle-*` proposals, `technical-writing`, `typescript-best-practices` and `unslop`). The common MIT permission text is in repository root LICENSE; upstream copyright notices and concise credits live only in this root README. The Claude-only bridge and guidance proposals also depend on this README for their setup and adoption instructions. These are explicit dependencies; no proposal is automatically merged or installed.
+Merge this root-documentation proposal before merging the twelve upstream-derived skill imports (`correct`, `pr-review-canvas`, the seven `principle-*` proposals, `technical-writing`, `typescript-best-practices` and `unslop`). The common MIT permission text is in repository root LICENSE; upstream copyright notices and concise credits live only in this root README. The Claude-only bridge and global AGENTS.md proposals also depend on this README for their setup and adoption instructions. These are explicit dependencies; no proposal is automatically merged or installed.
 
 ## Renderer verification
 
