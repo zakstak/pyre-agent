@@ -6,7 +6,7 @@ Each skill is proposed in its own draft pull request. Review the wording, compan
 
 ## Install only what you approve
 
-When a skill is merged, its complete folder lives at `skills/<skill-name>/`, with `SKILL.md` and any required scripts/references/assets. Required notices are consolidated in the root LICENSE, with credits in this README; individual skill folders contain no README or LICENSE files. Review existing names before copying; do not overwrite another skill blindly. Keep referenced companion folders as siblings. Copy the whole skill folder, not just SKILL.md, and keep the root LICENSE once alongside the installed skill folders. Preserve the copyright notices and shared permission text when copying or distributing the material.
+When a skill is merged, its complete folder lives at `skills/<skill-name>/`, with `SKILL.md` and any required scripts/references/assets. The project MIT license is in root LICENSE; upstream copyright notices and source credits are in this README; individual skill folders contain no README or LICENSE files. Review existing names before copying; do not overwrite another skill blindly. Keep referenced companion folders as siblings. Copy the whole skill folder, not just SKILL.md, and keep root LICENSE and this README once alongside the installed skill folders. Preserve the copyright notices and shared permission text when copying or distributing the material.
 
 | Agent | User-level destination | Invocation |
 | --- | --- | --- |
@@ -40,6 +40,14 @@ The candidate at `guidance/collaboration-guidance.md` retains Zak's reusable com
 
 Review and reconcile it with your existing global guidance before adopting it. Use the instruction mechanism documented by your selected agent. It is optional proposal text, grants no additional authority and does not install or replace any global file. Keep its filename outside configured instruction-file fallback names until deliberate adoption; rename a reconciled copy to the selected agent's supported instruction filename only at that adoption destination. Installing skills does not require adopting it.
 
+After approval, integrate the reconciled text at the selected provider's user-level destination; preserve existing instructions rather than replacing the file blindly:
+
+| Provider | Deliberate activation destination |
+| --- | --- |
+| Codex | `AGENTS.md` in the effective `CODEX_HOME` (defaults to `~/.codex/AGENTS.md`). A non-empty `AGENTS.override.md` takes precedence, so reconcile with that file if present. [Global guidance discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md) |
+| Claude Code | `CLAUDE.md` in the effective `CLAUDE_CONFIG_DIR` (defaults to `~/.claude/CLAUDE.md`). [User instructions](https://code.claude.com/docs/en/memory), [config-directory override](https://code.claude.com/docs/en/claude-directory) |
+| T3 Code | Use its selected provider's destination above on the machine running that provider, accounting for the configured Codex home or Claude config directory. For another provider, consult its instruction documentation. [Codex provider](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-codex.md), [Claude provider](https://github.com/pingdotgg/t3code/blob/main/docs/user/providers-claude.md) |
+
 ## Scope and private reviews
 
 Skills guide work within your current request and agent permissions. Review requests do not authorize source changes, commits, merges, publication, or credential changes. The offline PR review viewer keeps source and notes local; export notes before closing it. Do not publish private-code reviews to an unapproved audience.
@@ -50,11 +58,11 @@ Skills guide work within your current request and agent permissions. Review requ
 - [Codex user skills](https://learn.chatgpt.com/docs/build-skills)
 - [T3 Code agent-provider architecture](https://github.com/pingdotgg/t3code)
 
-Discovery depends on your installed version and provider. These destinations are instructions for deliberate user installation, not actions performed by cloning this repository. Keep the repository root LICENSE with the copied skill collection. No README, LICENSE or NOTICE file is needed inside an individual skill folder.
+Discovery depends on your installed version and provider. These destinations are instructions for deliberate user installation, not actions performed by cloning this repository. Keep repository root LICENSE and README with the copied skill collection. No README, LICENSE or NOTICE file is needed inside an individual skill folder.
 
 ## Proposal dependencies
 
-Merge this root-documentation proposal before merging the twelve upstream-derived skill imports (`correct`, `pr-review-canvas`, the seven `principle-*` proposals, `technical-writing`, `typescript-best-practices` and `unslop`). Their required notices share the repository root LICENSE; concise credits live only in this root README. The Claude-only bridge and guidance proposals also depend on this README for their setup and adoption instructions. These are explicit dependencies; no proposal is automatically merged or installed.
+Merge this root-documentation proposal before merging the twelve upstream-derived skill imports (`correct`, `pr-review-canvas`, the seven `principle-*` proposals, `technical-writing`, `typescript-best-practices` and `unslop`). The common MIT permission text is in repository root LICENSE; upstream copyright notices and concise credits live only in this root README. The Claude-only bridge and guidance proposals also depend on this README for their setup and adoption instructions. These are explicit dependencies; no proposal is automatically merged or installed.
 
 ## Renderer verification
 
@@ -84,9 +92,9 @@ T3 uses its selected provider's capabilities and permission mode; a source revie
 
 ## License and credits
 
-MIT. The shared permission text and original copyright notices appear once in the repository [LICENSE](LICENSE).
+MIT. The project [LICENSE](LICENSE) is Copyright (c) 2026 Zak. The common MIT permission text appears there once; the upstream notices below apply to the identified retained material.
 
-- **Lauren Tan — copyright 2026; [upstream pstack](https://github.com/cursor/plugins/tree/main/pstack):** retained instructions and patterns in `correct`, `principle-boundary-discipline`, `principle-encode-lessons-in-structure`, `principle-fix-root-causes`, `principle-guard-the-context-window`, `principle-migrate-callers-then-delete-legacy-apis`, `principle-minimize-reader-load`, `principle-type-system-discipline`, `technical-writing`, `typescript-best-practices` and `unslop`.
-- **Cursor — copyright 2026; [upstream PR review canvas](https://github.com/cursor/plugins/tree/main/pr-review-canvas):** retained PR review canvas instructions.
+- **Lauren Tan — Copyright (c) 2026 Lauren Tan; [upstream pstack](https://github.com/cursor/plugins/tree/main/pstack):** retained instructions and patterns in `correct`, `principle-boundary-discipline`, `principle-encode-lessons-in-structure`, `principle-fix-root-causes`, `principle-guard-the-context-window`, `principle-migrate-callers-then-delete-legacy-apis`, `principle-minimize-reader-load`, `principle-type-system-discipline`, `technical-writing`, `typescript-best-practices` and `unslop`.
+- **Cursor — Copyright (c) 2026 Cursor; [upstream PR review canvas](https://github.com/cursor/plugins/tree/main/pr-review-canvas):** retained PR review canvas instructions.
 
-The source links help you trace upstream changes for manual review; this repository does not update them automatically. These credits identify retained material; they do not attribute newly authored bridge code, scripts, tests or workflow instructions to those authors. Keep the root LICENSE with copied or distributed skills; there are no per-skill README or LICENSE files.
+The source links help you trace upstream changes for manual review; this repository does not update them automatically. These credits identify retained material; they do not attribute newly authored bridge code, scripts, tests or workflow instructions to those authors. Keep root LICENSE and this README with copied or distributed skills; there are no per-skill README or LICENSE files.
