@@ -1,6 +1,6 @@
 # TypeScript patterns
 
-Code examples for each rule in `SKILL.md`. The underlying principles are language-agnostic. See the [type-system-discipline](../../principle-type-system-discipline/SKILL.md) and [boundary-discipline](../../principle-boundary-discipline/SKILL.md) principles.
+Code examples for selected rules in `SKILL.md`. The underlying principles are language-agnostic. See the [type-system-discipline](../../principle-type-system-discipline/SKILL.md) and [boundary-discipline](../../principle-boundary-discipline/SKILL.md) principles.
 
 ## Branded types
 
@@ -297,8 +297,8 @@ const config = { theme: "dark", cols: 3 } as const satisfies Config;
 
 Validate once where data crosses in. Trust types inside. See the [boundary-discipline principle](../../principle-boundary-discipline/SKILL.md).
 
-- **Wire formats** (proto, JSON-RPC): parse with `ignoreUnknownFields` so forward-compatible changes don't break old clients.
-- **Persisted JSON:** versioned blob with a try/catch around the parse.
+- **Wire formats:** validate against the protocol and method schema. Use a supported ProtoJSON ignore-unknown-fields option only when the repository's compatibility policy permits discarding those fields. JSON-RPC named parameters must match the method contract.
+- **Persisted JSON:** treat parsed data as `unknown`, then validate its versioned runtime schema or migrate validated supported older data before domain use. Catch syntax, validation and migration failures at the storage boundary.
 - **Don't re-validate** deep in call chains.
 
 ## Schema-derived types
@@ -327,13 +327,8 @@ Reach for `Pick`, `Omit`, `Parameters`, `ReturnType`, `Awaited`, `typeof` before
 ## Object args
 
 ```ts
-// Don't. Swap two args, still compiles.
-openFile(uri, {
-  startLineNumber: 10,
-  startColumn: 1,
-  endLineNumber: 10,
-  endColumn: 1,
-});
+// Don't. Intended range: line 10, column 1. Swapped numbers still compile.
+openFile(uri, 1, 10, 1, 10);
 
 // Do. Order-independent, self-documenting.
 openFile({
