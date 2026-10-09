@@ -10,7 +10,7 @@ When a skill is merged, its complete folder lives at `skills/<skill-name>/`, wit
 
 | Agent | User-level destination | Invocation |
 | --- | --- | --- |
-| Claude Code | `~/.claude/skills/<skill-name>/` | `/skill-name` or matching requests |
+| Claude Code | `skills/<skill-name>/` in the effective `CLAUDE_CONFIG_DIR` (defaults to `~/.claude/skills/<skill-name>/`) | `/skill-name` or matching requests |
 | Codex | `~/.agents/skills/<skill-name>/` | `$skill-name` or matching requests |
 | T3 Code | The user-level skill directory of its selected agent provider | Use that provider's supported skill invocation |
 
@@ -18,7 +18,7 @@ The portable skills use the common name/description frontmatter and do not requi
 
 ## Claude-only review bridge installation
 
-For global Claude discovery, copy this entire `host-skills/claude-code/codex-branch-review` folder to `~/.claude/skills/codex-branch-review`. Its paired profile is already bundled under `references/`; do not copy a profile separately or modify global Codex configuration. Review an existing skill before overwriting it. The installed skill is independent of this checkout and of the current working directory.
+For global Claude discovery, copy this entire `host-skills/claude-code/codex-branch-review` folder to `skills/codex-branch-review` inside the effective `CLAUDE_CONFIG_DIR` (defaults to `~/.claude/skills/codex-branch-review`). [Claude config-directory override](https://code.claude.com/docs/en/claude-directory) Its paired profile is already bundled under `references/`; do not copy a profile separately or modify global Codex configuration. Review an existing skill before overwriting it. The installed skill is independent of this checkout and of the current working directory.
 
 A symlink to the complete skill folder is another user-controlled option; it depends on retaining the source checkout.
 
