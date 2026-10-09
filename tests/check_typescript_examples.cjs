@@ -41,6 +41,16 @@ if (snapshotNonEmpty(new Array<string>(1)) !== undefined) throw new Error('Spars
 const sparseTail = ['x', 'y'];
 delete sparseTail[1];
 if (snapshotNonEmpty(sparseTail) !== undefined) throw new Error('Sparse tail accepted');
+const overriddenIterator = ['x'];
+let iteratorCalled = false;
+overriddenIterator[Symbol.iterator] = function () {
+  iteratorCalled = true;
+  delete overriddenIterator[0];
+  return overriddenIterator.values();
+};
+const indexedSnapshot = snapshotNonEmpty(overriddenIterator);
+if (iteratorCalled || !indexedSnapshot || pickWinner(indexedSnapshot) !== 'x') throw new Error('Overridden iterator corrupted snapshot');
+if (snapshotNonEmpty([undefined]) !== undefined) throw new Error('Undefined element accepted');
 const exactTheme: 'dark' = config.theme;
 const exactColumns: 3 = config.cols;
 for (const n of [-1, NaN, Infinity, -Infinity]) {

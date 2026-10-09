@@ -66,15 +66,19 @@ An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`; 
 const isNonEmpty = <T>(arr: readonly T[]): arr is NonEmpty<T> => arr.length > 0;
 
 function snapshotNonEmpty<T>(values: readonly T[]): NonEmpty<T> | undefined {
-  for (let index = 0; index < values.length; index++) {
+  const copy: T[] = [];
+  const length = values.length;
+  for (let index = 0; index < length; index++) {
     if (!Object.hasOwn(values, index)) return undefined;
+    const value = values[index];
+    if (value === undefined) return undefined;
+    copy.push(value);
   }
-  const copy = [...values];
   return isNonEmpty(copy) ? copy : undefined;
 }
 ```
 
-Reject sparse arrays before copying: a hole otherwise becomes an undefined element. Validate element types with the domain schema first when data comes from outside the typed boundary.
+Copy checked numeric values directly instead of invoking a potentially overridden iterator. This example rejects holes and undefined elements; use the domain schema when undefined is a legal value. Validate element types with that schema first when data comes from outside the typed boundary.
 
 Even length, as pairs:
 
