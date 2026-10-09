@@ -67,6 +67,8 @@ def child_environment():
                GIT_PAGER="cat", PAGER="cat",
                GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="core.fsmonitor", GIT_CONFIG_VALUE_0="false",
                GIT_CONFIG_KEY_1="core.untrackedCache", GIT_CONFIG_VALUE_1="false")
+    env["PATH"] = os.pathsep.join(directory for directory in os.environ.get("PATH", os.defpath).split(os.pathsep)
+                                 if os.path.isabs(directory))
     return env
 
 
@@ -187,8 +189,24 @@ def validate_request(data):
     return request
 
 
+def implicit_binary(name):
+    # Only implicit Git lookup uses trusted absolute PATH directories. Relative
+    # entries can select target-repository code when the caller is in that repo.
+    binary = None
+    for directory in os.environ.get("PATH", os.defpath).split(os.pathsep):
+        if os.path.isabs(directory):
+            selected = shutil.which(str(Path(directory) / name))
+            if selected:
+                binary = str(Path(selected).absolute())
+                break
+    return binary
+
+
 def git(repo: Path, *args: str, deadline: float):
-    prefix = ["git", "--no-pager", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks",
+    binary = implicit_binary("git")
+    if binary is None:
+        reject("missing_git", "Git was not found in an absolute PATH directory; no repository executable was run.")
+    prefix = [binary, "--no-pager", "--no-replace-objects", "--no-lazy-fetch", "--no-optional-locks",
               "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", str(repo)]
     if args and args[0] == "status":
         # Status may execute conversion filters while comparing dirty files.
@@ -231,7 +249,7 @@ def resolve_scope(request, deadline):
     if len(bases) != 1:
         reject("invalid_git_target", "Review requires one unambiguous merge base.")
     dirty = bool(git(repo, "status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all", deadline=deadline))
-    changed = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--name-only", bases[0], refs["head_sha"], "--", deadline=deadline)
+    changed = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "--name-only", bases[0], refs["head_sha"], "--", deadline=deadline)
     return {"repo": str(repo), "base": request["base"], "head": request["head"], **refs,
             "merge_base": bases[0], "local_changes_excluded": dirty, "empty_diff": not bool(changed)}
 
@@ -377,9 +395,10 @@ def invoke(binary, profile, schema, launch_dir, request, scope, deadline, name, 
     return {"name": name, "model_requested": MODEL, "review": review}
 
 
-def execute(request, *, codex_bin="codex", timeout=900, check_only=False, profile_file=None):
+def execute(request, *, codex_bin=None, timeout=900, check_only=False, profile_file=None, deadline=None):
     _CANCELLED.clear()
-    deadline = time.monotonic() + timeout
+    if deadline is None:
+        deadline = time.monotonic() + timeout
     request = validate_request(request)
     scope = resolve_scope(request, deadline)
     profile = load_profile(profile_file)
@@ -387,7 +406,7 @@ def execute(request, *, codex_bin="codex", timeout=900, check_only=False, profil
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         reject("invalid_schema", f"Cannot load review schema: {error}")
-    binary = shutil.which(codex_bin)
+    binary = shutil.which(codex_bin) if codex_bin is not None else implicit_binary("codex")
     if not binary:
         reject("missing_cli", "Codex CLI was not found. Install/authenticate it separately; this bridge never installs software or changes global settings.")
     binary = str(Path(binary).absolute())
@@ -419,11 +438,52 @@ def execute(request, *, codex_bin="codex", timeout=900, check_only=False, profil
         return {**envelope, "status": "review_completed", "review": lead["review"], "delegated_reviews": delegated}
 
 
+def read_request_source(source, deadline):
+    """Bound acquisition too; raw FD reads avoid buffered-stdin shutdown locks."""
+    done = threading.Event()
+    result = []
+    def read():
+        descriptor = None
+        try:
+            descriptor = (os.dup(sys.stdin.fileno()) if source == "-" else
+                          os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0)))
+            data = bytearray()
+            limit = MAX_REQUEST * 4
+            while len(data) <= limit:
+                chunk = os.read(descriptor, min(8192, limit + 1 - len(data)))
+                if not chunk:
+                    break
+                data.extend(chunk)
+            if len(data) > limit:
+                reject("invalid_request", "Request exceeds 64 KiB characters.")
+            text = data.decode("utf-8")
+            if len(text) > MAX_REQUEST:
+                reject("invalid_request", "Request exceeds 64 KiB characters.")
+            result.append(text)
+        except BaseException as error:
+            result.append(error)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            done.set()
+    # If a producer or FIFO stays open, the CLI can report the deadline and
+    # exit without waiting for this raw-IO daemon or holding sys.stdin's lock.
+    threading.Thread(target=read, daemon=True).start()
+    while not done.wait(max(0, min(.1, deadline - time.monotonic()))):
+        if deadline <= time.monotonic():
+            reject("timeout", "Request acquisition exceeded the review deadline.")
+    if deadline <= time.monotonic():
+        reject("timeout", "Request acquisition exceeded the review deadline.")
+    if isinstance(result[0], BaseException):
+        raise result[0]
+    return result[0]
+
+
 def main(argv=None):
     global _SIGNAL_CANCELLED
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", required=True, help="UTF-8 JSON request file, or - for stdin")
-    parser.add_argument("--codex-bin", default="codex", help="Codex executable path (not a shell command)")
+    parser.add_argument("--codex-bin", help="Explicit trusted Codex executable path; defaults to absolute PATH lookup")
     parser.add_argument("--profile-file", help="Explicit trusted paired Codex profile path; defaults to a bundled copy or the compat source")
     parser.add_argument("--timeout", type=int, default=900, help="Total deadline in seconds, including specialists (default 900)")
     parser.add_argument("--check", action="store_true", help="Validate refs, CLI, existing auth, and model catalog without inference")
@@ -442,14 +502,10 @@ def main(argv=None):
     try:
         if not 1 <= args.timeout <= 7200:
             reject("invalid_request", "timeout must be between 1 and 7200 seconds.")
-        if args.request == "-":
-            text = sys.stdin.read(MAX_REQUEST + 1)
-        else:
-            with Path(args.request).open(encoding="utf-8") as source:
-                text = source.read(MAX_REQUEST + 1)
-        if len(text) > MAX_REQUEST:
-            reject("invalid_request", "Request exceeds 64 KiB characters.")
-        result = execute(read_json(text, "request"), codex_bin=args.codex_bin, timeout=args.timeout, check_only=args.check, profile_file=args.profile_file)
+        deadline = time.monotonic() + args.timeout
+        text = read_request_source(args.request, deadline)
+        result = execute(read_json(text, "request"), codex_bin=args.codex_bin, timeout=args.timeout,
+                         check_only=args.check, profile_file=args.profile_file, deadline=deadline)
         if _SIGNAL_CANCELLED:
             raise KeyboardInterrupt
         print(json.dumps(result, ensure_ascii=False, indent=2))

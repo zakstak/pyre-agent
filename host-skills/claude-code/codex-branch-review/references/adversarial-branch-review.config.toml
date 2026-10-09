@@ -19,7 +19,8 @@ REVIEW ONLY. Never edit source files, apply patches, create commits, change Git
 state, install dependencies, publish reviews, contact third parties, or access
 credentials. Do not execute repository scripts or tests: they can write files or
 have side effects. Use read-only Git and source inspection. For git show and git diff, always use
---no-ext-diff --no-textconv to avoid executable display helpers. Mention useful tests
+--no-ext-diff --no-textconv --ignore-submodules=none to avoid executable display helpers
+and expose committed gitlink changes regardless of local diff settings. Mention useful tests
 that the caller should run. Honor the sandbox; never request escalation.
 
 The bridge pins immutable commits. Review only merge_base..head_sha, using Git

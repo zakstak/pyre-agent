@@ -460,6 +460,77 @@ raise SystemExit(code)
                 self.assert_error(self.invoke(request=request, extra=("--check",) if check else ()), "invalid_git_target")
                 self.assertFalse(self.calls())
 
+    @unittest.skipUnless(os.name == "posix", "POSIX PATH executable fixture")
+    def test_target_git_cannot_shadow_installed_git_through_relative_path(self):
+        sentinel = self.root / "repo-git-ran"
+        executable = self.repo / "git"
+        executable.write_text("#!/usr/bin/env python3\nimport pathlib\npathlib.Path(" + repr(str(sentinel)) + ").touch()\nraise SystemExit(99)\n")
+        executable.chmod(0o700)
+        env = {**self.env, "PATH": "." + os.pathsep + self.env["PATH"]}
+        for cwd in (self.root, self.repo):
+            with self.subTest(caller_directory=cwd):
+                result = subprocess.run(self.argv(), input=json.dumps(self.request), cwd=cwd,
+                                        text=True, capture_output=True, env=env, timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(sentinel.exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX PATH executable fixture")
+    def test_default_codex_cannot_be_shadowed_by_repository_executable(self):
+        sentinel = self.root / "repo-codex-ran"
+        attacker = self.repo / "codex"
+        attacker.write_text("#!/usr/bin/env python3\nimport pathlib\npathlib.Path(" + repr(str(sentinel)) + ").touch()\nraise SystemExit(99)\n")
+        attacker.chmod(0o700)
+        trusted_dir = self.root / "trusted-bin"
+        trusted_dir.mkdir()
+        trusted = trusted_dir / "codex"
+        trusted.write_text(FAKE_CODEX); trusted.chmod(0o700)
+        env = {**self.env, "PATH": os.pathsep.join([".", str(trusted_dir), self.env["PATH"]])}
+        result = subprocess.run(self.argv()[:-2], input=json.dumps(self.request), cwd=self.repo,
+                                text=True, capture_output=True, env=env, timeout=8)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(sentinel.exists())
+
+    def test_deadline_applies_while_stdin_producer_keeps_pipe_open(self):
+        process = subprocess.Popen([*self.argv(), "--timeout", "1"], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self.env)
+        started = time.monotonic()
+        try:
+            process.stdin.write(json.dumps(self.request)); process.stdin.flush()
+            process.wait(timeout=4)
+            self.assert_error(subprocess.CompletedProcess([], process.returncode, process.stdout.read(), process.stderr.read()), "timeout")
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertFalse(self.calls())
+        finally:
+            if process.poll() is None:
+                process.kill(); process.wait()
+            try: process.stdin.close()
+            except BrokenPipeError: pass
+            process.stdout.close(); process.stderr.close()
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO input regression")
+    def test_deadline_applies_when_request_fifo_has_no_writer(self):
+        fifo = self.root / "request.fifo"
+        os.mkfifo(fifo)
+        argv = self.argv(); argv[argv.index("--request") + 1] = str(fifo)
+        started = time.monotonic()
+        result = subprocess.run([*argv, "--timeout", "1"], capture_output=True, text=True, env=self.env, timeout=4)
+        self.assert_error(result, "timeout")
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertFalse(self.calls())
+
+    def test_committed_gitlink_diff_overrides_ignore_submodules(self):
+        self.git("update-index", "--add", "--cacheinfo", "160000," + self.base + ",dependency")
+        self.git("commit", "-qm", "initial gitlink")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.git("update-index", "--cacheinfo", "160000," + self.head + ",dependency")
+        self.git("commit", "-qm", "update gitlink")
+        head = self.git("rev-parse", "HEAD").strip()
+        self.git("config", "diff.ignoreSubmodules", "all")
+        self.assertEqual(self.git("diff", "--name-only", base, head).strip(), "")
+        result = self.invoke(request=dict(self.request, base=base, head=head))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(json.loads(result.stdout)["scope"]["empty_diff"])
+
     def test_isolated_global_copy_with_bundled_profile(self):
         installed = self.root / "global/skills/codex-branch-review"
         shutil.copytree(SKILL, installed)

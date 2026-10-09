@@ -26,7 +26,7 @@ The standalone profile does not provide the bridge's isolated launch, preflight 
 
 `python3 scripts/review_bridge.py --request /path/to/request.json`
 
-`--request -` reads JSON from stdin. Unknown fields and duplicate keys are errors.
+`--request -` reads JSON from stdin. Input opening and reading share the total `--timeout` deadline; a producer that keeps a pipe or FIFO open fails with a structured timeout before review starts. Unknown fields and duplicate keys are errors.
 Required strings: `repo` and `base`. Optional `head` defaults to `HEAD`; `focus`
 is an array of up to 20 strings; `context` is a string; `subagents` is an array of
 up to four objects with unique lowercase `name` slugs and a `task` string.
@@ -70,7 +70,7 @@ CLI stderr, and authentication status text are not forwarded to the caller.
 
 ## Safety and limits
 
-The bridge uses argument arrays and stdin, never a shell. Wrapper Git calls
+The bridge uses argument arrays and stdin, never a shell. Implicit Git and default Codex lookup use trusted absolute PATH directories and pin the selected executable before target-directory launches; relative or empty PATH entries are also removed from child PATH values. An explicit `--codex-bin` remains a separate trusted caller choice and can select a caller-relative executable. Wrapper Git calls
 disable fsmonitor and untracked-cache helpers per process without changing Git
 configuration. The dirty check enumerates conversion filter keys and disables clean/process commands and required-filter enforcement for that invocation; it does not recurse into submodule worktrees. Git replacement objects, pagers and lazy fetching are disabled. Unsupported no-lazy-fetch flags or missing local objects fail without an unprotected retry. Inherited
 `GIT_*` repository/config routing variables are removed before subprocess launch;
