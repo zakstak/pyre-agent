@@ -22,6 +22,7 @@ MODEL = "gpt-6.1-sol"
 SKILL = Path(__file__).resolve().parents[1]
 PROFILE = SKILL / "references/adversarial-branch-review.config.toml"
 SCHEMA = SKILL / "references/review.schema.json"
+_WINDOWS = os.name == "nt"
 MAX_REQUEST = 65536
 MAX_RESULT = 1024 * 1024
 MAX_STREAM = 8 * 1024 * 1024
@@ -190,16 +191,22 @@ def validate_request(data):
 
 
 def implicit_binary(name):
-    # Only implicit Git lookup uses trusted absolute PATH directories. Relative
+    # Implicit tool lookup uses trusted absolute PATH directories. Relative
     # entries can select target-repository code when the caller is in that repo.
-    binary = None
+    names = [name]
+    if _WINDOWS:
+        # Python 3.11 which() skips PATHEXT for directory-qualified commands.
+        # Expand leaf suffixes ourselves; every lookup still has an absolute dir.
+        extensions = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")
+        names += [name + suffix for suffix in extensions
+                  if suffix.startswith(".") and not any(c in suffix for c in "/\\\0")]
     for directory in os.environ.get("PATH", os.defpath).split(os.pathsep):
         if os.path.isabs(directory):
-            selected = shutil.which(str(Path(directory) / name))
-            if selected:
-                binary = str(Path(selected).absolute())
-                break
-    return binary
+            for candidate in names:
+                selected = shutil.which(str(Path(directory) / candidate))
+                if selected:
+                    return str(Path(selected).absolute())
+    return None
 
 
 def git(repo: Path, *args: str, deadline: float):

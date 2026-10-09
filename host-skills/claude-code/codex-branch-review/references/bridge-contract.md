@@ -70,7 +70,7 @@ CLI stderr, and authentication status text are not forwarded to the caller.
 
 ## Safety and limits
 
-The bridge uses argument arrays and stdin, never a shell. Implicit Git and default Codex lookup use trusted absolute PATH directories and pin the selected executable before target-directory launches; relative or empty PATH entries are also removed from child PATH values. An explicit `--codex-bin` remains a separate trusted caller choice and can select a caller-relative executable. Wrapper Git calls
+The bridge uses argument arrays and stdin, never a shell. Implicit Git and default Codex lookup use trusted absolute PATH directories and pin the selected executable before target-directory launches; relative or empty PATH entries are also removed from child PATH values. On Windows, suffix candidates are expanded explicitly for Python 3.11 compatibility without searching the current directory. An explicit `--codex-bin` remains a separate trusted caller choice and can select a caller-relative executable. Wrapper Git calls
 disable fsmonitor and untracked-cache helpers per process without changing Git
 configuration. The dirty check enumerates conversion filter keys and disables clean/process commands and required-filter enforcement for that invocation; it does not recurse into submodule worktrees. Git replacement objects, pagers and lazy fetching are disabled. Unsupported no-lazy-fetch flags or missing local objects fail without an unprotected retry. Inherited
 `GIT_*` repository/config routing variables are removed before subprocess launch;

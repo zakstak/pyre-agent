@@ -574,6 +574,42 @@ raise SystemExit(code)
 
 
 class ProcessDeadlineTests(unittest.TestCase):
+    def test_windows_python311_pathext_discovery_in_absolute_directories(self):
+        spec = importlib.util.spec_from_file_location("windows_lookup_bridge", SCRIPT)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "git.exe").touch(); (root / "codex.cmd").touch()
+            looked_up = []
+            def python311_direct_path_lookup(command):
+                # Emulate 3.11's directory-qualified fast path and Windows'
+                # case-insensitive filesystem; no automatic suffix expansion.
+                candidate = Path(command)
+                self.assertTrue(candidate.is_absolute())
+                self.assertEqual(candidate.parent, root)
+                looked_up.append(candidate.name)
+                candidate = candidate.with_name(candidate.name.lower())
+                return str(candidate) if candidate.is_file() else None
+            env = {"PATH": os.pathsep.join([".", str(root)]), "PATHEXT": ".EXE;.CMD"}
+            with patch.object(bridge, "_WINDOWS", True), patch.dict(os.environ, env), \
+                 patch.object(bridge.shutil, "which", python311_direct_path_lookup):
+                self.assertEqual(bridge.implicit_binary("git"), str(root / "git.exe"))
+                self.assertEqual(bridge.implicit_binary("codex"), str(root / "codex.cmd"))
+            self.assertIn("git.EXE", looked_up)
+            self.assertIn("codex.CMD", looked_up)
+
+    @unittest.skipUnless(os.name == "nt", "Native Windows executable lookup regression")
+    def test_native_windows_executable_suffix_lookup(self):
+        spec = importlib.util.spec_from_file_location("native_windows_bridge", SCRIPT)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"PATH": tmp, "PATHEXT": ".EXE;.CMD"}):
+            root = Path(tmp)
+            (root / "git.exe").touch(); (root / "codex.cmd").touch()
+            self.assertEqual(Path(bridge.implicit_binary("git")).name.lower(), "git.exe")
+            self.assertEqual(Path(bridge.implicit_binary("codex")).name.lower(), "codex.cmd")
+
     def test_large_stdin_deadline_without_child_reads(self):
         # Uses the Python executable directly, so this regression can also run
         # on Windows without relying on executable shebang support.
