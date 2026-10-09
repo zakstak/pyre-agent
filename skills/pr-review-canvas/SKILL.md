@@ -39,6 +39,8 @@ For dense logic, add concise pseudocode that exposes the algorithm. For surprisi
 
 ## Render the review
 
+Use normal host permissions for authorized GitHub reads, running the renderer and writing the private input/output artifacts. A host mode that forbids those writes cannot render the artifact; report that blocker without changing settings or bypassing a tool denial.
+
 Use Python 3.10 or newer. Resolve paths relative to this skill directory, regardless of where it is installed. See [the input reference](references/input-format.md) and [the fictional example](assets/example-review.json).
 
 1. Prepare a UTF-8 `review.json` in a private working directory. Include only the documented fields. Never serialize raw tool responses or authentication headers. Remove credentials, tokens, and other secrets from all input fields. If a diff itself contains a secret, replace the value with an explicit redaction marker and set `patch_complete` to false. Explain the redaction without repeating the value.
