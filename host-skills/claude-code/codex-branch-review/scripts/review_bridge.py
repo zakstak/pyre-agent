@@ -28,6 +28,8 @@ MAX_STREAM = 8 * 1024 * 1024
 _ACTIVE = set()
 _PROCESS_LOCK = threading.Lock()
 _CANCELLED = threading.Event()
+_SIGNAL_CANCELLED = False
+_SPAWNING_ON_MAIN = False
 
 
 def kill_process(process):
@@ -69,32 +71,50 @@ def child_environment():
 
 def run(argv: list[str], *, cwd: Path, deadline: float, stdin: str | None = None):
     """No shell; bounded disk-backed streams and cancellable process groups."""
+    global _SPAWNING_ON_MAIN
     if deadline <= time.monotonic():
         reject("timeout", "Review deadline reached; no successful review is being returned.")
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with tempfile.TemporaryFile() as input_file, tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        # A regular file avoids Windows communicate() blocking while writing a
+        # prompt to a child that never reads its stdin pipe.
+        if stdin is not None:
+            input_file.write(stdin.encode("utf-8"))
+            input_file.seek(0)
+        process = None
         try:
             with _PROCESS_LOCK:
+                if _SIGNAL_CANCELLED:
+                    raise KeyboardInterrupt
                 if _CANCELLED.is_set():
                     reject("cancelled", "Review cancelled; no further Codex calls will start.")
-                process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE,
-                                           stdout=stdout_file, stderr=stderr_file,
-                                           text=True, encoding="utf-8", errors="replace",
-                                           env=child_environment(), start_new_session=os.name == "posix")
-                _ACTIVE.add(process)
-        except OSError as error:
-            reject("launch_failed", f"Cannot launch {Path(argv[0]).name}: {error}")
-        try:
-            pending_input = stdin
+                spawning_on_main = threading.current_thread() is threading.main_thread()
+                if spawning_on_main:
+                    _SPAWNING_ON_MAIN = True
+                try:
+                    process = subprocess.Popen(argv, cwd=cwd,
+                                               stdin=input_file if stdin is not None else subprocess.DEVNULL,
+                                               stdout=stdout_file, stderr=stderr_file,
+                                               text=True, encoding="utf-8", errors="replace",
+                                               env=child_environment(), start_new_session=os.name == "posix")
+                    _ACTIVE.add(process)
+                except OSError as error:
+                    reject("launch_failed", f"Cannot launch {Path(argv[0]).name}: {error}")
+                finally:
+                    if spawning_on_main:
+                        _SPAWNING_ON_MAIN = False
             while True:
+                if _SIGNAL_CANCELLED:
+                    raise KeyboardInterrupt
+                if _CANCELLED.is_set():
+                    reject("cancelled", "Review cancelled; subprocess terminated.")
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     reject("timeout", "Review stopped before completion; subprocess terminated.")
                 try:
-                    process.communicate(pending_input, timeout=min(remaining, .1))
+                    process.wait(timeout=min(remaining, .1))
                     finished = True
                 except subprocess.TimeoutExpired:
                     finished = False
-                pending_input = None
                 if max(os.fstat(stdout_file.fileno()).st_size, os.fstat(stderr_file.fileno()).st_size) > MAX_STREAM:
                     reject("output_limit", "Codex or Git exceeded the 8 MiB output limit; review aborted.")
                 if finished:
@@ -105,8 +125,9 @@ def run(argv: list[str], *, cwd: Path, deadline: float, stdin: str | None = None
             stderr = stderr_file.read(MAX_STREAM + 1).decode("utf-8", errors="replace")
             return process.returncode, stdout, stderr
         except BaseException:
-            kill_process(process)
-            process.communicate()
+            if process is not None:
+                kill_process(process)
+                process.wait()
             raise
         finally:
             with _PROCESS_LOCK:
@@ -347,6 +368,7 @@ def execute(request, *, codex_bin="codex", timeout=900, check_only=False, profil
     binary = shutil.which(codex_bin)
     if not binary:
         reject("missing_cli", "Codex CLI was not found. Install/authenticate it separately; this bridge never installs software or changes global settings.")
+    binary = str(Path(binary).absolute())
     with tempfile.TemporaryDirectory(prefix="codex-branch-review-") as tmp:
         launch_dir = Path(tmp).resolve()
         if launch_dir.is_relative_to(Path(scope["repo"])):
@@ -376,6 +398,7 @@ def execute(request, *, codex_bin="codex", timeout=900, check_only=False, profil
 
 
 def main(argv=None):
+    global _SIGNAL_CANCELLED
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", required=True, help="UTF-8 JSON request file, or - for stdin")
     parser.add_argument("--codex-bin", default="codex", help="Codex executable path (not a shell command)")
@@ -384,8 +407,16 @@ def main(argv=None):
     parser.add_argument("--check", action="store_true", help="Validate refs, CLI, existing auth, and model catalog without inference")
     args = parser.parse_args(argv)
     def interrupted(signum, frame):
-        raise KeyboardInterrupt
+        # Defer the exception until the run loop owns the child. Raising inside
+        # Popen/registration can otherwise leave an untracked process running.
+        global _SIGNAL_CANCELLED
+        if _SPAWNING_ON_MAIN:
+            _SIGNAL_CANCELLED = True
+        else:
+            raise KeyboardInterrupt
+    _SIGNAL_CANCELLED = False
     previous_sigterm = signal.signal(signal.SIGTERM, interrupted)
+    previous_sigint = signal.signal(signal.SIGINT, interrupted)
     try:
         if not 1 <= args.timeout <= 7200:
             reject("invalid_request", "timeout must be between 1 and 7200 seconds.")
@@ -397,6 +428,8 @@ def main(argv=None):
         if len(text) > MAX_REQUEST:
             reject("invalid_request", "Request exceeds 64 KiB characters.")
         result = execute(read_json(text, "request"), codex_bin=args.codex_bin, timeout=args.timeout, check_only=args.check, profile_file=args.profile_file)
+        if _SIGNAL_CANCELLED:
+            raise KeyboardInterrupt
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except KeyboardInterrupt:
@@ -411,6 +444,8 @@ def main(argv=None):
         return 1
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
+        _SIGNAL_CANCELLED = False
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 import unittest
+import importlib.util
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "host-skills/claude-code/codex-branch-review"
@@ -28,6 +30,8 @@ if args[-2:] == ["debug", "models"]:
     print(json.dumps({"models": [] if mode == "missing_model" else [{"slug": "gpt-6.1-sol"}]}))
     raise SystemExit(0)
 assert args[0] == "exec", args
+if mode == "never_read":
+    time.sleep(30)
 prompt = sys.stdin.read()
 output = pathlib.Path(args[args.index("--output-last-message") + 1])
 record = {"argv": args, "prompt": prompt, "cwd": os.getcwd(), "pid": os.getpid(), "name": output.stem}
@@ -248,6 +252,66 @@ class ReviewBridgeTests(unittest.TestCase):
         self.assert_error(self.invoke(mode="sleep", extra=("--timeout", "1")), "timeout")
         self.assertTrue(all(not self.alive(c["pid"]) for c in self.calls()))
 
+    def test_large_prompt_deadline_when_child_never_reads_stdin(self):
+        self.request["context"] = "x" * 16000
+        self.request["focus"] = ["y" * 16000] * 3
+        started = time.monotonic()
+        self.assert_error(self.invoke(mode="never_read", extra=("--timeout", "1")), "timeout")
+        self.assertLess(time.monotonic() - started, 4)
+
+    def test_relative_executable_and_relative_path_entry(self):
+        for use_path in (False, True):
+            with self.subTest(relative_path_entry=use_path):
+                argv = self.argv()
+                argv[-1] = self.binary.name if use_path else "./" + self.binary.name
+                env = dict(self.env)
+                if use_path:
+                    env["PATH"] = "." + os.pathsep + env["PATH"]
+                result = subprocess.run(argv, cwd=self.root, input=json.dumps(self.request),
+                                        text=True, capture_output=True, env=env, timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX deterministic signal regression")
+    def test_signal_between_child_creation_and_registration(self):
+        harness = self.root / "signal-harness.py"
+        harness.write_text('''import importlib.util, os, signal, subprocess, sys
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec); spec.loader.exec_module(bridge)
+original = subprocess.Popen
+children = []
+def interrupting_popen(*args, **kwargs):
+    child = original([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+    children.append(child)
+    os.kill(os.getpid(), int(os.environ["TEST_SIGNAL"]))
+    return child
+bridge.subprocess.Popen = interrupting_popen
+code = bridge.main(sys.argv[2:])
+assert code == 130, code
+assert children and all(child.poll() is not None for child in children)
+assert not bridge._ACTIVE
+raise SystemExit(code)
+''')
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=sig):
+                result = subprocess.run([sys.executable, str(harness), str(SCRIPT), *self.argv()[2:]],
+                                        input=json.dumps(self.request), text=True, capture_output=True,
+                                        env={**self.env, "TEST_SIGNAL": str(int(sig))}, timeout=8)
+                self.assertEqual(result.returncode, 130, result.stderr)
+                self.assertEqual(json.loads(result.stderr)["error"]["code"], "cancelled")
+
+    @unittest.skipUnless(os.name == "posix", "POSIX signal regression")
+    def test_interrupt_while_waiting_for_request_stdin(self):
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(signal=sig):
+                process = subprocess.Popen(self.argv(), stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True, env=self.env)
+                time.sleep(.15)
+                process.send_signal(sig)
+                _, stderr = process.communicate(timeout=3)
+                self.assertEqual(process.returncode, 130, stderr)
+                self.assertEqual(json.loads(stderr)["error"]["code"], "cancelled")
+
     @unittest.skipUnless(os.name == "posix", "POSIX process group test")
     def test_interrupt_and_terminate_cancel_specialists(self):
         self.request["subagents"] = [{"name": "slow", "task": "Inspect authorization"}]
@@ -320,6 +384,30 @@ class ReviewBridgeTests(unittest.TestCase):
         (self.root / ".codex").mkdir()
         (self.root / ".codex/config.toml").write_text('model="other-model"\n')
         self.assert_error(self.invoke(), "unsafe_temp_dir")
+
+
+class ProcessDeadlineTests(unittest.TestCase):
+    def test_large_stdin_deadline_without_child_reads(self):
+        # Uses the Python executable directly, so this regression can also run
+        # on Windows without relying on executable shebang support.
+        spec = importlib.util.spec_from_file_location("deadline_bridge", SCRIPT)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        children = []
+        original = subprocess.Popen
+        def capture(*args, **kwargs):
+            child = original(*args, **kwargs)
+            children.append(child)
+            return child
+        with tempfile.TemporaryDirectory() as tmp, patch.object(bridge.subprocess, "Popen", capture):
+            started = time.monotonic()
+            with self.assertRaises(bridge.BridgeError) as caught:
+                bridge.run([sys.executable, "-c", "import time; time.sleep(30)"],
+                           cwd=Path(tmp), deadline=started + .5, stdin="x" * (1024 * 1024))
+            self.assertEqual(caught.exception.code, "timeout")
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertTrue(children and all(child.poll() is not None for child in children))
+            self.assertFalse(bridge._ACTIVE)
 
 
 if __name__ == "__main__":
