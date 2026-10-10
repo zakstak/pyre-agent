@@ -25,7 +25,9 @@ from pathlib import Path
 # These would point Git at another repository, index, or object store, or change pathspec and diff parsing.
 DROPPED_ENV = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
                "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_DIFF_OPTS", "GIT_EXTERNAL_DIFF",
-               "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"}
+               "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
+               # GIT_CONFIG redirects git config but no other command, so filter discovery would read a different file.
+               "GIT_CONFIG"}
 # diff.autoRefreshIndex=false stops `git diff` from rewriting .git/index; callers drop stat-only entries by blob ID.
 GIT_CONFIG = tuple(arg for setting in (
     "core.fsmonitor=false", "core.quotePath=false", "diff.suppressBlankEmpty=false", "diff.noprefix=false",

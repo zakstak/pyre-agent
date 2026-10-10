@@ -390,6 +390,29 @@ class InventoryTests(Fixture):
         self.assertEqual(code, 0)
         self.assertIn("would record unreviewed content: old.txt", out)
 
+    def test_a_staged_link_replaced_by_a_file_with_the_same_bytes_is_named(self):
+        os.symlink("foo", self.root / "link")
+        self.commit({"keep.txt": "k\n"})
+        (self.root / "link").unlink(); os.symlink("bar", self.root / "link")
+        self.git(self.root, "add", "link")
+        (self.root / "link").unlink(); self.write("link", "bar")
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn("would record unreviewed content: link", out)
+
+    def test_attribute_binary_text_keeps_real_stats_without_a_patch(self):
+        self.commit({".gitattributes": "* -diff\n", ".env.local": "A=1\n"})
+        self.write(".env.local", "A=2\nB=3\n")
+        secret = self.collect()[".env.local"]
+        self.assertEqual((secret["patch_note"], secret["additions"], secret["deletions"]), ("secret", 2, 1))
+
+    def test_untracked_files_honor_core_filemode(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "config", "core.filemode", "false")
+        self.write("run.sh", "echo\n")
+        (self.root / "run.sh").chmod(0o755)
+        self.assertEqual(self.collect()["run.sh"]["new_mode"], "100644")
+
     def test_a_failure_after_collecting_writes_nothing(self):
         self.commit({"a.txt": "a\n"})
         self.write("a.txt", "b\n")
@@ -810,6 +833,20 @@ class IsolationTests(Fixture):
             files = self.collect()
         self.assertEqual(sorted(files), ["a.txt"])
         self.assertFalse((self.root / "trace.log").exists())
+
+    def test_git_config_cannot_hide_a_filter_from_discovery(self):
+        marker = self.base / "filter-ran"
+        tool = self.base / "filter.sh"
+        tool.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+        tool.chmod(0o755)
+        self.commit({".gitattributes": "*.txt filter=mark\n", "a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        self.git(self.root, "config", "filter.mark.clean", str(tool))
+        empty = self.base / "empty-config"
+        empty.write_text("")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG": str(empty)}):
+            self.collect()
+        self.assertFalse(marker.exists(), "a repository filter ran because GIT_CONFIG hid it from discovery")
 
     def test_filter_driver_names_that_are_not_utf8_stop_collection(self):
         self.commit({"a.txt": "a\n"})
