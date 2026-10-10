@@ -372,7 +372,12 @@ def hidden_stats(top, entry, config):
             with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
                 git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
-        if entry["kind"] == "symlink" and entry["new_mode"] and os.path.islink(top / entry["path"]):
+        if entry.get("from_index"):
+            # An absent sparse entry's content is its staged blob; nothing is on disk.
+            new = str(Path(temp, "new"))
+            with open(new, "wb") as handle:
+                git(top, *config, "cat-file", "blob", entry["new_blob"], into=handle)
+        elif entry["kind"] == "symlink" and entry["new_mode"] and os.path.islink(top / entry["path"]):
             # Git counts a link's target as its content. With core.symlinks off, the placeholder file already holds it.
             new = str(Path(temp, "new"))
             Path(new).write_bytes(os.readlink(os.fsencode(top / entry["path"])))
@@ -430,7 +435,8 @@ def text_patch(old, new, config):
                 names.append(name)
         # The ceiling keeps Git from finding a repository, and its attributes, above the temporary directory.
         # No attributes apply: a global core.attributesFile with * -diff would otherwise call text binary.
-        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "--", *names,
+        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3",
+                     "--inter-hunk-context=0", "--", *names,
                      ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": str(Path(temp).parent), "GIT_ATTR_NOSYSTEM": "1"})
     at = output.find(b"\n@@")
     header = output if at < 0 else output[:at]
