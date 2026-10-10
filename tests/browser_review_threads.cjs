@@ -190,6 +190,21 @@ fs.mkdirSync(out, { recursive: true });
     await importFile(skippedPath);
     assert.equal(await state("fixture-comment-1"), "Earlier answers missing");
 
+    // Two answers in a row mean the imported feedback lacks the reviewer reply between them, so the page offers no accept.
+    const doubled = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));
+    doubled.replies.push({ ...doubled.replies.find(item => item.comment_id === "fixture-comment-4"), id: "agent-second", created_at: "2026-10-10T23:00:00Z", disposition: "question", body: "Which encoding?" });
+    delete doubled.replies.at(-1).blocker;
+    const doubledInput = path.join(temp, "doubled.json"), doubledHtml = path.join(temp, "doubled.html");
+    fs.writeFileSync(doubledInput, JSON.stringify(doubled));
+    const doubledRun = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), doubledInput, "--output", doubledHtml], { encoding: "utf8" });
+    assert.equal(doubledRun.status, 0, doubledRun.stderr);
+    await page.goto(pathToFileURL(doubledHtml).href);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    await importFile(path.join(fixtures, "worktree-feedback.json"));
+    await page.getByRole("button", { name: "Expand all" }).click();
+    assert.equal(await state("fixture-comment-4"), "Reviewer replies missing");
+    assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Accept the agent's answer" }).count(), 0);
+
     // An answer stamped at the latest representable time cannot be followed, and the page says so plainly.
     const terminal = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));
     terminal.replies.find(item => item.comment_id === "fixture-comment-2").created_at = "9999-12-31T23:59:59.999Z";

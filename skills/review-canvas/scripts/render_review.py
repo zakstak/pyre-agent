@@ -656,12 +656,28 @@ def main(argv=None):
                 review = load_review(args.input)
                 # Every answer the published round showed stays visible in the next, which reply.py carry ensures.
                 current = review_state.read_current(state)
+                mine = {reply["id"]: reply for reply in review.get("replies", [])}
                 if current is not None:
-                    published = {reply["id"] for reply in load_review(state / "rounds" / f"{current:04d}" / "input.json").get("replies", [])}
-                    missing = published - {reply["id"] for reply in review.get("replies", [])}
+                    published = {reply["id"]: reply for reply in load_review(state / "rounds" / f"{current:04d}" / "input.json").get("replies", [])}
+                    missing = published.keys() - mine.keys()
                     if missing:
                         raise ValidationError(f"{args.input} omits {len(missing)} answers that round {current:04d} published. Run reply.py carry "
                                               f"--from {state / 'rounds' / f'{current:04d}' / 'input.json'} first.")
+                    changed = sorted(key for key in published if published[key] != mine[key])
+                    if changed:
+                        raise ValidationError(f"{args.input} changes answers that round {current:04d} published: {', '.join(changed)}. "
+                                              "A published answer never changes; carry it as it was.")
+                # A prepared round below this one would never publish once this one does, so its own answers would vanish.
+                for entry in sorted((state / "rounds").iterdir()):
+                    if (review_state.ROUND_NAME.fullmatch(entry.name) and (current or 0) < int(entry.name) < number
+                            and (entry / "input.json").exists() and not (entry / "review.html").exists()):
+                        try:
+                            held = {reply["id"] for reply in json.loads((entry / "input.json").read_bytes()).get("replies", [])}
+                        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+                            held = {None}  # unreadable, so it may hold answers
+                        if held - mine.keys():
+                            raise ValidationError(f"round {entry.name} holds answers but has not rendered, and would never publish after this round. "
+                                                  "Render it first, or remove it.")
                 page = render_review(review, args.style_dir)
                 review_state.write_private(args.output, page.encode("utf-8"), replace=False)
                 review_state.write_private(round_dir / "input.sha256", (input_digest(review) + "\n").encode("ascii"), replace=False)

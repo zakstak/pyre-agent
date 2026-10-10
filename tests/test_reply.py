@@ -180,6 +180,36 @@ class ReplyTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(reply.render_review.main(["--round", str(later)]), 0)
 
+    def test_a_round_that_changes_published_answers_does_not_render(self):
+        published = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        (self.round / "input.json").write_text(json.dumps(published))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(reply.render_review.main(["--round", str(self.round)]), 0)
+        later = reply.review_state.new_round(self.state)
+        rewritten = json.loads(json.dumps(published))
+        rewritten["replies"][0]["body"] = "A rewritten answer."
+        (later / "input.json").write_text(json.dumps(rewritten))
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(reply.render_review.main(["--round", str(later)]), 2)
+        self.assertIn("changes answers that round 0001 published: agent-reply-1", error.getvalue())
+
+    def test_a_round_does_not_render_past_a_prepared_round_with_answers(self):
+        published = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        (self.round / "input.json").write_text(json.dumps(published))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(reply.render_review.main(["--round", str(self.round)]), 0)
+        prepared = reply.review_state.new_round(self.state)
+        pending = json.loads(json.dumps(published))
+        pending["replies"].append(dict(published["replies"][3], id="agent-pending", created_at="2026-10-10T23:00:00Z"))
+        (prepared / "input.json").write_text(json.dumps(pending))
+        later = reply.review_state.new_round(self.state)
+        (later / "input.json").write_text(json.dumps(published))
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(reply.render_review.main(["--round", str(later)]), 2)
+        self.assertIn("round 0002 holds answers but has not rendered", error.getvalue())
+
     def test_carry_refuses_another_review(self):
         other = json.loads(self.previous.read_text())
         other["target"]["root"] = "/home/dev/elsewhere"

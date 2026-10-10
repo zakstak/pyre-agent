@@ -76,7 +76,9 @@
     // after one or an accept. Any other order means this round's input lacks an answer the reviewer saw.
     const outOfOrder = (reply, i) => i > 0 && (reply.action === "accept" ? replies[i - 1].actor !== "agent"
       : reply.action === "reopen" && replies[i - 1].actor !== "agent" && replies[i - 1].action !== "accept");
-    if (replies[0].actor === "reviewer" || replies.some(outOfOrder)) return { label: "Earlier answers missing", yours: false };
+    if (replies[0].actor === "reviewer" || replies.some(outOfOrder)) return { label: "Earlier answers missing", yours: false, missing: true };
+    // Answers come only on the agent's turn, so two in a row mean this page lacks the reviewer reply between them.
+    if (replies.some((reply, i) => i > 0 && reply.actor === "agent" && replies[i - 1].actor === "agent")) return { label: "Reviewer replies missing", yours: false, missing: true };
     if (last.actor === "agent") return { label: `Answered: ${DISPOSITION[last.disposition].toLowerCase()}`, yours: true };
     return { label: last.action === "accept" ? "Resolved" : ACTION[last.action], yours: false };
   }
@@ -442,8 +444,9 @@
     const list = element("div", "thread-replies");
     list.append(...replies.map(reply => replyNode(reply)));
     const choices = element("div", "reply-actions");
-    if (last.actor === "agent") choices.append(button("Accept", () => addReply(comment, "accept", ""), "quiet", "Accept the agent's answer"));
-    if (last.actor === "agent" || last.action === "accept") choices.append(button("Reopen", () => openReply(comment, "reopen"), "quiet", "Reopen comment"));
+    // With part of the thread missing, the page cannot tell what an accept or reopen would answer; replying stays open.
+    if (last.actor === "agent" && !state.missing) choices.append(button("Accept", () => addReply(comment, "accept", ""), "quiet", "Accept the agent's answer"));
+    if ((last.actor === "agent" || last.action === "accept") && !state.missing) choices.append(button("Reopen", () => openReply(comment, "reopen"), "quiet", "Reopen comment"));
     choices.append(button("Reply", () => openReply(comment, "reply"), "quiet", "Reply to the agent"));
     node.append(list, replyDraft?.commentId === comment.id ? replyComposer(comment) : choices);
     return node;

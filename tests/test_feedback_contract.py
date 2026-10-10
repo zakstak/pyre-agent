@@ -129,6 +129,9 @@ class CommandLineTests(unittest.TestCase):
             with self.subTest(actions=actions):
                 replies = agent + [reviewer(f"r{minute}", action, minute) for action, minute in actions]
                 self.assertEqual(contract.thread_state(replies), state)
+        # Two answers in a row mean the feedback lacks the reviewer reply between them.
+        second = dict(agent[0], id="b", created_at="2026-10-10T11:00:00Z", disposition="question")
+        self.assertEqual(contract.thread_state(agent + [second]), ("reviewer", "reviewer replies missing"))
 
     def test_same_snapshot_feedback_must_list_the_input_files(self):
         fixtures = ROOT / "tests/fixtures"

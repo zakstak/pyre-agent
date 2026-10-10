@@ -95,7 +95,8 @@ A `fixed` reply also requires `fixed_in`, either `{"fingerprint": "..."}` for th
   "created_at": "2026-10-10T10:00:00Z",
   "disposition": "fixed",
   "body": "save() now flushes and fsyncs the temporary file before the rename.",
-  "fixed_in": { "fingerprint": "9c1d5e..." }
+  "fixed_in": { "fingerprint": "9c1d5e..." },
+  "comment_updated_at": "2026-10-10T09:00:00.000Z"
 }
 ```
 

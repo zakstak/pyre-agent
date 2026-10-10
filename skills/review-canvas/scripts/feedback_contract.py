@@ -330,6 +330,10 @@ def thread_state(replies):
     # after one or an accept. Any other order means earlier answers were not carried into this round.
     if replies[0]["actor"] == "reviewer" or any(out_of_order(previous, reply) for previous, reply in zip(replies, replies[1:])):
         return "agent", "earlier answers missing"
+    # reply.py add answers only on the agent's turn, so two answers in a row mean this feedback lacks the reviewer reply
+    # between them: it is older than the round.
+    if any(previous["actor"] == reply["actor"] == "agent" for previous, reply in zip(replies, replies[1:])):
+        return "reviewer", "reviewer replies missing"
     last = replies[-1]
     if last["actor"] == "agent":
         return "reviewer", f"answered: {last['disposition']}"
