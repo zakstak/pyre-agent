@@ -19,6 +19,8 @@
   }));
   const byCard = new Map(Array.from(sources.values(), file => [file.card, file]));
   const nav = new Map(Array.from(document.querySelectorAll(".file-nav li[data-file]"), item => [item.dataset.file, item]));
+  // IDs of comments deleted in this tab. An import holding one would bring it back, so the import is refused instead.
+  const removed = new Set();
   let dirty = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
   let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null;
   const editedNotes = new Set(), editedApprovals = new Set(); let editedGeneral = false;
@@ -443,7 +445,7 @@
   }
   function removeComment(comment) {
     const card = sources.get(comment.anchor.path)?.card;
-    deleted = comment; comments = comments.filter(item => item.id !== comment.id);
+    deleted = comment; removed.add(comment.id); comments = comments.filter(item => item.id !== comment.id);
     if (editing === comment.id || reattaching === comment.id) closeComposer();
     drawComments(); changed();
     lastFocus = card && !card.hidden ? card.querySelector(".file-toggle") : byId("files");
@@ -477,7 +479,7 @@
     if (comments.length >= 1000) { announce("Comment limit reached; export before adding more."); return; }
     const before = comments, restored = deleted; comments = [...comments, deleted];
     try { feedback(); } catch (error) { comments = before; announce(`Cannot undo: ${error.message}`); return; }
-    deleted = null; drawComments(); changed(); announce("Comment restored."); jumpTo(restored.id);
+    deleted = null; removed.delete(restored.id); drawComments(); changed(); announce("Comment restored."); jumpTo(restored.id);
   });
   byId("toast-dismiss").addEventListener("click", () => { deleted = null; announce(""); });
   document.addEventListener("focusin", event => { if (!toast.contains(event.target)) lastFocus = event.target; });
@@ -543,6 +545,7 @@
     for (const comment of incomingComments) {
       const local = comments.find(item => item.id === comment.id);
       if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
     }
     const localFiles = currentFiles();
     if (same && (localFiles.some(local => {
