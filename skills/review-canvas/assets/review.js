@@ -105,10 +105,25 @@
     }
     return list;
   }
+  // Approvals for files outside this snapshot only spare re-approving a file that returns unchanged. Past the 8 MiB limit,
+  // measured as exported, the oldest of those go first, so carried approvals never make feedback impossible to keep.
+  function fitted(value) {
+    const encoder = new TextEncoder(), measure = item => encoder.encode(JSON.stringify(item, null, 2) + "\n").length;
+    const outside = value.approvals.filter(record => !sources.has(record.path)).sort((a, b) => a.approved_at < b.approved_at ? -1 : 1);
+    let size = measure(value), next = 0;
+    while (size > contract.MAX_BYTES && next < outside.length) {
+      const drop = new Set();
+      for (let excess = size - contract.MAX_BYTES; excess > 0 && next < outside.length; next++) {
+        drop.add(outside[next].path); excess -= encoder.encode(JSON.stringify(outside[next])).length;
+      }
+      value = { ...value, approvals: value.approvals.filter(record => !drop.has(record.path)) }; size = measure(value);
+    }
+    return value;
+  }
   function feedback() {
-    return contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(),
+    return contract.validateFeedback(fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(),
       general_notes: byId("general-notes").value, files: currentFiles(), approvals: approvalList(),
-      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained });
+      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained }));
   }
   const sameTarget = other => contract.sameTarget(snapshot, other);
   function makeAnchor(file, start, end) {
@@ -437,7 +452,8 @@
       }
       const nextRetained = retained.slice();
       const earlier = incoming.retained_reviews.slice();
-      if (!same) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files });
+      // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes.
+      if (!same) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files.filter(file => file.notes) });
       for (const review of earlier) {
         const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
         if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
@@ -446,8 +462,10 @@
       const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
       const nextFiles = same ? incoming.files : localFiles;
       const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
-      contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
+      const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
         comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
+      contract.validateFeedback(merged);
+      if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
       comments = nextComments; retained = nextRetained; approvals = nextApprovals;
       if (same) {
         for (const saved of incoming.files) {

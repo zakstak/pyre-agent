@@ -364,8 +364,10 @@ class InventoryTests(Fixture):
         self.git(self.root, "checkout", "--", "link")
         self.git(self.root, "update-index", "--assume-unchanged", "link")
         self.write("link", b"new")
-        link = self.collect()["link"]
-        self.assertEqual((link["new_mode"], link["patch_note"]), ("120000", "symlink"))
+        # The placeholder is diffed in place, never read whole into memory.
+        with mock.patch.object(collector.Path, "read_bytes", side_effect=AssertionError("read whole")):
+            link = self.collect()["link"]
+        self.assertEqual((link["new_mode"], link["patch_note"], link["additions"], link["deletions"]), ("120000", "symlink", 1, 1))
 
     def test_hidden_symlink_changes_keep_their_line_counts(self):
         os.symlink("old", self.root / "link")
@@ -468,6 +470,48 @@ class InventoryTests(Fixture):
         files = self.collect()
         self.assertEqual(sorted(files), ["old.txt"])
         self.assertEqual(files["old.txt"]["status"], "deleted")
+
+    def test_a_case_only_rename_without_case_folding_is_a_deletion_and_an_addition(self):
+        self.commit({"foo.txt": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "false")
+        os.rename(self.root / "foo.txt", self.root / "FOO.txt")
+        self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"FOO.txt": "added", "foo.txt": "deleted"})
+
+    def test_hidden_entries_behind_a_symlinked_directory_are_deletions(self):
+        outside = self.base / "outside"
+        outside.mkdir()
+        (outside / "file").write_text("outside the tree\n")
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag):
+                if (self.root / "dir").is_symlink():
+                    (self.root / "dir").unlink()
+                    self.git(self.root, "checkout", "--", "dir")
+                self.commit({"dir/file": "a\n", "keep.txt": "k\n"})
+                self.git(self.root, "update-index", flag, "dir/file")
+                shutil.rmtree(self.root / "dir")
+                os.symlink(outside, self.root / "dir")
+                files = self.collect()
+                self.assertEqual((files["dir/file"]["status"], files["dir"]["new_mode"]), ("deleted", "120000"))
+                self.assertNotIn("outside the tree", json.dumps(self.review))
+                self.git(self.root, "update-index", "--no-assume-unchanged", "--no-skip-worktree", "dir/file")
+
+    def test_the_divergence_check_reads_only_staged_index_entries(self):
+        self.commit({"a.txt": "a\n", "b.txt": "b\n"})
+        calls, real = [], collector.git
+        def recording(cwd, *args, **options):
+            calls.append(args)
+            return real(cwd, *args, **options)
+        with mock.patch.object(collector, "git", recording):
+            self.assertEqual(collector.staged_differently(self.root, ()), [])
+        self.assertFalse([args for args in calls if "ls-files" in args], "nothing is staged, so the index is not read")
+        self.write("a.txt", "staged\n")
+        self.git(self.root, "add", "a.txt")
+        self.write("a.txt", "on disk\n")
+        calls.clear()
+        with mock.patch.object(collector, "git", recording):
+            self.assertEqual(collector.staged_differently(self.root, ()), ["a.txt"])
+        listings = [args for args in calls if "ls-files" in args]
+        self.assertTrue(listings and all(args[-2:] == ("--", "a.txt") for args in listings), listings)
 
     def test_a_case_only_rename_hidden_by_ignore_case_stops_collection(self):
         self.commit({"foo": "f\n"})
