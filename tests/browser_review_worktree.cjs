@@ -156,7 +156,7 @@ function render(name) {
       path.join(root, "skills/review-canvas/scripts"), path.join(fixtures, name)], { encoding: "utf8" }).stdout.trim();
     const back = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
     const round1Snapshot = { target: back.target, input_sha256: back.input_sha256, general_notes: "round one overall",
-      files: back.files.map(file => ({ ...file, notes: file.path === "src/notes/cli.py" ? "round one note" : "" })) };
+      files: back.files.filter(file => file.path === "src/notes/cli.py").map(file => ({ ...file, notes: "round one note" })) };  // only noted files are retained
     back.input_sha256 = digest("worktree-review-round2.json");
     back.retained_reviews = [round1Snapshot];
     const backPath = path.join(temp, "returning.json"); fs.writeFileSync(backPath, JSON.stringify(back));
@@ -165,6 +165,7 @@ function render(name) {
     assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
     assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
     const returned = await exportFeedback();
+    assert.equal(returned.files.length, 10, "every file of the snapshot is listed again");
     assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
     // A retained entry for this snapshot that lists other files is refused before anything changes.
     const broken = structuredClone(back);

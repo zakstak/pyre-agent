@@ -946,6 +946,24 @@ class IsolationTests(Fixture):
         self.assertFalse(marker.exists(), "the repository's git file ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
 
+    def test_the_lock_the_final_check_and_the_write_use_one_resolved_path(self):
+        import review_state
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        round_dir = review_state.new_round(self.base / "state")
+        alias = self.base / "alias"
+        os.symlink(round_dir, alias)
+        seen = []
+        def record(real):
+            return lambda path, *rest: (seen.append(Path(path)), real(path, *rest))[1]
+        with mock.patch.object(review_state, "round_lock", record(review_state.round_lock)), \
+                mock.patch.object(collector, "rendered_round_input", record(collector.rendered_round_input)), \
+                mock.patch.object(collector, "write_atomic", record(collector.write_atomic)):
+            code, _, err = self.main("--output", str(alias / "input.json"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(seen), 4)  # the check in collect, the lock, the final check, and the write
+        self.assertEqual(set(seen), {round_dir.resolve() / "input.json"})
+
     def test_a_git_executable_inside_the_repository_never_runs(self):
         marker = self.base / "repo-git-ran"
         (self.root / "bin").mkdir()

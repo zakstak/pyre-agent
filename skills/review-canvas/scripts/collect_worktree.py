@@ -634,16 +634,19 @@ def main(argv=None):
                         help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")
     args = parser.parse_args(argv)
     try:
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
+        # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
+        # symlink on the way cannot point them at different rounds.
+        output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
+        review, flagged = collect(args.repo, args.title, args.include_secret_file, output)
         root = Path(review["target"]["root"])
         staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
         # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
-        with review_state.round_lock(args.output):
-            if rendered_round_input(args.output):  # resolved, as round_lock is, so an alias cannot dodge the check
-                raise CollectError(f"{Path(args.output).parent} rendered while collecting; a round never changes after it renders. Start a new round.")
-            write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+        with review_state.round_lock(output):
+            if rendered_round_input(output):
+                raise CollectError(f"{output.parent} rendered while collecting; a round never changes after it renders. Start a new round.")
+            write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
