@@ -333,6 +333,34 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state_module.read_current(self.state), 3)
         self.assertTrue(third.exists())
 
+    def test_only_a_state_round_input_takes_the_round_lock(self):
+        directory = state_module.new_round(self.state)
+        with state_module.round_lock(directory / "input.json"):
+            self.assertTrue((self.state / "publish.lock").exists())
+        loose = self.temp / "shared" / "rounds" / "0001"
+        loose.mkdir(parents=True)
+        os.chmod(self.temp / "shared", 0o755)
+        for path in (loose / "review.json", loose / "input.json"):
+            with state_module.round_lock(path):
+                pass
+        self.assertFalse((self.temp / "shared" / "publish.lock").exists())
+
+    def test_rendering_uses_the_validated_round_path(self):
+        directory = state_module.new_round(self.state)
+        shutil.copyfile(FIXTURES / "worktree-review.json", directory / "input.json")
+        link = self.temp / "link"
+        os.symlink(self.temp, link)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(link / "state" / "rounds" / directory.name)]), 0)
+        self.assertTrue((directory / "review.html").exists())
+        real = []
+        with unittest.mock.patch.object(renderer, "load_review", side_effect=lambda path: real.append(Path(path)) or json.loads((FIXTURES / "worktree-review.json").read_text())):
+            second = state_module.new_round(self.state)
+            shutil.copyfile(FIXTURES / "worktree-review.json", second / "input.json")
+            with contextlib.redirect_stdout(io.StringIO()):
+                renderer.main(["--round", str(link / "state" / "rounds" / second.name)])
+        self.assertEqual(real, [second.resolve() / "input.json"])
+
     def test_publish_waits_for_another_publish(self):
         render_round(self.state, "worktree-review.json")
         second = state_module.new_round(self.state)
