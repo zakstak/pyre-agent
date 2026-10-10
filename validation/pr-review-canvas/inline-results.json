@@ -1,0 +1,55 @@
+{
+  "result": "PASS",
+  "date": "2026-10-10",
+  "runtime": {
+    "python": "3.14.7",
+    "node": "26.10.0",
+    "chromium": "152.0.7977.82"
+  },
+  "source_sha256": {
+    "skills/pr-review-canvas/scripts/render_review.py": "d4bc110104ee38f307b5f7d96141611c561b123e232ac14359dd434fce7f3905",
+    "skills/pr-review-canvas/assets/review.js": "cbed9807d5b9a1964439b2c41d75bafdca165051d9cdbc6f96ed67db8928b045",
+    "skills/pr-review-canvas/assets/feedback.js": "a97d79396ea862d1c84b3eb0886de2dadb947d4123b6e5b0a3f9308c1ebc0ba4",
+    "skills/pr-review-canvas/assets/review.css": "d1ca1bfa5acaea350000e36bb4996b4a7684503471635469b77899b95c368fdb",
+    "skills/internal-visual-style/assets/tokens.css": "90483386f72cd33ee8c013dd77656136d505e58e0d2da66248cc9ded7bad9e73"
+  },
+  "contract_sha256": "4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27",
+  "python_tests": 24,
+  "feedback_contract": "PASS",
+  "browser_regression": "PASS",
+  "browser_inline": "PASS",
+  "inline_checks": [
+    "actual pointer selection",
+    "multirow Unicode selection",
+    "fixed composer quote despite later selection",
+    "unsaved draft beforeunload dialog",
+    "file export/reload/import",
+    "same-ID key-order idempotence",
+    "clear-note conflicts rejected",
+    "edit/delete/validated undo",
+    "unique revised quote+context",
+    "ambiguous quotes become orphans",
+    "missing patch becomes orphan",
+    "manual reattachment retains previous anchor",
+    "earlier snapshot notes and flags retained separately",
+    "foreign/corrupt imports rejected",
+    "latest async import wins",
+    "keyboard320px phone",
+    "dark/light1440/390/320px100/200% text reflow",
+    "primary hover background",
+    "CSP/injection/no network"
+  ],
+  "independent_review": {
+    "persistence": "clear after targeted browser confirmation",
+    "renderer_style": "clear after24Python tests and source review"
+  },
+  "untested": [
+    "Firefox",
+    "Safari",
+    "physical phone keyboard",
+    "screen reader",
+    "native Claude/T3 provider discovery/execution",
+    "Windows"
+  ],
+  "privacy": "All committed screenshots use synthetic fixtures only; no real PR source or credentials."
+}

@@ -1,54 +1,72 @@
-/* Selected violet–indigo palette: published handoff 4dddf282d1b12f77c7ce08fe32abff4bb2ae5486.
-   Margin notes, legacy style moss. Both Atkinson fonts are chosen. */
+/* Reference editor contract v2. Dark source colors are exact; light/success are derived.
+   See ../references/reference-theme-contract.json. Both Atkinson fonts are retained. */
 :root {
   --font-reading: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --font-technical: "Atkinson Hyperlegible Mono", ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
   --size-reading: 1.0625rem;
   --size-small: 1rem;
-  --size-title: 1.75rem;
-  --size-heading: 1.375rem;
-  --leading-reading: 1.6;
-  --measure-reading: 70ch;
-  --measure-work: 64.375rem;
+  --size-title: 1.625rem;
+  --size-heading: 1.25rem;
+  --leading-reading: 1.55;
+  --measure-reading: 68ch;
+  --measure-work: 73.75rem;
   --space-1: 0.375rem;
   --space-2: 0.75rem;
   --space-3: 1.25rem;
   --space-4: 2rem;
-  --space-5: 2.375rem;
+  --space-5: 1.25rem;
   --space-rail-inset: 1.375rem;
   --space-evidence-block: 0.5rem;
   --space-evidence-inline: 1.125rem;
   --section-rail-width: 2px;
-  --radius: 0.1875rem;
+  --radius: 0.5rem;
   --control-min: 2.75rem;
 }
 
-/* Each role owns both modes. No selection follows the system, including without JS. */
+/* Roles keep the system mode when no explicit choice is saved, including without JS. */
 :root {
   color-scheme: light dark;
-  --pyre-canvas: light-dark(#f4f3fb, #141427);
-  --pyre-surface: light-dark(#fdfcff, #1e1d36);
-  --pyre-raised: light-dark(#e8e8f7, #2b2b4b);
-  --pyre-text: light-dark(#242438, #edeafa);
-  --pyre-muted: light-dark(#56566f, #b8b5d0);
-  --pyre-border: light-dark(#77758b, #87849d);
-  --pyre-line: light-dark(#d0cde4, #45415e);
-  --pyre-accent: light-dark(#5e448d, #c3a2f2);
-  --pyre-accent-soft: light-dark(#e8def4, #342744);
-  --pyre-accent-text: light-dark(#ffffff, #171222);
-  --pyre-accent-secondary: light-dark(#444f92, #abb8f2);
-  --pyre-success: light-dark(#236745, #8fd6b2);
-  --pyre-warning: light-dark(#775200, #f1c977);
-  --pyre-error: light-dark(#a62836, #ffabae);
-  /* Consumer aliases contain no additional palette values. */
+  --pyre-background: light-dark(#f3f1f7, #19191e);
+  --pyre-surface: light-dark(#fbfaff, #1e1c24);
+  --pyre-raised: light-dark(#ffffff, #26242c);
+  --pyre-overlay: light-dark(#ffffff, #2c2a32);
+  --pyre-text: light-dark(#302938, #dbd9e3);
+  --pyre-muted: light-dark(#5c5367, #918d9a);
+  --pyre-border: light-dark(#7e708a, #55525f);
+  --pyre-input: light-dark(#e8e3ef, #504b5d);
+  --pyre-subtle: light-dark(#eae5f1, #342e42);
+  --pyre-highlight: light-dark(#dfd5ed, #3c354b);
+  --pyre-accent: light-dark(#664c82, #a99acb);
+  --pyre-action: light-dark(#844463, #d7a6bd);
+  --pyre-message: light-dark(#e4dceb, #443c55);
+  --pyre-code: light-dark(#eeebf3, #131318);
+  --pyre-sidebar: light-dark(#eeebf3, #131318);
+  --pyre-sidebar-controls: light-dark(#e5dfed, #332f3c);
+  --pyre-sidebar-selection: light-dark(#ddd2e9, #393345);
+  --pyre-terminal: light-dark(#f3f1f7, #19191e);
+  --pyre-error: light-dark(#89465b, #d6a9b5);
+  --pyre-warning: light-dark(#705524, #d3c7b0);
+  --pyre-success: light-dark(#2f634b, #b7cbb9);
+  --pyre-on-accent: light-dark(#fbfaff, #131318);
+  --pyre-on-action: light-dark(#fbfaff, #131318);
+  --pyre-focus: light-dark(#664c82, #a99acb);
+  --pyre-functional-boundary: light-dark(#7e708a, #a99acb);
+  --pyre-canvas: light-dark(#f3f1f7, #19191e);
+  --pyre-accent-soft: light-dark(#eae5f1, #342e42);
+  --pyre-accent-text: light-dark(#fbfaff, #131318);
+  --pyre-accent-secondary: light-dark(#844463, #d7a6bd);
+  --pyre-line: light-dark(#7e708a, #55525f);
+  --pyre-functional-border: light-dark(#7e708a, #a99acb);
+  --pyre-control-border: light-dark(#7e708a, #918d9a);
+  /* Consumer aliases use verified functional boundaries rather than decorative lines. */
   --bg-page: var(--pyre-canvas);
   --bg-surface: var(--pyre-surface);
   --text-primary: var(--pyre-text);
   --text-secondary: var(--pyre-muted);
-  --border: var(--pyre-border);
+  --border: var(--pyre-control-border);
   --link: var(--pyre-accent);
-  --focus: var(--pyre-accent-secondary);
-  --status-neutral: var(--pyre-muted);
+  --focus: var(--pyre-focus);
+  --status-neutral: var(--pyre-text);
   --status-neutral-bg: var(--pyre-raised);
   --status-success: var(--pyre-success);
   --status-success-bg: var(--pyre-surface);
@@ -56,7 +74,6 @@
   --status-warning-bg: var(--pyre-surface);
   --status-danger: var(--pyre-error);
   --status-danger-bg: var(--pyre-surface);
-
 }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }

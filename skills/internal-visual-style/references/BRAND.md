@@ -19,23 +19,21 @@ Typography is confirmed. JetBrains Mono is not selected.
 
 ## Selected design direction
 
-Zak selected live playground theme 04, "Margin notes", with legacy style ID `moss`. The palette direction is a violet–indigo mix. Both Atkinson fonts remain confirmed.
+The current reference is Zak's supplied charcoal editor screenshot: quiet purple-gray layers, thin decorative separators, lavender focus and dusty pink primary actions. Both Atkinson fonts remain confirmed. The historical selection was theme04 Margin notes (`moss`); its earlier violet–indigo palette and rail geometry are superseded by this explicit reference request. The banner remains undecided.
 
-The supplied published baseline is themeSite source `d90c38ebb6f38efc2201c85aba031d060c4cf567`. This selection was handed into draft PR 17 on 2026-10-10. Identify the selection by this published baseline, name, and legacy ID. A newer unpublished theme 04 is not the selected baseline.
+[reference-theme-contract.json](reference-theme-contract.json) preserves the complete supplied version2 contract, SHA-256 `4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`. Dark source colors are exact screenshot values. The light companion and success role are derived; they are not screenshot evidence. tokens.css implements the contract's semantic palette. Preserve this distinction when extending it.
 
-## Palette handoff and remaining choices
+Use 17px reading text at1.55 line height, 26px headings and20px section headings, expressed in rem;68ch prose and1180px work measures,8px fields/buttons and10px quiet panels. Technical text must remain at least14px and controls44px. Let content determine layout rather than requiring rails or a dashboard. Keep shrinkable tracks, intrinsic nonbreaking technical identifiers and font-relative stacking/padding when text is enlarged on narrow phones. Preserve reading order and code scrolling.
 
-The verified palette handoff is `violet-indigo` in `dist/palettes.json` from theme Site project `appgprj_6ac9171661708191839eff184cb7435f`, published source `4dddf282d1b12f77c7ce08fe32abff4bb2ae5486`. The handed-off palettes.json SHA-256 is `d76fb1b976cf9209f024c865ad06fa408dd4d9416d2c0037569c9ac2af83ec98`. This is the published refinement of the earlier `8518e3cbc7f056db634140efc4b8499686bad7be` handoff, with the same selected values. Tokens.css now implements those exact light and dark values. Focus uses accent-secondary. The handoff authorizes palette implementation; it does not depend on another manual color preview or on the Site selector's separately tracked bugs.
+## Contrast restrictions
 
-The specimen uses the selected legacy Margin notes geometry: 17px reading size expressed in rem, 70ch reading measure, 1030px work measure expressed in rem, 38px section spacing expressed in rem, 3px corner radius expressed in rem, a left rail, and inset evidence. The inspected legacy `moss` fixture agrees with that identity. The ordinal theme number alone must not select a replacement style.
-
-The banner remains undecided and is not implemented. The specimen is a content-driven example, not a required layout. Do not invent an approved banner or redesign the selected direction while completing the review workflow.
+The contract contains the full contrast matrix, including restricted pairs. Dark source borders are decorative separators; necessary control boundaries use control-border or functional-border. Source-muted text must not appear on overlay, input, subtle, highlight, message or sidebar selection fills. Use primary ink there. Status roles use surface backgrounds. The neutral status uses primary ink on raised. Do not claim every source pairing is accessible, silently alter source colors, or use a passing palette test as proof of every consumer's layout.
 
 ## Semantic tokens
 
 Use the CSS custom properties in tokens.css for page and surface backgrounds, text, secondary text, borders, links, focus, and named status pairs. Typography, spacing, reading measure, corner radius, and control size are also owned there. Do not repeat palette values in HTML, component styles, Tailwind configuration, or prompts. If a needed semantic role is missing, add it at the source and verify both modes. Avoid anonymous color utilities for status.
 
-Success means a verified successful result. Warning means a condition that needs attention. Danger means a failed result or destructive action. Pending choices and ordinary metadata use the neutral role. Status foregrounds use the handed-off success, warning, and error colors against the shared surface background. Neutral status uses muted text on raised. No extra status palette is invented.
+Success means a verified successful result. Warning means a condition that needs attention. Danger means a failed result or destructive action. Pending choices and ordinary metadata use the neutral role. Status foregrounds use the handed-off success, warning, and error colors against the shared surface background. Neutral status uses primary text on raised. No extra status palette is invented.
 
 ## Browser consumption
 
@@ -47,7 +45,7 @@ When copying assets, preserve their relative paths. A compiler may leave the fon
 
 ## Typography and fallback
 
-Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights 400, 600, or 700 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
+Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights400 or650 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
 
 The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. The technical font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblemono). Its SHA-256 is `5ce8b1698d1ded7dff2178c1a3ad159470085a58ea239e8b2cb88f4fb4a6f646`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the reading font and [../assets/fonts/atkinson-hyperlegible-mono-OFL.txt](../assets/fonts/atkinson-hyperlegible-mono-OFL.txt) with the technical font. These are required third-party font notices; project instructions and code use the single repository root MIT license. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
 

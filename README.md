@@ -60,5 +60,6 @@ A non-empty `AGENTS.override.md` in the same directory takes precedence over `AG
 MIT. The project [LICENSE](LICENSE) is Copyright (c) 2026 Zak. Its MIT permission text also covers the upstream material below. If you copy or redistribute the skills, include LICENSE and this section.
 
 - **Lauren Tan, Copyright (c) 2026 Lauren Tan, [upstream pstack](https://github.com/cursor/plugins/tree/main/pstack).** Retained instructions and patterns in `correct`, `principle-boundary-discipline`, `principle-encode-lessons-in-structure`, `principle-fix-root-causes`, `principle-guard-the-context-window`, `principle-migrate-callers-then-delete-legacy-apis`, `principle-minimize-reader-load`, `principle-type-system-discipline`, `technical-writing`, `typescript-best-practices`, and `unslop`.
+- **Cursor, Copyright (c) 2026 Cursor, [upstream PR review canvas](https://github.com/cursor/plugins/tree/main/pr-review-canvas).** Retained instructions in `pr-review-canvas`.
 
 The bundled Atkinson Hyperlegible fonts keep their OFL notices in `skills/internal-visual-style/assets/fonts/`.

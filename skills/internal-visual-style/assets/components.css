@@ -9,8 +9,8 @@ body {
   font-synthesis: none;
 }
 h1, h2, h3, p, ul, ol, pre, dl { margin: 0; }
-h1 { font-size: var(--size-title); line-height: 1.25; font-weight: 700; }
-h2 { font-size: var(--size-heading); line-height: 1.35; font-weight: 600; }
+h1 { font-size: var(--size-title); line-height: 1.25; font-weight: 650; }
+h2 { font-size: var(--size-heading); line-height: 1.35; font-weight: 650; }
 a { color: var(--link); text-underline-offset: 0.18em; }
 button, summary { min-height: var(--control-min); }
 button {
@@ -53,6 +53,9 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 footer { padding-block-start: var(--space-4); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
 
-/* Published legacy Margin notes treatment: left rail and inset evidence. */
-.plan-section { border-inline-start: var(--section-rail-width) solid var(--pyre-line); padding-inline-start: var(--space-rail-inset); }
+/* Current reference treatment: quiet panels and flat evidence rows. */
+.plan-section { border: 1px solid var(--pyre-line); border-radius: .625rem; background: var(--bg-surface); padding: var(--space-3); min-width: 0; }
 .evidence { background: var(--bg-surface); padding: var(--space-evidence-block) var(--space-evidence-inline); }
+
+@media (max-width: 720px) { .work { padding-inline: 1rem; } .plan-section, .surface { padding-inline: .75rem; } }
+@media (max-width: 380px) { .work { padding-inline: .5rem; } .plan-section, .surface { padding-inline: clamp(6px, calc(100vw - 10em), 12px); } }
