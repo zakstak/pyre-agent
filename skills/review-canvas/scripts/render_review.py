@@ -306,7 +306,7 @@ def shared_style(style_dir=None):
         notices = "\n\n".join((assets / "fonts" / name).read_text(encoding="utf-8") for name in ("OFL.txt", "atkinson-hyperlegible-mono-OFL.txt"))
         return css + "\n" + fonts + "\n" + components + "\n", js, notices
     except OSError as error:
-        raise ValidationError("internal-visual-style companion is missing or unreadable. Install its complete folder beside pr-review-canvas, or pass --style-dir /path/to/internal-visual-style. " + str(error)) from error
+        raise ValidationError("internal-visual-style companion is missing or unreadable. Install its complete folder beside review-canvas, or pass --style-dir /path/to/internal-visual-style. " + str(error)) from error
 
 
 def render_review(review, style_dir=None):

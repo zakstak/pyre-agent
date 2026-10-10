@@ -1,6 +1,6 @@
 /** Dependency-free feedback contract checks. Real DOM interactions are tested in browser_review.cjs. */
 const assert = require('node:assert/strict');
-const core = require('../skills/pr-review-canvas/assets/feedback.js');
+const core = require('../skills/review-canvas/assets/feedback.js');
 const snapshot = {pr:{title:'Synthetic',url:'https://github.com/example/repo/pull/2',head_sha:'1'.repeat(40)},input_sha256:'a'.repeat(64)};
 const anchor = {snapshot,path:'source.js',patch_sha256:'b'.repeat(64),start:7,end:11,quote:'code',prefix:'before ',suffix:' after',start_row:0,end_row:0,old_line:null,new_line:1};
 const comment = {id:'one',body:'Check this',created_at:'2026-10-10T00:00:00Z',updated_at:'2026-10-10T00:00:00Z',anchor,history:[],attachment:{state:'attached',reason:'Exact',start:7,end:11}};

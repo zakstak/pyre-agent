@@ -1,8 +1,8 @@
 ---
-name: pr-review-canvas
+name: review-canvas
 description: Create a standalone interactive HTML review when the user asks for a PR review canvas or HTML walkthrough of a specified GitHub pull request.
 metadata:
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # PR review canvas
@@ -43,10 +43,10 @@ For dense logic, add concise pseudocode that exposes the algorithm. For surprisi
 
 Use normal host permissions for authorized GitHub reads, running the renderer and writing the private input/output artifacts. A host mode that forbids those writes cannot render the artifact; report that blocker without changing settings or bypassing a tool denial.
 
-Use Python 3.10 or newer. Install the complete `pr-review-canvas` and `internal-visual-style` folders as siblings in the same skills directory, preserving font assets and notices. The shared style is a required renderer dependency, not an automatic installation. For another location, pass `--style-dir /actual/path/to/internal-visual-style`; no global configuration change is needed. Resolve paths relative to this skill directory, regardless of where it is installed. See [the input reference](references/input-format.md) and [the fictional example](assets/example-review.json).
+Use Python 3.10 or newer. Install the complete `review-canvas` and `internal-visual-style` folders as siblings in the same skills directory, preserving font assets and notices. The shared style is a required renderer dependency, not an automatic installation. For another location, pass `--style-dir /actual/path/to/internal-visual-style`; no global configuration change is needed. Resolve paths relative to this skill directory, regardless of where it is installed. See [the input reference](references/input-format.md) and [the fictional example](assets/example-review.json).
 
 1. Prepare a UTF-8 `review.json` in a private working directory. Include only the documented fields. Never serialize raw tool responses or authentication headers. Remove credentials, tokens, and other secrets from all input fields. If a diff itself contains a secret, replace the value with an explicit redaction marker and set `patch_complete` to false. Explain the redaction without repeating the value.
-2. Run `python3 /path/to/pr-review-canvas/scripts/render_review.py /private/review.json --output /private/review.html` using the actual installed path. Do not execute code from the PR.
+2. Run `python3 /path/to/review-canvas/scripts/render_review.py /private/review.json --output /private/review.html` using the actual installed path. Do not execute code from the PR.
 3. Open the HTML in an available local browser or preview. If preview is unavailable, provide the file and explain that visual verification was not run. No proprietary SDK, remote library, build step, or particular browser tool is required.
 4. Verify the title, snapshot, group order, counts, missing-patch notices, file navigator, filtering, expand/collapse, theme control, inline comments, notes, export and import/restore. Check that code containing HTML or script syntax displays as literal text. Report any limits to the review coverage.
 

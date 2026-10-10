@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STYLE = ROOT / 'skills/internal-visual-style'
-VIEWER = ROOT / 'skills/pr-review-canvas'
+VIEWER = ROOT / 'skills/review-canvas'
 class SharedStyleTests(unittest.TestCase):
     def test_contract_tokens_remain_exact(self):
         raw = (STYLE / 'references/reference-theme-contract.json').read_bytes()
@@ -22,8 +22,8 @@ class SharedStyleTests(unittest.TestCase):
     def test_installed_copy_companion_and_override(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            shutil.copytree(VIEWER, root / 'pr-review-canvas')
-            spec = importlib.util.spec_from_file_location('installed_renderer', root / 'pr-review-canvas/scripts/render_review.py')
+            shutil.copytree(VIEWER, root / 'review-canvas')
+            spec = importlib.util.spec_from_file_location('installed_renderer', root / 'review-canvas/scripts/render_review.py')
             renderer = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(renderer)
             review = renderer.load_review(VIEWER / 'assets/example-review.json')

@@ -21,7 +21,7 @@ const report = { result: "FAIL", browser: null, screenshots: [], states: [], con
 function render(review, name) {
   const input = path.join(temp, `${name}.json`), output = path.join(temp, `${name}.html`);
   fs.writeFileSync(input, JSON.stringify(review));
-  const run = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/pr-review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
+  const run = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   return pathToFileURL(output).href;
 }

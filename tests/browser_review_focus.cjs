@@ -11,12 +11,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 (async () => {
   const root = path.resolve(__dirname, "..");
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-review-focus-"));
-  const review = JSON.parse(fs.readFileSync(path.join(root, "skills/pr-review-canvas/assets/example-review.json"), "utf8"));
+  const review = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));
   // Old and new numbering differ, so a range across deleted and added rows must name both sides.
   review.files[1].patch = "@@ -100,3 +5,3 @@\n ctx\n-old one\n-old two\n+new one\n+new two\n";
   const input = path.join(temp, "review.json"), output = path.join(temp, "review.html");
   fs.writeFileSync(input, JSON.stringify(review));
-  const run = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/pr-review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
+  const run = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium", headless: true });
   try {
@@ -108,7 +108,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     const big = structuredClone(review);
     big.files[1].patch = "@@ -1,9990 +1,9990 @@\n" + Array.from({ length: 9990 }, (_, i) => ` line ${i} of a long file\n`).join("");
     fs.writeFileSync(input, JSON.stringify(big));
-    const bigRun = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/pr-review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
+    const bigRun = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
     assert.equal(bigRun.status, 0, bigRun.stderr);
     await page.goto(pathToFileURL(output).href);
     const timing = await page.evaluate(async () => {

@@ -16,9 +16,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 (async () => {
   const root = path.resolve(__dirname, "..");
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-review-browser-"));
-  const source = path.join(root, "skills/pr-review-canvas/assets/example-review.json");
+  const source = path.join(root, "skills/review-canvas/assets/example-review.json");
   const html = path.join(temp, "review.html");
-  const script = path.join(root, "skills/pr-review-canvas/scripts/render_review.py");
+  const script = path.join(root, "skills/review-canvas/scripts/render_review.py");
   function render(input, output) {
     const result = spawnSync(process.env.PYTHON || "python3", [script, input, "--output", output], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
