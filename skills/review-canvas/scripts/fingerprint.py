@@ -58,28 +58,44 @@ def repository_top(path):
     return None
 
 
-def configured_worktree(repo):
-    """The working tree that core.worktree names in repo's own config file, read without running Git, or None.
+def configured_worktrees(repo):
+    """Every working tree that core.worktree names in repo's config, read without running Git.
 
-    The checkout under review may sit there, outside repo, so a git inside it must be refused before Git first runs."""
+    The checkout under review may sit there, outside repo, so a git inside it must be refused before Git first runs.
+    Included files count too, whatever their condition: refusing a git under a tree Git would not use costs nothing."""
     top = repository_top(repo)
     git_dir = top / ".git" if top is not None else Path(repo).resolve()
     if git_dir.is_file():  # a linked worktree or submodule: .git names the Git directory
         text = git_dir.read_text(errors="replace").strip()
         git_dir = (git_dir.parent / text.removeprefix("gitdir:").strip()).resolve() if text.startswith("gitdir:") else git_dir
-    for name in ("config.worktree", "config"):
+    found, seen = [], set()
+
+    def read(path, depth):
+        if depth > 10 or path in seen:
+            return
+        seen.add(path)
         try:
-            lines = (git_dir / name).read_text(errors="replace").splitlines()
+            lines = path.read_text(errors="replace").splitlines()
         except OSError:
-            continue
-        section = None
+            return
+        section = ""
         for line in lines:
-            line = line.split("#", 1)[0].split(";", 1)[0].strip()
+            line = line.strip()
             if line.startswith("["):
-                section = line.strip("[]").strip().lower()
-            elif section == "core" and line.partition("=")[0].strip().lower() == "worktree":
-                return (git_dir / line.partition("=")[2].strip().strip('"')).resolve()
-    return None
+                section = line[1:line.find("]")].strip().lower()
+                continue
+            key, separator, value = line.partition("=")
+            key, value = key.strip().lower(), value.split(" #", 1)[0].split(" ;", 1)[0].strip().strip('"')
+            if not separator:
+                continue
+            if section == "core" and key == "worktree":
+                found.append((git_dir / value).resolve())  # relative to the Git directory, as Git reads it
+            elif (section == "include" or section.startswith("includeif")) and key == "path":
+                read((path.parent / Path(value).expanduser()).resolve(), depth + 1)
+
+    for name in ("config", "config.worktree"):
+        read(git_dir / name, 0)
+    return found
 
 
 def git_executable(repo=None):
@@ -88,7 +104,7 @@ def git_executable(repo=None):
     if executable is None:
         raise GitError("git was not found in any absolute PATH directory")
     # A bare repository has no .git child, so the supplied path itself counts too, as does a core.worktree elsewhere.
-    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo), configured_worktree(repo)]
+    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo), *configured_worktrees(repo)]
     if any(root is not None and Path(executable).resolve().is_relative_to(root) for root in roots):
         raise GitError(f"git resolves to {executable}, inside the repository under review. Put the system git earlier in PATH.")
     return executable

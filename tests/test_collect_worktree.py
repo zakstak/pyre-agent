@@ -1199,6 +1199,23 @@ class IsolationTests(Fixture):
             self.collect()
         self.assertFalse(marker.exists())
 
+    def test_a_git_executable_inside_an_included_worktree_never_runs(self):
+        outside = self.base / "checkout"
+        (outside / "bin").mkdir(parents=True)
+        marker = self.base / "included-git-ran"
+        fake = outside / "bin" / "git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        self.commit({"a.txt": "a\n"})
+        (self.base / "extra.config").write_text(f'[core]\n\tworktree = "{outside}"\n')
+        for section in ("include", 'includeIf "gitdir:/"'):
+            with self.subTest(section=section):
+                (self.root / ".git" / "config").write_text((self.root / ".git" / "config").read_text().split("[include")[0] + f"[{section}]\n\tpath = ../../extra.config\n")
+                with mock.patch.dict(os.environ, {"PATH": str(outside / "bin") + os.pathsep + os.environ["PATH"]}), \
+                        self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
+                    self.collect()
+                self.assertFalse(marker.exists())
+
     def test_git_tracing_cannot_write_into_the_working_tree(self):
         self.commit({"a.txt": "a\n"})
         self.write("a.txt", "b\n")
