@@ -363,6 +363,32 @@ class RoutingTests(ServerCase):
         noted["comments"][1]["replies"] = [accept]
         self.assertEqual(self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
 
+    def test_answers_written_for_an_unpublished_round_protect_their_comments(self):
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual(status, 200)
+        pending = state_module.new_round(self.state)
+        (pending / "input.json").write_bytes((FIXTURES / "worktree-review-round2.json").read_bytes())  # answers all four, not rendered
+        base = {"X-Review-Revision": reply["revision"]}
+        deleted = json.loads(self.body)
+        deleted["comments"] = deleted["comments"][1:]
+        changed = json.loads(self.body)
+        changed["comments"][1]["body"] = "A different question."
+        replied = json.loads(self.body)
+        replied["comments"][0]["replies"] = [{"id": "early", "actor": "reviewer", "created_at": "2099-10-10T12:00:00.000Z", "body": "More.", "action": "reply"}]
+        for document in (deleted, changed, replied):
+            status, refused = self.api("PUT", "/feedback", json.dumps(document).encode(), **base)
+            self.assertEqual(status, 409)
+            self.assertIn("answering this page's comments for the next round", refused["error"])
+        noted = json.loads(self.body)
+        noted["general_notes"] = "Notes still save."
+        status, reply = self.api("PUT", "/feedback", json.dumps(noted).encode(), **base)
+        self.assertEqual(status, 200)
+        # An input still being written could answer any comment, so every saved comment is protected until it reads.
+        (pending / "input.json").write_text('{"schema_version": 2, "replies": [')
+        deleted = json.loads(json.dumps(noted))
+        deleted["comments"] = deleted["comments"][1:]
+        self.assertEqual(self.api("PUT", "/feedback", json.dumps(deleted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 409)
+
     def test_round_follows_each_publish(self):
         self.assertEqual(self.api("GET", "/round")[1], {"round": 1})
         render_round(self.state, "worktree-review-round2.json")

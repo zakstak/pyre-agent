@@ -85,6 +85,23 @@ class ReviewServer(ThreadingHTTPServer):
                                       "answered": frozenset(reply["comment_id"] for reply in review.get("replies", []))}
         return self.snapshots[number]
 
+    def pending_answers(self, current):
+        """Comment IDs that rounds after the current one answer before they publish, as after reply.py add and before the
+        render. None when such an input cannot be read yet, as while the agent writes its analysis."""
+        answered = set()
+        for entry in (self.state / "rounds").iterdir():
+            if not review_state.ROUND_NAME.fullmatch(entry.name) or int(entry.name) <= current:
+                continue
+            try:
+                with (entry / "input.json").open("rb") as handle:
+                    replies = json.loads(handle.read(render_review.MAX_INPUT_BYTES + 1)).get("replies", [])
+                answered |= {reply["comment_id"] for reply in replies}
+            except FileNotFoundError:
+                continue
+            except (ValueError, AttributeError, TypeError, KeyError):
+                return None
+        return answered
+
     def saved(self):
         try:
             return (self.state / "feedback.json").read_bytes()
@@ -239,7 +256,8 @@ class Handler(BaseHTTPRequestHandler):
         # The publish lock holds the current round still from this read to the write, so a round published meanwhile
         # cannot slip past the identity and answered-comment checks.
         with self.server.save_lock, review_state.lock(self.server.state, "publish"):
-            snapshot = self.server.snapshot(review_state.read_current(self.server.state))
+            number = review_state.read_current(self.server.state)
+            snapshot = self.server.snapshot(number)
             try:
                 feedback_contract.check_identity(feedback, snapshot)
             except feedback_contract.FeedbackError as error:
@@ -261,12 +279,18 @@ class Handler(BaseHTTPRequestHandler):
                 if kept[comment_id] != before[comment_id]:
                     return self.reply(409, error="The agent answered a comment this page changes. Reload to see the answer.", revision=current)
             # Nor may it answer one: its reply could sort before an answer it never showed, and the agent would miss it.
-            if feedback["input_sha256"] != snapshot["input_sha256"]:
-                earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
-                if any(comment["id"] in snapshot["answered"] and comment.get("replies", []) != earlier.get(comment["id"], [])
-                       for comment in feedback["comments"]):
-                    return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
-                                      revision=current)
+            earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
+            replied = {comment["id"] for comment in feedback["comments"] if comment.get("replies", []) != earlier.get(comment["id"], [])}
+            if feedback["input_sha256"] != snapshot["input_sha256"] and replied & snapshot["answered"]:
+                return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
+                                  revision=current)
+            # Answers already written for the next round, before it publishes, protect their comments the same way. Until
+            # such an input can be read, every saved comment is protected.
+            pending = self.server.pending_answers(number)
+            pending = set(before) if pending is None else pending
+            if any(comment_id not in kept or kept[comment_id] != before[comment_id] for comment_id in pending & before.keys()) or replied & pending:
+                return self.reply(409, error="The agent is answering this page's comments for the next round. Reload when that round is ready.",
+                                  revision=current)
             review_state.write_private(self.server.state / "feedback.json", body)
         self.reply(200, revision=revision(body))
 
