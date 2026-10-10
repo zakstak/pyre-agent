@@ -293,8 +293,18 @@ class InventoryTests(Fixture):
         self.commit({"lib.txt": "l\n"}, root=library)
         self.git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(library), "sub")
         self.commit({"a.txt": "a\n"})
+        sub_commit = self.head(self.root / "sub")
         self.git(self.root, "update-index", "--assume-unchanged", "sub")
         self.assertEqual(self.collect(), {})
+        # Replaced by a file, the hidden submodule is a type change. Its commit is never read as a blob, and the patch
+        # shows the file that replaced it.
+        shutil.rmtree(self.root / "sub")
+        self.write("sub", "now\na file\n")
+        sub = self.collect()["sub"]
+        self.assertEqual((sub["old_mode"], sub["new_mode"], sub["patch"]), ("160000", "100644", "@@ -0,0 +1,2 @@\n+now\n+a file\n"))
+        entry = {"kind": "file", "path": "sub", "old_mode": "160000", "old_blob": sub_commit,
+                 "new_mode": "100644", "new_blob": None}
+        self.assertEqual(collector.hidden_stats(self.root, entry, ())[:2], (2, 1), "Git counts the submodule side as one line")
 
     def test_present_skip_worktree_files_are_compared_by_their_bytes(self):
         self.commit({"pinned.txt": "a\n"})
@@ -554,6 +564,13 @@ class InventoryTests(Fixture):
         self.git(self.root, "config", "core.ignoreCase", "true")
         os.rename(self.root / "foo", self.root / "FOO")
         with self.assertRaisesRegex(collector.CollectError, "renamed by case only"):
+            self.collect()
+
+    def test_a_case_only_directory_rename_hidden_by_ignore_case_stops_collection(self):
+        self.commit({"dir/file": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "dir", self.root / "DIR")
+        with self.assertRaisesRegex(collector.CollectError, "dir/file was renamed by case only"):
             self.collect()
 
     def test_many_long_hidden_paths_fit(self):
