@@ -384,6 +384,33 @@ class RoutingTests(ServerCase):
         noted["comments"][1]["replies"] = [accept]
         self.assertEqual(self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
 
+    def test_an_older_page_may_reply_to_an_answer_the_current_round_only_carries(self):
+        render_round(self.state, "worktree-review-round2.json")
+        round2 = renderer.load_review(self.state / "rounds/0002/input.json")
+        page = json.loads(self.body)
+        page["input_sha256"] = renderer.input_digest(round2)
+        status, reply = self.api("PUT", "/feedback", json.dumps(page).encode())
+        self.assertEqual(status, 200)
+        # Round 3 carries every answer and adds a new one to comment 2.
+        round3 = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        round3["summary"] = "Round 3."
+        round3["replies"].append({**next(item for item in round3["replies"] if item["comment_id"] == "fixture-comment-2"),
+                                  "id": "agent-round-3", "created_at": "2026-10-10T23:00:00Z", "disposition": "question", "body": "Which file?"})
+        round3["replies"][-1].pop("fixed_in", None)
+        directory = state_module.new_round(self.state)
+        (directory / "input.json").write_text(json.dumps(round3))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(directory)]), 0)
+        accepted = json.loads(json.dumps(page))
+        accepted["comments"][0]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "", "action": "accept"}]
+        status, reply = self.api("PUT", "/feedback", json.dumps(accepted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200, reply)
+        reopened = json.loads(json.dumps(accepted))
+        reopened["comments"][1]["replies"] = [{"id": "r2", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "Still broken.", "action": "reopen"}]
+        status, refused = self.api("PUT", "/feedback", json.dumps(reopened).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page replies to", refused["error"])
+
     def test_answers_written_for_an_unpublished_round_protect_their_comments(self):
         status, reply = self.api("PUT", "/feedback", self.body)
         self.assertEqual(status, 200)

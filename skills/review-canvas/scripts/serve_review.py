@@ -82,12 +82,23 @@ class ReviewServer(ThreadingHTTPServer):
             return self.saves_done.wait_for(lambda: self.active_saves == 0, timeout)
 
     def snapshot(self, number):
-        """The target, input digest, and answered comment IDs of a round, read once from its immutable input."""
+        """The target, input digest, and agent answers of a published round, read once from its immutable input."""
         if number not in self.snapshots:
             review = render_review.load_review(self.state / "rounds" / f"{number:04d}" / "input.json")
+            answers = {}
+            for reply in review.get("replies", []):
+                answers.setdefault(reply["comment_id"], set()).add(reply["id"])
             self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review),
-                                      "answered": frozenset(reply["comment_id"] for reply in review.get("replies", []))}
+                                      "answered": frozenset(answers), "answers": {key: frozenset(ids) for key, ids in answers.items()}}
         return self.snapshots[number]
+
+    def shown_answers(self, digest, current):
+        """The agent answers, by comment, that the page of the published round with this input digest showed. None when
+        no published round has that digest."""
+        for number in range(current, 0, -1):
+            if (self.state / "rounds" / f"{number:04d}" / "review.html").exists() and self.snapshot(number)["input_sha256"] == digest:
+                return self.snapshot(number)["answers"]
+        return None
 
     def pending_answers(self, current):
         """Comment IDs that rounds after the current one answer before they publish, as after reply.py add and before the
@@ -292,9 +303,12 @@ class Handler(BaseHTTPRequestHandler):
             # Nor may it answer one: its reply could sort before an answer it never showed, and the agent would miss it.
             earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
             replied = {comment["id"] for comment in feedback["comments"] if comment.get("replies", []) != earlier.get(comment["id"], [])}
-            if feedback["input_sha256"] != snapshot["input_sha256"] and replied & snapshot["answered"]:
-                return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
-                                  revision=current)
+            if feedback["input_sha256"] != snapshot["input_sha256"]:
+                # An answer merely carried into this round is one the page showed; only an answer it never showed blocks it.
+                shown = self.server.shown_answers(feedback["input_sha256"], number)
+                if any(shown is None or shown.get(comment_id) != snapshot["answers"][comment_id] for comment_id in replied & snapshot["answered"]):
+                    return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
+                                      revision=current)
             # Answers already written for the next round, before it publishes, protect their comments the same way. Until
             # such an input can be read, every saved comment is protected.
             pending = self.server.pending_answers(number)
