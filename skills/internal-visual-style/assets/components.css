@@ -110,6 +110,25 @@ details[open] > summary::before { transform: rotate(45deg); }
 .code-region { max-width: 100%; overflow: auto; background: var(--bg-code); border: 1px solid var(--separator); border-radius: var(--radius); }
 .code-region pre { padding: var(--space-3) var(--space-4); }
 
+/* Tables scroll inside a labeled .table-region. Elsewhere, anywhere lets a column shrink to one letter,
+   so cells use break-word: a narrow screen widens the table and scrolls the region instead. */
+.table-region { max-width: 100%; overflow-x: auto; background: var(--bg-surface); border: 1px solid var(--separator); border-radius: var(--radius-panel); }
+.table-region > table { inline-size: 100%; border-collapse: collapse; font-size: var(--size-small); }
+.table-region > table :is(th, td) { padding: var(--space-2) var(--space-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--separator); }
+.table-region > table :is(th, td), .table-region > table :is(th, td) * { overflow-wrap: break-word; }
+.table-region > table thead th { background: var(--bg-raised); }
+.table-region > table tbody tr:last-child > * { border-block-end: 0; }
+.table-region > table code { font-size: var(--size-technical); }
+
+/* Decisions: one question, its options, and the outcome in one reading column. Options stack because they
+   differ in length; compare them in a .table. The chosen option has a Chosen chip and an accent edge. */
+.decision { max-width: var(--measure-reading); }
+.decision > * + * { margin-block-start: var(--space-4); }
+.option > * + * { margin-block-start: var(--space-3); }
+.option.chosen { border-color: var(--pyre-accent); border-inline-start-width: 3px; }
+.tradeoffs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-3) var(--space-5); }
+.tradeoffs ul { margin-block-start: var(--space-1); }
+
 /* Diffs: unified rows with old and new line numbers. The +/- marker carries the meaning; tints and edges repeat it. */
 .diff-scroll { max-width: 100%; overflow-x: auto; background: var(--bg-code); }
 .diff { inline-size: 100%; border-collapse: collapse; font-family: var(--font-technical); font-size: var(--size-technical); line-height: 1.5rem; }

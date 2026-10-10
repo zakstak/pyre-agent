@@ -7,7 +7,7 @@
  * To check a compiled Tailwind v4 build, copy the skill's assets into a temporary project whose build resolves
  * `tailwindcss`, and include the specimen plus this fixture in its source scan:
  *   <h1 class="text-4xl font-normal dark:underline"></h1> <button class="bg-page p-8"></button>
- *   <span class="font-sans text-success bg-success-tint"></span> <code class="font-mono"></code>
+ *   <span class="font-sans text-success bg-success-tint"></span> <code class="font-mono"></code> <div class="table"></div>
  * Compile assets/tailwind.css to compiled.css beside the assets so ./fonts/ URLs resolve, then run with
  * TAILWIND_CSS=/path/to/compiled.css.
  */
@@ -120,9 +120,23 @@ function contrast(a, b) {
             modeLabel: document.querySelector('#theme-toggle').textContent,
             modePressed: document.querySelector('#theme-toggle').getAttribute('aria-pressed'),
             colorScheme: getComputedStyle(document.documentElement).colorScheme,
-            controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() }))
+            controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() })),
+            // A word whose glyphs land on more than one line was split mid-word.
+            splitWords: [...document.querySelectorAll('.table-region > table :is(th, td), .chip')].flatMap(element => {
+              const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), split = [];
+              for (let node; (node = walker.nextNode());) {
+                for (const match of node.data.matchAll(/\S+/g)) {
+                  const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+                  if (new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size > 1) split.push(match[0]);
+                }
+              }
+              return split;
+            }),
+            optionEdges: [...document.querySelectorAll('.decision .option')].map(e => Math.round(e.getBoundingClientRect().left))
           }));
           assert.ok(state.scrollWidth <= width, `overflow ${theme} ${width} ${scale}`);
+          assert.deepEqual(state.splitWords, [], `split words ${theme} ${width} ${scale}`);
+          assert.equal(new Set(state.optionEdges).size, 1, `options side by side ${theme} ${width} ${scale}`);
           assert.equal(state.readingSize, `${17 * scale}px`);
           assert.equal(state.colorScheme, theme);
           assert.ok(state.controls.every(control => control.height >= 44));
@@ -155,6 +169,15 @@ function contrast(a, b) {
         report.contrasts.push({ theme, ...pair, ratio: Number(ratio.toFixed(2)) });
       }
     }
+    // Outside tables, a chip whose one token is wider than the screen must still wrap instead of widening the page.
+    await page.setViewportSize({ width: 320, height: 1000 });
+    assert.ok(await page.evaluate(() => {
+      document.documentElement.style.fontSize = '32px';
+      const chip = document.createElement('li'); chip.className = 'chip'; chip.textContent = 'Pending: ReleaseCandidateArtifact0123456789abcdef';
+      document.querySelector('.statuses').append(chip);
+      const fits = document.documentElement.scrollWidth <= innerWidth; chip.remove(); return fits;
+    }), 'long chip token overflows at 320px and 200% text');
+    report.checks.push('long chip token wraps at 320px and 200% text');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => {
       document.documentElement.style.fontSize = '16px';
@@ -172,7 +195,8 @@ function contrast(a, b) {
     const changed = await page.locator('html').getAttribute('data-theme'); assert.notEqual(changed, previous);
     assert.equal(await page.locator('#theme-toggle').getAttribute('aria-pressed'), String(changed === 'dark'));
     await page.reload(); assert.equal(await page.locator('html').getAttribute('data-theme'), changed);
-    await page.locator('summary').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('details').getAttribute('open'), '');
+    const disclosure = page.locator('#disclosure + details');
+    await disclosure.locator('summary').focus(); await page.keyboard.press('Enter'); assert.equal(await disclosure.getAttribute('open'), '');
     await page.locator('.code-region').focus(); assert.ok(await page.locator('.code-region').evaluate(e => e.scrollWidth > e.clientWidth));
     await page.keyboard.press('ArrowRight'); await page.waitForFunction(() => document.querySelector('.code-region').scrollLeft > 0);
     await page.locator('a[href="../references/BRAND.md"]').click(); assert.ok((await page.textContent('body')).includes('Internal visual reference'));
@@ -212,20 +236,23 @@ function contrast(a, b) {
     if (compiled) {
       await autoPage.evaluate(() => {
         const sample = document.createElement('section'); sample.id = 'utility-sample';
-        sample.innerHTML = '<h1 class="text-4xl font-normal dark:underline">Utility heading</h1><button class="bg-page p-8">Utility button</button><span class="font-sans text-success bg-success-tint">Passed</span><code class="font-mono">Technical utility</code>';
+        sample.innerHTML = '<h1 class="text-4xl font-normal dark:underline">Utility heading</h1><button class="bg-page p-8">Utility button</button><span class="font-sans text-success bg-success-tint">Passed</span><code class="font-mono">Technical utility</code><div class="table">Utility table</div>';
         document.body.append(sample);
       });
       const actual = await autoPage.locator('#utility-sample').evaluate(e => {
         const heading = getComputedStyle(e.querySelector('h1')), button = getComputedStyle(e.querySelector('button')), status = getComputedStyle(e.querySelector('span'));
         return { headingSize: heading.fontSize, weight: heading.fontWeight, decoration: heading.textDecorationLine, padding: button.paddingTop,
-          background: button.backgroundColor, page: getComputedStyle(document.documentElement).backgroundColor, status: status.color, tint: status.backgroundColor, font: status.fontFamily, mono: getComputedStyle(e.querySelector('code')).fontFamily };
+          background: button.backgroundColor, page: getComputedStyle(document.documentElement).backgroundColor, status: status.color, tint: status.backgroundColor, font: status.fontFamily, mono: getComputedStyle(e.querySelector('code')).fontFamily,
+          // Tailwind's table utility must not pick up the shared table styles.
+          table: (({ display, borderCollapse, fontSize }) => ({ display, borderCollapse, fontSize }))(getComputedStyle(e.querySelector('div.table'))), sampleSize: getComputedStyle(e).fontSize };
       });
       assert.equal(actual.headingSize, '36px'); assert.equal(actual.weight, '400'); assert.equal(actual.decoration, 'underline');
       assert.equal(actual.padding, '32px'); assert.equal(actual.background, actual.page);
       assert.equal(actual.status, 'rgb(183, 203, 185)'); assert.equal(actual.tint, 'rgb(30, 28, 36)');
       assert.ok(actual.font.startsWith('\"Atkinson Hyperlegible Next\"'));
       assert.ok(actual.mono.startsWith('\"Atkinson Hyperlegible Mono\"'));
-      report.tailwindUtilities = actual; report.checks.push('compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults');
+      assert.deepEqual(actual.table, { display: 'table', borderCollapse: 'separate', fontSize: actual.sampleSize });
+      report.tailwindUtilities = actual; report.checks.push('compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults, table utility unstyled');
     }
     report.result = 'PASS';
   } catch (error) { report.result = 'FAIL'; report.error = error.stack; process.exitCode = 1; }
