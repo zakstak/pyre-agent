@@ -128,6 +128,25 @@ class PageTests(ServerCase):
                 self.assertEqual(self.request("GET", "/" + query)[0], 403)
 
 
+class ShutdownTests(ServerCase):
+    def test_a_save_in_progress_finishes_before_shutdown(self):
+        body = self.body
+        connection = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        self.addCleanup(connection.close)
+        connection.sendall((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
+                            f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body[:100])
+        time.sleep(0.2)
+        stopping = threading.Thread(target=lambda: (self.server.shutdown(), self.server.server_close()))
+        stopping.start()
+        time.sleep(0.2)
+        self.assertTrue(stopping.is_alive(), "shutdown did not wait for the save in progress")
+        connection.sendall(body[100:])
+        reply = connection.recv(65536)
+        stopping.join(10)
+        self.assertEqual(int(reply.split(b" ", 2)[1]), 200)
+        self.assertEqual((self.state / "feedback.json").read_bytes(), body)
+
+
 class PolicyTextTests(unittest.TestCase):
     def test_reviewed_text_that_repeats_the_policy_does_not_break_the_page(self):
         temp = Path(tempfile.mkdtemp())
@@ -379,6 +398,22 @@ class StateTests(unittest.TestCase):
         os.chmod(shared, 0o1777)  # sticky, as /tmp is
         self.assertEqual(state_module.new_round(shared / "state").name, "0001")
 
+    def test_the_checked_resolved_path_is_the_one_used(self):
+        render_round(self.state, "worktree-review.json")
+        # A symlink partway along the path could be retargeted after the check, so the resolved path is what is used.
+        link = self.temp / "link"
+        os.symlink(self.temp, link)
+        self.assertEqual(state_module.private_dir(link / "state"), self.state.resolve())
+        server = serve.ReviewServer(link / "state", 60)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.state, self.state.resolve())
+
+    def test_the_collector_never_writes_into_a_rendered_round(self):
+        directory = render_round(self.state, "worktree-review.json")
+        collector = load("collect_worktree")
+        with self.assertRaisesRegex(collector.CollectError, "has rendered; a round never changes"):
+            collector.collect(ROOT, output=directory / "input.json")
+
     def test_platforms_without_posix_permissions_are_refused(self):
         with unittest.mock.patch.object(state_module, "PRIVACY_CHECKABLE", False), \
                 self.assertRaisesRegex(state_module.StateError, "cannot confirm that only you can read"):
@@ -433,6 +468,9 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(blocked.returncode, 2)
         self.assertIn("already runs", blocked.stderr)
         self.assertFalse((self.state / "server.json").exists())
+        too_short = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state), "--idle-timeout", "0.2"], capture_output=True, text=True)
+        self.assertEqual(too_short.returncode, 2)
+        self.assertIn("at least 1 second", too_short.stderr)
         process, url = self.start("--idle-timeout", "1")
         started = time.monotonic()
         self.assertEqual(process.wait(timeout=15), 0)

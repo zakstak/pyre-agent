@@ -89,11 +89,13 @@ def private_dir(path, create=False):
         raise StateError(f"{path} is not a directory")
     if info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise StateError(f"{path} must belong to you and be private (mode 0700); other users could read the review")
-    for parent in path.resolve().parents:
+    resolved = path.resolve()
+    for parent in resolved.parents:
         if _others_can_replace(os.stat(parent)):
             raise StateError(f"another user can rename or replace entries in {parent}, an ancestor of {path}. "
                              "Keep the review state under directories only you and root can change.")
-    return path
+    # Use the path that was checked: a symlink on the way could be retargeted later.
+    return resolved
 
 
 def write_private(path, data, replace=True):

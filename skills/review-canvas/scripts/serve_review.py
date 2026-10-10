@@ -49,7 +49,9 @@ def revision(data):
 
 
 class ReviewServer(ThreadingHTTPServer):
-    daemon_threads = True
+    # Shutdown waits for request threads, so a save in progress finishes; Handler.timeout bounds a stalled client.
+    daemon_threads = False
+    block_on_close = True
 
     def __init__(self, state, idle_timeout, port=0):
         self.state = review_state.private_dir(state)
@@ -90,6 +92,7 @@ class ReviewServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "review-canvas"
+    timeout = 30
     sys_version = ""
 
     def log_message(self, format, *args):
@@ -248,8 +251,8 @@ def main(argv=None):
     parser.add_argument("--state-dir", type=Path, required=True, help="The review's state directory")
     parser.add_argument("--idle-timeout", type=float, default=3600, help="Stop after this many seconds without a request (default 3600)")
     args = parser.parse_args(argv)
-    if args.idle_timeout <= 0:
-        parser.error("--idle-timeout must be positive")
+    if args.idle_timeout < 1:
+        parser.error("--idle-timeout must be at least 1 second, so an open page can poll inside it")
     # One server per review: its lock lasts as long as the process, so two starts cannot both serve and both save.
     ownership = contextlib.ExitStack()
     try:

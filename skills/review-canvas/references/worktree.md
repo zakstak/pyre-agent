@@ -58,9 +58,11 @@ Each patch comes from the exact bytes its fingerprint covers: the old blob from 
 | CRLF line endings | The patch, with `\r` kept at the end of each line |
 
 | File marked `assume-unchanged` | Compared by its bytes on disk, because Git hides its edits |
-| Staged entry marked `skip-worktree` in a sparse checkout | The staged blob from the index |
+| File marked `skip-worktree` | Its bytes on disk when present; otherwise, as in a sparse checkout, the staged blob from the index |
 
-The collector stops with an error, instead of guessing, for a path removed from the index but still on disk, as after `git rm --cached`, and for a nested repository or submodule with no commit checked out, whose contents no fingerprint could cover.
+The collector stops with an error, instead of guessing, in three cases: unresolved merge conflicts in the index, a path removed from the index but still on disk, as after `git rm --cached`, and a nested repository or submodule with no commit checked out, whose contents no fingerprint could cover.
+
+The review shows the bytes in the working tree. If a file's staged version differs from both `HEAD` and the working tree, as after `git add -p` and more edits, a commit records the staged version, which the review did not show. The collector prints those paths; tell the reviewer, or stage the reviewed version before committing.
 
 Every entry keeps its path, status, and stats, even when it has no patch. A file whose timestamps changed but whose content and mode match `HEAD` is not a change.
 
