@@ -11,6 +11,7 @@ Python 3.10+; standard library only.
 """
 
 import argparse
+import datetime
 import json
 import re
 import sys
@@ -27,6 +28,9 @@ ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/])")
 COMMENT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 STATUSES = {"added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"}
 GROUPS = {"core", "wiring", "mechanical"}
+ACTIONS = ("accept", "reopen", "reply")
+# Reply times order a thread, so both languages must parse them alike: UTC, with optional milliseconds.
+REPLY_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
 # String.prototype.trim removes these: WhiteSpace (including every Zs character) and LineTerminator.
 JS_SPACE = set("\t\n\v\f\r                  　﻿")
 SAFE_INTEGER = 2**53 - 1
@@ -140,6 +144,28 @@ def _anchor(value):
         raise FeedbackError("Invalid source line range.")
 
 
+def _replies(value, ids):
+    """A reviewer's answers to the agent. Agent replies live in the review input, so each file keeps one writer."""
+    if not isinstance(value, list) or not 1 <= len(value) <= 200:
+        raise FeedbackError("Invalid reviewer replies.")
+    total = 0
+    for reply in value:
+        _object(reply, ("id", "actor", "created_at", "body", "action"))
+        if not isinstance(reply["id"], str) or not COMMENT_ID.fullmatch(reply["id"]) or reply["id"] in ids:
+            raise FeedbackError("Invalid or duplicate reply ID.")
+        ids.add(reply["id"])
+        if reply["actor"] != "reviewer":
+            raise FeedbackError("Feedback replies come from the reviewer; agent replies belong in the review input.")
+        if not isinstance(reply["action"], str) or reply["action"] not in ACTIONS:
+            raise FeedbackError("Invalid reply action.")
+        _text(reply["created_at"], 40, True)
+        if not REPLY_TIME.fullmatch(reply["created_at"]):
+            raise FeedbackError("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.")
+        _text(reply["body"], 20000, reply["action"] != "accept")
+        total += units(reply["body"])
+    return total
+
+
 def _attachment(value):
     _object(value, ("state", "reason", "start", "end"))
     if value["state"] not in ("attached", "orphan"):
@@ -170,10 +196,10 @@ def validate_feedback(value):
     _text(value["exported_at"], 40, True); _text(value["general_notes"]); _files(value["files"]); _approvals(value["approvals"])
     if not isinstance(value["comments"], list) or len(value["comments"]) > 1000 or not isinstance(value["retained_reviews"], list) or len(value["retained_reviews"]) > 50:
         raise FeedbackError("Feedback collection limit exceeded.")
-    ids = set()
+    ids, reply_ids = set(), set()
     total = units(value["general_notes"]) + sum(units(file["notes"]) for file in value["files"])
     for comment in value["comments"]:
-        _object(comment, ("id", "body", "created_at", "updated_at", "anchor", "history", "attachment"))
+        _object(comment, ("id", "body", "created_at", "updated_at", "anchor", "history", "attachment"), ("replies",))
         if not isinstance(comment["id"], str) or not COMMENT_ID.fullmatch(comment["id"]) or comment["id"] in ids:
             raise FeedbackError("Invalid or duplicate comment ID.")
         ids.add(comment["id"])
@@ -184,6 +210,8 @@ def validate_feedback(value):
         for previous in comment["history"]:
             _anchor(previous)
             total += units(previous["quote"]) + units(previous["path"])
+        if "replies" in comment:
+            total += _replies(comment["replies"], reply_ids)
         total += units(comment["body"]) + units(comment["anchor"]["quote"]) + units(comment["anchor"]["path"])
     retained = set()
     for review in value["retained_reviews"]:
@@ -251,6 +279,30 @@ def check_identity(feedback, snapshot):
         raise FeedbackError("Feedback belongs to another review target or an unidentified snapshot.")
 
 
+def _when(reply):
+    """Sort key matching the page: the reply time, unparseable times last."""
+    try:
+        return datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return float("inf")
+
+
+def thread(comment, agent_replies):
+    """One comment's replies in order: the agent's from the review input, the reviewer's from feedback."""
+    replies = [reply for reply in agent_replies if reply["comment_id"] == comment["id"]] + comment.get("replies", [])
+    return sorted(replies, key=lambda reply: (_when(reply), reply["actor"] != "agent", reply["id"]))
+
+
+def thread_state(replies):
+    """Return whose turn it is, from the last reply: agent, reviewer, or None once the reviewer accepts."""
+    if not replies:
+        return "agent", "open"
+    last = replies[-1]
+    if last["actor"] == "agent":
+        return "reviewer", f"answered: {last['disposition']}"
+    return (None, "resolved") if last["action"] == "accept" else ("agent", {"reopen": "reopened", "reply": "replied"}[last["action"]])
+
+
 def main(argv=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import render_review
@@ -280,6 +332,14 @@ def main(argv=None):
         print(f"Against {args.input}: {'same snapshot' if same else 'an earlier snapshot of the same review'}.")
         for state, paths in states.items():
             print(f"  {len(paths)} {state}" + (": " + ", ".join(paths) if paths and state != "approved" else ""))
+        turns = {"agent": [], "reviewer": [], None: []}
+        for comment in feedback["comments"]:
+            turn, label = thread_state(thread(comment, review.get("replies", [])))
+            turns[turn].append(f"{comment['id']} ({label})")
+        for turn, one, many in (("agent", "needs your answer", "need your answer"), ("reviewer", "waits for the reviewer", "wait for the reviewer"),
+                                (None, "is resolved", "are resolved")):
+            count = len(turns[turn])
+            print(f"  {count} comment{'' if count == 1 else 's'} {one if count == 1 else many}" + (": " + ", ".join(turns[turn]) if turns[turn] else ""))
     return 0
 
 

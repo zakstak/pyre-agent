@@ -85,6 +85,23 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("2 approved", result.stdout)
         self.assertIn("1 changed since approval: src/notes/store.py", result.stdout)
 
+    def test_reports_whose_turn_each_thread_is(self):
+        fixtures = ROOT / "tests/fixtures"
+        result = subprocess.run([sys.executable, str(SCRIPT), str(fixtures / "worktree-feedback-round2.json"), "--input", str(fixtures / "worktree-review-round2.json")],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2 comments need your answer: fixture-comment-2 (reopened), fixture-comment-3 (replied)", result.stdout)
+        self.assertIn("1 comment waits for the reviewer: fixture-comment-4 (answered: deferred)", result.stdout)
+        self.assertIn("1 comment is resolved: fixture-comment-1 (resolved)", result.stdout)
+
+    def test_thread_order_and_state(self):
+        agent = [{"comment_id": "c", "id": "a", "actor": "agent", "created_at": "2026-10-10T10:00:00Z", "disposition": "fixed", "body": "x"}]
+        comment = {"id": "c", "replies": [{"id": "r", "actor": "reviewer", "created_at": "2026-10-10T10:00:00.001Z", "action": "reopen", "body": "y"}]}
+        self.assertEqual([reply["id"] for reply in contract.thread(comment, agent)], ["a", "r"])
+        self.assertEqual(contract.thread_state(contract.thread(comment, agent)), ("agent", "reopened"))
+        self.assertEqual(contract.thread_state(agent), ("reviewer", "answered: fixed"))
+        self.assertEqual(contract.thread_state([]), ("agent", "open"))
+
     def test_rejects_invalid_feedback_and_another_review(self):
         result = subprocess.run([sys.executable, str(SCRIPT), str(FIXTURES / "invalid-version-2.json")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)

@@ -67,6 +67,33 @@ The renderer groups files as core, wiring, and mechanical. Within a group, it ke
 
 Never include credentials, raw authorization responses, or secrets. The renderer validates structure and escapes content, but it cannot identify every secret in source code. Redaction and coverage claims are the agent's responsibility.
 
+## Agent replies
+
+The optional top-level `replies` array holds the agent's answers to feedback comments. The reviewer's answers live in feedback, so each file keeps one writer. Copy every earlier agent reply into each new round, because the page shows the replies of the round it renders.
+
+Each reply requires:
+
+- `comment_id`: the `id` of the feedback comment it answers
+- `id`: a stable reply ID, unique in this input, of 1 to 80 letters, digits, hyphens, or underscores
+- `actor`: `agent`
+- `created_at`: the UTC time in ISO 8601, such as `2026-10-10T09:00:00Z`, optionally with milliseconds
+- `body`: plain text
+- `disposition`: `fixed`, `rejected`, `deferred`, or `question`
+
+A `fixed` reply also requires `fixed_in`, either `{"fingerprint": "..."}` for the file version that fixes the comment or `{"commit": "..."}` with a full commit hash. A `deferred` reply also requires `blocker`, the reason the change waits. A `rejected` reply gives its reason in `body`. Other dispositions cannot carry `fixed_in` or `blocker`.
+
+```json
+{
+  "comment_id": "3f0c2e9a-6c1d-4b8e-9a51-7d2f4c8b1e60",
+  "id": "agent-reply-1",
+  "actor": "agent",
+  "created_at": "2026-10-10T10:00:00Z",
+  "disposition": "fixed",
+  "body": "save() now flushes and fsyncs the temporary file before the rename.",
+  "fixed_in": { "fingerprint": "9c1d5e..." }
+}
+```
+
 ## Input limits
 
 The generator rejects oversized input before producing an artifact. It never silently truncates it.
@@ -80,6 +107,7 @@ The generator rejects oversized input before producing an artifact. It never sil
 
 Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. Input the renderer accepts always fits the feedback the page saves.
 - Callouts: at most 100 per file
+- Agent replies: at most 5,000, with unique IDs
 - Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
 - Commit SHAs: full hexadecimal hashes with 40 or 64 characters
 

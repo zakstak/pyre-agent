@@ -320,6 +320,37 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(renderer.ValidationError, "exceeds 4096 UTF-16 code units"):
             renderer.validate_review(review)
 
+    def test_agent_replies(self):
+        def reply(**changes):
+            value = {"comment_id": "c1", "id": "a1", "actor": "agent", "created_at": "2026-10-10T10:00:00Z", "body": "Done.",
+                     "disposition": "fixed", "fixed_in": {"fingerprint": "c" * 64}}
+            value.update(changes)
+            return {key: item for key, item in value.items() if item is not None}
+        review = worktree_review()
+        review["replies"] = [reply(), reply(id="a2", disposition="rejected", fixed_in=None), reply(id="a3", fixed_in={"commit": "e" * 40}),
+                             reply(id="a4", disposition="deferred", fixed_in=None, blocker="Waiting on the API owner."),
+                             reply(id="a5", disposition="question", fixed_in=None, created_at="2026-10-10T10:00:00.250Z")]
+        renderer.validate_review(review)
+        metadata = json.loads(next(a["data-review"] for _, a in Document(renderer.render_review(review)).tags if a.get("id") == "review-data"))
+        self.assertEqual(metadata["replies"], review["replies"])
+        cases = [
+            (reply(actor="reviewer"), "reviewer replies belong in feedback"), (reply(disposition="done"), "disposition"),
+            (reply(fixed_in=None), "fixed_in"), (reply(fixed_in={"fingerprint": "c" * 64, "commit": "e" * 40}), "fixed_in"),
+            (reply(fixed_in={"fingerprint": "C" * 64}), "fixed_in.fingerprint"), (reply(fixed_in={"commit": "abc"}), "fixed_in.commit"),
+            (reply(disposition="deferred", fixed_in=None), "blocker"), (reply(disposition="rejected", fixed_in=None, blocker="x"), "blocker"),
+            (reply(disposition="rejected"), "fixed_in"), (reply(comment_id="bad id"), "comment_id"), (reply(body=" "), "body"),
+            (reply(created_at="2026-10-10 10:00"), "UTC ISO 8601"), (reply(created_at="2026-10-10T10:00:00+02:00"), "UTC ISO 8601"),
+        ]
+        for value, message in cases:
+            review = worktree_review()
+            review["replies"] = [value]
+            with self.subTest(message=message), self.assertRaisesRegex(renderer.ValidationError, message):
+                renderer.validate_review(review)
+        review = worktree_review()
+        review["replies"] = [reply(), reply()]
+        with self.assertRaisesRegex(renderer.ValidationError, "duplicate reply id"):
+            renderer.validate_review(review)
+
     def test_missing_fields_and_duplicate_files(self):
         for key in ("path", "status", "group", "additions", "deletions"):
             review = simple_review()

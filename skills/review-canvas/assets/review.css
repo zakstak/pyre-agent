@@ -180,6 +180,13 @@ mark { color: var(--text-primary); background: var(--pyre-message); text-decorat
 .orphans-intro { max-inline-size: var(--measure-reading); font-size: var(--size-small); }
 #orphan-list { display: grid; gap: var(--space-3); }
 .orphans .inline-comment { border-inline-start-color: var(--status-warning); }
+/* Threads: replies under a comment, then the reviewer's choices. */
+.thread-replies { display: grid; gap: var(--space-2); padding-inline-start: var(--space-3); border-inline-start: 2px solid var(--separator); }
+.reply { display: grid; gap: var(--space-1); }
+.reply-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.reply-composer { display: grid; gap: var(--space-2); }
+.reply-composer label { font-size: var(--size-small); font-weight: 600; }
+.comment-jump .chip { flex: none; margin-inline-start: auto; }
 
 /* Finish review */
 .finish { margin-block-start: var(--space-6); padding: var(--space-5); }

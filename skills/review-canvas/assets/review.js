@@ -20,7 +20,7 @@
   const byCard = new Map(Array.from(sources.values(), file => [file.card, file]));
   const nav = new Map(Array.from(document.querySelectorAll(".file-nav li[data-file]"), item => [item.dataset.file, item]));
   let dirty = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
-  let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null;
+  let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null, replyDraft = null;
   const editedNotes = new Set(), editedApprovals = new Set(); let editedGeneral = false;
   const pinned = contract.pinned(metadata.target);
   const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -53,11 +53,33 @@
     const record = approvals.get(file.path);
     return !record ? "none" : file.fingerprint && record.fingerprint === file.fingerprint ? "approved" : "changed";
   }
+  // Threads: agent replies come from the review input and reviewer replies from feedback, so each file keeps one writer.
+  // A thread's state is never stored; it follows the last reply.
+  const agentReplies = new Map();
+  for (const reply of metadata.replies) {
+    if (!agentReplies.has(reply.comment_id)) agentReplies.set(reply.comment_id, []);
+    agentReplies.get(reply.comment_id).push(reply);
+  }
+  const DISPOSITION = { fixed: "Fixed", rejected: "Rejected", deferred: "Deferred", question: "Question" };
+  const ACTION = { accept: "Accepted", reopen: "Reopened", reply: "Replied" };
+  const when = reply => { const time = Date.parse(reply.created_at); return Number.isNaN(time) ? Infinity : time; };
+  function thread(comment) {
+    return [...(agentReplies.get(comment.id) || []), ...(comment.replies || [])]
+      .sort((a, b) => when(a) - when(b) || (a.actor === b.actor ? 0 : a.actor === "agent" ? -1 : 1) || (a.id < b.id ? -1 : 1));
+  }
+  function threadState(replies) {
+    const last = replies[replies.length - 1];
+    if (!last) return { label: "Open", yours: false };
+    if (last.actor === "agent") return { label: `Answered: ${DISPOSITION[last.disposition].toLowerCase()}`, yours: true };
+    return { label: last.action === "accept" ? "Resolved" : ACTION[last.action], yours: false };
+  }
   function summarize() {
     const approved = cards.filter(card => approvalState(byCard.get(card)) === "approved").length;
     const notes = cards.filter(card => card.querySelector(".file-notes").value).length;
+    const answered = comments.filter(comment => threadState(thread(comment)).yours).length;
     byId("review-summary").textContent = [`${approved} of ${plural(cards.length, "file")} approved`,
-      plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : ""), plural(notes, "file note")].join(" · ");
+      plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : "") + (answered ? `, ${answered} answered by the agent` : ""),
+      plural(notes, "file note")].join(" · ");
   }
   // Feedback persistence sits behind one boundary with two implementations: a file the reviewer exports and imports,
   // or the local review server, which saves automatically. Only a page the server served carries its session token.
@@ -342,7 +364,62 @@
     node.append(head, attached ? element("pre", "comment-quote is-inline", lines[0] + (lines.length > 1 ? " …" : "")) : element("pre", "comment-quote", comment.anchor.quote),
       element("p", "comment-body", comment.body));
     if (attachment.reason !== "Exact patch and range.") node.append(element("p", "anchor-status", attachment.reason));
+    const replies = thread(comment), state = threadState(replies), last = replies[replies.length - 1];
+    head.insertBefore(element("span", state.yours ? "chip warning thread-state" : "chip thread-state", state.label), actions);
+    if (!replies.length) return node;
+    const list = element("div", "thread-replies");
+    list.append(...replies.map(reply => replyNode(reply)));
+    const choices = element("div", "reply-actions");
+    if (last.actor === "agent") choices.append(button("Accept", () => addReply(comment, "accept", ""), "quiet", "Accept the agent's answer"));
+    if (last.actor === "agent" || last.action === "accept") choices.append(button("Reopen", () => openReply(comment, "reopen"), "quiet", "Reopen comment"));
+    choices.append(button("Reply", () => openReply(comment, "reply"), "quiet", "Reply to the agent"));
+    node.append(list, replyDraft?.commentId === comment.id ? replyComposer(comment) : choices);
     return node;
+  }
+  function replyNode(reply) {
+    const node = element("div", `reply reply-${reply.actor}`), head = element("div", "comment-head");
+    head.append(element("span", "comment-author", reply.actor === "agent" ? "Agent" : "You"),
+      element("span", "chip", reply.actor === "agent" ? DISPOSITION[reply.disposition] : ACTION[reply.action]));
+    node.append(head);
+    if (reply.body) node.append(element("p", "comment-body", reply.body));
+    if (reply.fixed_in?.commit) node.append(element("p", "anchor-status", `Fixed in commit ${reply.fixed_in.commit.slice(0, 7)}.`));
+    if (reply.fixed_in?.fingerprint) {
+      const fixed = metadata.files.find(file => file.fingerprint === reply.fixed_in.fingerprint);
+      node.append(element("p", "anchor-status", fixed ? `Fixed in this round's version of ${fixed.path}.` : `Fixed in file version ${reply.fixed_in.fingerprint.slice(0, 12)}, which is not in this round.`));
+    }
+    if (reply.blocker) node.append(element("p", "anchor-status", `Blocker: ${reply.blocker}`));
+    return node;
+  }
+  function openReply(comment, action) {
+    replyDraft = { commentId: comment.id, action, body: replyDraft?.commentId === comment.id ? replyDraft.body : "" };
+    drawComments(); byId(`reply-${comment.id}`)?.focus();
+  }
+  function replyComposer(comment) {
+    const form = element("div", "reply-composer"), label = element("label", "", replyDraft.action === "reopen" ? "Why reopen?" : "Reply to the agent");
+    const area = element("textarea"); area.id = `reply-${comment.id}`; label.htmlFor = area.id; area.rows = 3; area.maxLength = 20000; area.spellcheck = false; area.value = replyDraft.body;
+    const save = () => addReply(comment, replyDraft.action, area.value), cancel = () => { replyDraft = null; drawComments(); jumpTo(comment.id); };
+    area.addEventListener("input", () => { replyDraft.body = area.value; });
+    area.addEventListener("keydown", event => {
+      if (event.isComposing) return;
+      if (event.key === "Escape") { event.preventDefault(); cancel(); }
+      else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); save(); }
+    });
+    const buttons = element("div", "composer-actions");
+    buttons.append(button("Cancel", cancel, "quiet", "Cancel reply"), button(replyDraft.action === "reopen" ? "Reopen comment" : "Save reply", save, "primary"));
+    form.append(label, area, buttons);
+    return form;
+  }
+  function addReply(comment, action, body) {
+    if (action !== "accept" && !body.trim()) { announce("Write a reply before saving."); return; }
+    // A new reply always sorts last, even when the agent's clock ran ahead of this one.
+    const latest = Math.max(Date.now(), ...thread(comment).map(when).filter(Number.isFinite).map(time => time + 1));
+    const reply = { id: crypto.randomUUID(), actor: "reviewer", created_at: new Date(latest).toISOString(), body: action === "accept" ? body.trim() : body, action };
+    const before = comments;
+    comments = comments.map(item => item.id === comment.id ? { ...item, replies: [...(item.replies || []), reply] } : item);
+    try { feedback(); } catch (error) { comments = before; announce(error.message); return; }
+    replyDraft = null; drawComments(); changed();
+    announce(action === "accept" ? "Answer accepted." : action === "reopen" ? "Comment reopened." : "Reply saved.");
+    jumpTo(comment.id);
   }
   function jumpTo(id) {
     if (id === editing) { revealComposer(); return; }
@@ -364,9 +441,9 @@
         if (!threads.has(row)) threads.set(row, []); threads.get(row).push(node);
         counts.set(file.path, (counts.get(file.path) || 0) + 1);
       } else { orphanCount++; byId("orphan-list").append(node); }
-      const jump = button("", () => jumpTo(comment.id), "quiet comment-jump"), item = element("li");
+      const jump = button("", () => jumpTo(comment.id), "quiet comment-jump"), item = element("li"), state = threadState(thread(comment));
       jump.append(element("span", "jump-where", `${comment.anchor.path} · ${attached ? linesLabel(file, attachment.start, attachment.end) : "unattached"}`),
-        element("span", "jump-text", comment.body.split("\n")[0]));
+        element("span", "jump-text", comment.body.split("\n")[0]), element("span", state.yours ? "chip warning" : "chip", state.label));
       item.append(jump); index.push([attached ? cards.indexOf(file.card) : cards.length, attached ? attachment.start : 0, item]);
     }
     // List comments in reading order: file order on the page, then position in the diff.
@@ -391,6 +468,9 @@
         }
       }
     }
+    const loaded = new Set(comments.map(comment => comment.id)), waiting = [...agentReplies.keys()].filter(id => !loaded.has(id)).length;
+    byId("unmatched-replies").hidden = !waiting;
+    byId("unmatched-replies").textContent = waiting ? `The agent answered ${plural(waiting, "comment")} that this page has not loaded. Import the feedback that holds them to see the answers.` : "";
     byId("orphan-comments").hidden = orphanCount === 0;
     byId("orphan-heading").textContent = `Unattached comments (${orphanCount})`;
     byId("retained-reviews").hidden = retained.length === 0;
@@ -496,9 +576,15 @@
     const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);
     const normalized = value => Array.isArray(value) ? value.map(normalized) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalized(value[key])])) : value;
     const comparable = value => JSON.stringify(normalized(value));
+    // Reviewer replies merge by ID, so two copies of one comment differ only in replies the other has not seen yet.
+    const withoutReplies = ({ replies: _, ...comment }) => comment;
     for (const comment of incomingComments) {
       const local = comments.find(item => item.id === comment.id);
-      if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      if (local && comparable(withoutReplies(local)) !== comparable(withoutReplies(comment))) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      for (const reply of comment.replies || []) {
+        const mine = local?.replies?.find(item => item.id === reply.id);
+        if (mine && comparable(mine) !== comparable(reply)) throw Error("Conflicting reply ID. Open review preserved; export it before restoring into a fresh page.");
+      }
     }
     const localFiles = currentFiles();
     if (same && (localFiles.some(local => {
@@ -524,7 +610,11 @@
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
       if (!local) nextRetained.push(review);
     }
-    const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
+    const nextComments = comments.map(local => {
+      const incomingReplies = incomingComments.find(comment => comment.id === local.id)?.replies || [];
+      const added = incomingReplies.filter(reply => !local.replies?.some(item => item.id === reply.id));
+      return added.length ? { ...local, replies: [...(local.replies || []), ...added] } : local;
+    }).concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
     const nextFiles = same ? incoming.files : localFiles;
     const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
     contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
@@ -553,7 +643,7 @@
       persistence.merged();
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }
   });
-  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || (!composer.hidden && byId("comment-body").value)) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || (!composer.hidden && byId("comment-body").value) || replyDraft?.body.trim()) { event.preventDefault(); event.returnValue = ""; } });
 
   // Keep sticky offsets in step with the app bar, which wraps at large text sizes.
   const topbar = document.querySelector(".topbar");
