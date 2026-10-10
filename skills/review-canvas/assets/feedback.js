@@ -90,7 +90,7 @@
     else if (value.start !== null || value.end !== null) throw Error("Orphan range must be null.");
   }
   function validateFeedback(value) {
-    if (value && typeof value === "object" && value.feedback_schema_version !== VERSION) throw Error(`Feedback version ${JSON.stringify(value.feedback_schema_version ?? null)} is not supported; expected ${VERSION}. There is no migration.`);
+    if (value && typeof value === "object" && !Array.isArray(value) && value.feedback_schema_version !== VERSION) throw Error(`Feedback version ${JSON.stringify(value.feedback_schema_version ?? null)} is not supported; expected ${VERSION}. There is no migration.`);
     object(value, ["feedback_schema_version", "target", "input_sha256", "exported_at", "general_notes", "files", "approvals", "comments", "retained_reviews"]);
     snapshot(reviewSnapshot(value));
     text(value.exported_at, 40, true); text(value.general_notes); files(value.files); approvals(value.approvals);

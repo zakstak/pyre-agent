@@ -39,8 +39,7 @@
       "title": "Uncommitted changes on main",
       "root": "/home/dev/repo",
       "head_sha": "2222222222222222222222222222222222222222",
-      "branch": "main",
-      "url": "https://github.com/example/repo/pull/2"
+      "branch": "main"
      },
      "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },

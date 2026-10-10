@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const http = require("node:http");
 const { spawn, spawnSync } = require("node:child_process");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 
@@ -22,13 +23,14 @@ function run(script, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
-function renderRound(fixture) {
-  const round = run("review_state.py", "new-round", "--state-dir", state);
-  fs.copyFileSync(path.join(__dirname, "fixtures", fixture), path.join(round, "input.json"));
+function renderRound(fixture, directory = state) {
+  const round = run("review_state.py", "new-round", "--state-dir", directory);
+  if (typeof fixture === "string") fs.copyFileSync(path.join(__dirname, "fixtures", fixture), path.join(round, "input.json"));
+  else fs.writeFileSync(path.join(round, "input.json"), JSON.stringify(fixture));
   run("render_review.py", "--round", round);
 }
-function startServer() {
-  const server = spawn(python, [path.join(scripts, "serve_review.py"), "--state-dir", state], { stdio: ["ignore", "pipe", "pipe"] });
+function startServer(directory = state) {
+  const server = spawn(python, [path.join(scripts, "serve_review.py"), "--state-dir", directory], { stdio: ["ignore", "pipe", "pipe"] });
   return new Promise((resolve, reject) => {
     let output = "";
     server.stdout.on("data", chunk => {
@@ -55,7 +57,7 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     page.on("console", message => {
       if (message.type() === "error" && !/409 \(Conflict\)/.test(message.text()) && !(stopped && /ERR_CONNECTION_REFUSED/.test(message.text()))) errors.push(message.text());
     });
-    page.on("request", request => { if (!request.url().startsWith(new URL(url).origin)) foreign.push(request.url()); });
+    page.on("request", request => foreign.push(request.url()));
     page.on("dialog", dialog => dialog.accept());
     const chip = page.locator("#save-state");
     const approve = file => page.getByRole("checkbox", { name: `Approve ${file}` });
@@ -89,6 +91,34 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     assert.equal(await approve("src/notes/cli.py").isChecked(), true);
     assert.equal(await page.locator(".inline-comment").count(), 1);
     assert.match(await page.locator("#import-status").textContent(), /^Loaded saved feedback: 1 comment/);
+
+    // A page on another origin cannot save, write, or read: the token and CORS stop it before any check runs.
+    const before = fs.readFileSync(path.join(state, "feedback.json"));
+    const attacker = http.createServer((request, response) => {
+      response.writeHead(200, { "Content-Type": "text/html" });
+      response.end(`<script>
+        const target = ${JSON.stringify(new URL(url).origin)}, results = [];
+        const attempt = async (name, run) => { try { const response = await run(); results.push([name, response.type, response.status]); } catch (error) { results.push([name, "error", error.name]); } };
+        (async () => {
+          await attempt("json put", () => fetch(target + "/feedback", { method: "PUT", headers: { "Content-Type": "application/json", "X-Review-Token": "guess" }, body: "{}" }));
+          await attempt("simple post", () => fetch(target + "/feedback", { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain" }, body: "{}" }));
+          await attempt("read page", () => fetch(target + "/"));
+          await attempt("read feedback", () => fetch(target + "/feedback"));
+          window.done = results;
+        })();
+      </script>`);
+    }).listen(0, "127.0.0.1");
+    await new Promise(resolve => attacker.once("listening", resolve));
+    try {
+      const evil = await context.newPage();
+      await evil.goto(`http://127.0.0.1:${attacker.address().port}/attack.html`);
+      const attempts = await evil.waitForFunction(() => window.done).then(handle => handle.jsonValue());
+      // Each attempt fails outright or returns an opaque response the page cannot read.
+      assert.deepEqual(attempts.map(([name]) => name), ["json put", "simple post", "read page", "read feedback"]);
+      for (const [name, type, status] of attempts) assert.ok((type === "error" && status === "TypeError") || (type === "opaque" && status === 0), `${name}: ${type} ${status}`);
+      assert.deepEqual(fs.readFileSync(path.join(state, "feedback.json")), before, "feedback changed after the attack");
+      await evil.close();
+    } finally { attacker.closeAllConnections(); attacker.close(); }
 
     // A newer round is offered, not loaded on its own.
     renderRound("worktree-review-round2.json");
@@ -137,14 +167,37 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     // A save that fails keeps the unload warning, so the reviewer cannot close the tab and lose the change unwarned.
     await third.getByRole("checkbox", { name: "Approve docs/logo.png" }).check();
     await third.locator("#save-state", { hasText: "Not saved" }).waitFor();
+    // A requested download does not prove a saved file, so the warning stays after export too.
+    const fallback = third.waitForEvent("download"); await third.getByRole("button", { name: "Export feedback (.json)" }).click(); await fallback;
     await third.reload().catch(() => {});
     assert.deepEqual(dialogs, ["beforeunload"]);
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Export feedback (.json)" }).click();
     assert.match((await download).suggestedFilename(), /^review-feedback-[0-9a-f]{12}\.json$/);
-    assert.deepEqual(foreign, [], "requests outside the review server");
+    // A change the page cannot validate, here notes past the 2 MiB text budget, is a failed save that keeps the warning.
+    const budgetState = path.join(temp, "budget");
+    const files = Array.from({ length: 110 }, (_, i) => ({ path: `notes/${i}.txt`, status: "added", group: "core", additions: 0, deletions: 0,
+      fingerprint: i.toString(16).padStart(64, "0"), new_mode: "100644", patch_note: "empty" }));
+    renderRound({ schema_version: 2, target: { kind: "worktree", title: "Budget", root: "/home/dev/budget", head_sha: "3".repeat(40), changed_files: 110 },
+      files_complete: true, files }, budgetState);
+    const { server: budgetServer, url: budgetUrl } = await startServer(budgetState);
+    try {
+      const budget = await context.newPage();
+      const warnings = [];
+      budget.on("dialog", dialog => { warnings.push(dialog.type()); dialog.accept(); });
+      await budget.goto(budgetUrl);
+      await waitSaved(budget);
+      await budget.evaluate(() => { for (const notes of document.querySelectorAll(".file-notes")) { notes.value = "x".repeat(20000); notes.dispatchEvent(new Event("input")); } });
+      await budget.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      assert.match(await budget.locator("#export-status").textContent(), /budget/);
+      await budget.reload();
+      assert.deepEqual(warnings, ["beforeunload"]);
+      await budget.close();
+    } finally { budgetServer.kill("SIGTERM"); }
+
+    assert.deepEqual(foreign.filter(request => !request.startsWith("http://127.0.0.1:")), [], "requests outside loopback");
     assert.deepEqual(errors, [], "page errors");
-    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a failed save keeps the unload warning, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
+    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a page on another origin cannot save or read, a failed save keeps the unload warning even after export, a validation failure keeps it too, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
   } finally {
     await browser.close();
     if (server.exitCode === null) server.kill("SIGTERM");

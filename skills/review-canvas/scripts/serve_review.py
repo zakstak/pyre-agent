@@ -223,11 +223,10 @@ def write_server_file(server):
 
 
 def running_server(state):
-    """Return the URL of a live server for this state directory, if one is recorded."""
+    """Return the URL recorded by the server that holds this review's lock. The lock, not a process probe, proves it
+    runs: on Windows, os.kill with signal 0 would terminate the process."""
     try:
-        record = json.loads((Path(state) / "server.json").read_text(encoding="utf-8"))
-        os.kill(int(record["pid"]), 0)
-        return record["url"]
+        return json.loads((Path(state) / "server.json").read_text(encoding="utf-8"))["url"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

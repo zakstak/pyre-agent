@@ -32,10 +32,18 @@ class SharedFixtureTests(unittest.TestCase):
                 raw = path.read_bytes()
                 self.assertEqual(contract.parse_feedback(raw), json.loads(raw))
 
-    def test_invalid_fixtures_fail(self):
-        for path in sorted(FIXTURES.glob("invalid-*.json")):
-            with self.subTest(fixture=path.name), self.assertRaises(contract.FeedbackError):
-                contract.parse_feedback(path.read_bytes())
+    def test_invalid_fixtures_fail_for_their_own_reason(self):
+        # expected-errors.json names the message each fixture must produce in both validators; null means a JSON
+        # syntax error, whose wording differs by language.
+        expected = json.loads((FIXTURES / "expected-errors.json").read_text())
+        self.assertEqual(sorted(expected), sorted(path.name for path in FIXTURES.glob("invalid-*.json")))
+        for name, message in expected.items():
+            with self.subTest(fixture=name), self.assertRaises(contract.FeedbackError) as caught:
+                contract.parse_feedback((FIXTURES / name).read_bytes())
+            if message is None:
+                self.assertTrue(str(caught.exception).startswith("Feedback is not valid UTF-8 JSON"), str(caught.exception))
+            else:
+                self.assertEqual(str(caught.exception), message)
 
     def test_old_versions_name_the_version(self):
         for name, version in (("invalid-version-2.json", "2"), ("invalid-version-1-pr-object.json", "1")):

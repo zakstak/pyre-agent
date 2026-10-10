@@ -36,14 +36,41 @@ except ImportError:  # Windows
 
 
 ROUND_NAME = re.compile(r"[0-9]{4}")
+# Ownership and mode bits can prove privacy only where POSIX permissions apply.
+PRIVACY_CHECKABLE = hasattr(os, "getuid")
 
 
 class StateError(ValueError):
     """The state directory is missing, shared with other users, or not laid out as expected."""
 
 
+def _group_has_others(gid):
+    import grp
+    import pwd
+    try:
+        members = set(grp.getgrgid(gid).gr_mem) | {user.pw_name for user in pwd.getpwall() if user.pw_gid == gid}
+        return bool(members - {pwd.getpwuid(os.getuid()).pw_name})
+    except KeyError:
+        return True
+
+
+def _others_can_replace(info):
+    """Whether another user could rename or replace entries in a directory with this stat result."""
+    if info.st_uid not in (0, os.getuid()):
+        return True
+    if info.st_mode & stat.S_ISVTX:
+        return False  # sticky, as /tmp is: only an entry's owner can rename it
+    return bool(info.st_mode & 0o002) or bool(info.st_mode & 0o020 and _group_has_others(info.st_gid))
+
+
 def private_dir(path, create=False):
-    """Return path as a directory only this user can read, creating it with mode 0700 when asked."""
+    """Return path as a directory only this user can read, creating it with mode 0700 when asked.
+
+    Its resolved ancestors must also be safe from other users, who could otherwise swap in a directory of their own
+    after the check, for example one holding a page that reads the session token."""
+    if not PRIVACY_CHECKABLE:
+        raise StateError("this platform cannot confirm that only you can read the review state. "
+                         "Render with render_review.py INPUT --output and use export and import instead.")
     path = Path(path)
     if create:
         try:
@@ -58,8 +85,12 @@ def private_dir(path, create=False):
         raise StateError(f"{path} is not a review state directory: {error.strerror}") from error
     if not stat.S_ISDIR(info.st_mode):
         raise StateError(f"{path} is not a directory")
-    if hasattr(os, "getuid") and (info.st_uid != os.getuid() or info.st_mode & 0o077):
+    if info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise StateError(f"{path} must belong to you and be private (mode 0700); other users could read the review")
+    for parent in path.resolve().parents:
+        if _others_can_replace(os.stat(parent)):
+            raise StateError(f"another user can rename or replace entries in {parent}, an ancestor of {path}. "
+                             "Keep the review state under directories only you and root can change.")
     return path
 
 

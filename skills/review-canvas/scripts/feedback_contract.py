@@ -52,7 +52,11 @@ def _text(value, limit=20000, nonempty=False):
     if not isinstance(value, str) or units(value) > limit or (nonempty and all(c in JS_SPACE for c in value)):
         raise FeedbackError("Invalid or oversized feedback text.")
     for c in value:
-        if (ord(c) < 32 and c not in "\t\n\r") or 0xD800 <= ord(c) <= 0xDFFF:
+        # Python decodes a valid surrogate pair to one character, so any surrogate left here is unpaired. The messages
+        # match feedback.js, which reports a lone high surrogate separately.
+        if 0xD800 <= ord(c) <= 0xDBFF:
+            raise FeedbackError("Unpaired Unicode surrogate.")
+        if (ord(c) < 32 and c not in "\t\n\r") or 0xDC00 <= ord(c) <= 0xDFFF:
             raise FeedbackError("Unsupported text character.")
 
 
@@ -211,6 +215,11 @@ def _reject_number(token):
     raise FeedbackError("Feedback numbers must be integers.")
 
 
+def _reject_constant(token):
+    # JSON has no NaN or Infinity; JSON.parse calls them a syntax error, so this message matches that category.
+    raise FeedbackError(f"Feedback is not valid UTF-8 JSON: {token} is not a JSON value")
+
+
 def _depth(value, depth=0):
     if depth > MAX_DEPTH:
         raise FeedbackError("Feedback is nested too deeply.")
@@ -224,7 +233,7 @@ def parse_feedback(raw):
     if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
         raise FeedbackError("Feedback exceeds 8 MiB.")
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number, parse_constant=_reject_number)
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number, parse_constant=_reject_constant)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise FeedbackError(f"Feedback is not valid UTF-8 JSON: {error}") from None
     _depth(value)

@@ -171,6 +171,14 @@ class SaveCheckTests(ServerCase):
         self.assertFalse((self.state / "feedback.json").exists())
         self.assertEqual(self.api("PUT", "/feedback", self.body)[0], 200)
 
+    def test_a_repeated_origin_is_rejected(self):
+        body = self.body
+        request = (f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nOrigin: http://{self.host}\r\n"
+                   f"Content-Type: application/json\r\nX-Review-Token: {self.token}\r\nX-Review-Revision: none\r\n"
+                   f"Content-Length: {len(body)}\r\n\r\n").encode() + body
+        self.assertEqual(self.raw(request), 403)
+        self.assertFalse((self.state / "feedback.json").exists())
+
     def test_content_type_must_be_json(self):
         for content_type in (None, "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x",
                              "application/json-patch+json", "application/json; charset=latin-1"):
@@ -191,6 +199,18 @@ class SaveCheckTests(ServerCase):
                                    f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\n\r\n").encode()), 411)
         self.assertEqual(self.raw((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
                                    f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n").encode()), 411)
+
+    def test_a_body_that_ends_early_is_not_saved(self):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as connection:
+            connection.sendall((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
+                                f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\nContent-Length: {len(self.body)}\r\n\r\n").encode() + self.body[:10])
+            connection.shutdown(socket.SHUT_WR)
+            reply = b""
+            while chunk := connection.recv(65536):
+                reply += chunk
+        self.assertEqual(int(reply.split(b" ", 2)[1]), 400)
+        self.assertIn(b"ended early", reply)
+        self.assertFalse((self.state / "feedback.json").exists())
 
     def test_whole_document_is_validated_before_writing(self):
         other = json.loads(self.body)
@@ -318,6 +338,20 @@ class StateTests(unittest.TestCase):
         with unittest.mock.patch.object(state_module.os, "fsync", refuse(errno.EIO)), self.assertRaises(OSError):
             state_module.write_private(self.state / "file", b"again")
 
+    def test_ancestors_another_user_could_replace_are_refused(self):
+        shared = self.temp / "shared"
+        shared.mkdir()
+        os.chmod(shared, 0o777)
+        with self.assertRaisesRegex(state_module.StateError, "another user can rename or replace entries"):
+            state_module.new_round(shared / "state")
+        os.chmod(shared, 0o1777)  # sticky, as /tmp is
+        self.assertEqual(state_module.new_round(shared / "state").name, "0001")
+
+    def test_platforms_without_posix_permissions_are_refused(self):
+        with unittest.mock.patch.object(state_module, "PRIVACY_CHECKABLE", False), \
+                self.assertRaisesRegex(state_module.StateError, "cannot confirm that only you can read"):
+            state_module.new_round(self.state)
+
     def test_server_needs_a_private_state_with_a_rendered_round(self):
         with self.assertRaisesRegex(state_module.StateError, "not a review state directory"):
             serve.ReviewServer(self.state, 60)
@@ -356,6 +390,11 @@ class CommandLineTests(unittest.TestCase):
         process.send_signal(signal.SIGTERM)
         self.assertEqual(process.wait(timeout=10), 0)
         self.assertFalse((self.state / "server.json").exists())
+        # The lock proves a server runs; reading its URL never probes or signals a process.
+        (self.state / "server.json").write_text(json.dumps({"url": "http://127.0.0.1:1/?token=t", "port": 1, "pid": 1}))
+        with unittest.mock.patch.object(serve.os, "kill", side_effect=AssertionError("os.kill called")):
+            self.assertEqual(serve.running_server(self.state), "http://127.0.0.1:1/?token=t")
+        (self.state / "server.json").unlink()
         # A process that holds the review's server lock keeps any other server from starting.
         with state_module.lock(self.state, "server", wait=False):
             blocked = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state)], capture_output=True, text=True, timeout=30)
