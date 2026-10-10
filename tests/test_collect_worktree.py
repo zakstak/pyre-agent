@@ -581,6 +581,20 @@ class InventoryTests(Fixture):
         with self.assertRaisesRegex(collector.CollectError, "dir/file was renamed by case only"):
             self.collect()
 
+    def test_a_case_renamed_directory_is_found_beside_its_old_spelling(self):
+        self.commit({"dir/file": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "dir", self.root / "DIR")
+        (self.root / "dir").mkdir()  # the old spelling remains, empty
+        with self.assertRaisesRegex(collector.CollectError, "dir/file was renamed by case only"):
+            self.collect()
+
+    def test_names_that_differ_beyond_ascii_case_are_not_case_renames(self):
+        self.commit({"straße": "s\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "straße", self.root / "STRASSE")
+        self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"STRASSE": "added", "straße": "deleted"})
+
     def test_many_long_hidden_paths_fit(self):
         names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
         self.commit({name: "x\n" for name in names})

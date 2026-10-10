@@ -116,7 +116,7 @@ function render(name) {
     const round2Input = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));
     assert.equal(feedback.approvals.find(record => record.path === "src/notes/store.py").fingerprint, round2Input.files[0].fingerprint);
     assert.equal(feedback.approvals.length, 3);
-    assert.equal(feedback.retained_reviews.length, 1, "round 1 notes are kept separately");
+    assert.equal(feedback.retained_reviews.length, 0, "round 1 had no notes, so nothing of it is retained");
     // Importing the older round again keeps the approval for the current version.
     await importFile(savedFeedback);
     assert.equal(await approve("src/notes/store.py").isChecked(), true);
