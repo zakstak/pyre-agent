@@ -646,7 +646,7 @@ def write_atomic(path, text):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=Path("."), help="Directory inside the working tree (default: current directory)")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write, outside the working tree or inside its Git directory")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write, outside the repository or in the review-canvas folder of its Git directory")
     parser.add_argument("--title", help="Review title (default: Uncommitted changes on BRANCH)")
     parser.add_argument("--include-secret-file", action="append", default=[], metavar="PATH",
                         help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")
