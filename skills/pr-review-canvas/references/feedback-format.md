@@ -1,6 +1,6 @@
 # Local feedback contract
 
-The review input stays at schema_version1. Saved feedback uses feedback_schema_version2, not the input schema. Version1 feedback has no inline anchors and is rejected with a version message; keep it as earlier manual notes rather than assuming it can restore highlights.
+The review input stays at `schema_version` 1. Saved feedback uses `feedback_schema_version` 2, not the input schema. Version 1 feedback has no inline anchors and is rejected with a version message; keep it as earlier manual notes rather than assuming it can restore highlights.
 
 The strict JSON root contains pr, input_sha256, exported_at, general_notes, files, comments and retained_reviews. PR identity, full head/base commits and input digest describe the captured snapshot. Every file entry contains path, status, group, reviewed and notes. JSON has no patch source except selected quotes and their context; those may still contain private code. Keep exports within the approved audience and do not upload them automatically.
 
