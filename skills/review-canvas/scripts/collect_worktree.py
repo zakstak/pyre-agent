@@ -586,7 +586,8 @@ def main(argv=None):
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
         with review_state.round_lock(args.output):
-            if (Path(args.output).absolute().parent / "review.html").exists() and Path(args.output).absolute().parent.parent.name == "rounds":
+            parent = Path(args.output).resolve().parent  # resolved, as round_lock does, so an alias cannot dodge the check
+            if (parent / "review.html").exists() and parent.parent.name == "rounds":
                 raise CollectError(f"{Path(args.output).parent} rendered while collecting; a round never changes after it renders. Start a new round.")
             write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:

@@ -405,6 +405,20 @@ class StateTests(unittest.TestCase):
         (loose / "review.html").write_text("rendered")
         collector.collect(ROOT, output=loose / "review.json")
 
+    def test_the_collector_final_check_sees_through_a_symlinked_round(self):
+        directory = render_round(self.state, "worktree-review.json")
+        alias = self.temp / "alias"
+        os.symlink(self.state / "rounds", alias)
+        repo = self.temp / "repo"
+        for command in (["git", "-c", "init.defaultBranch=main", "init", "-q", str(repo)],
+                        ["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(command, check=True, env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull})
+        before = (directory / "input.json").read_bytes()
+        collector = load("collect_worktree")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(collector.main(["--repo", str(repo), "--output", str(alias / directory.name / "input.json")]), 2)
+        self.assertEqual((directory / "input.json").read_bytes(), before)
+
     def test_the_collector_write_waits_for_rendering_and_rechecks(self):
         repo = self.temp / "repo"
         for command in (["git", "-c", "init.defaultBranch=main", "init", "-q", str(repo)],
@@ -473,6 +487,18 @@ class CommandLineTests(unittest.TestCase):
         with unittest.mock.patch.object(serve.os, "kill", side_effect=AssertionError("os.kill called")):
             self.assertEqual(serve.running_server(self.state), "http://127.0.0.1:1/?token=t")
         (self.state / "server.json").unlink()
+        # Started through a symlinked parent, the server locks and records the resolved state directory.
+        link = self.temp / "link"
+        os.symlink(self.temp, link)
+        linked = subprocess.Popen([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(link / "state")], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: linked.poll() is None and linked.kill())
+        linked.stdout.readline()
+        self.assertTrue((self.state / "server.json").exists())
+        with self.assertRaises(state_module.StateError):
+            with state_module.lock(self.state, "server", wait=False):
+                pass
+        linked.send_signal(signal.SIGTERM)
+        self.assertEqual(linked.wait(timeout=10), 0)
         # A process that holds the review's server lock keeps any other server from starting.
         with state_module.lock(self.state, "server", wait=False):
             blocked = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state)], capture_output=True, text=True, timeout=30)

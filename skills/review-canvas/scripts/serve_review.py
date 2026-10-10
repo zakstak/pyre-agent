@@ -248,12 +248,13 @@ def main(argv=None):
     # One server per review: its lock lasts as long as the process, so two starts cannot both serve and both save.
     ownership = contextlib.ExitStack()
     try:
-        review_state.private_dir(args.state_dir)
+        # Everything below uses the checked, resolved directory, so a symlink on the way cannot point the lock elsewhere.
+        state = review_state.private_dir(args.state_dir)
         try:
-            ownership.enter_context(review_state.lock(args.state_dir, "server", wait=False))
+            ownership.enter_context(review_state.lock(state, "server", wait=False))
         except review_state.StateError:
-            raise review_state.StateError(f"a server already runs for this review: {running_server(args.state_dir) or 'see server.json'}") from None
-        server = ReviewServer(args.state_dir, args.idle_timeout)
+            raise review_state.StateError(f"a server already runs for this review: {running_server(state) or 'see server.json'}") from None
+        server = ReviewServer(state, args.idle_timeout)
         write_server_file(server)
     except (review_state.StateError, OSError) as error:
         ownership.close()

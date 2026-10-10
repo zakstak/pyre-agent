@@ -94,10 +94,12 @@
       if (saving) { again = true; return saving; }
       let body;
       try { body = JSON.stringify(feedback()); } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
+      show("Saving");
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
         failed = status !== 200;
         if (status === 200) {
-          revision = reply.revision; show(draftOpen() ? "Saved, except the open draft" : "Saved");
+          // A change made while this request ran is not in it yet, so the page says Saved only when none is waiting.
+          revision = reply.revision; show(timer || again ? "Saving" : draftOpen() ? "Saved, except the open draft" : "Saved");
           byId("export-status").textContent = "Saved to the agent's review folder. When you finish, tell your agent.";
         } else if (status === 409) pause(`${reply.error} Changes made in this tab since its last save are not saved; export them first to keep them.`);
         else { show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`; }
