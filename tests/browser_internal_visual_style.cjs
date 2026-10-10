@@ -1,4 +1,16 @@
-/* Uses existing Playwright/Chromium. No installation or global activation. */
+/* Real-browser checks for the internal-visual-style specimen.
+ * Run: PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium node tests/browser_internal_visual_style.cjs
+ * Uses existing Playwright/Chromium. No installation or global activation. It serves a temporary copy of the
+ * complete skill on loopback only. Screenshots and results go to a temporary directory, or OUTPUT_DIR if set;
+ * they are evidence for a review, not files to commit.
+ *
+ * To check a compiled Tailwind v4 build, copy the skill's assets into a temporary project whose build resolves
+ * `tailwindcss`, and include the specimen plus this fixture in its source scan:
+ *   <h1 class="text-4xl font-normal dark:underline"></h1> <button class="bg-page p-8"></button>
+ *   <span class="font-sans text-success bg-success-tint"></span> <code class="font-mono"></code>
+ * Compile assets/tailwind.css to compiled.css beside the assets so ./fonts/ URLs resolve, then run with
+ * TAILWIND_CSS=/path/to/compiled.css.
+ */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,7 +20,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 const root = path.resolve(__dirname, '..');
 const skill = path.join(root, 'skills/internal-visual-style');
-const out = path.join(root, 'validation/internal-visual-style');
+const out = process.env.OUTPUT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'internal-style-evidence-'));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'internal-style-'));
 // Exercise an installed copy outside the repository, with no sibling dependencies.
 fs.cpSync(skill, path.join(temporary, 'internal-visual-style'), { recursive: true });
@@ -222,6 +234,6 @@ function contrast(a, b) {
     if (server.listening) await new Promise(resolve => server.close(resolve));
     fs.rmSync(temporary, { recursive: true, force: true });
     fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(path.join(out, `${mode === 'plain' ? 'browser' : 'tailwind'}-results.json`), JSON.stringify(report, null, 2) + '\n');
-    console.log(JSON.stringify({ result: report.result, browser: report.browser, states: report.states.length, contrasts: report.contrasts.length, checks: report.checks, error: report.error }));
+    console.log(JSON.stringify({ result: report.result, evidence: out, browser: report.browser, states: report.states.length, contrasts: report.contrasts.length, checks: report.checks, error: report.error }));
   }
 })();

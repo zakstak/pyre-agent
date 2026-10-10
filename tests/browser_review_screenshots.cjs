@@ -1,5 +1,7 @@
 /* Visual evidence for the PR review canvas: drives the real comment flow on a realistic fixture,
-   writes screenshots and results to validation/pr-review-canvas, and fails on contrast or overflow.
+   writes screenshots and results.json, and fails on contrast or overflow.
+   Run: PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium node tests/browser_review_screenshots.cjs
+   Output goes to a temporary directory, or OUTPUT_DIR if set. Do not commit it; attach screenshots to the PR instead.
    Uses already available Playwright and Chromium. Overrides match browser_review.cjs. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -10,7 +12,8 @@ const { pathToFileURL } = require("node:url");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 
 const root = path.resolve(__dirname, "..");
-const out = path.join(root, "validation/pr-review-canvas");
+const out = process.env.OUTPUT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), "pr-review-evidence-"));
+fs.mkdirSync(out, { recursive: true });
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-review-shots-"));
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/showcase-review.json"), "utf8"));
 const report = { result: "FAIL", browser: null, screenshots: [], states: [], contrast: [], checks: [] };
@@ -175,6 +178,6 @@ function auditContrast() {
   } finally {
     await browser.close();
     fs.writeFileSync(path.join(out, "results.json"), JSON.stringify(report, null, 2) + "\n");
-    console.log(`${report.result}: ${report.checks.length} checks, ${report.screenshots.length} screenshots in ${path.relative(root, out)}`);
+    console.log(`${report.result}: ${report.checks.length} checks, ${report.screenshots.length} screenshots in ${out}`);
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
