@@ -179,11 +179,19 @@ def in_state_directory(path):
 
 
 def rendered_round_input(output):
-    """Whether output is a STATE/rounds/NNNN/input.json whose round has rendered. Other paths, as in the file workflow,
-    are never frozen."""
+    """Whether output is a STATE/rounds/NNNN/input.json whose round is closed: it rendered, or a newer round has
+    published, so it never can. Other paths, as in the file workflow, are never frozen."""
     path = Path(output).resolve()
-    return (path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name)
-            and (path.parent / "review.html").exists())
+    if not round_input(path):
+        return False
+    if (path.parent / "review.html").exists():
+        return True
+    import review_state
+    try:
+        current = review_state.read_current(path.parent.parent.parent)
+    except review_state.StateError:
+        return False
+    return current is not None and int(path.parent.name) <= current
 
 
 def disk_mode(path):
@@ -610,7 +618,7 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
                            f"Collect from the repository that {top} belongs to.")
     if output is not None:
         if rendered_round_input(output):
-            raise CollectError(f"{Path(output).parent} has rendered; a round never changes after it renders. Start a new round.")
+            raise CollectError(f"{Path(output).parent} has rendered, or a newer round has; a round never changes after it renders. Start a new round.")
         common_dir = (Path(repo) / decode_path(git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n"))).resolve()
         states = git_dir / "review-canvas"
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
@@ -733,7 +741,7 @@ def main(argv=None):
         import review_state
         with review_state.round_lock(output):
             if rendered_round_input(output):
-                raise CollectError(f"{output.parent} rendered while collecting; a round never changes after it renders. Start a new round.")
+                raise CollectError(f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round.")
             write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks

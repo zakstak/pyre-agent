@@ -231,7 +231,12 @@ def load_review(path):
                             parse_constant=lambda value: (_ for _ in ()).throw(ValidationError(f"Invalid JSON constant: {value}")))
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValidationError(f"invalid UTF-8 JSON: {error}") from error
-    return validate_review(review)
+    review = validate_review(review)
+    # A rendered round records its input's digest. A later edit would make readers see other input than the page.
+    recorded = Path(path).parent / "input.sha256"
+    if Path(path).name == "input.json" and recorded.exists() and recorded.read_text(encoding="ascii").strip() != input_digest(review):
+        raise ValidationError(f"{path} changed after its round rendered; a round never changes. Start a new round.")
+    return review
 
 
 def escape(value):
@@ -588,6 +593,7 @@ def main(argv=None):
                 review = load_review(args.input)
                 page = render_review(review, args.style_dir)
                 review_state.write_private(args.output, page.encode("utf-8"), replace=False)
+                review_state.write_private(round_dir / "input.sha256", (input_digest(review) + "\n").encode("ascii"), replace=False)
                 review_state.publish(state, number, held=True)
         else:
             if args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):

@@ -58,19 +58,29 @@ def _group_has_others(gid):
         return True
 
 
+# Errors that mean an attribute is absent, or that the filesystem cannot hold that kind of ACL at all.
+ABSENT = {code for code in (getattr(errno, "ENODATA", None), errno.ENOTSUP, errno.EOPNOTSUPP) if code is not None}
+
+
+def _attribute(path, name):
+    """An extended attribute's bytes, or None when path has none of that kind. Any other failure, such as EACCES or
+    EIO, refuses the directory: an ACL that cannot be read cannot be judged."""
+    try:
+        return os.getxattr(path, name)
+    except OSError as error:
+        if error.errno in ABSENT:
+            return None
+        raise StateError(f"cannot read the access control list of {path}: {error.strerror}") from None
+
+
 def _acl_writers(path, gid):
     """The users and groups a POSIX access ACL lets write to path, or None when path has none or the platform cannot
     read one. With an ACL, the mode's group bits are only its mask, so they cannot say who may write."""
-    try:
-        os.getxattr(path, "system.nfs4_acl")
-    except (AttributeError, OSError):
-        pass
-    else:
+    if _attribute(path, "system.nfs4_acl") is not None:
         raise StateError(f"{path} uses NFSv4 access control lists, which these scripts cannot check. "
                          "Keep the review state on a local filesystem, or render with render_review.py INPUT --output.")
-    try:
-        raw = os.getxattr(path, "system.posix_acl_access")
-    except (AttributeError, OSError):
+    raw = _attribute(path, "system.posix_acl_access")
+    if raw is None:
         return None
     if len(raw) < 4 or (len(raw) - 4) % 8 or struct.unpack_from("<I", raw)[0] != 2:
         raise StateError(f"cannot read the access control list of {path}")
