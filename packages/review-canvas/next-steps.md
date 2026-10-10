@@ -9,7 +9,8 @@ done, what is decided, what is still open, and the order of the remaining work.
   `81c77d7`. It reviews GitHub PRs and local working trees, serves a loopback page, and threads agent answers with
   reviewer replies. It is the working version until the port reaches parity.
 - The server skeleton is on branch `review-canvas/server-skeleton`, in the worktree
-  `/home/zak/git/pyre-agent-worktrees/server-skeleton`. It is not committed or pushed, so CI has not run.
+  `/home/zak/git/pyre-agent-worktrees/server-skeleton`. It is in draft PR #31, and the `Review canvas server` workflow
+  passes in CI.
 - The skeleton serves one page and the built assets from 127.0.0.1, refuses requests for any other Host, and sets the
   security headers. `pnpm typecheck`, `pnpm build`, and `pnpm test` pass.
 
@@ -53,8 +54,8 @@ thread or multi-thread features.
 
 ### 0. Land the skeleton
 
-1. Commit the skeleton and open a draft PR.
-2. Confirm the `Review canvas server` workflow passes in CI.
+Done in draft PR #31: the skeleton is committed, and the `Review canvas server` workflow passes in CI. Merge it before
+step 1 starts.
 
 ### 1. Schemas
 
