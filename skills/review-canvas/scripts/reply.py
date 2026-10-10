@@ -152,11 +152,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "carry":
-            print(f"Carried {carry(args.source, args.target)} agent replies into {args.target}")
+            print(f"Carried {carry(args.source, args.target)} agent replies into {render_review.shown(str(args.target))}")
         else:
             reply = add(args.input, args.feedback, args.comment, args.disposition, args.body,
                         args.fixed_in_fingerprint, args.fixed_in_commit, args.blocker, revision=args.revision)
-            print(f"Added {reply['disposition']} reply {reply['id']} to comment {args.comment} at {reply['created_at']}")
+            print(f"Added {reply['disposition']} reply {reply['id']} to comment {render_review.shown(args.comment)} at {reply['created_at']}")
     except (render_review.ValidationError, feedback_contract.FeedbackError, review_state.StateError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
