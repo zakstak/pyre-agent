@@ -48,6 +48,10 @@ fs.mkdirSync(out, { recursive: true });
     await importFile(path.join(fixtures, "worktree-feedback.json"));
     assert.equal(await page.locator("#unmatched-replies").isHidden(), true);
     await page.getByRole("button", { name: "Expand all" }).click();
+    // A comment the agent answered stays where the answer found it: an orphan with replies offers no reattachment.
+    const answeredOrphans = page.locator("#orphan-list .inline-comment");
+    assert.ok(await answeredOrphans.count() > 0, "round 2 orphans an answered comment");
+    assert.equal(await answeredOrphans.getByRole("button", { name: "Attach to selected text" }).count(), 0);
 
     // Each agent disposition shows under its comment, and the thread waits for the reviewer.
     assert.equal(await state("fixture-comment-1"), "Answered: fixed");

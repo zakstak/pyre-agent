@@ -386,13 +386,14 @@
     // Working tree rounds often share a HEAD, so an earlier snapshot is named by round when the commit matches.
     const origin = comment.anchor.snapshot;
     if (origin.input_sha256 !== metadata.input_sha256) head.append(element("span", "chip", origin.target.head_sha !== metadata.target.head_sha ? `From ${origin.target.head_sha.slice(0, 7)}` : "From an earlier round"));
-    if (!attached) actions.append(button("Attach to selected text", () => {
+    // Once a thread has replies, the comment is the question they answer: editing or reattaching it would leave a stale
+    // answer marked done, and deleting it would strand the agent's replies. The reviewer replies or reopens instead.
+    const answered = thread(comment).length > 0;
+    if (!attached && !answered) actions.append(button("Attach to selected text", () => {
       if (!selection) { announce("Select the intended code first, then choose Attach to selected text."); return; }
       compose(selection, comment, true);
     }));
-    // Once a thread has replies, the comment is the question they answer: editing it would leave a stale answer marked
-    // done, and deleting it would strand the agent's replies. The reviewer replies or reopens instead.
-    if (!thread(comment).length) actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
+    if (!answered) actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
     if (!agentReplies.has(comment.id) && !comment.replies?.length) actions.append(button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
     head.append(actions);
     const lines = comment.anchor.quote.split("\n");
