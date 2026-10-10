@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,13 +37,22 @@ class GitError(RuntimeError):
     """A Git command failed or could not start."""
 
 
+def trusted_path():
+    """PATH without relative entries. With cwd set, a relative entry such as . would find a git file in the repository."""
+    return os.pathsep.join(entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry and os.path.isabs(entry))
+
+
 def git(cwd, *args, ok=(0,), env=None):
     """Run Git in cwd and return stdout bytes. Exit codes outside ok raise GitError."""
+    executable = shutil.which("git", path=trusted_path())
+    if executable is None:
+        raise GitError("git was not found in any absolute PATH directory")
     environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV}
+    environment["PATH"] = trusted_path()
     # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
     environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", **(env or {}))
     try:
-        result = subprocess.run(["git", *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL, capture_output=True)
+        result = subprocess.run([executable, *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL, capture_output=True)
     except OSError as error:
         raise GitError(f"cannot run git in {cwd}: {error.strerror}") from error
     if result.returncode not in ok:

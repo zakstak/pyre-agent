@@ -177,7 +177,7 @@ def tracked_entry(top, change, fmt):
         entry["new_blob"] = blob_id(fmt, link_target(full))
     elif new_mode:
         blob = read_blob(full, fmt)
-        entry.update(new_blob=blob["blob"], size=blob["size"])
+        entry.update(new_blob=blob["blob"], size=blob["size"], binary=blob["binary"])
     if entry["status"] == "modified" and entry["new_blob"] == entry["old_blob"]:
         if old_mode == new_mode:
             return None  # only the stat data changed; Git lists it because the index is never refreshed
@@ -301,6 +301,7 @@ def content(top, entry, fmt, binary, allow_secret, oversized, config):
         return "no_content_change", None
     if not allow_secret and any(p and secret_name(p) for p in (path, entry["old_path"])):
         return "secret", None
+    # Binary means NUL bytes in the content, never a diff attribute: a text file marked -diff still shows its patch.
     if binary:
         return "binary", None
     # A symlink or submodule replaced by a file has no text on its old side, so the file reads as new.
@@ -330,11 +331,11 @@ def build(top, snapshot, fmt, include, config):
     total_lines = total_bytes = 0
     for entry in snapshot["entries"]:
         path = entry["path"]
+        binary = entry.get("binary", False)
         if entry["untracked"]:
-            binary = entry.get("binary", False)
             additions, deletions = (entry["lines"] if entry["kind"] == "file" and not binary else 0), 0
         else:
-            additions, deletions, binary = stats.get(path, (0, 0, False))
+            additions, deletions, _ = stats.get(path, (0, 0, False))
         file = {"path": path, "status": entry["status"], "group": "core", "additions": additions, "deletions": deletions,
                 "fingerprint": entry["fingerprint"]}
         if entry["old_path"]:
