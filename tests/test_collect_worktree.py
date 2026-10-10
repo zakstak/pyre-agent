@@ -275,6 +275,14 @@ class InventoryTests(Fixture):
         self.assertEqual(files["hidden.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
         self.assertEqual(files["gone.txt"]["status"], "deleted")
 
+    def test_a_submodule_marked_assume_unchanged_stays_a_submodule(self):
+        library = self.init(self.base / "library")
+        self.commit({"lib.txt": "l\n"}, root=library)
+        self.git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(library), "sub")
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "update-index", "--assume-unchanged", "sub")
+        self.assertEqual(self.collect(), {})
+
     def test_present_skip_worktree_files_are_compared_by_their_bytes(self):
         self.commit({"pinned.txt": "a\n"})
         self.git(self.root, "update-index", "--skip-worktree", "pinned.txt")
@@ -683,6 +691,26 @@ class IsolationTests(Fixture):
             files = self.collect()
         self.assertFalse(marker.exists(), "the repository's git file ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
+
+    def test_a_git_executable_inside_the_repository_never_runs(self):
+        marker = self.base / "repo-git-ran"
+        (self.root / "bin").mkdir()
+        fake = self.root / "bin/git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        self.commit({"a.txt": "a\n"})
+        with mock.patch.dict(os.environ, {"PATH": str(self.root / "bin") + os.pathsep + os.environ["PATH"]}), \
+                self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
+            self.collect()
+        self.assertFalse(marker.exists())
+
+    def test_git_tracing_cannot_write_into_the_working_tree(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        with mock.patch.dict(os.environ, {"GIT_TRACE": str(self.root / "trace.log"), "GIT_TRACE2_EVENT": str(self.root / "trace2.log")}):
+            files = self.collect()
+        self.assertEqual(sorted(files), ["a.txt"])
+        self.assertFalse((self.root / "trace.log").exists())
 
     def test_filter_driver_names_that_are_not_utf8_stop_collection(self):
         self.commit({"a.txt": "a\n"})

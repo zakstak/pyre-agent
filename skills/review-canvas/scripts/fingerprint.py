@@ -42,12 +42,30 @@ def trusted_path():
     return os.pathsep.join(entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry and os.path.isabs(entry))
 
 
-def git(cwd, *args, ok=(0,), env=None):
-    """Run Git in cwd and return stdout bytes. Exit codes outside ok raise GitError."""
+def repository_top(path):
+    """The working tree root above path, found without running Git: the nearest directory holding .git."""
+    for directory in (Path(path).resolve(), *Path(path).resolve().parents):
+        if os.path.lexists(directory / ".git"):
+            return directory
+    return None
+
+
+def git_executable(repo=None):
+    """The git to run: the first in an absolute PATH directory, and never one inside the repository under review."""
     executable = shutil.which("git", path=trusted_path())
     if executable is None:
         raise GitError("git was not found in any absolute PATH directory")
-    environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV}
+    top = repository_top(repo) if repo is not None else None
+    if top is not None and Path(executable).resolve().is_relative_to(top):
+        raise GitError(f"git resolves to {executable}, inside the repository under review. Put the system git earlier in PATH.")
+    return executable
+
+
+def git(cwd, *args, ok=(0,), env=None):
+    """Run Git in cwd and return stdout bytes. Exit codes outside ok raise GitError."""
+    executable = git_executable()
+    # Tracing variables would make every call append to a file, which could sit in the working tree.
+    environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV and not key.startswith("GIT_TRACE")}
     environment["PATH"] = trusted_path()
     # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
     environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", **(env or {}))
@@ -122,6 +140,7 @@ def main(argv=None):
     parser.add_argument("head", help="PR head branch or commit")
     args = parser.parse_args(argv)
     try:
+        git_executable(args.repo)
         result = pr_fingerprints(args.repo, args.base, args.head)
     except (GitError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)

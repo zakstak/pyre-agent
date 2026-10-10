@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import html
 import json
+import math
 import os
 import re
 import secrets
@@ -256,7 +257,7 @@ def main(argv=None):
     parser.add_argument("--state-dir", type=Path, required=True, help="The review's state directory")
     parser.add_argument("--idle-timeout", type=float, default=3600, help="Stop after this many seconds without a request (default 3600)")
     args = parser.parse_args(argv)
-    if args.idle_timeout < 1:
+    if not math.isfinite(args.idle_timeout) or args.idle_timeout < 1:
         parser.error("--idle-timeout must be at least 1 second, so an open page can poll inside it")
     # One server per review: its lock lasts as long as the process, so two starts cannot both serve and both save.
     ownership = contextlib.ExitStack()

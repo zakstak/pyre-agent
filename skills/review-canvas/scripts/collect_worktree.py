@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import render_review  # noqa: E402
-from fingerprint import DIFF_FLAGS, GitError, decode_path, file_fingerprint, git, raw_changes  # noqa: E402
+from fingerprint import DIFF_FLAGS, GitError, decode_path, file_fingerprint, git, git_executable, raw_changes  # noqa: E402
 
 
 ATTEMPTS = 3
@@ -164,6 +164,8 @@ def disk_mode(path):
         info = os.lstat(path)
     except FileNotFoundError:
         return None
+    if stat.S_ISDIR(info.st_mode):
+        return "160000"  # a checked-out submodule
     return "120000" if stat.S_ISLNK(info.st_mode) else "100755" if info.st_mode & stat.S_IXUSR else "100644"
 
 
@@ -431,10 +433,12 @@ def build(top, snapshot, fmt, include, config):
 
 def collect(repo, title=None, include_secret=(), output=None):
     """Return (validated review, secret-flagged paths) for the working tree containing repo."""
+    git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     if output is not None:
         git_dir = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")))
-        if (Path(output).parent / "review.html").exists():
+        round_dir = Path(output).absolute().parent
+        if round_dir.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", round_dir.name) and (round_dir / "review.html").exists():
             raise CollectError(f"{Path(output).parent} has rendered; a round never changes after it renders. Start a new round.")
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
         if os.path.islink(output):
