@@ -296,7 +296,7 @@ def main(argv=None):
             signal.signal(signum, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
         threading.Thread(target=server.watch_idle, daemon=True).start()
         print(f"Review server: {server.url}", flush=True)
-        print(f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {server.state / 'feedback.json'}.", flush=True)
+        print(f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {render_review.shown(str(server.state / 'feedback.json'))}.", flush=True)
         try:
             server.serve_forever(poll_interval=0.25)
         finally:
