@@ -447,6 +447,26 @@ class StateTests(unittest.TestCase):
         (loose / "review.html").write_text("rendered")
         collector.collect(ROOT, output=loose / "review.json")
 
+    def test_the_collector_write_waits_for_rendering_and_rechecks(self):
+        repo = self.temp / "repo"
+        for command in (["git", "-c", "init.defaultBranch=main", "init", "-q", str(repo)],
+                        ["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(command, check=True, env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull})
+        (repo / "a.txt").write_text("a\n")
+        directory = state_module.new_round(self.state)
+        collector = load("collect_worktree")
+        result = {}
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: result.update(code=collector.main(["--repo", str(repo), "--output", str(directory / "input.json")])))
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                worker.start()
+                worker.join(2)
+                self.assertTrue(worker.is_alive(), "the collector wrote while rendering held the lock")
+                (directory / "review.html").write_text("rendered meanwhile")
+        worker.join(30)
+        self.assertEqual(result["code"], 2)
+        self.assertFalse((directory / "input.json").exists())
+
     def test_platforms_without_posix_permissions_are_refused(self):
         with unittest.mock.patch.object(state_module, "PRIVACY_CHECKABLE", False), \
                 self.assertRaisesRegex(state_module.StateError, "cannot confirm that only you can read"):

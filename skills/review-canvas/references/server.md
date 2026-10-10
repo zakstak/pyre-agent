@@ -24,7 +24,7 @@ Each file has exactly one writer, so the only coordination is one revision check
 | `feedback.json` | The browser, through the server. The agent only reads it. |
 | `server.json` | The server, while it runs: its URL, port, and process ID |
 | `server.lock` | Held by the running server for its whole life, so a second server cannot start |
-| `publish.lock` | Held while `render_review.py --round` renders and publishes a round, while `reply.py` writes a round's input, and while the server saves |
+| `publish.lock` | Held while `render_review.py --round` renders and publishes a round, while the collector or `reply.py` writes a round's input, and while the server saves |
 
 A state directory holds one review. Feedback carries over between its rounds, so before an unrelated review, stop the server and run `review_state.py archive --state-dir "$STATE"`. It moves the directory aside as `review-canvas.archived-TIMESTAMP` and refuses while a server holds the lock.
 

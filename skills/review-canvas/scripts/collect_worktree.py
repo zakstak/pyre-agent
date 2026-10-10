@@ -265,6 +265,21 @@ def inventory(top, fmt, config):
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
 
 
+def index_entries(top):
+    """Map each index path to (mode, blob, tag), where tag is the ls-files -v letter: S marks skip-worktree."""
+    tags = {decode_path(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]}
+    entries = {}
+    for entry in git(top, "ls-files", "-s", "-z").split(b"\0")[:-1]:
+        info, raw = entry.split(b"\t", 1)
+        mode, blob = info.decode("ascii").split(" ")[:2]
+        entries[decode_path(raw)] = (mode, blob, tags.get(decode_path(raw), "H"))
+    return entries
+
+
+def git_bool(top, key):
+    return git(top, "config", "--type=bool", "--default", "true", key).strip() == b"true"
+
+
 def assumed_unchanged(top, tracked, config):
     """Compare files that Git trusts without reading by their bytes on disk: assume-unchanged files, and skip-worktree
     files that are present anyway. Git hides edits to both."""
@@ -280,8 +295,12 @@ def assumed_unchanged(top, tracked, config):
         info, path = entry.split(b"\t", 1)
         mode, _, blob = info.decode("ascii").split(" ")
         head[decode_path(path)] = (mode, blob)
+    index = index_entries(top)
+    links_are_files = not git_bool(top, "core.symlinks")
     for path in sorted(assumed):
         new_mode = disk_mode(top / path)
+        if links_are_files and index.get(path, ("",))[0] == "120000" and new_mode in ("100644", "100755"):
+            new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
         if path in changes and not new_mode and path not in head:
             del changes[path]  # added to the index, then removed from disk: nothing changed between HEAD and the tree
         elif path in changes:
@@ -489,18 +508,23 @@ def staged_differently(top, config):
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
     # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
-    modes_count = git(top, "config", "--type=bool", "--default", "true", "core.filemode").strip() == b"true"
+    modes_count = git_bool(top, "core.filemode")
     found = []
-    for entry in git(top, "ls-files", "-s", "-z").split(b"\0")[:-1]:
-        info, raw = entry.split(b"\t", 1)
-        path = decode_path(raw)
-        mode, blob = info.decode("ascii").split(" ")[:2]
-        if path in staged and mode in ("100644", "100755"):
-            try:
-                if read_blob(top / path, fmt)["blob"] != blob or (modes_count and disk_mode(top / path) != mode):
-                    found.append(path)
-            except (OSError, Changed):
-                found.append(path)
+    for path, (mode, blob, tag) in index_entries(top).items():
+        full = top / path
+        if path not in staged or (tag in "Ss" and not os.path.lexists(full)):
+            continue  # unstaged, or a sparse entry whose staged blob is what the review showed
+        try:
+            if mode == "160000":
+                differs = repository_head(full) != blob
+            elif mode == "120000":
+                differs = link_blob(full, fmt) != blob
+            else:
+                differs = read_blob(full, fmt)["blob"] != blob or (modes_count and disk_mode(full) != mode)
+        except (OSError, Changed):
+            differs = True
+        if differs:
+            found.append(path)
     return sorted(found)
 
 
@@ -529,7 +553,13 @@ def main(argv=None):
         review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
         root = Path(review["target"]["root"])
         staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
-        write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+        # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
+        # rendering also holds from its check to publishing, makes this last check and the write one step.
+        import review_state
+        with review_state.round_lock(args.output):
+            if (Path(args.output).absolute().parent / "review.html").exists() and Path(args.output).absolute().parent.parent.name == "rounds":
+                raise CollectError(f"{Path(args.output).parent} rendered while collecting; a round never changes after it renders. Start a new round.")
+            write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
