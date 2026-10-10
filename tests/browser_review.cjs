@@ -38,7 +38,12 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.deepEqual(await page.locator("article h3").allTextContents(), ["src/retry.py", "config/retry.json", "generated/retry-map.bin"]);
     assert.equal(await page.locator("#file-1 .patch-details").evaluate(el => el.open), true);
     assert.equal(await page.locator("#file-2 .patch-details").evaluate(el => el.open), false);
-    assert.equal(await page.locator("#file-0 .file-details").evaluate(el => el.open), false);
+    // Mechanical files start collapsed behind their header toggle.
+    assert.equal(await page.locator("#file-0 .file-body").isHidden(), true);
+    assert.equal(await page.locator("#file-0 .file-toggle").getAttribute("aria-expanded"), "false");
+    await page.locator("#file-0 .file-toggle").click();
+    assert.equal(await page.locator("#file-0 .file-body").isVisible(), true);
+    await page.locator("#file-0 .file-toggle").click();
     await page.screenshot({ path: path.join(temp, "desktop.png"), fullPage: true });
 
     await page.locator("#search").fill("src/retry");
@@ -54,6 +59,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.locator("#search").fill("");
     await page.locator("#file-1 .reviewed").check();
     assert.equal(await page.locator("#progress").textContent(), "1 of 3 reviewed");
+    // Marking a file reviewed collapses it and checks it off in the file list.
+    assert.equal(await page.locator("#file-1 .file-body").isHidden(), true);
+    assert.equal(await page.locator('.file-nav li[data-file="file-1"]').evaluate(el => el.classList.contains("is-reviewed")), true);
     await page.locator("#review-filter").selectOption("remaining");
     assert.equal(await page.locator("article:visible").count(), 2);
     await page.locator("#review-filter").selectOption("reviewed");

@@ -1,60 +1,123 @@
 # Internal visual reference
 
-## Scope and selection
+## Scope
 
-Use this reference for all UI and theming work without a specific product design system. This includes developer plans, review pages, reports, and ad hoc visual artifacts. Honor explicit task instructions first. Product-specific branding takes precedence. For a product with partial guidance, use compatible parts of this reference to fill gaps. Do not restyle established products to match the example.
+Use this reference for UI and theming work that has no product design system. That includes developer plans, review pages, reports, and ad hoc visual artifacts. Explicit task instructions come first, then product branding. If a product owns part of its design, fill only the gaps from this reference and do not restyle the product.
 
-This file owns the shared guidance. [../assets/tokens.css](../assets/tokens.css) is the single source of semantic design token values. The skill entrypoint selects this reference. This reference does not load the skill or other prompts.
+[../assets/tokens.css](../assets/tokens.css) holds every color, type, spacing, and size value. [../assets/components.css](../assets/components.css) holds the shared components. [../assets/reference.html](../assets/reference.html) shows them together in both modes. This file explains how to use them.
 
-## Confirmed decisions
+## Principles
 
-- Use Atkinson Hyperlegible Next for reading text and Atkinson Hyperlegible Mono for code and technical text. Both fonts are chosen and bundled as upright variable fonts. System font stacks are fallbacks if a bundled font cannot load.
-- Support dark and light modes with a keyboard-accessible control, visible state, and visible focus. Start with the system preference unless the reader has selected a mode.
-- Keep character quiet and layouts uncluttered. Use short, literal headings that identify content. Omit marketing headings, ornamental subtitles, filler, and decoration that competes with the work.
-- Give status colors consistent meanings and use them sparingly. Always pair status color with text. Separate neutral progress or pending decisions from success, warning, and failure.
-- Let content determine the layout. Use readable prose widths, wider code or comparison areas when needed, and flexible sections. The example is a specimen, not a required dashboard or card template.
-- Support readers who find dense text difficult. Use left-aligned prose, comfortable line height, clear paragraph spacing, concise sections, and ordinary casing. Avoid full justification, long italic passages, and text embedded in images. Preserve zoom and user text-spacing overrides. Do not claim that a font treats dyslexia or guarantees medical benefits.
+- Lead with the content. The first screen shows the title, the result, and the next action. Put coverage notes, provenance, and caveats in a disclosure or the footer.
+- Keep the page quiet. Use the charcoal and violet layers and thin separators. Do not add gradients, shadows, blur, translucent text, or decoration.
+- Show structure with spacing and type before boxes. Use a panel for one unit of work, such as a file or a form. Do not nest panels.
+- Give each view one primary action. Use the default button for other actions and the quiet button for low-weight ones such as **Collapse all**.
+- Put a control next to the thing it changes. A comment composer opens under the code it quotes, not in a fixed area elsewhere on the page.
+- Do not show diagnostics as UI. Font-loading reports, internal IDs, and raw JSON belong in validation output unless the reader asked for them.
+- Use short, literal headings and labels in sentence case. Write **Finish review**, not **Save and restore review workflow**.
 
-Typography is confirmed. JetBrains Mono is not selected.
+## Color
 
-## Selected design direction
+Use roles, not hex values. Each role switches with the mode.
 
-The current reference is Zak's supplied charcoal editor screenshot: quiet purple-gray layers, thin decorative separators, lavender focus and dusty pink primary actions. Both Atkinson fonts remain confirmed. The historical selection was theme 04 Margin notes (`moss`); its earlier violet–indigo palette and rail geometry are superseded by this explicit reference request. The banner remains undecided.
+| Role | Token | Use |
+| --- | --- | --- |
+| Page | `--bg-page` | Page canvas and the app bar |
+| Surface | `--bg-surface` | Panels and file cards |
+| Raised | `--bg-raised` | Headers inside panels, buttons, comment cards |
+| Code | `--bg-code` | Code, diffs, and text fields |
+| Sidebar | `--pyre-sidebar` | Side navigation |
+| Primary text | `--text-primary` | Body text and any text on a tinted fill |
+| Secondary text | `--text-secondary` | Metadata, hints, and line numbers |
+| Separator | `--separator` | Decorative lines around and between panels |
+| Control border | `--border` | Boundaries of fields and buttons |
+| Accent | `--pyre-accent`, `--link`, `--focus` | Links, focus rings, current item, comment affordances |
+| Action | `--pyre-action` | The primary button only |
+| Subtle | `--pyre-subtle` | Hover fills, callouts, and diff hunk rows |
+| Status | `--status-success`, `--status-warning`, `--status-danger` | Results, paired with words |
+| Diff tints | `--pyre-diff-addition`, `--pyre-diff-deletion` | Added and deleted diff rows |
+| Selection | `--pyre-selection` | Selected text |
 
-[reference-theme-contract.json](reference-theme-contract.json) preserves the complete supplied version 2 contract, SHA-256 `4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`. Dark source colors are exact screenshot values. The light companion and success role are derived; they are not screenshot evidence. tokens.css implements the contract's semantic palette. Preserve this distinction when extending it.
+The dark source colors are exact values from Zak's reference screenshot. The light companion, the success role, and the `color-mix()` roles are derived. [reference-theme-contract.json](reference-theme-contract.json) records the source contract, SHA-256 `4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`, including its full contrast matrix. Keep the source and derived distinction when you extend the palette.
 
-Use 17px reading text at 1.55 line height, 26px headings and 20px section headings, expressed in rem; 68ch prose and 1180px work measures, 8px fields/buttons and 10px quiet panels. Technical text must remain at least 14px and controls 44px. Let content determine layout rather than requiring rails or a dashboard. Keep shrinkable tracks, intrinsic nonbreaking technical identifiers and font-relative stacking/padding when text is enlarged on narrow phones. Preserve reading order and code scrolling.
+If you need a role that does not exist, add it to tokens.css and verify it in both modes. Derive it from existing roles with `color-mix()` where possible. Do not put color values in component CSS, HTML, or Tailwind configuration.
 
-## Contrast restrictions
+Some source pairs fail contrast. Secondary text must not sit on the overlay, input, subtle, highlight, message, or sidebar-selection fills. Switch it to primary text on those fills, including on hover. Status text sits on the surface fill. The neutral status uses primary text on the raised fill.
 
-The contract contains the full contrast matrix, including restricted pairs. Dark source borders are decorative separators; necessary control boundaries use control-border or functional-border. Source-muted text must not appear on overlay, input, subtle, highlight, message or sidebar selection fills. Use primary ink there. Status roles use surface backgrounds. The neutral status uses primary ink on raised. Do not claim every source pairing is accessible, silently alter source colors, or use a passing palette test as proof of every consumer's layout.
+Status colors keep one meaning each. Success means a verified good result. Warning means something needs attention. Danger means a failure or a destructive action. Pending work and ordinary metadata use the neutral chip. Color never carries a result alone.
 
-## Semantic tokens
+## Typography
 
-Use the CSS custom properties in tokens.css for page and surface backgrounds, text, secondary text, borders, links, focus, and named status pairs. Typography, spacing, reading measure, corner radius, and control size are also owned there. Do not repeat palette values in HTML, component styles, Tailwind configuration, or prompts. If a needed semantic role is missing, add it at the source and verify both modes. Avoid anonymous color utilities for status.
+| Style | Token | Size and weight | Use |
+| --- | --- | --- | --- |
+| Title | `--size-title` | 26px, 650 | One per page |
+| Heading | `--size-heading` | 20px, 650 | Sections |
+| Subheading | `--size-subheading` | 17px, 650 | Units inside a section |
+| Body | `--size-reading` | 17px, 400, line height 1.55 | Prose |
+| Small | `--size-small` | 15px, 400 or 600 | Labels, metadata, hints |
+| Technical | `--size-technical` | 14px, Mono | Code, diffs, paths, hashes |
 
-Success means a verified successful result. Warning means a condition that needs attention. Danger means a failed result or destructive action. Pending choices and ordinary metadata use the neutral role. Status foregrounds use the handed-off success, warning, and error colors against the shared surface background. Neutral status uses primary text on raised. No extra status palette is invented.
+Atkinson Hyperlegible Next is the reading font. Atkinson Hyperlegible Mono is the technical font. Buttons and field labels use weight 600. Avoid synthetic italics and long italic passages. Set file paths, commit hashes, and commands in the technical font. Technical text never drops below 14px.
 
-## Browser consumption
+## Layout
 
-For plain HTML, link [../assets/style.css](../assets/style.css). It imports tokens.css and fonts.css. Include [../assets/theme.js](../assets/theme.js) in the head before styles and provide the theme control shown in [../assets/reference.html](../assets/reference.html). The script applies the saved choice, catches unavailable storage, follows system changes while no choice is saved, and makes the native button operational. Without JavaScript, CSS follows the system theme and the manual button stays hidden.
+- The spacing scale is `--space-1` through `--space-7`: 4, 8, 12, 16, 24, 32, and 48px.
+- Prose stays within `--measure-reading` (68ch). Work areas stay within `--measure-work` (1180px).
+- Chips use 6px corners. Controls and code use 8px. Panels use 10px.
+- An app bar holds the page name on the left and global controls on the right, with the mode switch last. It sticks to the top on wide screens and scrolls away on phones.
+- Use a sidebar only to move between many items, such as changed files. Hide it below 1024px.
+- Long units, such as a file in a diff, can have a sticky header placed below the app bar.
+- Phones get one column and 16px page padding. At 320px with enlarged text, padding shrinks through `clamp()` to recover reading width.
 
-For Tailwind v4, use [../assets/tailwind.css](../assets/tailwind.css) as a compiled CSS entry in the consuming project's existing build. It imports Tailwind, the same tokens, font declarations, and optional specimen component classes. The `@theme inline` aliases refer to semantic variables rather than repeating values. The `dark` variant follows `data-theme="dark"`. Semantic color utilities already change with the mode. Do not use a CDN runtime or add a parallel Tailwind v3 configuration. See the official [theme variable](https://tailwindcss.com/docs/theme) and [dark mode](https://tailwindcss.com/docs/dark-mode) references.
+## Components
 
-When copying assets, preserve their relative paths. A compiler may leave the font URL relative to its output rather than copy the font. Inspect the built CSS and deliver the referenced font at the resolved URL, or use the project's existing asset pipeline to rewrite it. The CSS uses `light-dark()` and `color-scheme` to keep each role's two values together. Target modern browsers, as required by Tailwind v4, and test the consuming environment. The example needs no build, hosting, or network access. Open reference.html directly for inspection. A local test server is optional and must stay local.
+The classes below are in components.css. The specimen shows each one.
 
-## Typography and fallback
+- **Buttons.** `button` is the default. `.primary` marks the one primary action. `.quiet` has no border or fill until hover. Every button is at least 44px tall. Toggle buttons use `aria-pressed`.
+- **Mode switch.** `.theme-toggle` keeps the label **Dark mode** in a `.theme-label` span. The track and `aria-pressed` show the state. On phones the label is visually hidden but stays the accessible name, so the app bar fits one row. Load theme.js in the head.
+- **Fields.** Text fields, selects, and text areas sit on the code fill with a control border. Give every field a label. A visually hidden label is acceptable only for a filter field whose placeholder states its purpose.
+- **Panels.** `.panel` with `.panel-body` padding.
+- **Chips.** `.chip` for metadata, with `.success`, `.warning`, and `.danger` variants that add a dot and a border.
+- **Notices.** `.notice` explains a condition. Start it with a bold sentence that states the condition. Status variants color the edge and that sentence.
+- **Disclosures.** `details` and `summary` get one chevron style everywhere. Use them for secondary material, not for the main content.
+- **Code.** `.code-region` scrolls wide code inside a labeled, focusable region.
+- **Diffs.** `.diff` is a unified table with old and new line numbers, tinted added and deleted rows, and a colored left edge. Row actions appear on hover and keyboard focus, and stay visible on touch screens.
+- **Toasts.** Show one short message at a time in a polite live region at the bottom of the screen. Hide it after a few seconds unless it offers **Undo**.
 
-Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights 400 or 650 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
+## Interaction
 
-The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. The technical font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblemono). Its SHA-256 is `5ce8b1698d1ded7dff2178c1a3ad159470085a58ea239e8b2cb88f4fb4a6f646`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the reading font and [../assets/fonts/atkinson-hyperlegible-mono-OFL.txt](../assets/fonts/atkinson-hyperlegible-mono-OFL.txt) with the technical font. These are required third-party font notices; project instructions and code use the single repository root MIT license. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
+- Hover uses the subtle fill. Keyboard focus always shows a 2px accent outline with a 2px offset.
+- A disabled control uses secondary text on the surface fill. If the reason is not obvious, say it nearby.
+- An empty state is one sentence that says what is missing and what to do next.
+- Transitions last 150ms or less and only show state changes. Reduced motion turns them off.
+- Every action works from the keyboard. Escape closes an inline editor and returns focus to the control that opened it. Ctrl+Enter submits a multi-line comment.
 
-## Validation for each output
+## Accessibility targets
 
-Check phone and desktop in both modes with realistic content. At 200% text size, headings, controls, and content must remain readable without clipping or page-level horizontal scrolling. Wide code or tables may scroll within a labeled region. Also check narrow reflow and user text-spacing overrides. Use relative text sizes and no fixed text-container heights.
+- Text contrast is at least 4.5:1, or 3:1 for large text. Control boundaries and focus rings are at least 3:1.
+- Targets are at least 44px. Dense row actions inside code and diffs are 24px, which meets the WCAG 2.2 AA target size. A 44px row would make a diff unreadable.
+- Pages work at 320px wide and at 200% text without page-level horizontal scrolling. Wide code and tables scroll inside labeled regions.
+- Zoom and user text-spacing overrides keep working. Prose is left-aligned with ordinary casing. Do not claim that a font treats dyslexia.
 
-Use keyboard alone to reach the content, switch modes, follow links, and operate disclosures. Keep focus visible and control names clear. Check mode persistence when storage works and continued operation when storage fails. Confirm that no-JavaScript content remains readable. Respect reduced motion.
+## Browser use
 
-Measure text contrast against its actual background in both modes. Target WCAG AA ratios of at least 4.5:1 for ordinary text, 3:1 for large text, and 3:1 for necessary control boundaries and focus indicators. Check every status foreground against its paired background. Color alone must never carry a result. Automated checks support inspection; they do not establish complete accessibility certification.
+For plain HTML, link [../assets/style.css](../assets/style.css). It imports tokens.css, fonts.css, and components.css. Include [../assets/theme.js](../assets/theme.js) in the head before the styles and add the mode switch shown in reference.html. The script applies a saved choice, follows the system while no choice is saved, and keeps working when storage is unavailable. Without JavaScript, CSS follows the system mode and the switch stays hidden.
 
-Inspect font requests and rendered fonts. Test a missing-font case and show or disclose fallback. Verify every local reference and copy dependency, including font notices and compiled asset URLs. Report tested browsers, sizes, actual font results, and remaining limitations. Retest contrast and layout when the palette, theme treatment, or typography is revised.
+For Tailwind v4, use [../assets/tailwind.css](../assets/tailwind.css) as an entry in the consumer's existing build. It imports Tailwind, the tokens, the font declarations, and components.css as a components layer, so utilities override component defaults. The `@theme inline` aliases point at the semantic variables. The `dark` variant follows `data-theme="dark"`. Do not use the browser CDN runtime or add a Tailwind v3 configuration. See the official [theme variable](https://tailwindcss.com/docs/theme) and [dark mode](https://tailwindcss.com/docs/dark-mode) references.
+
+Keep relative paths when you copy the assets. A compiler can leave the font URL relative to its output. Inspect the built CSS and serve the font at the resolved URL. Offline single-file artifacts, such as the PR review canvas, embed the tokens, components, and fonts directly. The CSS uses `light-dark()`, `color-mix()`, and container query units, so target current browsers.
+
+## Fonts
+
+Both bundled upright variable fonts cover weights 200 through 800. System font stacks are the fallback if a bundled font cannot load.
+
+The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. The technical font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblemono). Its SHA-256 is `5ce8b1698d1ded7dff2178c1a3ad159470085a58ea239e8b2cb88f4fb4a6f646`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the reading font and [../assets/fonts/atkinson-hyperlegible-mono-OFL.txt](../assets/fonts/atkinson-hyperlegible-mono-OFL.txt) with the technical font. Ship both notices with any artifact that embeds the fonts. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
+
+## Validate each output
+
+1. Look at real screenshots at 1440px, 390px, and 320px wide, in both modes, at 100% and 200% text. Passing checks do not prove that a page looks right.
+2. Use the keyboard alone to reach the content, switch modes, open disclosures, and complete the main task. Check that focus stays visible.
+3. Measure text contrast against the rendered background in both modes, including derived fills such as diff tints.
+4. Inspect the rendered fonts, not only the `font-family` declarations. Test a missing-font case.
+5. Confirm that the page makes no external requests and that every local reference resolves.
+6. Report the browsers, sizes, and font results you tested, and any limits.

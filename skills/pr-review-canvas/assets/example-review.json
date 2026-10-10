@@ -2,6 +2,7 @@
   "schema_version": 1,
   "pr": {
     "title": "Keep retry attempts within the configured limit",
+    "url": "https://github.com/example/retry-demo/pull/7",
     "changed_files": 3,
     "base_sha": "1111111111111111111111111111111111111111",
     "head_sha": "2222222222222222222222222222222222222222"

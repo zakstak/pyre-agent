@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "title": "Add per-tenant rate limiting to the API gateway",
+    "url": "https://github.com/example/gateway/pull/42",
+    "changed_files": 6,
+    "base_sha": "8f14e45fceea167a5a36dedd4bea2543a1b2c3d4",
+    "head_sha": "c9f0f895fb98ab9159f51fd0297e236d9e8f7a6b"
+  },
+  "files_complete": true,
+  "summary": "Synthetic showcase. A token bucket per tenant now guards every /api route. Start with the bucket's refill math, then the middleware that owns the bucket map. The map is never pruned, and Retry-After is a fixed 1 second.",
+  "files": [
+    {
+      "path": "src/ratelimit/token-bucket.ts",
+      "status": "added",
+      "group": "core",
+      "additions": 38,
+      "deletions": 0,
+      "summary": "New token bucket. Refill is lazy: each take() first credits tokens for the time since the last call, capped at capacity. Tokens are fractional, so a tenant at 1 token per second regains a whole token only after a full second.",
+      "pseudocode": "take(cost):\n  tokens = min(capacity, tokens + elapsed_ms * refill_per_ms)\n  if tokens < cost: reject\n  tokens -= cost; allow",
+      "trace": {
+        "input": "capacity 2, refill 1/s; calls at t=0ms, 10ms, 20ms, 1020ms",
+        "before": "No limiter. All four calls reach the router.",
+        "after": "t=0 allow (1 left)\nt=10 allow (0.01 left)\nt=20 reject (0.02 < 1)\nt=1020 allow (1.02 → 0.02)"
+      },
+      "callouts": [
+        {
+          "tag": "Clock",
+          "text": "now() defaults to Date.now, which can move backwards after an NTP correction. A negative elapsed time removes tokens. performance.now() is monotonic."
+        },
+        {
+          "tag": "Unused",
+          "text": "retryAfterSeconds ignores its argument and always returns 1. The middleware hard-codes the same value instead of calling it."
+        }
+      ],
+      "patch_complete": true,
+      "patch": "@@ -0,0 +1,38 @@\n+export interface BucketOptions {\n+  capacity: number;\n+  refillPerSecond: number;\n+  now?: () => number;\n+}\n+\n+/** Token bucket with lazy refill. One bucket per tenant. */\n+export class TokenBucket {\n+  #tokens: number;\n+  #updatedAt: number;\n+  readonly #capacity: number;\n+  readonly #refillPerMs: number;\n+  readonly #now: () => number;\n+\n+  constructor({ capacity, refillPerSecond, now = Date.now }: BucketOptions) {\n+    this.#capacity = capacity;\n+    this.#refillPerMs = refillPerSecond / 1000;\n+    this.#now = now;\n+    this.#tokens = capacity;\n+    this.#updatedAt = now();\n+  }\n+\n+  take(cost = 1): boolean {\n+    this.#refill();\n+    if (this.#tokens < cost) return false;\n+    this.#tokens -= cost;\n+    return true;\n+  }\n+\n+  #refill(): void {\n+    const now = this.#now();\n+    const elapsed = now - this.#updatedAt;\n+    this.#tokens = Math.min(this.#capacity, this.#tokens + elapsed * this.#refillPerMs);\n+    this.#updatedAt = now;\n+  }\n+}\n+\n+export const retryAfterSeconds = (bucket: TokenBucket) => 1;\n"
+    },
+    {
+      "path": "src/gateway/middleware.ts",
+      "status": "modified",
+      "group": "core",
+      "additions": 14,
+      "deletions": 1,
+      "summary": "The middleware creates one bucket per tenant on first sight and rejects with 429 when take() fails. The tenant header is client-supplied, so any caller can mint unlimited buckets.",
+      "callouts": [
+        {
+          "tag": "Memory",
+          "text": "buckets is a Map keyed by an untrusted header and never evicted. A client that rotates x-tenant-id grows it without bound."
+        }
+      ],
+      "patch_complete": true,
+      "patch": "@@ -1,10 +1,13 @@\n import type { Request, Response, NextFunction } from \"express\";\n+import { TokenBucket } from \"../ratelimit/token-bucket\";\n+import { limitsFor } from \"../config/limits\";\n import { logger } from \"../logger\";\n \n export function gateway() {\n+  const buckets = new Map<string, TokenBucket>();\n   return async (req: Request, res: Response, next: NextFunction) => {\n     const tenant = req.header(\"x-tenant-id\");\n     if (!tenant) {\n       res.status(400).json({ error: \"missing tenant\" });\n       return;\n     }\n@@ -14,4 +17,14 @@ export function gateway() {\n     logger.debug({ tenant, path: req.path }, \"gateway request\");\n-    next();\n+    let bucket = buckets.get(tenant);\n+    if (!bucket) {\n+      bucket = new TokenBucket(limitsFor(tenant));\n+      buckets.set(tenant, bucket);\n+    }\n+    if (!bucket.take()) {\n+      res.setHeader(\"Retry-After\", \"1\");\n+      res.status(429).json({ error: \"rate limited\", tenant });\n+      return;\n+    }\n+    next();\n   };\n }\n"
+    },
+    {
+      "path": "src/config/limits.ts",
+      "status": "modified",
+      "group": "wiring",
+      "additions": 9,
+      "deletions": 0,
+      "summary": "Default limit of 60 requests with 1 per second refill, plus one internal override.",
+      "patch_complete": true,
+      "patch": "@@ -1,6 +1,15 @@\n export const defaults = {\n   timeoutMs: 15_000,\n   maxBodyBytes: 1_048_576,\n+  rateLimit: { capacity: 60, refillPerSecond: 1 },\n };\n+\n+const overrides: Record<string, { capacity: number; refillPerSecond: number }> = {\n+  \"tenant-internal\": { capacity: 600, refillPerSecond: 10 },\n+};\n+\n+export function limitsFor(tenant: string) {\n+  return overrides[tenant] ?? defaults.rateLimit;\n+}\n \n export type Defaults = typeof defaults;\n"
+    },
+    {
+      "path": "src/server.ts",
+      "status": "modified",
+      "group": "wiring",
+      "additions": 1,
+      "deletions": 1,
+      "summary": "Mounts the gateway in front of the API router only. Health checks outside /api are not limited.",
+      "patch_complete": true,
+      "patch": "@@ -8,6 +8,6 @@ const app = express();\n app.use(express.json({ limit: defaults.maxBodyBytes }));\n app.use(requestId());\n-app.use(\"/api\", router);\n+app.use(\"/api\", gateway(), router);\n app.use(errorHandler);\n \n export default app;\n"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "status": "modified",
+      "group": "mechanical",
+      "additions": 4,
+      "deletions": 0,
+      "patch_complete": true,
+      "patch": "@@ -1,5 +1,9 @@\n # Changelog\n \n+## Unreleased\n+\n+- Add per-tenant rate limiting to the API gateway. Responses over the limit return 429 with `Retry-After`.\n+\n ## 2.4.0\n \n - Add request IDs to every log line.\n"
+    },
+    {
+      "path": "package-lock.json",
+      "status": "modified",
+      "group": "mechanical",
+      "additions": 212,
+      "deletions": 3,
+      "patch": null,
+      "summary": "Lockfile churn from adding a dev dependency. Too large to include."
+    }
+  ]
+}

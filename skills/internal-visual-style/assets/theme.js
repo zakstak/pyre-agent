@@ -10,12 +10,9 @@
   const current = () => choice || (system.matches ? 'dark' : 'light');
   const apply = () => {
     root.dataset.theme = current();
+    // The label stays "Dark mode"; aria-pressed and the switch track show the state.
     const button = document.querySelector('#theme-toggle');
-    if (button) {
-      const dark = current() === 'dark';
-      button.setAttribute('aria-pressed', String(dark));
-      button.textContent = dark ? 'Dark mode: on' : 'Dark mode: off';
-    }
+    if (button) button.setAttribute('aria-pressed', String(current() === 'dark'));
   };
   apply();
   system.addEventListener('change', () => { if (!choice) apply(); });

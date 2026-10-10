@@ -23,7 +23,7 @@ MAX_FILES = 2000
 GROUPS = (
     ("core", "Core logic", "Behavior, algorithms, state, and API changes. Start here."),
     ("wiring", "Wiring & integration", "Connections and configuration. Diffs start collapsed."),
-    ("mechanical", "Boilerplate & mechanical", "Formatting, generated code, and routine changes. Expand when useful."),
+    ("mechanical", "Boilerplate & mechanical", "Formatting, generated code, and routine changes. Files start collapsed."),
 )
 STATUSES = {"added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"}
 PR_URL = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*\Z")
@@ -194,57 +194,95 @@ def patch_lines(patch):
     return rows
 
 
-def _patch_html(patch):
+def _plural(count, singular, plural=None):
+    return f"{count:,} {singular if count == 1 else plural or singular + 's'}"
+
+
+def _diffstat(additions, deletions):
+    return (f'<span class="diffstat"><span class="additions">+{additions:,}<span class="sr-only"> added lines</span></span> '
+            f'<span class="deletions">−{deletions:,}<span class="sr-only"> deleted lines</span></span></span>')
+
+
+def _patch_html(patch, path=""):
     rows = []
     for i, line in enumerate(patch_lines(patch)):
         old, new = line["old_line"] or "", line["new_line"] or ""
-        label = f'Comment on diff row {i + 1}, old {old or "none"}, new {new or "none"}'
+        action = ""
+        if line["kind"] not in ("hunk", "meta"):
+            where = f"line {new}" if new else f"old line {old}" if old else f"diff row {i + 1}"
+            action = f'<button class="comment-line" type="button" aria-label="Comment on {escape(path)} {where}">+</button>'
         rows.append(f'<tr class="{line["kind"]}" data-row="{i}" data-kind="{line["kind"]}" data-old="{old}" data-new="{new}">'
                     f'<td class="line-number">{old}</td><td class="line-number">{new}</td>'
-                    f'<td class="source"><code>{escape(line["text"])}</code></td>'
-                    f'<td class="line-action"><button class="comment-line" type="button" aria-label="{label}">+</button></td></tr>')
-    return ('<div class="diff-scroll" tabindex="0" aria-label="Scrollable unified diff">'
-            '<table class="diff"><thead><tr><th scope="col">Old</th><th scope="col">New</th>'
-            '<th scope="col">Unified diff</th><th scope="col">Note</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+                    f'<td class="line-action">{action}</td><td class="source"><code>{escape(line["text"])}</code></td></tr>')
+    return (f'<div class="diff-scroll" tabindex="0" role="region" aria-label="Diff for {escape(path)}">'
+            '<table class="diff"><thead><tr><th scope="col">Old line</th><th scope="col">New line</th>'
+            '<th scope="col">Comment</th><th scope="col">Code</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+
+
+def _notice(title, text):
+    return f'<p class="notice warning file-notice"><strong>{title}</strong> {text}</p>'
 
 
 def _file_html(file, index):
     ident = f"file-{index}"
-    is_core = file["group"] == "core"
+    path = file["path"]
     missing = not file.get("patch")
-    warning = ""
+    notice = ""
     if missing:
-        warning = '<p class="warning">Patch unavailable. This may be a binary, omitted, empty, or inaccessible diff. Inspect the source before marking it reviewed.</p>'
+        notice = _notice("Patch unavailable.", "This may be a binary, omitted, empty, or inaccessible diff. Inspect the source before marking it reviewed.")
     elif file.get("patch_complete") is False:
-        warning = '<p class="warning">Patch marked incomplete. Only the supplied lines are shown. Inspect the complete source before marking it reviewed.</p>'
+        notice = _notice("Patch marked incomplete.", "Only the supplied lines are shown. Inspect the complete source before marking it reviewed.")
     elif file.get("patch_complete") is not True:
-        warning = '<p class="warning">Patch completeness unverified. No patch_complete declaration was supplied. Compare these lines with the complete source before marking it reviewed.</p>'
-    commentary = _paragraph(file.get("summary"))
+        notice = _notice("Patch completeness unverified.", "No patch_complete declaration was supplied. Compare these lines with the complete source before marking it reviewed.")
+    analysis = _paragraph(file.get("summary"))
     if file.get("pseudocode"):
-        commentary += '<section class="explanation"><h4>Pseudocode</h4><pre>' + escape(file["pseudocode"]) + '</pre></section>'
+        analysis += '<section class="explanation"><h4>Pseudocode</h4><pre class="code-block">' + escape(file["pseudocode"]) + '</pre></section>'
     if "trace" in file:
         trace = file["trace"]
-        commentary += ('<section class="explanation"><h4>Example trace</h4><p class="trace-input"><strong>Input</strong></p><pre>'
-                       + escape(trace["input"]) + '</pre><div class="trace-columns"><div><h5>Before</h5><pre>'
-                       + escape(trace["before"]) + '</pre></div><div><h5>After</h5><pre>'
-                       + escape(trace["after"]) + '</pre></div></div></section>')
+        analysis += ('<section class="explanation trace"><h4>Example trace</h4><div class="trace-step"><p class="trace-label">Input</p><pre class="code-block">'
+                     + escape(trace["input"]) + '</pre></div><div class="trace-columns"><div class="trace-step"><p class="trace-label">Before</p><pre class="code-block">'
+                     + escape(trace["before"]) + '</pre></div><div class="trace-step"><p class="trace-label">After</p><pre class="code-block">'
+                     + escape(trace["after"]) + '</pre></div></div></section>')
     for callout in file.get("callouts", []):
-        commentary += '<aside class="callout"><strong>' + escape(callout["tag"]) + '</strong>' + _paragraph(callout["text"]) + '</aside>'
-    patch = ""
+        analysis += '<aside class="callout"><p class="callout-tag">' + escape(callout["tag"]) + '</p>' + _paragraph(callout["text"]) + '</aside>'
+    body = f'<div class="analysis">{analysis}</div>' if analysis else ""
     if not missing:
         line_count = len(file["patch"].split("\n")) - int(file["patch"].endswith("\n"))
-        patch = f'<details class="patch-details"{" open" if is_core else ""}><summary>Unified diff · {line_count:,} supplied lines</summary>{_patch_html(file["patch"])}</details>'
-    search = " ".join((file["path"], file["status"], file["group"], file.get("summary", "")))
-    return (f'<article class="file-card" id="{ident}" data-file-id="{ident}" data-search="{escape(search)}">'
-            f'<header class="file-header"><div><h3>{escape(file["path"])}</h3><div class="file-meta"><span>{escape(file["status"])}</span>'
-            f'<span class="additions">+{file["additions"]:,}</span><span class="deletions">−{file["deletions"]:,}</span></div></div>'
-            f'<label class="review-toggle"><input class="reviewed" type="checkbox" autocomplete="off" aria-label="Mark {escape(file["path"])} reviewed"> Reviewed</label></header>'
-            + warning + f'<details class="file-details"{" open" if file["group"] != "mechanical" else ""}><summary>Review details</summary>'
-            + (commentary + patch if commentary or patch else '<p class="empty-detail">No review commentary or patch supplied.</p>')
-            + '<section class="inline-comments" aria-label="Inline comments"><h4>Inline comments <span class="comment-count">(0)</span></h4><div class="comment-list"></div></section>'
-            + f'</details><details class="notes-details"><summary>My notes<span class="note-indicator"></span></summary>'
-            f'<label class="sr-only" for="notes-{index}">Notes for {escape(file["path"])}</label>'
+        body += (f'<details class="patch-details"{"" if file["group"] == "wiring" else " open"}><summary>Diff '
+                 f'<span class="summary-meta">{_plural(line_count, "line")}</span></summary>{_patch_html(file["patch"], path)}</details>')
+    if not body:
+        body = '<p class="empty-detail">No review commentary or patch supplied.</p>'
+    directory, slash, name = path.rpartition("/")
+    path_html = (f'<span class="path-dir">{escape(directory + slash)}</span>' if slash else "") + f'<span class="path-name">{escape(name)}</span>'
+    search = " ".join((path, file["status"], file["group"], file.get("summary", "")))
+    return (f'<article class="file-card" id="{ident}" data-file-id="{ident}" data-group="{file["group"]}" data-search="{escape(search)}">'
+            f'<header class="file-header"><h3 class="file-path"><button class="file-toggle" type="button" aria-expanded="true" aria-controls="{ident}-body">{path_html}</button></h3>'
+            f'<div class="file-meta"><span class="chip">{escape(file["status"])}</span>{_diffstat(file["additions"], file["deletions"])}'
+            '<span class="chip comment-count" hidden></span></div>'
+            f'<label class="review-toggle"><input class="reviewed" type="checkbox" autocomplete="off" aria-label="Mark {escape(path)} reviewed"> Reviewed</label></header>'
+            + notice + f'<div class="file-body" id="{ident}-body">{body}</div>'
+            f'<details class="notes-details"><summary>Your notes<span class="note-indicator"></span></summary>'
+            f'<label class="sr-only" for="notes-{index}">Notes for {escape(path)}</label>'
             f'<textarea id="notes-{index}" class="file-notes" rows="3" maxlength="20000" autocomplete="off" spellcheck="false" placeholder="Questions, findings, or follow-up for this file"></textarea></details></article>')
+
+
+def _nav_html(review):
+    groups = []
+    for key, label, _ in GROUPS:
+        items = []
+        for i, file in enumerate(review["files"]):
+            if file["group"] != key:
+                continue
+            directory, slash, name = file["path"].rpartition("/")
+            items.append(f'<li data-file="file-{i}"><a href="#file-{i}"><span class="nav-mark" aria-hidden="true"></span>'
+                         f'<span class="nav-text"><span class="nav-name">{escape(name)}</span>'
+                         + (f'<span class="nav-dir">{escape(directory)}</span>' if slash else "")
+                         + f'</span><span class="nav-count" hidden></span><span class="sr-only nav-state"></span>'
+                         f'<span class="nav-stats" aria-hidden="true"><span class="additions">+{file["additions"]:,}</span> <span class="deletions">−{file["deletions"]:,}</span></span></a></li>')
+        if items:
+            groups.append(f'<div class="nav-group" data-group="{key}"><p class="nav-group-label">{escape(label)}</p><ol>' + "".join(items) + '</ol></div>')
+    return ('<nav class="file-nav" aria-label="Changed files"><p class="nav-heading">Files <span class="muted">'
+            f'{len(review["files"]):,}</span></p>' + "".join(groups) + '</nav>')
 
 
 def shared_style(style_dir=None):
@@ -254,6 +292,7 @@ def shared_style(style_dir=None):
     try:
         css = (assets / "tokens.css").read_text(encoding="utf-8")
         fonts = (assets / "fonts.css").read_text(encoding="utf-8")
+        components = (assets / "components.css").read_text(encoding="utf-8")
         def embed(match):
             name = match[1]
             if name not in {"atkinson-hyperlegible-next.ttf", "atkinson-hyperlegible-mono.ttf"}:
@@ -261,11 +300,11 @@ def shared_style(style_dir=None):
             data = base64.b64encode((assets / "fonts" / name).read_bytes()).decode()
             return f'url("data:font/ttf;base64,{data}")'
         fonts = re.sub(r'url\("\./fonts/([^"/]+)"\)', embed, fonts)
-        if re.search(r'url\((?!"data:font/ttf;base64,)', fonts):
+        if re.search(r'url\((?!"data:font/ttf;base64,)', fonts + components):
             raise ValidationError("shared font URL was not embedded")
         js = (assets / "theme.js").read_text(encoding="utf-8")
         notices = "\n\n".join((assets / "fonts" / name).read_text(encoding="utf-8") for name in ("OFL.txt", "atkinson-hyperlegible-mono-OFL.txt"))
-        return css + "\n" + fonts + "\n", js, notices
+        return css + "\n" + fonts + "\n" + components + "\n", js, notices
     except OSError as error:
         raise ValidationError("internal-visual-style companion is missing or unreadable. Install its complete folder beside pr-review-canvas, or pass --style-dir /path/to/internal-visual-style. " + str(error)) from error
 
@@ -286,64 +325,100 @@ def render_review(review, style_dir=None):
     csp = (f"default-src 'none'; script-src 'sha256-{script_hash}'; style-src 'sha256-{style_hash}'; "
            "connect-src 'none'; img-src 'none'; font-src data:; object-src 'none'; base-uri 'none'; "
            "form-action 'none'; frame-src 'none'; worker-src 'none'")
+    pr = review["pr"]
+    files = review["files"]
     groups = []
     for key, label, description in GROUPS:
-        files = [(i, f) for i, f in enumerate(review["files"]) if f["group"] == key]
-        if files:
-            groups.append(f'<section class="review-group" aria-labelledby="group-{key}"><div class="group-header"><h2 id="group-{key}">{label} <span>({len(files)})</span></h2><p>{description}</p></div>'
-                          + "".join(_file_html(f, i) for i, f in files) + '</section>')
-    missing_count = sum(not f.get("patch") for f in review["files"])
-    incomplete_count = sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in review["files"])
-    unverified_count = sum(bool(f.get("patch")) and "patch_complete" not in f for f in review["files"])
-    warnings = f' · {missing_count} missing patches' if missing_count else ""
-    warnings += f' · {incomplete_count} incomplete patches' if incomplete_count else ""
-    warnings += f' · {unverified_count} unverified patches' if unverified_count else ""
-    pr_link = f'<a href="{escape(review["pr"]["url"])}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open PR on GitHub ↗</a>' if review["pr"].get("url") else ""
-    total_additions = sum(f["additions"] for f in review["files"])
-    total_deletions = sum(f["deletions"] for f in review["files"])
+        members = [(i, f) for i, f in enumerate(files) if f["group"] == key]
+        if members:
+            groups.append(f'<section class="review-group" data-group="{key}" aria-labelledby="group-{key}"><header class="group-header">'
+                          f'<h2 id="group-{key}">{escape(label)} <span class="group-count">{len(members)}</span></h2><p>{description}</p></header>'
+                          + "".join(_file_html(f, i) for i, f in members) + '</section>')
+    missing_count = sum(not f.get("patch") for f in files)
+    incomplete_count = sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in files)
+    unverified_count = sum(bool(f.get("patch")) and "patch_complete" not in f for f in files)
+    pinned = bool(pr.get("url") and pr.get("head_sha"))
+    chips = []
+    if review.get("files_complete") is True:
+        chips.append('<li class="chip">File list marked complete</li>')
+    else:
+        chips.append('<li class="chip warning">File list unverified</li>')
+    for count, label in ((missing_count, "missing patch"), (incomplete_count, "incomplete patch"), (unverified_count, "unverified patch")):
+        if count:
+            chips.append(f'<li class="chip warning">{_plural(count, label, label + "es")}</li>')
+    if not pinned:
+        chips.append('<li class="chip">Inline comments off</li>')
     scope = ('File list marked complete, with a matching declared changed-file count. '
              if review.get("files_complete") is True else
              'File list completeness is unverified. Reconcile every changed file against the PR source. ')
-    if "changed_files" in review["pr"]:
-        scope += f'{len(review["files"])} supplied / {review["pr"]["changed_files"]} declared changed files. '
+    if "changed_files" in pr:
+        scope += f'{len(files)} supplied / {pr["changed_files"]} declared changed files. '
     scope += 'Every supplied patch line is included. Source and patch completeness are not independently verified. Counts and commentary come from the input; this renderer does not invent findings.'
+    if not pinned:
+        scope += ' Inline comments need both a PR URL and a pinned head commit in the input.'
+    facts = [f'<li>{_plural(len(files), "file")}</li>', f'<li>{_diffstat(sum(f["additions"] for f in files), sum(f["deletions"] for f in files))}</li>']
     snapshot = ""
-    for name, label in (("base_sha", "Base commit"), ("head_sha", "Head commit")):
-        if name in review["pr"]:
-            snapshot += f'<dt>{label}</dt><dd><code>{escape(review["pr"][name])}</code></dd>'
-    snapshot = f'<dl class="snapshot">{snapshot}</dl>' if snapshot else '<p class="scope-note">No commit snapshot supplied. Re-check the PR before relying on this review.</p>'
+    for name, label in (("head_sha", "Head"), ("base_sha", "Base")):
+        if name in pr:
+            facts.append(f'<li>{label} <code title="{escape(pr[name])}">{escape(pr[name][:7])}</code></li>')
+            snapshot += f'<dt>{label} commit</dt><dd><code>{escape(pr[name])}</code></dd>'
+    snapshot = f'<dl class="snapshot">{snapshot}</dl>' if snapshot else '<p>No commit snapshot supplied. Re-check the PR before relying on this review.</p>'
+    origin = ""
+    if pr.get("url"):
+        owner, repo, _, number = pr["url"].split("/")[3:7]
+        origin = (f'<p class="pr-origin"><span>{escape(owner)}/{escape(repo)} #{escape(number)}</span>'
+                  f'<a href="{escape(pr["url"])}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open on GitHub ↗</a></p>')
+    comment_hint = ("Select code text, or use + beside a line, to add an inline comment." if pinned
+                    else "Inline comments are off. The input needs a PR URL and pinned head commit.")
     return ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
             f'<meta http-equiv="Content-Security-Policy" content="{escape(csp)}">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">'
-            f'<title>{escape(review["pr"]["title"])} · PR review</title><style>{css}</style></head><body>'
-            '<a class="skip-link" href="#files">Skip to changed files</a><main><header class="page-header">'
-            '<button id="theme-toggle" type="button" aria-label="Dark mode" aria-pressed="false" hidden>Dark mode: off</button>'
-            f'<h1>{escape(review["pr"]["title"])}</h1><div class="pr-link">{pr_link}</div>'
-            + _paragraph(review.get("summary"), "lead")
-            + f'<p class="totals">{len(review["files"])} supplied files · <span class="additions">+{total_additions:,}</span> <span class="deletions">−{total_deletions:,}</span>{warnings}</p>'
-            + f'<p class="scope-note">{scope}</p>' + snapshot
-            + '<p class="font-status" id="font-status">Reading font: checking; system fallback until loaded.</p><p class="font-status" id="technical-font-status">Technical font: checking; system fallback until loaded.</p></header>'
-            '<noscript><p class="warning">JavaScript is disabled. Diffs and commentary are readable, but filters, review tracking, and feedback export require JavaScript. Notes cannot be saved here.</p></noscript>'
-            '<section class="toolbar" aria-label="Review controls"><label>Find files<input id="search" type="search" placeholder="Path, group, status, or summary" autocomplete="off"></label>'
-            '<label>Show<select id="review-filter"><option value="all">All files</option><option value="remaining">Not reviewed</option><option value="reviewed">Reviewed</option></select></label>'
-            '<div class="toolbar-buttons"><button id="expand-all" type="button">Expand shown diffs</button><button id="collapse-all" type="button">Collapse shown diffs</button></div>'
-            f'<p id="progress" role="status" aria-live="polite">0 of {len(review["files"])} reviewed</p><p id="filter-status" role="status" aria-live="polite">{len(review["files"])} files shown</p></section>'
-            '<section class="annotation-tools" aria-label="Comment controls"><p>Select code text within one file, then add a comment. Each diff row also has a keyboard-accessible comment button.</p>'
-            '<button id="comment-selection" type="button" disabled>Add comment on selected text</button><p id="selection-status" role="status" aria-live="polite">No code text selected.</p>'
-            '<section id="comment-composer" hidden aria-label="New inline comment"><h2 id="composer-heading">New comment</h2><pre id="selected-quote"></pre><label for="comment-body">Comment</label><textarea id="comment-body" maxlength="20000" rows="3" spellcheck="false"></textarea><button id="save-comment" type="button">Save comment in review</button><button id="cancel-comment" type="button">Cancel comment</button></section>'
-            '<p id="comment-status" role="status" aria-live="polite"></p><button id="undo-delete" type="button" hidden>Undo last comment deletion</button></section>'
-            '<section id="orphan-comments" hidden aria-labelledby="orphan-heading"><h2 id="orphan-heading">Unattached comments</h2><p>These comments are preserved. Their code changed, moved ambiguously, or is absent. Select the intended text to attach one manually, or leave it here for review.</p><div id="orphan-list"></div></section>'
+            f'<title>{escape(pr["title"])} · PR review</title><style>{css}</style></head><body>'
+            '<a class="skip-link" href="#files">Skip to changed files</a>'
+            f'<header class="topbar"><p class="topbar-title"><span class="topbar-product">PR review</span><span class="topbar-pr">{escape(pr["title"])}</span></p>'
+            '<div class="topbar-actions"><div class="progress"><span class="progress-track" aria-hidden="true"><span class="progress-fill"></span></span>'
+            f'<p id="progress" role="status" aria-live="polite">0 of {len(files)} reviewed</p></div>'
+            '<span id="save-state" class="chip" hidden></span><a class="button" href="#feedback">Finish review</a>'
+            '<button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button></div></header>'
+            '<div class="layout">' + _nav_html(review) + '<main id="main">'
+            f'<header class="pr-header">{origin}<h1>{escape(pr["title"])}</h1>' + _paragraph(review.get("summary"), "lead")
+            + '<ul class="pr-facts" aria-label="Snapshot">' + "".join(facts) + '</ul>'
+            + '<ul class="pr-chips" aria-label="Coverage">' + "".join(chips) + '</ul>'
+            + f'<details class="snapshot-details"><summary>Snapshot and coverage</summary><div class="snapshot-body"><p class="scope-note">{scope}</p>{snapshot}</div></details></header>'
+            '<noscript><p class="notice warning"><strong>JavaScript is off.</strong> Diffs and commentary are readable, but filters, review tracking, comments, and feedback export need JavaScript.</p></noscript>'
+            '<section class="toolbar" aria-label="Review controls"><div class="toolbar-fields">'
+            '<label class="sr-only" for="search">Find files</label><input id="search" type="search" placeholder="Filter by path, group, status, or summary" autocomplete="off">'
+            '<label class="sr-only" for="review-filter">Show</label><select id="review-filter"><option value="all">All files</option><option value="remaining">Not reviewed</option><option value="reviewed">Reviewed</option></select></div>'
+            '<div class="toolbar-actions"><button id="expand-all" class="quiet" type="button">Expand all</button><button id="collapse-all" class="quiet" type="button">Collapse all</button></div>'
+            f'<p id="filter-status" class="toolbar-status" role="status" aria-live="polite">{_plural(len(files), "file")} shown</p>'
+            f'<p class="toolbar-hint">{comment_hint}</p></section>'
+            '<section id="orphan-comments" class="orphans" hidden aria-labelledby="orphan-heading"><h2 id="orphan-heading">Unattached comments</h2>'
+            '<p class="orphans-intro">The code these comments pointed at changed, moved ambiguously, or is absent. Select the intended code, then choose <strong>Attach to selected text</strong>, or leave them here.</p>'
+            '<div id="orphan-list"></div></section>'
             '<section id="files" aria-label="Changed files" tabindex="-1">' + ("".join(groups) if groups else '<p class="empty-detail">No changed files supplied. Verify the input if you expected a diff.</p>')
-            + '<p id="no-results" hidden>No files match these filters.</p></section>'
-            '<section class="feedback" aria-labelledby="feedback-heading"><h2 id="feedback-heading">Save and restore review</h2>'
-            '<p>Export feedback to a local JSON file before closing. Import that file to restore comments and notes, including on a later snapshot of the same PR. Only the theme preference is stored automatically. Feedback includes selected code lines, paths and notes; keep it private. Nothing is uploaded. Hand the JSON to your agent or local report CLI when ready.</p>'
-            '<label for="import-feedback">Import saved feedback (.json)</label><input id="import-feedback" type="file" accept=".json,application/json"><p id="import-status" role="status" aria-live="polite"></p>'
-            '<details id="retained-reviews" hidden><summary>Preserved earlier snapshot notes and flags</summary><pre id="retained-json"></pre></details>'
-            '<label for="general-notes">Overall notes</label><textarea id="general-notes" maxlength="20000" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback or a decision for the agent"></textarea>'
-            '<button id="export-feedback" class="primary" type="button">Export feedback (.json)</button><p id="export-status" role="status" aria-live="polite"></p>'
-            '<details id="export-preview" hidden><summary>Copy exported JSON</summary><label class="sr-only" for="feedback-json">Exported feedback JSON</label><textarea id="feedback-json" rows="10" readonly spellcheck="false"></textarea></details></section>'
-            '<footer>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.'
-            + f'<details class="font-notices"><summary>Bundled font license notices</summary><pre>{escape(notices)}</pre></details></footer></main>'
+            + '<p id="no-results" class="empty-detail" hidden>No files match these filters.</p></section>'
+            '<section id="feedback" class="finish panel" aria-labelledby="feedback-heading"><div class="finish-head"><h2 id="feedback-heading">Finish review</h2>'
+            '<p id="review-summary" class="finish-summary"></p></div>'
+            '<ol id="comment-index" class="comment-index" aria-label="Your comments"></ol>'
+            '<div class="field"><label for="general-notes">Overall notes</label><textarea id="general-notes" maxlength="20000" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback, or a decision for the agent"></textarea></div>'
+            '<div class="finish-actions"><button id="export-feedback" class="primary" type="button">Export feedback (.json)</button>'
+            '<input id="import-feedback" class="file-input sr-only" type="file" accept=".json,application/json"><label class="button" for="import-feedback">Import saved feedback</label></div>'
+            '<p id="export-status" class="finish-status" role="status" aria-live="polite"></p><p id="import-status" class="finish-status" role="status" aria-live="polite"></p>'
+            '<details id="export-preview" hidden><summary>Copy exported JSON</summary><label class="sr-only" for="feedback-json">Exported feedback JSON</label><textarea id="feedback-json" rows="10" readonly spellcheck="false"></textarea></details>'
+            '<details id="retained-reviews" hidden><summary>Notes and flags from earlier snapshots</summary><pre id="retained-json" class="code-block"></pre></details>'
+            '<details class="how-saving-works"><summary>How saving works</summary><p>Comments, notes, and review flags live only in this tab until you export them. Export writes a local JSON file; confirm the download saved before you close the tab. Import that file to restore this snapshot, or to carry comments into a later render of the same PR. Only the theme choice is stored automatically. The feedback file contains selected code, paths, and notes, so keep it private. Nothing is uploaded. Hand the JSON to your agent when you are ready.</p></details></section>'
+            '<footer class="page-footer"><p>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.</p>'
+            + f'<details class="font-notices"><summary>Font licenses</summary><pre>{escape(notices)}</pre></details></footer></main></div>'
+            '<div id="composer-home" hidden><section id="comment-composer" class="composer" hidden aria-labelledby="composer-heading">'
+            '<div class="composer-head"><h4 id="composer-heading">New comment</h4><p id="composer-context" class="composer-context"></p></div>'
+            '<pre id="selected-quote" class="comment-quote"></pre><label class="sr-only" for="comment-body">Comment</label>'
+            '<textarea id="comment-body" maxlength="20000" rows="3" spellcheck="false" placeholder="Leave a comment"></textarea>'
+            '<div class="composer-actions"><p class="composer-keys">Ctrl+Enter saves. Esc cancels.</p><button id="cancel-comment" class="quiet" type="button">Cancel</button>'
+            '<button id="save-comment" class="primary" type="button">Save comment</button></div></section></div>'
+            '<button id="comment-selection" class="primary selection-comment" type="button" disabled hidden>Comment</button>'
+            f'<p id="selection-status" class="sr-only" role="status" aria-live="polite">{"No code text selected." if pinned else "Inline comments are off."}</p>'
+            '<div id="toast" class="toast"><p id="comment-status" role="status" aria-live="polite"></p>'
+            '<button id="undo-delete" type="button" hidden>Undo delete</button><button id="toast-dismiss" class="quiet" type="button" aria-label="Dismiss message" hidden>Dismiss</button></div>'
             f'<span id="review-data" hidden data-review="{escape(json.dumps(metadata, ensure_ascii=True, separators=(",", ":")))}"></span>'
             f'<script>{js}</script></body></html>\n')
 
@@ -366,7 +441,8 @@ def main(argv=None):
     missing = sum(not f.get("patch") for f in review["files"])
     incomplete = sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in review["files"])
     unverified = sum(bool(f.get("patch")) and "patch_complete" not in f for f in review["files"])
-    print(f"Wrote {args.output} ({len(review['files'])} files; {missing} missing patches; {incomplete} incomplete patches; {unverified} unverified patches)")
+    print(f"Wrote {args.output} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "
+          f"{_plural(incomplete, 'incomplete patch', 'incomplete patches')}; {_plural(unverified, 'unverified patch', 'unverified patches')})")
     return 0
 
 
