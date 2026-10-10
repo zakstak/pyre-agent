@@ -36,7 +36,7 @@ PATCH_NOTES = {
     "secret": ("Likely secret file.", "The collector left its contents out. Inspect the file yourself, and keep its contents out of comments."),
     "no_content_change": ("No content change.", "Only the path or the file mode changed."),
     "empty": ("Empty file.", "The file has no content."),
-    "replaced_characters": ("Characters replaced.", "Some bytes were not valid UTF-8 or were control characters. The patch shows replacement symbols for them."),
+    "replaced_characters": ("Characters replaced.", "Some bytes were not valid UTF-8, or were control or formatting characters that could hide or reorder code. The patch shows replacement symbols for them."),
 }
 TEXT_PATCH_NOTES = {"replaced_characters"}
 PR_URL = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*\Z")

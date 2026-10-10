@@ -634,6 +634,22 @@ class InventoryTests(Fixture):
             self.collect()
         self.assertEqual(len(reads), 3)
 
+    def test_an_absent_sparse_entry_with_an_undecodable_name_is_ignored(self):
+        with open(os.path.join(os.fsencode(self.root), b"\xff.txt"), "wb") as handle:
+            handle.write(b"x\n")
+        self.commit({"keep.txt": "k\n"})
+        self.git(self.root, "update-index", "--skip-worktree", os.fsdecode(b"\xff.txt"))
+        os.unlink(os.path.join(os.fsencode(self.root), b"\xff.txt"))
+        self.write("keep.txt", "changed\n")
+        self.assertEqual(sorted(self.collect()), ["keep.txt"])
+
+    def test_invisible_and_reordering_characters_are_shown_replaced(self):
+        self.commit({"text.txt": "plain\n"})
+        self.write("text.txt", "next\u0085line \u202eevil\u202c and \u2028 here\n")
+        text = self.collect()["text.txt"]
+        self.assertEqual(text["patch_note"], "replaced_characters")
+        self.assertIn("next\ufffdline \ufffdevil\ufffd and \ufffd here", text["patch"])
+
     def test_many_long_hidden_paths_fit(self):
         names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
         self.commit({name: "x\n" for name in names})
@@ -1023,6 +1039,22 @@ class OutputTests(Fixture):
         self.assertEqual(len(calls), 2, "the inventory after the scan caught the change and collected again")
         self.assertIn("+second", renderer.load_review(self.base / "review.json")["files"][0]["patch"])
 
+    def test_a_staging_change_during_collection_is_collected_again(self):
+        self.write("a.txt", "b\n")
+        self.git(self.root, "add", "a.txt")  # the index matches the reviewed file
+        staged = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.root, input=b"c\n", capture_output=True, check=True).stdout.decode().strip()
+        real, calls = collector.staged_differently, []
+        def staging(top, config):
+            calls.append(top)
+            if len(calls) == 1:  # another process stages different content without touching the file
+                self.git(self.root, "update-index", "--cacheinfo", f"100644,{staged},a.txt")
+            return real(top, config)
+        with mock.patch.object(collector, "staged_differently", staging):
+            code, out, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(calls), 2, "the index change was caught and collection ran again")
+        self.assertIn("Staged version differs from the reviewed file, so a commit would record unreviewed content: a.txt", out)
+
     def test_notices_escape_control_characters_in_paths(self):
         self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")
         code, out, _ = self.main("--output", str(self.base / "review.json"))
@@ -1165,9 +1197,9 @@ class IsolationTests(Fixture):
 
     def test_config_values_decode_as_git_reads_them(self):
         text = ('[core]\n\tworktree = "../external\\"tree"  # comment\n\tbare\n[includeIf "gitdir:~/x/"]\n\tpath = a\\\n b ; c\n'
-                '[Core]\nWorkTree="q;#"x\n')
+                '[Core]\nWorkTree="q;#"x\n[core]\r\n\tworktree = ../crlf\r\n')  # Git reads CRLF as one line ending
         path = self.base / "check.config"
-        path.write_text(text)
+        path.write_bytes(text.encode())
         expected = {"core.worktree": self.git(self.base, "config", "-f", str(path), "--get-all", "core.worktree").splitlines(),
                     "includeif.gitdir:~/x/.path": self.git(self.base, "config", "-f", str(path), "--get-all", "includeif.gitdir:~/x/.path").splitlines()}
         entries = list(fingerprint.config_entries(text))
