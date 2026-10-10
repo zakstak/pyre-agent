@@ -79,6 +79,7 @@ A save must also pass these checks, in order:
 5. The body is valid version 3 feedback, checked by `scripts/feedback_contract.py`, the same contract as the page's own validator.
 6. Every snapshot it names belongs to the same review as the current round: the same PR URL or working tree root.
 7. The revision still matches the saved file. Otherwise the server answers 409, for example when a second tab saved first.
+8. It keeps every saved comment that the current round's agent replies answer. A page from an earlier round does not know those answers, so its attempt to delete one gets 409, and the page offers **Reload**.
 
 The server writes the file atomically: a mode 0600 temporary file in the state directory, then `os.replace`. A revision is the SHA-256 digest of the saved bytes.
 

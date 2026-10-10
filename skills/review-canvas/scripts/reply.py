@@ -39,9 +39,17 @@ def save_round_input(path, review):
 
 def carry(source, target):
     """Copy agent replies from an earlier round's input. Replies already present keep their place."""
-    earlier = render_review.load_review(source).get("replies", [])
+    previous = render_review.load_review(source)
     review = load_round_input(target)
-    known = {reply["id"] for reply in review.get("replies", [])}
+    snapshot = lambda item: {"target": item["target"], "input_sha256": render_review.input_digest(item)}
+    if not feedback_contract.same_target(snapshot(previous), snapshot(review)):
+        raise render_review.ValidationError(f"{source} belongs to another review than {target}; replies were not copied")
+    earlier = previous.get("replies", [])
+    current = {reply["id"]: reply for reply in review.get("replies", [])}
+    conflicts = sorted(reply["id"] for reply in earlier if reply["id"] in current and current[reply["id"]] != reply)
+    if conflicts:
+        raise render_review.ValidationError(f"{target} already has different replies with these IDs: {', '.join(conflicts)}; nothing was copied")
+    known = set(current)
     review["replies"] = [reply for reply in earlier if reply["id"] not in known] + review.get("replies", [])
     save_round_input(target, review)
     return len(review["replies"]) - len(known)
@@ -59,7 +67,14 @@ def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=No
         raise render_review.ValidationError(f"the feedback has no comment {comment_id}")
     review = load_round_input(input_path)
     feedback_contract.check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
-    times = [feedback_contract.reply_time(reply) for reply in feedback_contract.thread(comment, review.get("replies", []))]
+    thread = feedback_contract.thread(comment, review.get("replies", []))
+    turn, label = feedback_contract.thread_state(thread)
+    if turn != "agent":
+        raise render_review.ValidationError(f"comment {comment_id} is {label}, so it is not the agent's turn; a new answer would "
+                                            "override the reviewer" if turn is None else f"comment {comment_id} is {label} and waits for the reviewer")
+    if fingerprint and fingerprint not in {file.get("fingerprint") for file in review["files"]}:
+        raise render_review.ValidationError(f"no file in {input_path} has fingerprint {fingerprint}; name the version in this round that fixes the comment")
+    times = [feedback_contract.reply_time(reply) for reply in thread]
     moment = max([now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()]
                  + [time + 0.001 for time in times if time != float("inf")])
     reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": timestamp(moment),

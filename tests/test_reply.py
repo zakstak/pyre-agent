@@ -32,6 +32,7 @@ class ReplyTests(unittest.TestCase):
         round2 = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
         self.earlier = round2.pop("replies")
         self.input.write_text(json.dumps(round2))
+        self.store = round2["files"][0]["fingerprint"]
         self.previous = self.temp / "previous.json"
         self.previous.write_text((FIXTURES / "worktree-review-round2.json").read_text())
         self.feedback = FIXTURES / "worktree-feedback-round2.json"
@@ -50,7 +51,7 @@ class ReplyTests(unittest.TestCase):
         # The reviewer's reply to comment 2 is stamped 11:00; this machine's clock says 08:00.
         early = datetime.datetime(2026, 10, 10, 8, tzinfo=datetime.timezone.utc).timestamp()
         added = reply.add(self.input, self.feedback, "fixture-comment-2", "fixed", "The CLI now reports a missing file.",
-                          fingerprint="c" * 64, now=early)
+                          fingerprint=self.store, now=early)
         self.assertEqual(added["created_at"], "2026-10-10T11:00:00.001Z")
         self.assertEqual(self.replies()[-1], added)
         thread = reply.feedback_contract.thread(next(c for c in json.loads(self.feedback.read_text())["comments"] if c["id"] == "fixture-comment-2"), self.replies())
@@ -61,13 +62,40 @@ class ReplyTests(unittest.TestCase):
     def test_add_refuses_what_the_input_contract_refuses(self):
         cases = [
             (dict(comment_id="missing", disposition="question", body="?"), "no comment missing"),
-            (dict(comment_id="fixture-comment-1", disposition="fixed", body="Done."), "fixed_in"),
-            (dict(comment_id="fixture-comment-1", disposition="deferred", body="Later."), "blocker"),
-            (dict(comment_id="fixture-comment-1", disposition="rejected", body="No.", blocker="x"), "blocker"),
+            (dict(comment_id="fixture-comment-2", disposition="fixed", body="Done."), "fixed_in"),
+            (dict(comment_id="fixture-comment-2", disposition="fixed", body="Done.", fingerprint="c" * 64), "no file .* has fingerprint"),
+            (dict(comment_id="fixture-comment-2", disposition="deferred", body="Later."), "blocker"),
+            (dict(comment_id="fixture-comment-2", disposition="rejected", body="No.", blocker="x"), "blocker"),
+            # The reviewer accepted comment 1's answer; another answer would silently reopen it.
+            (dict(comment_id="fixture-comment-1", disposition="question", body="?"), "resolved, so it is not the agent's turn"),
         ]
         for options, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 reply.add(self.input, self.feedback, options.pop("comment_id"), options.pop("disposition"), options.pop("body"), **options)
+        self.assertEqual(self.replies(), [])
+
+    def test_an_answer_waiting_for_the_reviewer_is_not_answered_again(self):
+        reply.carry(self.previous, self.input)
+        with self.assertRaisesRegex(ValueError, "answered: deferred and waits for the reviewer"):
+            reply.add(self.input, self.feedback, "fixture-comment-4", "question", "Any news?")
+
+    def test_carry_refuses_a_different_reply_under_the_same_id(self):
+        different = dict(self.earlier[0], body="A rewritten answer.")
+        review = json.loads(self.input.read_text())
+        review["replies"] = [different]
+        self.input.write_text(json.dumps(review))
+        before = self.input.read_bytes()
+        with self.assertRaisesRegex(ValueError, "already has different replies with these IDs: agent-reply-1"):
+            reply.carry(self.previous, self.input)
+        self.assertEqual(self.input.read_bytes(), before)
+
+    def test_carry_refuses_another_review(self):
+        other = json.loads(self.previous.read_text())
+        other["target"]["root"] = "/home/dev/elsewhere"
+        other_path = self.temp / "other-round.json"
+        other_path.write_text(json.dumps(other))
+        with self.assertRaisesRegex(ValueError, "belongs to another review"):
+            reply.carry(other_path, self.input)
         self.assertEqual(self.replies(), [])
 
     def test_a_rendered_round_or_another_review_is_refused(self):
@@ -87,11 +115,11 @@ class ReplyTests(unittest.TestCase):
         result = run("carry", "--from", str(self.previous), "--to", str(self.input))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Carried 4 agent replies", result.stdout)
-        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-4",
-                     "--disposition", "deferred", "--body", "Still waiting.", "--blocker", "The encoding decision.")
+        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-3",
+                     "--disposition", "deferred", "--body", "Waiting on the date decision.", "--blocker", "Which zone notes use.")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertRegex(result.stdout, r"^Added deferred reply agent-[0-9a-f]{16} to comment fixture-comment-4 at ")
-        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-4",
+        self.assertRegex(result.stdout, r"^Added deferred reply agent-[0-9a-f]{16} to comment fixture-comment-3 at ")
+        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-2",
                      "--disposition", "fixed", "--body", "x", "--fixed-in-fingerprint", "c" * 64, "--fixed-in-commit", "e" * 40)
         self.assertEqual(result.returncode, 2)
         result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "nope", "--disposition", "question", "--body", "?")

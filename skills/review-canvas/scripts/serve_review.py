@@ -67,10 +67,11 @@ class ReviewServer(ThreadingHTTPServer):
         self.snapshots = {}
 
     def snapshot(self, number):
-        """The target and input digest of a round, read once from its immutable input."""
+        """The target, input digest, and answered comment IDs of a round, read once from its immutable input."""
         if number not in self.snapshots:
             review = render_review.load_review(self.state / "rounds" / f"{number:04d}" / "input.json")
-            self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review)}
+            self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review),
+                                      "answered": frozenset(reply["comment_id"] for reply in review.get("replies", []))}
         return self.snapshots[number]
 
     def saved(self):
@@ -209,13 +210,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, error="The body ended early.")
         try:
             feedback = feedback_contract.parse_feedback(body)
-            feedback_contract.check_identity(feedback, self.server.snapshot(review_state.read_current(self.server.state)))
+            snapshot = self.server.snapshot(review_state.read_current(self.server.state))
+            feedback_contract.check_identity(feedback, snapshot)
         except feedback_contract.FeedbackError as error:
             return self.reply(400, error=str(error))
         with self.server.save_lock:
-            current = revision(self.server.saved())
+            saved = self.server.saved()
+            current = revision(saved)
             if base != current:
                 return self.reply(409, error="Feedback changed since this page loaded it, in another tab or round. Reload to continue.", revision=current)
+            # A page from an earlier round does not know the agent's newest answers. It must not delete a comment that
+            # the current round answers, or the answer would lose its thread.
+            kept = {comment["id"] for comment in feedback["comments"]}
+            before = {comment["id"] for comment in json.loads(saved)["comments"]} if saved else set()
+            if (snapshot["answered"] & before) - kept:
+                return self.reply(409, error="The agent answered a comment this page deletes. Reload to see the answer.", revision=current)
             review_state.write_private(self.server.state / "feedback.json", body)
         self.reply(200, revision=revision(body))
 

@@ -274,6 +274,20 @@ class RoutingTests(ServerCase):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.api(method, path)[0], 404)
 
+    def test_an_older_page_cannot_delete_a_comment_the_agent_answered(self):
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual(status, 200)
+        render_round(self.state, "worktree-review-round2.json")  # answers all four fixture comments
+        stale = json.loads(self.body)
+        stale["comments"] = [comment for comment in stale["comments"] if comment["id"] != "fixture-comment-2"]
+        status, refused = self.api("PUT", "/feedback", json.dumps(stale).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page deletes", refused["error"])
+        self.assertEqual((self.state / "feedback.json").read_bytes(), self.body)
+        edited = json.loads(self.body)
+        edited["general_notes"] = "still here"
+        self.assertEqual(self.api("PUT", "/feedback", json.dumps(edited).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
+
     def test_round_follows_each_publish(self):
         self.assertEqual(self.api("GET", "/round")[1], {"round": 1})
         render_round(self.state, "worktree-review-round2.json")

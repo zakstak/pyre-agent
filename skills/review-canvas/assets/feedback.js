@@ -94,7 +94,11 @@
       if (!["accept", "reopen", "reply"].includes(reply.action)) throw Error("Invalid reply action.");
       text(reply.created_at, 40, true);
       // Reply times order a thread, so both languages must parse them alike: UTC, with optional milliseconds.
-      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/.test(reply.created_at)) throw Error("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.");
+      // The round trip rejects impossible dates such as February 31, which Date.parse would roll into March.
+      const time = Date.parse(reply.created_at);
+      // Python's datetime starts at year 1, so year 0000 is refused here too.
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/.test(reply.created_at) || reply.created_at.startsWith("0000") || Number.isNaN(time)
+        || new Date(time).toISOString().slice(0, 19) !== reply.created_at.slice(0, 19)) throw Error("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.");
       text(reply.body, 20000, reply.action !== "accept");
       total += reply.body.length;
     }

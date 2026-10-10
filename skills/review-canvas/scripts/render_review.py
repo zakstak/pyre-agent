@@ -7,6 +7,7 @@ No input is executed, no credentials are read, and no network is used.
 
 import argparse
 import base64
+import datetime
 import hashlib
 import html
 import json
@@ -127,7 +128,13 @@ def _replies(replies):
         if reply["actor"] != "agent":
             raise ValidationError(f"{where}.actor: expected agent; reviewer replies belong in feedback")
         _text(reply["created_at"], f"{where}.created_at", nonempty=True, limit=40)
-        if not REPLY_TIME.fullmatch(reply["created_at"]):
+        try:
+            # fromisoformat rejects impossible dates such as February 31, and the round trip rejects 24:00:00.
+            real = REPLY_TIME.fullmatch(reply["created_at"]) and datetime.datetime.fromisoformat(
+                reply["created_at"].replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%S") == reply["created_at"][:19]
+        except ValueError:
+            real = False
+        if not real:
             raise ValidationError(f"{where}.created_at: expected UTC ISO 8601, such as 2026-10-10T09:00:00Z")
         _text(reply["body"], f"{where}.body", nonempty=True)
         if not isinstance(reply["disposition"], str) or reply["disposition"] not in DISPOSITIONS:

@@ -397,6 +397,10 @@
     return node;
   }
   function openReply(comment, action) {
+    // One reply box at a time, and never by discarding what the reviewer typed in another.
+    if (replyDraft && replyDraft.commentId !== comment.id && replyDraft.body.trim()) {
+      jumpTo(replyDraft.commentId); byId(`reply-${replyDraft.commentId}`)?.focus(); announce("Finish or cancel the open reply first."); return;
+    }
     replyDraft = { commentId: comment.id, action, body: replyDraft?.commentId === comment.id ? replyDraft.body : "" };
     drawComments(); byId(`reply-${comment.id}`)?.focus();
   }
@@ -423,7 +427,9 @@
     const before = comments;
     comments = comments.map(item => item.id === comment.id ? { ...item, replies: [...(item.replies || []), reply] } : item);
     try { feedback(); } catch (error) { comments = before; announce(error.message); return; }
-    replyDraft = null; drawComments(); changed();
+    // Accepting one thread keeps a draft typed in another.
+    if (replyDraft?.commentId === comment.id) replyDraft = null;
+    drawComments(); changed();
     announce(action === "accept" ? "Answer accepted." : action === "reopen" ? "Comment reopened." : "Reply saved.");
     jumpTo(comment.id);
   }

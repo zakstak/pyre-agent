@@ -346,6 +346,7 @@ class ValidationTests(unittest.TestCase):
             (reply(disposition="deferred", fixed_in=None), "blocker"), (reply(disposition="rejected", fixed_in=None, blocker="x"), "blocker"),
             (reply(disposition="rejected"), "fixed_in"), (reply(comment_id="bad id"), "comment_id"), (reply(body=" "), "body"),
             (reply(created_at="2026-10-10 10:00"), "UTC ISO 8601"), (reply(created_at="2026-10-10T10:00:00+02:00"), "UTC ISO 8601"),
+            (reply(created_at="2026-02-31T10:00:00Z"), "UTC ISO 8601"), (reply(created_at="2026-10-10T24:00:00Z"), "UTC ISO 8601"),
         ]
         for value, message in cases:
             review = worktree_review()

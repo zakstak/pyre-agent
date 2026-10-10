@@ -163,7 +163,7 @@ def _replies(value, ids):
         if not isinstance(reply["action"], str) or reply["action"] not in ACTIONS:
             raise FeedbackError("Invalid reply action.")
         _text(reply["created_at"], 40, True)
-        if not REPLY_TIME.fullmatch(reply["created_at"]):
+        if not REPLY_TIME.fullmatch(reply["created_at"]) or reply_time(reply) == float("inf"):
             raise FeedbackError("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.")
         _text(reply["body"], 20000, reply["action"] != "accept")
         total += units(reply["body"])
@@ -300,9 +300,11 @@ def check_identity(feedback, snapshot):
 def reply_time(reply):
     """Sort key matching the page: the reply time, unparseable times last."""
     try:
-        return datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00")).timestamp()
+        moment = datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00"))
     except ValueError:
         return float("inf")
+    # A round trip rejects what JavaScript would roll over, such as 24:00:00 for the next midnight.
+    return moment.timestamp() if moment.strftime("%Y-%m-%dT%H:%M:%S") == reply["created_at"][:19] else float("inf")
 
 
 def thread(comment, agent_replies):

@@ -58,8 +58,13 @@ fs.mkdirSync(out, { recursive: true });
     await comment("fixture-comment-2").scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(out, "threads-1-answers-dark.png") });
 
-    // The reviewer accepts one answer, reopens one with a reason, and replies to the question.
+    // The reviewer accepts one answer, reopens one with a reason, and replies to the question. Accepting one thread
+    // keeps a reply typed in another.
+    await comment("fixture-comment-4").getByRole("button", { name: "Reply to the agent" }).click();
+    await comment("fixture-comment-4").locator("textarea").fill("keep me");
     await comment("fixture-comment-1").getByRole("button", { name: "Accept the agent's answer" }).click();
+    assert.equal(await comment("fixture-comment-4").locator("textarea").inputValue(), "keep me");
+    await comment("fixture-comment-4").getByRole("button", { name: "Cancel reply" }).click();
     assert.equal(await state("fixture-comment-1"), "Resolved");
     await comment("fixture-comment-2").getByRole("button", { name: "Reopen comment" }).click();
     assert.equal(await page.evaluate(() => document.activeElement.id), "reply-fixture-comment-2");
@@ -78,6 +83,12 @@ fs.mkdirSync(out, { recursive: true });
     // Escape cancels a reply draft without saving it.
     await comment("fixture-comment-4").getByRole("button", { name: "Reply to the agent" }).click();
     await comment("fixture-comment-4").getByLabel("Reply to the agent").fill("draft");
+    // Opening another thread's reply box never discards this draft.
+    await comment("fixture-comment-3").getByRole("button", { name: "Reply to the agent" }).click();
+    assert.equal(await comment("fixture-comment-4").getByLabel("Reply to the agent").inputValue(), "draft");
+    assert.equal(await comment("fixture-comment-3").locator("textarea").count(), 0);
+    assert.match(await page.locator("#comment-status").textContent(), /Finish or cancel the open reply first/);
+    await comment("fixture-comment-4").getByLabel("Reply to the agent").focus();
     await page.keyboard.press("Escape");
     assert.equal(await state("fixture-comment-4"), "Answered: deferred");
     // Page order: format.py and legacy.py (core), cli.py (wiring), then the unattached store.py comment.
