@@ -35,6 +35,7 @@ def load(name, path):
 collector = load("collect_worktree", COLLECT)
 fingerprint = load("fingerprint_script", FINGERPRINT)
 renderer = collector.render_review  # the module whose limits the collector reads at call time
+real_git = collector.git
 GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 # Assembled from pieces so this file does not match the collector's secret patterns.
 PRIVATE_KEY = "-" * 5 + "BEGIN RSA " + "PRIVATE KEY" + "-" * 5 + "\nMIIBsecretbody\n"
@@ -438,6 +439,32 @@ class InventoryTests(Fixture):
             big = self.collect()["big.txt"]
         self.assertEqual((big["patch_note"], big["additions"], big["deletions"]), ("too_large", 1, 1000))
         self.assertTrue(captured and not any(captured), "the old blob was read into memory")
+
+    def test_an_assumed_rename_target_that_vanishes_leaves_the_source_deleted(self):
+        self.commit({"old.txt": "o\n"})
+        self.git(self.root, "mv", "old.txt", "new.txt")
+        self.git(self.root, "update-index", "--assume-unchanged", "new.txt")
+        (self.root / "new.txt").unlink()
+        files = self.collect()
+        self.assertEqual(sorted(files), ["old.txt"])
+        self.assertEqual(files["old.txt"]["status"], "deleted")
+
+    def test_a_case_only_rename_hidden_by_ignore_case_stops_collection(self):
+        self.commit({"foo": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "foo", self.root / "FOO")
+        with self.assertRaisesRegex(collector.CollectError, "renamed by case only"):
+            self.collect()
+
+    def test_many_long_hidden_paths_fit(self):
+        names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
+        self.commit({name: "x\n" for name in names})
+        for start in range(0, len(names), 50):
+            self.git(self.root, "update-index", "--assume-unchanged", *names[start:start + 50])
+        self.write(names[0], "y\n")
+        with mock.patch.object(collector, "git", side_effect=lambda cwd, *args, **options: (
+                (_ for _ in ()).throw(AssertionError("one command carried too many paths")) if len(args) > 260 else real_git(cwd, *args, **options))):
+            self.assertEqual(list(self.collect()), [names[0]])
 
     def test_a_failure_after_collecting_writes_nothing(self):
         self.commit({"a.txt": "a\n"})

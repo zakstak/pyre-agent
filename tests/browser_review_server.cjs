@@ -161,8 +161,21 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     assert.ok(polls.length >= 1, "no poll after the reload offer");
     assert.equal(await page.locator("#progress").textContent(), "2 of 10 approved", "the open round stays until the reviewer reloads");
     await page.screenshot({ path: path.join(out, "server-2-round-ready-dark.png") });
+    // Reload saves first. A note typed while that save runs waits in the debounce timer, and it is saved before the reload too.
+    let release, parked;
+    const gate = new Promise(resolve => { release = resolve; }), held = new Promise(resolve => { parked = resolve; });
+    let holding = true;
+    await page.route("**/feedback", async route => {
+      if (route.request().method() === "PUT" && holding) { holding = false; parked(); await gate; }
+      await route.continue();
+    });
     await page.getByRole("button", { name: "Reload" }).click();
+    await held;
+    await page.getByLabel("Overall notes").fill("Typed while the reload waited.");
+    release();
     await page.waitForFunction(() => document.querySelector('meta[name="review-canvas-round"]').content === "2");
+    await page.unroute("**/feedback");
+    assert.equal(await page.getByLabel("Overall notes").inputValue(), "Typed while the reload waited.", "the reload dropped a change");
     await waitSaved(page);
     assert.equal(await approve("src/notes/cli.py").isChecked(), true, "an unchanged file keeps its approval");
     assert.equal(await approve("src/notes/store.py").isChecked(), false);
@@ -231,9 +244,37 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
       await budget.close();
     } finally { budgetServer.kill("SIGTERM"); }
 
+    // Feedback that passes validation but serializes past 8 MiB is refused before it is sent, with a message that says what to shorten.
+    const bytesState = path.join(temp, "bytes");
+    const long = Array.from({ length: 1000 }, (_, i) => ({ path: `long/${i}/${"p".repeat(2200)}`, status: "added", group: "core", additions: 0, deletions: 0,
+      fingerprint: i.toString(16).padStart(64, "0"), new_mode: "100644", patch_note: "empty" }));
+    renderRound({ schema_version: 2, target: { kind: "worktree", title: "Bytes", root: "/home/dev/bytes", head_sha: "4".repeat(40), changed_files: 1000 },
+      files_complete: true, files: long }, bytesState);
+    const { server: bytesServer, url: bytesUrl } = await startServer(bytesState);
+    try {
+      const bytes = await context.newPage();
+      bytes.on("dialog", dialog => dialog.accept());
+      await bytes.goto(bytesUrl);
+      await waitSaved(bytes);
+      const puts = [];
+      bytes.on("request", request => { if (request.method() === "PUT") puts.push(request.postDataBuffer().length); });
+      // 104 notes of 20,000 three-byte characters stay inside the 2 MiB text budget and add about 6 MB.
+      const setNotes = (count, value) => bytes.evaluate(([count, value]) => {
+        for (const notes of [...document.querySelectorAll(".file-notes")].slice(0, count)) { notes.value = value; notes.dispatchEvent(new Event("input")); }
+      }, [count, value]);
+      await setNotes(104, "\u754c".repeat(20000));
+      await bytes.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      assert.match(await bytes.locator("#export-status").textContent(), /exceeds 8 MiB, so it was not saved\. Shorten notes/);
+      assert.deepEqual(puts, [], "the page sent feedback the server must refuse");
+      await setNotes(20, "");
+      await waitSaved(bytes);
+      assert.ok(fs.statSync(path.join(bytesState, "feedback.json")).size <= 8 * 1024 * 1024);
+      await bytes.close();
+    } finally { bytesServer.kill("SIGTERM"); }
+
     assert.deepEqual(foreign.filter(request => !request.startsWith("http://127.0.0.1:")), [], "requests outside loopback");
     assert.deepEqual(errors, [], "page errors");
-    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a page on another origin cannot save or read, a failed save keeps the unload warning even after export, a validation failure keeps it too, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
+    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a page on another origin cannot save or read, a failed save keeps the unload warning even after export, a validation failure keeps it too, a reload saves a change typed while it waited, feedback past 8 MiB is refused before sending, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
   } finally {
     await browser.close();
     if (server.exitCode === null) server.kill("SIGTERM");

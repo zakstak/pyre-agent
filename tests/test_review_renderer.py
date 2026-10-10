@@ -358,6 +358,12 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(renderer.ValidationError, "duplicate reply id"):
             renderer.validate_review(review)
 
+    def test_paths_too_long_for_feedback_are_refused(self):
+        review = simple_review()
+        review["files"] = [dict(review["files"][0], path=f"{i:04d}/" + "p" * 4000) for i in range(1000)]
+        with self.assertRaisesRegex(renderer.ValidationError, "paths are too long for feedback"):
+            renderer.validate_review(review)
+
     def test_missing_fields_and_duplicate_files(self):
         for key in ("path", "status", "group", "additions", "deletions"):
             review = simple_review()

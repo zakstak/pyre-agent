@@ -107,13 +107,14 @@ The generator rejects oversized input before producing an artifact. It never sil
 - One patch: at most 4,194,304 UTF-16 code units and 10,000 LF-delimited lines
 - All patches combined: at most 50,000 lines
 - Paths and `root`: at most 4,096 UTF-16 code units
+- All paths together: small enough that feedback, which lists each path twice, stays under 6 MiB before notes and comments. Feedback is limited to 8 MiB.
 - Other text fields: at most 20,000 UTF-16 code units, except callout tags, which allow 100, and `branch`, which allows 1,024
-
-Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. Input the renderer accepts always fits the feedback the page saves.
 - Callouts: at most 100 per file
 - Agent replies: at most 5,000, with unique IDs
 - Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
 - Commit SHAs: full hexadecimal hashes with 40 or 64 characters
+
+Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. The page refuses to save feedback over 8 MiB and says so, so notes, comments, and replies past that limit must be shortened.
 
 Duplicate JSON keys, unknown fields, invalid types, unsupported control characters, and Unicode surrogates are rejected. Hunk line numbers up to 12 digits receive line annotations. Unsupported hunk formats remain visible as literal text.
 

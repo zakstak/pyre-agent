@@ -26,7 +26,7 @@ Each file has exactly one writer, so the only coordination is one revision check
 | `server.lock` | Held by the running server for its whole life, so a second server cannot start |
 | `publish.lock` | Held while `render_review.py --round` renders and publishes a round, while the collector or `reply.py` writes a round's input, and while the server saves |
 
-A state directory holds one review. Feedback carries over between its rounds, so before an unrelated review, stop the server and run `review_state.py archive --state-dir "$STATE"`. It moves the directory aside as `review-canvas.archived-TIMESTAMP` and refuses while a server holds the lock.
+A state directory holds one review. Feedback carries over between its rounds, so before an unrelated review, stop the server and run `review_state.py archive --state-dir "$STATE"`. It moves the directory aside as `review-canvas.archived-TIMESTAMP` and refuses while a server holds the lock. It waits for a render or `reply.py` write in progress to finish first, so none lands in the moved directory or a new one.
 
 A round directory never changes after it renders: `render_review.py --round` refuses a round that already has a page and never publishes a round older than `current`, and the collector and `reply.py` refuse to write into a rendered round. Directories are mode 0700, and files are mode 0600. The state directory must belong to you, and no other user may be able to rename or replace entries in any of its ancestors. A sticky directory such as `/tmp` is safe; a shared writable directory is not. Otherwise another user could swap in a directory of their own after the server checks it. The scripts refuse a state directory that fails these checks, and then use its resolved path, so a symlink along the way cannot be retargeted later.
 
@@ -47,7 +47,7 @@ Start the server once, in the background, and give the reviewer the URL it print
 python3 /path/to/review-canvas/scripts/serve_review.py --state-dir "$STATE" &
 ```
 
-It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server holds the review's `server.lock`. The system releases that lock when the server process ends, even after a crash. It stops after `--idle-timeout` seconds without a request, 3600 by default and at least 1, or when it gets SIGTERM or SIGINT. It lets a save in progress finish, waiting up to 30 seconds for a slow client, and then removes `server.json`. An open page asks for the round number every 3 seconds, or every third of the idle timeout when that is shorter, so the server stays up while the page is open.
+It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server holds the review's `server.lock`. The system releases that lock when the server process ends, even after a crash. It stops after `--idle-timeout` seconds without a request, 3600 by default and at least 1, or when it gets SIGTERM or SIGINT. It lets a save in progress finish, waiting up to 30 seconds in total, and then removes `server.json`. Only a request that passed every check counts as a save, so a client that never finishes its request cannot delay the stop. An open page asks for the round number every 3 seconds, or every third of the idle timeout when that is shorter, so the server stays up while the page is open.
 
 The URL is on the machine that runs the agent. A reviewer on another machine needs port forwarding, which is out of scope.
 

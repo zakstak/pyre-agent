@@ -50,9 +50,10 @@ def revision(data):
 
 
 class ReviewServer(ThreadingHTTPServer):
-    # Shutdown waits for request threads, so a save in progress finishes; Handler.timeout bounds a stalled client.
-    daemon_threads = False
-    block_on_close = True
+    # Shutdown waits only for saves in progress, with a deadline (finish_saves). Other request threads, including a
+    # client that never finishes its headers, do not keep the process or its lock alive.
+    daemon_threads = True
+    block_on_close = False
 
     def __init__(self, state, idle_timeout, port=0):
         self.state = review_state.private_dir(state)
@@ -68,6 +69,13 @@ class ReviewServer(ThreadingHTTPServer):
         self.last_request = time.monotonic()
         self.save_lock = threading.Lock()
         self.snapshots = {}
+        self.active_saves = 0
+        self.saves_done = threading.Condition()
+
+    def finish_saves(self, timeout):
+        """Wait up to timeout seconds for saves in progress to finish. Return whether they did."""
+        with self.saves_done:
+            return self.saves_done.wait_for(lambda: self.active_saves == 0, timeout)
 
     def snapshot(self, number):
         """The target, input digest, and answered comment IDs of a round, read once from its immutable input."""
@@ -199,6 +207,16 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, revision=revision(data), feedback=feedback)
 
     def save(self):
+        with self.server.saves_done:
+            self.server.active_saves += 1
+        try:
+            self.write_feedback()
+        finally:
+            with self.server.saves_done:
+                self.server.active_saves -= 1
+                self.server.saves_done.notify_all()
+
+    def write_feedback(self):
         if self.headers.get("Transfer-Encoding"):
             return self.reply(411, error="Send a Content-Length, not a chunked body.")
         length = self.headers.get("Content-Length") or ""
@@ -288,6 +306,7 @@ def main(argv=None):
         try:
             server.serve_forever(poll_interval=0.25)
         finally:
+            server.finish_saves(30)
             server.server_close()
             (server.state / "server.json").unlink(missing_ok=True)
     return 0
