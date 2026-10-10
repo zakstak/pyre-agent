@@ -38,7 +38,7 @@ class FeedbackError(ValueError):
 
 def units(value):
     """Length in UTF-16 code units, the unit of JavaScript string lengths and of anchor offsets."""
-    return len(value) + sum(ord(c) > 0xFFFF for c in value)
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def _object(value, required, optional=()):

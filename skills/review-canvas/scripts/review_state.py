@@ -72,7 +72,11 @@ def write_private(path, data, replace=True):
     except BaseException:
         _remove_if_present(temp)
         raise
-    directory = os.open(path.parent, os.O_RDONLY)
+    # Flush the rename itself. Windows cannot open a directory this way, and NTFS journals the rename anyway.
+    try:
+        directory = os.open(path.parent, os.O_RDONLY)
+    except OSError:
+        return
     try:
         os.fsync(directory)
     finally:
