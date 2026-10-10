@@ -14,6 +14,9 @@ GIT_ENV = {'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
            'GIT_COMMITTER_NAME': 'Test', 'GIT_COMMITTER_EMAIL': 'test@example.com'}
 
 
+REPO_AGENTS = "# Working with Test\n\n## About me\n\nI'm Test.\n\n## Plans\n\nWrite plans down.\n"
+
+
 def skill(name, version='1.0.0', body=''):
     return f'---\nname: {name}\ndescription: Test skill.\nmetadata:\n  version: "{version}"\n---\n\n# {name}\n{body}'
 
@@ -34,7 +37,8 @@ class InstallTests(unittest.TestCase):
         self.publish({'skills/alpha/SKILL.md': skill('alpha'),
                       'skills/alpha/references/notes.md': 'Notes.\n',
                       'skills/beta/SKILL.md': skill('beta'),
-                      'host-skills/claude-code/gamma/SKILL.md': skill('gamma')}, push=False)
+                      'host-skills/claude-code/gamma/SKILL.md': skill('gamma'),
+                      'global/AGENTS.md': REPO_AGENTS}, push=False)
         self.git(base, 'clone', '-q', '--bare', str(self.upstream), 'origin.git')
         self.git(self.upstream, 'remote', 'add', 'origin', str(base / 'origin.git'))
         self.git(base, 'clone', '-q', str(base / 'origin.git'), 'checkout')
@@ -177,6 +181,8 @@ class InstallTests(unittest.TestCase):
     def test_dry_run_changes_no_installed_files(self):
         self.assertIn('Planning main', self.run_installer('--dry-run'))
         self.assertFalse(self.claude.exists())
+        self.assertFalse((self.home / '.claude/CLAUDE.md').exists())
+        self.assertFalse((self.home / '.codex/AGENTS.md').exists())
         self.assertFalse((self.home / '.local/state/pyre-agent/install.json').exists())
 
     def test_uninstall_removes_only_installed_skills(self):
@@ -197,6 +203,95 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.names(claude / 'skills'), ['alpha', 'beta', 'gamma'])
         self.assertFalse(self.codex.exists())
         self.assertFalse(self.claude.exists())
+
+    def test_instructions_are_created_in_a_block_and_updated_in_place(self):
+        self.run_installer()
+        claude_md = (self.home / '.claude/CLAUDE.md').read_text()
+        self.assertTrue(claude_md.startswith('<!-- pyre-agent:begin '))
+        self.assertIn("I'm Test.", claude_md)
+        agents = self.home / '.codex/AGENTS.md'
+        agents.write_text(agents.read_text() + '\n## Mine\n\nLocal note.\n')
+        self.assertIn('instructions  ~/.codex/AGENTS.md: up to date', self.run_installer())
+        self.publish({'global/AGENTS.md': REPO_AGENTS.replace('Write plans down.', 'Write plans in Markdown.')})
+        self.assertIn('instructions  ~/.codex/AGENTS.md: update the block', self.run_installer())
+        text = agents.read_text()
+        self.assertIn('Write plans in Markdown.', text)
+        self.assertNotIn('Write plans down.', text)
+        self.assertTrue(text.endswith('## Mine\n\nLocal note.\n'))
+        self.assertEqual(text.count('pyre-agent:begin'), 1)
+
+    def test_first_install_merges_an_existing_file(self):
+        agents = self.home / '.codex/AGENTS.md'
+        original = ('# Working with Test\n\n## About me\n\nI\u2019m   Test.\n\n'
+                    '## Starting a project\n\nUse a sandbox.\n\n```md\n## Not a heading\n```\n')
+        agents.write_text(original)
+        output = self.run_installer()
+        self.assertIn('back it up, then write the block', output)
+        self.assertIn('drop, because the block repeats them: the text before the first heading, About me\n', output)
+        self.assertIn('keep after the block: Starting a project.', output)
+        text = agents.read_text()
+        after_block = text[text.index('<!-- pyre-agent:end -->'):]
+        self.assertEqual(text.count('## About me'), 1)
+        self.assertNotIn('## About me', after_block)
+        self.assertIn('## Starting a project\n\nUse a sandbox.\n\n```md\n## Not a heading\n```\n', after_block)
+        backups = list((self.home / '.codex').glob('AGENTS.md.pyre-backup-*'))
+        self.assertEqual([backup.read_text() for backup in backups], [original])
+        self.assertEqual(self.record()['hosts']['codex']['instructions']['backup'], str(backups[0]))
+
+    def test_same_heading_with_different_text_stops_the_merge(self):
+        agents = self.home / '.codex/AGENTS.md'
+        agents.write_text('## Plans\n\nPlans live in Notion.\n')
+        output = self.run_installer(code=1)
+        self.assertIn('instructions  ~/.codex/AGENTS.md: conflict, nothing written', output)
+        self.assertIn('Plans: same heading as global/AGENTS.md, different text', output)
+        self.assertIn('-Plans live in Notion.', output)
+        self.assertIn('+Write plans down.', output)
+        self.assertEqual(agents.read_text(), '## Plans\n\nPlans live in Notion.\n')
+        self.assertEqual(list((self.home / '.codex').glob('AGENTS.md.pyre-backup-*')), [])
+        self.assertIn('alpha', self.names(self.codex))
+        self.assertNotIn('instructions', self.record()['hosts']['codex'])
+
+    def test_edited_block_is_kept_until_forced(self):
+        self.run_installer()
+        claude_md = self.home / '.claude/CLAUDE.md'
+        claude_md.write_text(claude_md.read_text().replace("I'm Test.", "I'm edited."))
+        self.publish({'global/AGENTS.md': REPO_AGENTS + '\n## New\n\nMore.\n'})
+        self.assertIn('the block changed since install; --force overwrites it', self.run_installer(code=1))
+        self.assertIn("I'm edited.", claude_md.read_text())
+        self.assertIn('edited inside the block', self.run_installer('status', code=1))
+        self.run_installer('--force')
+        self.assertIn("I'm Test.", claude_md.read_text())
+        self.assertIn('## New', claude_md.read_text())
+
+    def test_old_readme_import_line_and_symlink_are_replaced(self):
+        claude_md = self.home / '.claude/CLAUDE.md'
+        claude_md.write_text(f'@{self.checkout}/global/AGENTS.md\n\n## Mine\n\nKeep me.\n')
+        agents = self.home / '.codex/AGENTS.md'
+        agents.symlink_to(self.checkout / 'global/AGENTS.md')
+        output = self.run_installer()
+        self.assertIn(f'remove the import line @{self.checkout}/global/AGENTS.md', output)
+        self.assertIn('replace the symlink into this checkout', output)
+        self.assertNotIn(f'@{self.checkout}', claude_md.read_text())
+        self.assertTrue(claude_md.read_text().endswith('## Mine\n\nKeep me.\n'))
+        self.assertFalse(agents.is_symlink())
+        self.assertIn("I'm Test.", agents.read_text())
+
+    def test_uninstall_removes_the_block_and_files_it_created(self):
+        (self.home / '.codex/AGENTS.md').write_text('## Mine\n\nKeep me.\n')
+        self.run_installer()
+        output = self.run_installer('uninstall')
+        self.assertIn('instructions  ~/.claude/CLAUDE.md: delete it', output)
+        self.assertIn('your file from before the first install is at ~/.codex/AGENTS.md.pyre-backup-', output)
+        self.assertFalse((self.home / '.claude/CLAUDE.md').exists())
+        self.assertEqual((self.home / '.codex/AGENTS.md').read_text(), '## Mine\n\nKeep me.\n')
+        self.assertEqual(self.record()['hosts'], {})
+
+    def test_codex_override_warning_and_broken_markers(self):
+        (self.home / '.codex/AGENTS.override.md').write_text('Override.\n')
+        self.assertIn('AGENTS.override.md is not empty, so Codex reads it instead of AGENTS.md', self.run_installer())
+        claude_md = self.home / '.claude/CLAUDE.md'
+        claude_md.write_text(claude_md.read_text() + '<!-- pyre-agent:end -->\n')
+        self.assertIn('markers are broken', self.run_installer(code=1))
 
     def test_ambiguous_and_unknown_refs_fail(self):
         self.git(self.upstream, 'branch', 'preview')
