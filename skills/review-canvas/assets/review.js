@@ -108,8 +108,9 @@
     // A newer round is offered, never loaded on its own, so an open draft or unsaved change is not lost.
     function poll() {
       call("/round").then(({ status, reply }) => {
+        // Polling continues after the offer: it is also what keeps the server running while this page stays open.
         if (status === 200 && reply.round !== round) notify(`Round ${reply.round} is ready. Reload to review it; your saved feedback carries over.`, true);
-        else if (status === 200) setTimeout(poll, interval);
+        if (status === 200) setTimeout(poll, interval);
         else notify(`The review server refused to answer: ${reply.error || `HTTP ${status}`}`, false);
       }, () => notify("The review server stopped. Export your feedback to keep changes you make from now on.", false));
     }
@@ -535,6 +536,7 @@
     // notes come back when this tab has none of its own.
     const returning = nextRetained.findIndex(item => item.input_sha256 === metadata.input_sha256);
     const restored = !same && returning >= 0 ? nextRetained.splice(returning, 1)[0] : null;
+    if (restored && (restored.files.length !== metadata.files.length || restored.files.some(file => !sources.has(file.path)))) throw Error("Feedback holds notes for this snapshot that list other files.");
     const notesFrom = same ? incoming : restored && !editedNotes.size && !editedGeneral && !byId("general-notes").value && !localFiles.some(file => file.notes) ? restored : null;
     // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
     nextRetained.splice(0, Math.max(0, nextRetained.length - 50));

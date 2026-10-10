@@ -130,6 +130,13 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     // A newer round is offered, not loaded on its own.
     renderRound("worktree-review-round2.json");
     await page.locator("#server-notice", { hasText: "Round 2 is ready" }).waitFor({ timeout: 10000 });
+    // The page keeps polling after the offer, which keeps the server running while the old page stays open.
+    const polls = [];
+    const counter = request => { if (new URL(request.url()).pathname === "/round") polls.push(request.url()); };
+    page.on("request", counter);
+    await page.waitForTimeout(3500);
+    page.off("request", counter);
+    assert.ok(polls.length >= 1, "no poll after the reload offer");
     assert.equal(await page.locator("#progress").textContent(), "2 of 10 approved", "the open round stays until the reviewer reloads");
     await page.screenshot({ path: path.join(out, "server-2-round-ready-dark.png") });
     await page.getByRole("button", { name: "Reload" }).click();
