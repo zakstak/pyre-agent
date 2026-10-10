@@ -27,7 +27,9 @@ from fingerprint import DIFF_FLAGS, GitError, decode_path, file_fingerprint, git
 
 ATTEMPTS = 3
 STATUSES = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied", "T": "changed", "U": "modified"}
-CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# C0 controls other than tab, LF, and CR, and DEL, show as control pictures. C1 controls, line and paragraph separators,
+# and bidirectional formatting characters, which can hide or reorder code, show as U+FFFD.
+CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 SECRET_NAMES = {".env", ".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".htpasswd", "credentials",
                 "credentials.json", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
 SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".kdbx")
@@ -239,6 +241,7 @@ def tracked_entry(top, change, fmt, config):
         if old_mode == new_mode:
             return None  # only the stat data changed; Git lists it because the index is never refreshed
         entry["status"] = "changed"
+    decode_path(os.fsencode(path))  # a hidden change with an undecodable name cannot be represented
     entry["fingerprint"] = file_fingerprint(path, entry["old_path"], entry["old_blob"], entry["new_blob"], old_mode, new_mode)
     return entry
 
@@ -276,6 +279,12 @@ def inventory(top, fmt, config):
         branch = git(top, "symbolic-ref", "--quiet", "HEAD").decode("utf-8", "replace").strip().removeprefix("refs/heads/")
     except GitError:
         branch = None  # detached HEAD
+    # Staging can change the index without changing any file the review shows, so its identity joins the snapshot.
+    try:
+        info = os.stat(top / decode_path(git(top, "rev-parse", "--git-path", "index").removesuffix(b"\n")))
+        index = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    except FileNotFoundError:
+        index = None
     if git(top, "ls-files", "-z", "--unmerged"):
         # git diff HEAD hides a conflict whose working tree bytes match HEAD, so the snapshot would look clean.
         raise CollectError("the index has unresolved merge conflicts. Resolve and stage them, then collect again.")
@@ -311,7 +320,7 @@ def inventory(top, fmt, config):
         if folds_case and entry["status"] == "deleted" and case_renamed(top, entry["path"]):
             raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
                                "Stage the rename with git mv, then collect again.")
-    return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
+    return {"head": head, "branch": branch, "index": index, "entries": [entries[path] for path in sorted(entries)]}
 
 
 def case_renamed(top, path):
@@ -335,12 +344,12 @@ def index_entries(top, paths):
     wanted, names, entries = set(paths), sorted(paths), {}
     for start in range(0, len(names), 200):  # in chunks, so many long paths never overflow one command line
         chunk = names[start:start + 200]
-        tags = {decode_path(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z", "--", *chunk).split(b"\0")[:-1]}
+        tags = {os.fsdecode(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z", "--", *chunk).split(b"\0")[:-1]}
         for entry in git(top, "ls-files", "-s", "-z", "--", *chunk).split(b"\0")[:-1]:
             info, raw = entry.split(b"\t", 1)
             mode, blob = info.decode("ascii").split(" ")[:2]
-            if decode_path(raw) in wanted:  # a pathspec naming a directory also lists its contents
-                entries[decode_path(raw)] = (mode, blob, tags.get(decode_path(raw), "H"))
+            if os.fsdecode(raw) in wanted:  # a pathspec naming a directory also lists its contents
+                entries[os.fsdecode(raw)] = (mode, blob, tags.get(os.fsdecode(raw), "H"))
     return entries
 
 
@@ -369,9 +378,11 @@ def assumed_unchanged(top, tracked, config):
     listing = git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]
     # A lowercase tag marks assume-unchanged; S or s marks skip-worktree, read from the index only when absent. Either
     # behind a symlinked directory is a deletion, as staging would record it.
-    assumed = {decode_path(entry[2:]) for entry in listing
+    # Names keep undecodable bytes as surrogates, so an unchanged or absent entry with such a name never stops collection;
+    # tracked_entry refuses one only if it turns out to be a change.
+    assumed = {os.fsdecode(entry[2:]) for entry in listing
                if (entry[:1].islower() and entry[:1] != b"s")
-               or (entry[:1] in b"Ss" and (os.path.lexists(top / decode_path(entry[2:])) or ancestor_replaced(top, decode_path(entry[2:]))))}
+               or (entry[:1] in b"Ss" and (os.path.lexists(top / os.fsdecode(entry[2:])) or ancestor_replaced(top, os.fsdecode(entry[2:]))))}
     if not assumed:
         return tracked
     changes = {change["path"]: change for change in tracked}
@@ -381,7 +392,7 @@ def assumed_unchanged(top, tracked, config):
         for entry in git(top, *config, "ls-tree", "-z", "--full-tree", "HEAD", "--", *names[start:start + 200]).split(b"\0")[:-1]:
             info, path = entry.split(b"\t", 1)
             mode, _, blob = info.decode("ascii").split(" ")
-            head[decode_path(path)] = (mode, blob)
+            head[os.fsdecode(path)] = (mode, blob)
     index = index_entries(top, assumed)
     links_are_files = not git_bool(top, "core.symlinks")
     modes_count = git_bool(top, "core.filemode")
@@ -476,7 +487,7 @@ def clean_text(data):
         text, replaced = data.decode("utf-8"), False
     except UnicodeDecodeError:
         text, replaced = data.decode("utf-8", "replace"), True
-    cleaned = CONTROL.sub(lambda match: chr(0x2421 if match[0] == "\x7f" else 0x2400 + ord(match[0])), text)
+    cleaned = CONTROL.sub(lambda match: chr(0x2421 if match[0] == "\x7f" else 0x2400 + ord(match[0]) if match[0] < "\x20" else 0xFFFD), text)
     return cleaned, replaced or cleaned != text
 
 
