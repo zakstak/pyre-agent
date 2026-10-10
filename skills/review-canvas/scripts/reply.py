@@ -29,6 +29,14 @@ def load_round_input(path):
     path = Path(path)
     if (path.parent / "review.html").exists():
         raise render_review.ValidationError(f"{path.parent} has rendered; a round never changes after it renders. Start a new round.")
+    try:
+        state, number = review_state.round_of(path.parent)
+        current = review_state.read_current(state)
+    except review_state.StateError:
+        current = None  # an input outside a state directory has no published round to compare
+    if current is not None and number <= current:
+        raise render_review.ValidationError(f"{path.parent} is older than the published round {current:04d}, so it can never publish. "
+                                            "Start a new round.")
     return render_review.load_review(path)
 
 
@@ -79,9 +87,19 @@ def forward_only(source, target):
         target_state, target_number = review_state.round_of(Path(target).parent)
     except review_state.StateError:
         return  # an input outside a state directory has no round number to compare
-    if source_state == target_state and source_number >= target_number:
+    if source_state != target_state:
+        return
+    if source_number >= target_number:
         raise render_review.ValidationError(f"{source} is round {source_number}, not earlier than round {target_number}. "
                                             "carry copies answers forward only; nothing was copied")
+    # The newest rendered round before the target holds every answer published so far; an older one would skip some.
+    rendered = [int(entry.name) for entry in (source_state / "rounds").iterdir()
+                if review_state.ROUND_NAME.fullmatch(entry.name) and int(entry.name) < target_number and (entry / "review.html").exists()]
+    latest = max(rendered, default=None)
+    if source_number != latest:
+        newest = f"round {latest} is the newest rendered round before it" if latest else "no round before it has rendered"
+        raise render_review.ValidationError(f"{source} is round {source_number}, but {newest}. Carry from the newest rendered round, "
+                                            "so no published answer is skipped; nothing was copied")
 
 
 def timestamp(moment):

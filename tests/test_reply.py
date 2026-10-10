@@ -127,6 +127,33 @@ class ReplyTests(unittest.TestCase):
             reply.carry(self.previous, self.input)
         self.assertEqual(len(self.replies()), 1)
 
+    def test_carry_comes_from_the_newest_rendered_round(self):
+        def render(directory, review):
+            (directory / "input.json").write_text(json.dumps(review))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(reply.render_review.main(["--round", str(directory)]), 0)
+        full = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        render(self.round, full)  # round 1 publishes its answers
+        newer = json.loads(json.dumps(full))
+        newer["summary"] = "Round 2."
+        newer["replies"].append({**newer["replies"][0], "id": "agent-round-2", "created_at": "2026-10-10T23:00:00Z"})
+        round2 = reply.review_state.new_round(self.state)
+        render(round2, newer)  # round 2 publishes one more
+        round3 = reply.review_state.new_round(self.state)
+        (round3 / "input.json").write_text(json.dumps({key: value for key, value in full.items() if key != "replies"}))
+        with self.assertRaisesRegex(ValueError, "round 2 is the newest rendered round before it"):
+            reply.carry(self.round / "input.json", round3 / "input.json")
+        self.assertEqual(reply.carry(round2 / "input.json", round3 / "input.json"), 5)
+
+    def test_a_superseded_round_is_refused(self):
+        round2 = reply.review_state.new_round(self.state)
+        (round2 / "input.json").write_text((FIXTURES / "worktree-review-round2.json").read_text())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(reply.render_review.main(["--round", str(round2)]), 0)
+        for call in (lambda: reply.carry(self.previous, self.input), lambda: self.answer(self.feedback, "fixture-comment-3", "question", "?")):
+            with self.assertRaisesRegex(ValueError, "older than the published round 0002"):
+                call()
+
     def test_carry_refuses_another_review(self):
         other = json.loads(self.previous.read_text())
         other["target"]["root"] = "/home/dev/elsewhere"
