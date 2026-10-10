@@ -158,6 +158,21 @@ def link_blob(path, fmt):
     return read_blob(path, fmt)["blob"]
 
 
+def round_input(path):
+    """Whether path names a round's input: STATE/rounds/NNNN/input.json."""
+    return path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name) is not None
+
+
+def in_state_directory(path):
+    """Whether path lies in a review state directory: one whose rounds folder holds a numbered round."""
+    def rounds(parent):
+        try:
+            return any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(parent / "rounds"))
+        except OSError:
+            return False
+    return any(rounds(parent) for parent in path.parents)
+
+
 def rendered_round_input(output):
     """Whether output is a STATE/rounds/NNNN/input.json whose round has rendered. Other paths, as in the file workflow,
     are never frozen."""
@@ -589,6 +604,10 @@ def collect(repo, title=None, include_secret=(), output=None):
         if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(states):
             raise CollectError(f"--output {output} is inside the working tree, where the snapshot would become an untracked "
                                f"change of its own. Write it outside {top} or inside {states}.")
+        # In a review state directory, only a round's input is the collector's: pages, feedback, and locks are not.
+        if (destination.is_relative_to(states) or in_state_directory(destination)) and not round_input(destination):
+            raise CollectError(f"--output {output} is inside a review state directory, where only STATE/rounds/NNNN/input.json "
+                               "is the collector's to write. Create a round with review_state.py new-round and write its input.json.")
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     config = filter_overrides(top)
     if Path(tempfile.gettempdir()).resolve().is_relative_to(top.resolve()):
@@ -675,7 +694,7 @@ def write_atomic(path, text):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=Path("."), help="Directory inside the working tree (default: current directory)")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write, outside the repository or in the review-canvas folder of its Git directory")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write: outside the repository, or STATE/rounds/NNNN/input.json in a review state directory")
     parser.add_argument("--title", help="Review title (default: Uncommitted changes on BRANCH)")
     parser.add_argument("--include-secret-file", action="append", default=[], metavar="PATH",
                         help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")

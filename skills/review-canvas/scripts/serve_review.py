@@ -70,11 +70,15 @@ class ReviewServer(ThreadingHTTPServer):
         self.save_lock = threading.Lock()
         self.snapshots = {}
         self.active_saves = 0
+        self.closing = False
         self.saves_done = threading.Condition()
 
     def finish_saves(self, timeout):
-        """Wait up to timeout seconds for saves in progress to finish. Return whether they did."""
+        """Refuse new saves, then wait up to timeout seconds for those in progress. Return whether they finished.
+
+        A handler past the token check but not yet counted would otherwise write after the lock is released."""
         with self.saves_done:
+            self.closing = True
             return self.saves_done.wait_for(lambda: self.active_saves == 0, timeout)
 
     def snapshot(self, number):
@@ -209,6 +213,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def save(self):
         with self.server.saves_done:
+            if self.server.closing:
+                return self.reply(503, error="The review server is stopping. Export your feedback to keep it.")
             self.server.active_saves += 1
         try:
             self.write_feedback()

@@ -39,8 +39,9 @@ except ImportError:  # Windows
 
 
 ROUND_NAME = re.compile(r"[0-9]{4}")
-# Ownership and mode bits can prove privacy only where POSIX permissions apply.
-PRIVACY_CHECKABLE = hasattr(os, "getuid")
+# Ownership and mode bits prove privacy only where POSIX permissions apply and every ACL can be read. Python reads
+# ACLs only on Linux, through extended attributes; on macOS and elsewhere an ACL could grant access unseen.
+PRIVACY_CHECKABLE = hasattr(os, "getuid") and hasattr(os, "getxattr")
 
 
 class StateError(ValueError):
@@ -60,6 +61,13 @@ def _group_has_others(gid):
 def _acl_writers(path, gid):
     """The users and groups a POSIX access ACL lets write to path, or None when path has none or the platform cannot
     read one. With an ACL, the mode's group bits are only its mask, so they cannot say who may write."""
+    try:
+        os.getxattr(path, "system.nfs4_acl")
+    except (AttributeError, OSError):
+        pass
+    else:
+        raise StateError(f"{path} uses NFSv4 access control lists, which these scripts cannot check. "
+                         "Keep the review state on a local filesystem, or render with render_review.py INPUT --output.")
     try:
         raw = os.getxattr(path, "system.posix_acl_access")
     except (AttributeError, OSError):
@@ -121,6 +129,7 @@ def private_dir(path, create=False):
         raise StateError(f"{path} is not a directory")
     if info.st_uid != os.getuid() or info.st_mode & 0o077:
         raise StateError(f"{path} must belong to you and be private (mode 0700); other users could read the review")
+    _acl_writers(resolved, info.st_gid)  # mode 0700 bounds a POSIX ACL; this refuses an ACL it cannot read
     return resolved
 
 

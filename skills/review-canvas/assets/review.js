@@ -63,15 +63,16 @@
   // or the local review server, which saves automatically. Only a page the server served carries its session token.
   function fileStore() {
     let exported = false;
+    // An open draft is in no export yet, so it shows as unexported even before any other change.
     const show = () => {
       const chip = byId("save-state");
-      chip.hidden = !dirty; chip.className = exported ? "chip" : "chip warning"; chip.textContent = exported ? "Exported" : "Not exported";
+      chip.hidden = !dirty && !draftOpen(); chip.className = exported ? "chip" : "chip warning"; chip.textContent = exported ? "Exported" : "Not exported";
     };
     return {
       start: show,
       refresh: show,
       changed() { exported = false; byId("export-status").textContent = "Changes are in this tab only. Export to save them."; show(); },
-      draftChanged() { if (exported) { exported = false; show(); } },
+      draftChanged() { exported = false; show(); },
       exported(draft) { exported = !draft; show(); },
       merged() { exported = false; show(); byId("export-status").textContent = dirty ? "Export the combined feedback to save this state." : "Saved snapshot restored from your local file."; },
       // A requested download does not prove a durable save, so any change keeps the unload warning.

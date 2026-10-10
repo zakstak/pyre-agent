@@ -155,21 +155,28 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     assert.ok(polls.length >= 1, "no poll after the reload offer");
     assert.equal(await page.locator("#progress").textContent(), "2 of 10 approved", "the open round stays until the reviewer reloads");
     await page.screenshot({ path: path.join(out, "server-2-round-ready-dark.png") });
-    // Reload saves first. A note typed while that save runs waits in the debounce timer, and it is saved before the reload too.
+    // Reload first saves what is pending. A note typed while that save runs waits in the debounce timer, and this round's
+    // page saves it before reloading.
     let release, parked;
     const gate = new Promise(resolve => { release = resolve; }), held = new Promise(resolve => { parked = resolve; });
     let holding = true;
+    const sent = [];
     await page.route("**/feedback", async route => {
-      if (route.request().method() === "PUT" && holding) { holding = false; parked(); await gate; }
+      if (route.request().method() === "PUT") {
+        sent.push(JSON.parse(route.request().postData()));
+        if (holding) { holding = false; parked(); await gate; }
+      }
       await route.continue();
     });
-    await page.getByRole("button", { name: "Reload" }).click();
+    await page.getByLabel("Overall notes").fill("Started before the reload.");
+    await page.getByRole("button", { name: "Reload" }).click();  // inside the debounce, so the reload starts this save
     await held;
     await page.getByLabel("Overall notes").fill("Typed while the reload waited.");
     release();
     await page.waitForFunction(() => document.querySelector('meta[name="review-canvas-round"]').content === "2");
     await page.unroute("**/feedback");
-    assert.equal(await page.getByLabel("Overall notes").inputValue(), "Typed while the reload waited.", "the reload dropped a change");
+    const roundOne = sent[0].input_sha256;
+    assert.equal(sent.filter(body => body.input_sha256 === roundOne).at(-1).general_notes, "Typed while the reload waited.", "the reload dropped a change");
     await waitSaved(page);
     assert.equal(await approve("src/notes/cli.py").isChecked(), true, "an unchanged file keeps its approval");
     assert.equal(await approve("src/notes/store.py").isChecked(), false);
