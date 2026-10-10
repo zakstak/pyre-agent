@@ -90,7 +90,11 @@ def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, 
     times = [feedback_contract.reply_time(reply) for reply in thread]
     moment = max([now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()]
                  + [time + 0.001 for time in times if time != float("inf")])
-    reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": timestamp(moment),
+    try:
+        created = timestamp(moment)
+    except (ValueError, OverflowError, OSError):
+        raise render_review.ValidationError(f"comment {comment_id}'s latest reply is at the last representable time, so no later reply fits") from None
+    reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": created,
              "body": body, "disposition": disposition}
     if fingerprint or commit:
         reply["fixed_in"] = {"fingerprint": fingerprint} if fingerprint else {"commit": commit}

@@ -5,6 +5,7 @@ import datetime
 import importlib.util
 import io
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -130,6 +131,25 @@ class ReplyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "would exceed"):
                 reply.save_round_input(self.input, review)
         self.assertEqual(self.input.read_bytes(), before)
+
+    def test_a_symlinked_rounds_directory_takes_the_real_lock(self):
+        alias = self.temp / "alias"
+        os.symlink(self.state / "rounds", alias)
+        done = threading.Event()
+        with reply.review_state.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (reply.carry(self.previous, alias / self.round.name / "input.json"), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "carry through the alias took a different lock")
+        self.assertTrue(done.wait(10))
+
+    def test_the_last_representable_time_is_refused_cleanly(self):
+        feedback = json.loads(self.feedback.read_text())
+        comment = next(c for c in feedback["comments"] if c["id"] == "fixture-comment-3")
+        comment["replies"][0]["created_at"] = "9999-12-31T23:59:59.999Z"
+        late = self.temp / "late.json"
+        late.write_text(json.dumps(feedback))
+        with self.assertRaisesRegex(ValueError, "last representable time"):
+            reply.add(self.input, late, "fixture-comment-3", "question", "Which zone?")
 
     def test_command_line(self):
         run = lambda *args: subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
