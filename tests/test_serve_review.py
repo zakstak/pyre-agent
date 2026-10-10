@@ -331,7 +331,7 @@ class RoutingTests(ServerCase):
         worker.join(10)
         self.assertEqual(result["status"], 200)
 
-    def test_an_older_page_cannot_delete_a_comment_the_agent_answered(self):
+    def test_an_older_page_cannot_delete_change_or_answer_a_comment_the_agent_answered(self):
         status, reply = self.api("PUT", "/feedback", self.body)
         self.assertEqual(status, 200)
         render_round(self.state, "worktree-review-round2.json")  # answers all four fixture comments
@@ -346,10 +346,22 @@ class RoutingTests(ServerCase):
         status, refused = self.api("PUT", "/feedback", json.dumps(rewritten).encode(), **{"X-Review-Revision": reply["revision"]})
         self.assertEqual(status, 409)
         self.assertIn("The agent answered a comment this page changes", refused["error"])
+        # Notes still save from the older page, but a reply to an answer it never showed does not.
+        accept = {"id": "r1", "actor": "reviewer", "created_at": "2099-10-10T12:00:00.000Z", "body": "", "action": "accept"}
         edited = json.loads(self.body)
-        edited["general_notes"] = "still here"
-        edited["comments"][1]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T12:00:00.000Z", "body": "", "action": "accept"}]
-        self.assertEqual(self.api("PUT", "/feedback", json.dumps(edited).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
+        edited["comments"][1]["replies"] = [accept]
+        status, refused = self.api("PUT", "/feedback", json.dumps(edited).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page replies to", refused["error"])
+        noted = json.loads(self.body)
+        noted["general_notes"] = "still here"
+        status, reply = self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200)
+        # The round 2 page shows the answer, so its reply saves.
+        current = renderer.load_review(self.state / "rounds/0002/input.json")
+        noted["input_sha256"] = renderer.input_digest(current)
+        noted["comments"][1]["replies"] = [accept]
+        self.assertEqual(self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
 
     def test_round_follows_each_publish(self):
         self.assertEqual(self.api("GET", "/round")[1], {"round": 1})

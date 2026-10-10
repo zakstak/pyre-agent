@@ -80,7 +80,7 @@ def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=No
 
 
 def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now):
-    feedback = feedback_contract.parse_feedback(Path(feedback_path).read_bytes())
+    feedback = feedback_contract.read_feedback(feedback_path)
     comment = next((item for item in feedback["comments"] if item["id"] == comment_id), None)
     if comment is None:
         raise render_review.ValidationError(f"the feedback has no comment {comment_id}")

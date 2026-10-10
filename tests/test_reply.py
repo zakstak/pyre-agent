@@ -125,6 +125,12 @@ class ReplyTests(unittest.TestCase):
         self.assertTrue(done.wait(10))
         self.assertEqual(len(self.replies()), 4)
 
+    def test_add_reads_the_feedback_only_up_to_its_limit(self):
+        reply.carry(self.previous, self.input)
+        with unittest.mock.patch.object(reply.feedback_contract, "read_feedback", wraps=reply.feedback_contract.read_feedback) as reader:
+            reply.add(self.input, self.feedback, "fixture-comment-3", "question", "Which zone?")
+        reader.assert_called_once_with(self.feedback)
+
     def test_an_input_past_the_size_limit_is_not_written(self):
         before = self.input.read_bytes()
         review = json.loads(before)

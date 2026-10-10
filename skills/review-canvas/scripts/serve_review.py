@@ -250,15 +250,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(409, error="Feedback changed since this page loaded it, in another tab or round. Reload to continue.", revision=current)
             # A page from an earlier round does not know the agent's newest answers. It must not delete a comment that
             # the current round answers, or the answer would lose its thread.
-            # It must not change one either: the answer refers to the comment as the agent read it. New replies are fine.
+            # It must not change one either: the answer refers to the comment as the agent read it.
+            previous = json.loads(saved)["comments"] if saved else []
             question = lambda comment: (comment["body"], comment["anchor"], comment["history"])
             kept = {comment["id"]: question(comment) for comment in feedback["comments"]}
-            before = {comment["id"]: question(comment) for comment in json.loads(saved)["comments"]} if saved else {}
+            before = {comment["id"]: question(comment) for comment in previous}
             for comment_id in snapshot["answered"] & before.keys():
                 if comment_id not in kept:
                     return self.reply(409, error="The agent answered a comment this page deletes. Reload to see the answer.", revision=current)
                 if kept[comment_id] != before[comment_id]:
                     return self.reply(409, error="The agent answered a comment this page changes. Reload to see the answer.", revision=current)
+            # Nor may it answer one: its reply could sort before an answer it never showed, and the agent would miss it.
+            if feedback["input_sha256"] != snapshot["input_sha256"]:
+                earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
+                if any(comment["id"] in snapshot["answered"] and comment.get("replies", []) != earlier.get(comment["id"], [])
+                       for comment in feedback["comments"]):
+                    return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
+                                      revision=current)
             review_state.write_private(self.server.state / "feedback.json", body)
         self.reply(200, revision=revision(body))
 
