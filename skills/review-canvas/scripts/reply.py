@@ -47,6 +47,7 @@ def carry(source, target):
 
 
 def _carry(source, target):
+    forward_only(source, target)
     previous = render_review.load_review(source)
     review = load_round_input(target)
     snapshot = lambda item: {"target": item["target"], "input_sha256": render_review.input_digest(item)}
@@ -61,6 +62,19 @@ def _carry(source, target):
     review["replies"] = [reply for reply in earlier if reply["id"] not in known] + review.get("replies", [])
     save_round_input(target, review)
     return len(review["replies"]) - len(known)
+
+
+def forward_only(source, target):
+    """Within one state directory, carry only from an earlier round: a later round's answers describe code the target
+    round does not hold."""
+    try:
+        source_state, source_number = review_state.round_of(Path(source).parent)
+        target_state, target_number = review_state.round_of(Path(target).parent)
+    except review_state.StateError:
+        return  # an input outside a state directory has no round number to compare
+    if source_state == target_state and source_number >= target_number:
+        raise render_review.ValidationError(f"{source} is round {source_number}, not earlier than round {target_number}. "
+                                            "carry copies answers forward only; nothing was copied")
 
 
 def timestamp(moment):

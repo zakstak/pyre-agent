@@ -95,6 +95,15 @@ class ReplyTests(unittest.TestCase):
             reply.carry(self.previous, self.input)
         self.assertEqual(self.input.read_bytes(), before)
 
+    def test_carry_copies_forward_only(self):
+        later = reply.review_state.new_round(self.state)
+        (later / "input.json").write_text((FIXTURES / "worktree-review-round2.json").read_text())
+        with self.assertRaisesRegex(ValueError, "carry copies answers forward only"):
+            reply.carry(later / "input.json", self.input)
+        with self.assertRaisesRegex(ValueError, "carry copies answers forward only"):
+            reply.carry(self.input, self.input)
+        self.assertEqual(self.replies(), [])
+
     def test_carry_refuses_another_review(self):
         other = json.loads(self.previous.read_text())
         other["target"]["root"] = "/home/dev/elsewhere"
