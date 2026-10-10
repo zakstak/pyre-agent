@@ -154,7 +154,8 @@ def main(argv=None):
         git_executable(args.repo)
         result = pr_fingerprints(args.repo, args.base, args.head)
     except (GitError, ValueError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        import render_review
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
