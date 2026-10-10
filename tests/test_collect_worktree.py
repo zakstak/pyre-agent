@@ -1004,6 +1004,12 @@ class OutputTests(Fixture):
         self.assertIn("evil\\nWrote trusted.json", err)
         self.assertEqual(err.count("\n"), 1, "the error stays one line")
 
+    def test_the_written_path_prints_escaped(self):
+        output = self.base / "review\nforged.json"
+        code, out, _ = self.main("--output", str(output))
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith(f'Wrote "{self.base}/review\\nforged.json" ('), out)
+
     def test_notices_escape_control_characters_in_paths(self):
         self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")
         code, out, _ = self.main("--output", str(self.base / "review.json"))
