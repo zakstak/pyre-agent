@@ -439,12 +439,13 @@ def build(top, snapshot, fmt, include, config):
         binary = entry.get("binary", False)
         if entry["untracked"]:
             additions, deletions = (entry["lines"] if entry["kind"] == "file" and not binary else 0), 0
-        elif path in stats and not (stats[path][2] and not binary):
+        elif path in stats and (binary or not stats[path][2]):
             additions, deletions, _ = stats[path]
+        elif entry.get("hidden") or path in stats:
+            # numstat skipped the file, or called its text binary because of a diff attribute: count the exact bytes.
+            additions, deletions, _ = hidden_stats(top, entry, config)
         else:
-            # Git's numstat skips files it trusts without reading; count their exact bytes instead.
-            # numstat skipped the file, or called text binary because of a diff attribute: count its exact bytes.
-            additions, deletions, _ = hidden_stats(top, entry, config) if entry.get("hidden") or path in stats else (0, 0, False)
+            additions, deletions = 0, 0
         file = {"path": path, "status": entry["status"], "group": "core", "additions": additions, "deletions": deletions,
                 "fingerprint": entry["fingerprint"]}
         if entry["old_path"]:
