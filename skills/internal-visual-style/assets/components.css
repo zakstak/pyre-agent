@@ -1,0 +1,58 @@
+/* Optional specimen classes. Layout follows content; reuse only what fits. */
+* { box-sizing: border-box; }
+html { background: var(--bg-page); color: var(--text-primary); }
+body {
+  margin: 0;
+  font-family: var(--font-reading);
+  font-size: var(--size-reading);
+  line-height: var(--leading-reading);
+  font-synthesis: none;
+}
+h1, h2, h3, p, ul, ol, pre, dl { margin: 0; }
+h1 { font-size: var(--size-title); line-height: 1.25; font-weight: 700; }
+h2 { font-size: var(--size-heading); line-height: 1.35; font-weight: 600; }
+a { color: var(--link); text-underline-offset: 0.18em; }
+button, summary { min-height: var(--control-min); }
+button {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.skip { position: absolute; top: var(--space-2); left: var(--space-2); transform: translateY(-200%); }
+.skip:focus { transform: none; background: var(--bg-surface); padding: var(--space-2); z-index: 1; }
+.work { max-width: var(--measure-work); margin-inline: auto; padding: var(--space-4) var(--space-3); }
+.toolbar { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: var(--space-3); }
+.stack > * + * { margin-block-start: var(--space-3); }
+.sections > * + * { margin-block-start: var(--space-5); }
+.reading { max-width: var(--measure-reading); }
+.muted { color: var(--text-secondary); }
+.small { font-size: var(--size-small); }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr)); gap: var(--space-4); }
+.surface { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3); min-width: 0; }
+.rule { border-block-start: 1px solid var(--border); padding-block-start: var(--space-3); }
+ul, ol { padding-inline-start: var(--space-3); }
+li + li { margin-block-start: var(--space-2); }
+code, pre { font-family: var(--font-technical); font-size: 1em; }
+p, li, h1, h2, a, code, button { overflow-wrap: anywhere; }
+.code-region { max-width: 100%; overflow: auto; }
+pre { white-space: pre; padding: var(--space-2); }
+.statuses { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0; list-style: none; }
+.statuses li { margin: 0; }
+.status { display: inline-block; padding: var(--space-1) var(--space-2); border-radius: var(--radius); font-size: var(--size-small); }
+.neutral { color: var(--status-neutral); background: var(--status-neutral-bg); }
+.success { color: var(--status-success); background: var(--status-success-bg); }
+.warning { color: var(--status-warning); background: var(--status-warning-bg); }
+.danger { color: var(--status-danger); background: var(--status-danger-bg); }
+summary { cursor: pointer; padding-block: var(--space-2); }
+footer { padding-block-start: var(--space-4); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+
+/* Published legacy Margin notes treatment: left rail and inset evidence. */
+.plan-section { border-inline-start: var(--section-rail-width) solid var(--pyre-line); padding-inline-start: var(--space-rail-inset); }
+.evidence { background: var(--bg-surface); padding: var(--space-evidence-block) var(--space-evidence-inline); }
