@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 
@@ -62,6 +63,14 @@ class LimitTests(unittest.TestCase):
         value["comments"] = [dict(value["comments"][0], id=str(i), body="x" * 20000) for i in range(110)]
         with self.assertRaisesRegex(contract.FeedbackError, "budget"):
             contract.validate_feedback(value)
+
+    def test_files_are_read_only_up_to_the_limit(self):
+        handle = unittest.mock.MagicMock()
+        handle.__enter__.return_value.read.return_value = b"x" * (contract.MAX_BYTES + 1)
+        with unittest.mock.patch.object(contract.Path, "open", return_value=handle), \
+                self.assertRaisesRegex(contract.FeedbackError, "exceeds 8 MiB"):
+            contract.read_feedback("feedback.json")
+        handle.__enter__.return_value.read.assert_called_once_with(contract.MAX_BYTES + 1)
 
     def test_utf16_units(self):
         self.assertEqual(contract.units("a🙂"), 3)

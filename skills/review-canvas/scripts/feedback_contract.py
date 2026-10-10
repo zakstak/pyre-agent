@@ -273,6 +273,12 @@ def check_identity(feedback, snapshot):
         raise FeedbackError("Feedback belongs to another review target or an unidentified snapshot.")
 
 
+def read_feedback(path):
+    """Read and validate a feedback file. Reading stops one byte past the limit, so a huge file is refused unread."""
+    with Path(path).open("rb") as handle:
+        return parse_feedback(handle.read(MAX_BYTES + 1))
+
+
 def main(argv=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import render_review
@@ -282,7 +288,7 @@ def main(argv=None):
     parser.add_argument("--input", type=Path, help="Review input of the round to compare with: target identity and approvals")
     args = parser.parse_args(argv)
     try:
-        feedback = parse_feedback(args.feedback.read_bytes())
+        feedback = read_feedback(args.feedback)
         review = render_review.load_review(args.input) if args.input else None
         if review:
             check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
