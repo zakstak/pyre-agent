@@ -167,8 +167,10 @@ def git_executable(repo=None):
     if executable is None:
         raise GitError("git was not found in any absolute PATH directory")
     # A bare repository has no .git child, so the supplied path itself counts too, as does a core.worktree elsewhere.
-    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo), *configured_worktrees(repo)]
-    if any(root is not None and Path(executable).resolve().is_relative_to(root) for root in roots):
+    roots = [] if repo is None else [Path(repo).resolve(), Path(os.path.abspath(repo)), repository_top(repo), *configured_worktrees(repo)]
+    # Both the path as found and its target count: a symlink inside the repository could point PATH's entry elsewhere.
+    candidates = (Path(os.path.abspath(executable)), Path(executable).resolve())
+    if any(root is not None and candidate.is_relative_to(root) for root in roots for candidate in candidates):
         raise GitError(f"git resolves to {executable}, inside the repository under review. Put the system git earlier in PATH.")
     return executable
 
@@ -181,9 +183,10 @@ def git(cwd, *args, ok=(0,), env=None, into=None):
     environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV and not key.startswith("GIT_TRACE")}
     environment["PATH"] = trusted_path()
     # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
-    # An empty graft file replaces .git/info/grafts, whose fake ancestry would otherwise move the merge base.
+    # Empty graft and shallow files replace .git/info/grafts and .git/shallow, whose fake ancestry or roots would
+    # otherwise move the merge base.
     environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1",
-                       GIT_GRAFT_FILE=os.devnull, **(env or {}))
+                       GIT_GRAFT_FILE=os.devnull, GIT_SHALLOW_FILE=os.devnull, **(env or {}))
     try:
         result = subprocess.run([executable, *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
                                 stdout=into or subprocess.PIPE, stderr=subprocess.PIPE)
