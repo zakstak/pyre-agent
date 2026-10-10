@@ -282,7 +282,9 @@ def assumed_unchanged(top, tracked, config):
         head[decode_path(path)] = (mode, blob)
     for path in sorted(assumed):
         new_mode = disk_mode(top / path)
-        if path in changes:
+        if path in changes and not new_mode and path not in head:
+            del changes[path]  # added to the index, then removed from disk: nothing changed between HEAD and the tree
+        elif path in changes:
             changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D")
         elif path in head:
             old_mode, old_blob = head[path]
@@ -446,6 +448,9 @@ def collect(repo, title=None, include_secret=(), output=None):
                                f"change of its own. Write it outside {top} or inside {git_dir}.")
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     config = filter_overrides(top)
+    if Path(tempfile.gettempdir()).resolve().is_relative_to(top.resolve()):
+        # Scratch diffs hold copies of the reviewed files; they must never land inside the tree they come from.
+        raise CollectError(f"the temporary directory {tempfile.gettempdir()} is inside the working tree. Set TMPDIR elsewhere.")
     include = set(include_secret)
     reason = "HEAD or a changed file differed between two reads"
     for _ in range(ATTEMPTS):
@@ -480,13 +485,16 @@ def staged_differently(top, config):
     commit records the staged version."""
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
+    # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
+    modes_count = git(top, "config", "--type=bool", "--default", "true", "core.filemode").strip() == b"true"
     found = []
     for entry in git(top, "ls-files", "-s", "-z").split(b"\0")[:-1]:
         info, raw = entry.split(b"\t", 1)
-        path, blob = decode_path(raw), info.decode("ascii").split(" ")[1]
-        if path in staged and info.startswith((b"100644", b"100755")):
+        path = decode_path(raw)
+        mode, blob = info.decode("ascii").split(" ")[:2]
+        if path in staged and mode in ("100644", "100755"):
             try:
-                if read_blob(top / path, fmt)["blob"] != blob:
+                if read_blob(top / path, fmt)["blob"] != blob or (modes_count and disk_mode(top / path) != mode):
                     found.append(path)
             except (OSError, Changed):
                 found.append(path)
@@ -516,9 +524,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
-        write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
         root = Path(review["target"]["root"])
-        staged = staged_differently(root, filter_overrides(root))
+        staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
+        write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
