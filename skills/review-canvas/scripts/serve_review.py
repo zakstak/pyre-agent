@@ -173,7 +173,10 @@ class Handler(BaseHTTPRequestHandler):
         if not page.startswith(CHARSET_META) or start < 0 or policy.count(CSP_CONNECT) != 1:
             return self.reply(500, error="The rendered page lacks the expected security policy.")
         # The script and its hash are unchanged, and so is the file on disk.
-        session = f'<meta name="review-canvas-token" content="{self.server.token}"><meta name="review-canvas-round" content="{number}">'
+        # The page asks for the round well inside the idle timeout, so an open page keeps the server running.
+        poll = max(250, min(3000, int(self.server.idle_timeout * 1000 / 3)))
+        session = (f'<meta name="review-canvas-token" content="{self.server.token}"><meta name="review-canvas-round" content="{number}">'
+                   f'<meta name="review-canvas-poll" content="{poll}">')
         page = CHARSET_META + session + page[len(CHARSET_META):start] + policy.replace(CSP_CONNECT, CSP_CONNECT_SERVED) + page[end:]
         self.respond(200, page.encode("utf-8"), "text/html; charset=utf-8", "frame-ancestors 'none'")
 

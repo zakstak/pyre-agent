@@ -215,6 +215,12 @@ def _reject_number(token):
     raise FeedbackError("Feedback numbers must be integers.")
 
 
+def _integer_token(token):
+    # Past 2**53, JavaScript cannot hold an integer exactly and fails its position checks; infinity fails them the same
+    # way here. It also avoids Python's limit on integer digits, which raises a plain ValueError.
+    return int(token) if len(token.lstrip("-")) <= 16 else float("inf")
+
+
 def _reject_constant(token):
     # JSON has no NaN or Infinity; JSON.parse calls them a syntax error, so this message matches that category.
     raise FeedbackError(f"Feedback is not valid UTF-8 JSON: {token} is not a JSON value")
@@ -233,8 +239,11 @@ def parse_feedback(raw):
     if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
         raise FeedbackError("Feedback exceeds 8 MiB.")
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number, parse_constant=_reject_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number,
+                           parse_int=_integer_token, parse_constant=_reject_constant)
+    except FeedbackError:
+        raise
+    except (ValueError, RecursionError) as error:
         raise FeedbackError(f"Feedback is not valid UTF-8 JSON: {error}") from None
     _depth(value)
     return validate_feedback(value)
