@@ -100,6 +100,7 @@ def config_entries(text):
     \\n \\t \\b \\" \\\\ decoded, a backslash before a line break continuing the line, comments after an unquoted
     # or ; dropped, and unquoted spaces trimmed at the ends. section is lowercase, with ".subsection" appended. A key with
     no = has the value None. Parsing stops at a line Git would reject, since Git then refuses the whole file."""
+    text = text.replace("\r\n", "\n")  # Git reads CRLF as one line ending
     i, n, section = 0, len(text), ""
     while i < n:
         character = text[i]

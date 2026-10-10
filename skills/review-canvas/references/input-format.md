@@ -54,7 +54,7 @@ Each file in a `worktree` target also requires `fingerprint`. It is optional for
 | `secret` | none | A likely secret file whose contents were left out |
 | `no_content_change` | none | Only the path or mode changed |
 | `empty` | none | An empty file |
-| `replaced_characters` | required | Invalid UTF-8 bytes appear as U+FFFD, and control characters other than tab, LF, and CR appear as Unicode control pictures |
+| `replaced_characters` | required | Invalid UTF-8 bytes appear as U+FFFD, C0 control characters other than tab, LF, and CR appear as Unicode control pictures, and C1 controls, line and paragraph separators, and bidirectional formatting characters appear as U+FFFD |
 
 Optional analysis fields are:
 

@@ -54,7 +54,7 @@ Each patch comes from the exact bytes its fingerprint covers: the old blob from 
 | Submodule whose checked-out commit changed, or untracked nested repository | No patch, `patch_note: "submodule"`. Uncommitted edits inside a submodule do not count. |
 | Empty file | No patch, `patch_note: "empty"` |
 | Patch over the input limits | No patch, `patch_note: "too_large"`, `patch_complete: false` |
-| Non-UTF-8 bytes or control characters | The patch, with `patch_note: "replaced_characters"` |
+| Non-UTF-8 bytes, control characters, or bidirectional formatting characters | The patch, with `patch_note: "replaced_characters"` |
 | CRLF line endings | The patch, with `\r` kept at the end of each line |
 
 | File marked `assume-unchanged` | Compared by its bytes on disk, because Git hides its edits |

@@ -321,8 +321,18 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
       await approveHere("src/notes/legacy.py");
       await waitSaved(lost);
       assert.equal(await lost.locator("#server-notice").isHidden(), true, "the failed reply paused saving as a conflict");
+      // A save whose 200 reply arrives cut short leaves the new revision unknown; it is reconciled like a lost reply.
+      await lost.route("**/feedback", async route => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await route.fetch(); await route.fulfill({ status: 200, contentType: "application/json", body: '{"revis' });
+      }, { times: 1 });
+      await approveHere("scripts/release.sh");
+      await lost.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      await approveHere("tests/data/windows.txt");
+      await waitSaved(lost);
+      assert.equal(await lost.locator("#server-notice").isHidden(), true, "the cut-short reply broke later saves");
       const kept = JSON.parse(fs.readFileSync(path.join(lostState, "feedback.json"), "utf8"));
-      assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["docs/logo.png", "src/notes/cli.py", "src/notes/format.py", "src/notes/legacy.py", "src/notes/store.py"]);
+      assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["docs/logo.png", "scripts/release.sh", "src/notes/cli.py", "src/notes/format.py", "src/notes/legacy.py", "src/notes/store.py", "tests/data/windows.txt"]);
       await lost.close();
     } finally { lostServer.kill("SIGTERM"); }
 

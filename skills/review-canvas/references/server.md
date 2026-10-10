@@ -20,7 +20,7 @@ Each file has exactly one writer, so the only coordination is one revision check
 | --- | --- |
 | `rounds/NNNN/input.json` | The agent: the collector skeleton, then analysis and agent replies |
 | `rounds/NNNN/review.html` | `render_review.py --round` |
-| `rounds/NNNN/input.sha256` | `render_review.py --round`: the digest of the input it rendered. Every later read of that input checks it, so an edit after rendering is refused. |
+| `rounds/NNNN/input.sha256` | `render_review.py --round`: the digest of the input it rendered. Every later read of that input checks it, so an edit after rendering, or a rendered round without this file, is refused. |
 | `current` | `render_review.py --round`, after the round's page is written. It names the newest round. |
 | `feedback.json` | The browser, through the server. The agent only reads it. |
 | `server.json` | The server, while it runs: its URL, port, and process ID |
