@@ -92,7 +92,39 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.locator("#comment-index .comment-jump").first().click();
     assert.equal(await page.evaluate(() => document.activeElement.id), "comment-body");
 
+    // Drafts are not exported, so an open draft keeps the state at Not exported.
+    await page.locator("#comment-body").fill("edited draft");
+    const download = page.waitForEvent("download"); await page.locator("#export-feedback").click(); await download;
+    assert.equal(await page.locator("#save-state").textContent(), "Not exported");
+    assert.match(await page.locator("#export-status").textContent(), /without the open comment draft/);
+    await page.locator("#cancel-comment").click();
+    const again = page.waitForEvent("download"); await page.locator("#export-feedback").click(); await again;
+    assert.equal(await page.locator("#save-state").textContent(), "Exported");
+    await rowButton("+new two").click(); await page.locator("#comment-body").pressSequentially("x");
+    assert.equal(await page.locator("#save-state").textContent(), "Not exported", "typing a new draft clears Exported");
+    await page.locator("#cancel-comment").click();
+
+    // Selection stays fast on a diff near the 10,000-line limit. The old full scan took 65 to 90ms per event.
+    const big = structuredClone(review);
+    big.files[1].patch = "@@ -1,9990 +1,9990 @@\n" + Array.from({ length: 9990 }, (_, i) => ` line ${i} of a long file\n`).join("");
+    fs.writeFileSync(input, JSON.stringify(big));
+    const bigRun = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/pr-review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
+    assert.equal(bigRun.status, 0, bigRun.stderr);
+    await page.goto(pathToFileURL(output).href);
+    const timing = await page.evaluate(async () => {
+      const codes = document.querySelectorAll("#file-1 .source code"), times = [];
+      for (const i of [5000, 5001, 5002, 5003, 5004, 9000]) {
+        const range = document.createRange(); range.setStart(codes[i].firstChild, 2); range.setEnd(codes[i + 3].firstChild, 5);
+        const start = performance.now(); getSelection().removeAllRanges(); getSelection().addRange(range);
+        await new Promise(resolve => document.addEventListener("selectionchange", () => setTimeout(resolve, 0), { once: true }));
+        times.push(performance.now() - start);
+      }
+      return { median: times.sort((a, b) => a - b)[3], status: document.querySelector("#selection-status").textContent };
+    });
+    assert.ok(timing.median < 30, `selection handling took ${timing.median}ms`);
+    assert.match(timing.status, /^\d+ code characters selected in src\/retry\.py\.$/);
+
     assert.deepEqual(errors, []);
-    console.log("PASS: idle toast, mixed-side line labels, focus after floating-button cancel, persistent Undo, Dismiss focus, Undo into collapsed file, draft guard, IME Escape, jump to edited comment.");
+    console.log(`PASS: idle toast, mixed-side line labels, focus after floating-button cancel, persistent Undo, Dismiss focus, Undo into collapsed file, draft guard, IME Escape, jump to edited comment, draft export state, ${timing.median.toFixed(1)}ms selection on a 9,990-line diff.`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

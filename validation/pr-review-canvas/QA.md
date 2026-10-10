@@ -29,7 +29,7 @@ Checked 2026-10-10 in Chromium 152.0.7977.82 with Python 3.14.7 and Node 26.10.0
 - No page-level horizontal scrolling at 1440, 390, and 320 pixels wide, at 100% and 200% text, in both modes.
 - No external requests and no page errors.
 
-`browser_review_focus.cjs` covers focus return after Escape and Dismiss, Undo that survives later messages, drafts hidden by a collapsed file, IME Escape, and line labels that span deleted and added rows. The earlier suites also pass against the new markup: `test_review_renderer.py`, `browser_review.unit.cjs`, `browser_review.cjs`, and `browser_review_inline.cjs`.
+`browser_review_focus.cjs` covers focus return after Escape and Dismiss, Undo that survives later messages, drafts hidden by a collapsed file, IME Escape, line labels that span deleted and added rows, export state while a draft is open, and selection handling under 30ms per event on a 9,990-line diff. The earlier suites also pass against the new markup: `test_review_renderer.py`, `browser_review.unit.cjs`, `browser_review.cjs`, and `browser_review_inline.cjs`.
 
 ## Reproduce
 

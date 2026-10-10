@@ -133,20 +133,27 @@
     floating.style.left = `${left + scrollX}px`;
     floating.style.top = `${(below ? rect.bottom + gap : rect.top - height - gap) + scrollY}px`;
   }
+  // Rows are in document order, so two binary searches find the rows a range touches without scanning a 10,000-line diff.
+  function rowsInRange(file, range) {
+    const rows = file.rows; let low = 0, high = rows.length;
+    while (low < high) { const mid = (low + high) >> 1; if (range.comparePoint(rows[mid].code, rows[mid].code.childNodes.length) < 0) low = mid + 1; else high = mid; }
+    const first = low; high = rows.length;
+    while (low < high) { const mid = (low + high) >> 1; if (range.comparePoint(rows[mid].code, 0) > 0) high = mid; else low = mid + 1; }
+    return rows.slice(first, low);
+  }
   function selectedRange() {
     const value = getSelection();
     if (!pinned || !value || value.rangeCount !== 1 || value.isCollapsed || document.activeElement?.matches("textarea, input")) { hideFloating(); return; }
-    const range = value.getRangeAt(0), hit = cards.filter(card => range.intersectsNode(card));
-    const touched = hit.filter(card => byCard.get(card).rows.some(row => range.intersectsNode(row.code)));
+    const range = value.getRangeAt(0), touched = [];
+    for (const card of cards) if (range.intersectsNode(card)) { const inside = rowsInRange(byCard.get(card), range); if (inside.length) touched.push([card, inside]); }
     if (touched.length !== 1) {
       selection = null; hideFloating();
       if (touched.length > 1) byId("selection-status").textContent = "Select code within one file.";
       return;
     }
-    const file = byCard.get(touched[0]), offset = (code, node, position) => {
+    const [[card, inside]] = touched, file = byCard.get(card), offset = (code, node, position) => {
       const prefix = document.createRange(); prefix.selectNodeContents(code); prefix.setEnd(node, position); return prefix.toString().length;
     };
-    const inside = file.rows.filter(row => range.intersectsNode(row.code));
     let first = inside[0], last = inside[inside.length - 1];
     let start = first.code.contains(range.startContainer) ? offset(first.code, range.startContainer, range.startOffset) : 0;
     let end = last.code.contains(range.endContainer) ? offset(last.code, range.endContainer, range.endOffset) : last.text.length;
@@ -306,6 +313,7 @@
     document.querySelector(`.inline-comment[data-comment-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: true });
   });
   byId("cancel-comment").addEventListener("click", () => closeComposer(true));
+  byId("comment-body").addEventListener("input", () => { if (exported) { exported = false; saveState(); } });
   composer.addEventListener("keydown", event => {
     if (event.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); closeComposer(true); }
@@ -361,8 +369,11 @@
       const url = URL.createObjectURL(new Blob([output], { type: "application/json;charset=utf-8" }));
       const link = document.createElement("a"); link.href = url; link.download = `pr-review-feedback-${metadata.input_sha256.slice(0, 12)}.json`;
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      byId("export-status").textContent = "Download requested. Confirm it saved, then hand the JSON to your agent. It can be imported here later. A copy is available below.";
-      exported = true; saveState();
+      const draft = draftOpen();
+      byId("export-status").textContent = draft
+        ? "Download requested, without the open comment draft. Save or cancel the draft, then export again."
+        : "Download requested. Confirm it saved, then hand the JSON to your agent. It can be imported here later. A copy is available below.";
+      exported = !draft; saveState();
     } catch (_) { preview.open = true; byId("export-status").textContent = "Download unavailable. Copy the JSON below to save your feedback."; }
     // A requested download does not prove a successful durable save; keep the unload guard.
   });
