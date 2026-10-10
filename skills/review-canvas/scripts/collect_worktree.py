@@ -274,13 +274,26 @@ def inventory(top, fmt, config):
         raise too_many(len(entries))
     folds_case = git_bool(top, "core.ignoreCase", default=False)
     for entry in entries.values():
-        # With core.ignoreCase on, Git hides a file whose name differs from a deleted one only in case.
-        if folds_case and entry["status"] == "deleted" and os.path.isdir(top / Path(entry["path"]).parent):
-            name = Path(entry["path"]).name
-            if any(other != name and other.casefold() == name.casefold() for other in os.listdir(top / Path(entry["path"]).parent)):
-                raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
-                                   "Stage the rename with git mv, then collect again.")
+        # With core.ignoreCase on, Git hides a file whose name, or a directory's on the way, differs from a deleted one
+        # only in case.
+        if folds_case and entry["status"] == "deleted" and case_renamed(top, entry["path"]):
+            raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
+                               "Stage the rename with git mv, then collect again.")
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
+
+
+def case_renamed(top, path):
+    """Whether a deleted path still exists under a name, its own or a directory's on the way, that differs only in case."""
+    parent = top
+    for part in Path(path).parts:
+        try:
+            names = os.listdir(parent)
+        except OSError:
+            return False
+        if part not in names:
+            return any(name.casefold() == part.casefold() for name in names)
+        parent = parent / part
+    return False
 
 
 def index_entries(top, paths):
@@ -371,16 +384,21 @@ def assumed_unchanged(top, tracked, config):
 
 def hidden_stats(top, entry, config):
     """Line counts for an entry Git's own diff skips, such as one marked assume-unchanged: diff its exact bytes."""
-    if entry["kind"] == "submodule":
-        return int(bool(entry["new_blob"])), int(bool(entry["old_blob"])), False  # Git counts one "Subproject commit" line a side
     with tempfile.TemporaryDirectory(prefix="review-canvas-") as temp:
         old = os.devnull
-        if entry["old_blob"]:
+        if entry["old_mode"] == "160000":
+            # A submodule side is its commit, which Git diffs as one "Subproject commit" line.
+            old = str(Path(temp, "old"))
+            Path(old).write_text(f"Subproject commit {entry['old_blob']}\n")
+        elif entry["old_blob"]:
             old = str(Path(temp, "old"))
             with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
                 git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
-        if entry.get("from_index"):
+        if entry["new_mode"] == "160000":
+            new = str(Path(temp, "new"))
+            Path(new).write_text(f"Subproject commit {entry['new_blob']}\n")
+        elif entry.get("from_index"):
             # An absent sparse entry's content is its staged blob; nothing is on disk.
             new = str(Path(temp, "new"))
             with open(new, "wb") as handle:
