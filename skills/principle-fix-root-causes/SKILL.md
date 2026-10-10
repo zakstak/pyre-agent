@@ -12,7 +12,7 @@ When debugging, do not fix symptoms. Trace every problem to its root cause and f
 **Pattern:**
 - Reproduce first
 - Ask "why" until you hit the root cause
-- Fix the cause rather than hide it. Add or keep a guard when input or state validation is the necessary fix
+- Do not add guards to silence a crash. A nil check that hides a crash is a symptom fix. A guard is the fix only when it validates input or state at a boundary
 - If a workaround needs a paragraph-long comment to justify it, the code is wrong (fix the code, not the comment)
 - Check for the pattern, not just the instance. Fix related instances within the authorized scope; report others
 - When stuck, instrument. Don't guess (add logging, read the actual error)
