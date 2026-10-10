@@ -372,6 +372,25 @@ class InventoryTests(Fixture):
             link = self.collect()["link"]
         self.assertEqual((link["new_mode"], link["patch_note"], link["additions"], link["deletions"]), ("120000", "symlink", 1, 1))
 
+    def test_absent_sparse_entries_count_lines_from_the_index_blob(self):
+        # A secret file has no patch to recount from, so the stats must come from the staged blob itself.
+        self.commit({".gitattributes": "* -diff\n", ".env": "A=1\n"})
+        self.write(".env", "A=2\nB=3\n")
+        self.git(self.root, "add", ".env")
+        self.git(self.root, "update-index", "--skip-worktree", ".env")
+        (self.root / ".env").unlink()
+        secret = self.collect()[".env"]
+        self.assertEqual((secret["additions"], secret["deletions"], secret["patch_note"]), (2, 1, "secret"))
+
+    def test_inherited_inter_hunk_context_does_not_fuse_hunks(self):
+        lines = [f"line {n}\n" for n in range(200)]
+        self.commit({"long.txt": "".join(lines)})
+        lines[0], lines[-1] = "first\n", "last\n"
+        self.write("long.txt", "".join(lines))
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "diff.interHunkContext", "GIT_CONFIG_VALUE_0": "20000"}):
+            patch = self.collect()["long.txt"]["patch"]
+        self.assertEqual(patch.count("@@ -"), 2)
+
     def test_hidden_symlink_changes_keep_their_line_counts(self):
         os.symlink("old", self.root / "link")
         self.commit({"keep.txt": "k\n"})

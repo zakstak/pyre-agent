@@ -272,9 +272,46 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
       await bytes.close();
     } finally { bytesServer.kill("SIGTERM"); }
 
+    // A draft opened while the saved feedback loads keeps the status honest, and a save whose reply was lost is
+    // recognized as this tab's own write instead of pausing as a conflict.
+    const lostState = path.join(temp, "lost");
+    renderRound("worktree-review.json", lostState);
+    const { server: lostServer, url: lostUrl } = await startServer(lostState);
+    try {
+      const lost = await context.newPage();
+      lost.on("dialog", dialog => dialog.accept());
+      lost.on("console", message => { if (message.type() === "error" && !/ERR_FAILED|409 \(Conflict\)/.test(message.text())) errors.push(message.text()); });
+      let releaseLoad;
+      const loading = new Promise(resolve => { releaseLoad = resolve; });
+      await lost.route("**/feedback", async route => { if (route.request().method() === "GET") await loading; await route.continue(); });
+      await lost.goto(lostUrl);
+      await lost.getByRole("button", { name: "Comment on src/notes/store.py line 16" }).click();
+      await lost.getByLabel("Comment", { exact: true }).fill("Still drafting.");
+      releaseLoad();
+      await lost.locator("#save-state", { hasText: "Saved, except the open draft" }).waitFor();
+      await lost.getByRole("button", { name: "Cancel", exact: true }).click();
+      await lost.unroute("**/feedback");
+      const approveHere = file => lost.getByRole("checkbox", { name: `Approve ${file}` }).check();
+      await approveHere("src/notes/cli.py");
+      await waitSaved(lost);
+      // The next save reaches the server, but its reply is dropped.
+      await lost.route("**/feedback", async route => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await route.fetch(); await route.abort();
+      }, { times: 1 });
+      await approveHere("src/notes/store.py");
+      await lost.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      await approveHere("src/notes/format.py");
+      await waitSaved(lost);
+      assert.equal(await lost.locator("#server-notice").isHidden(), true, "the lost reply paused saving as a conflict");
+      const kept = JSON.parse(fs.readFileSync(path.join(lostState, "feedback.json"), "utf8"));
+      assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["src/notes/cli.py", "src/notes/format.py", "src/notes/store.py"]);
+      await lost.close();
+    } finally { lostServer.kill("SIGTERM"); }
+
     assert.deepEqual(foreign.filter(request => !request.startsWith("http://127.0.0.1:")), [], "requests outside loopback");
     assert.deepEqual(errors, [], "page errors");
-    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a page on another origin cannot save or read, a failed save keeps the unload warning even after export, a validation failure keeps it too, a reload saves a change typed while it waited, feedback past 8 MiB is refused before sending, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
+    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a page on another origin cannot save or read, a failed save keeps the unload warning even after export, a validation failure keeps it too, a reload saves a change typed while it waited, a draft opened while loading is reported, a save whose reply was lost is not a conflict, feedback past 8 MiB is refused before sending, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
   } finally {
     await browser.close();
     if (server.exitCode === null) server.kill("SIGTERM");

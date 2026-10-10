@@ -105,6 +105,10 @@
   function serverStore(token, round, interval) {
     const chip = byId("save-state");
     let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "", failed = false;
+    // Revisions of saves whose reply never arrived. The server may have written them, so a conflict naming one is this
+    // tab's own save, not another writer's.
+    const unconfirmed = new Set();
+    const digest = async text => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
     const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
     const call = (path, options = {}) => fetch(path, { ...options, cache: "no-store", credentials: "same-origin", headers: { "X-Review-Token": token, ...options.headers } })
       .then(async response => ({ status: response.status, reply: await response.json().catch(() => ({})) }));
@@ -123,14 +127,21 @@
       } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       show("Saving");
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
+        if (status === 409 && unconfirmed.has(reply.revision)) {
+          revision = reply.revision; unconfirmed.clear(); again = true; return;  // save again on top of this tab's own write
+        }
         failed = status !== 200;
         if (status === 200) {
+          unconfirmed.clear();
           // A change made while this request ran is not in it yet, so the page says Saved only when none is waiting.
           revision = reply.revision; show(timer || again ? "Saving" : draftOpen() ? "Saved, except the open draft" : "Saved");
           byId("export-status").textContent = "Saved to the agent's review folder. When you finish, tell your agent.";
         } else if (status === 409) pause(`${reply.error} Changes made in this tab since its last save are not saved; export them first to keep them.`);
         else { show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`; }
-      }, () => { failed = true; show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it."; })
+      }, async () => {
+        failed = true; show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it.";
+        unconfirmed.add(await digest(body));
+      })
         .finally(() => { saving = null; if (again) { again = false; save(); } });
       return saving;
     }
@@ -162,7 +173,7 @@
             carried = !result.same;
           } catch (error) { show("Not saved", true); paused = error.message; notify(`The saved feedback could not be loaded: ${error.message} Saving is paused so nothing is overwritten.`, false); return; }
         }
-        ready = true; show("Saved");
+        ready = true; show(draftOpen() ? "Saved, except the open draft" : "Saved");  // a draft may have opened while loading
         byId("export-status").textContent = "Feedback saves automatically to the agent's review folder. When you finish, tell your agent.";
         // Feedback from an earlier round is saved again against this snapshot, with its notes kept separately.
         if (carried || again) { again = false; save(); }
@@ -666,12 +677,16 @@
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
       if (!local) nextRetained.push(review);
     }
-    // A snapshot that is current again, as when the code returns to an earlier version, leaves the retained list. Its
-    // notes come back when this tab has none of its own.
+    // A snapshot that is current again, as when the code returns to an earlier version, leaves the retained list, and its
+    // notes come back beside this tab's. A note this tab wrote, a deliberate blank included, that differs from one coming
+    // back conflicts instead of replacing it.
     const returning = nextRetained.findIndex(item => item.input_sha256 === metadata.input_sha256);
     const restored = !same && returning >= 0 ? nextRetained.splice(returning, 1)[0] : null;
     if (restored && restored.files.some(file => !sources.has(file.path))) throw Error("Feedback holds notes for this snapshot that list other files.");
-    const notesFrom = same ? incoming : restored && !editedNotes.size && !editedGeneral && !byId("general-notes").value && !localFiles.some(file => file.notes) ? restored : null;
+    const restoredNotes = new Map((restored?.files || []).map(file => [file.path, file.notes]));
+    const clash = (local, edited, saved) => Boolean(saved) && (edited || Boolean(local)) && local !== saved;
+    if (restored && (clash(byId("general-notes").value, editedGeneral, restored.general_notes)
+      || localFiles.some(file => clash(file.notes, editedNotes.has(sources.get(file.path).id), restoredNotes.get(file.path))))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
     // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
     nextRetained.splice(0, Math.max(0, nextRetained.length - 50));
     const nextComments = comments.map(local => {
@@ -680,19 +695,19 @@
       return added.length ? { ...local, replies: [...(local.replies || []), ...added] } : local;
     }).concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
     // A retained snapshot lists only its noted files; every other file's note is empty.
-    const nextFiles = notesFrom ? localFiles.map(file => ({ ...file, notes: notesFrom.files.find(saved => saved.path === file.path)?.notes ?? "" })) : localFiles;
-    const nextGeneral = notesFrom ? notesFrom.general_notes : byId("general-notes").value;
+    const nextFiles = localFiles.map(file => ({ ...file, notes: same ? incoming.files.find(saved => saved.path === file.path).notes : file.notes || restoredNotes.get(file.path) || "" }));
+    const nextGeneral = same ? incoming.general_notes : byId("general-notes").value || restored?.general_notes || "";
     const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
       comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
     contract.validateFeedback(merged);
     if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
     comments = nextComments; retained = nextRetained; approvals = nextApprovals;
-    if (notesFrom) {
+    if (same || restored) {
       for (const saved of nextFiles) {
         const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
         card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
       }
-      byId("general-notes").value = notesFrom.general_notes;
+      byId("general-notes").value = nextGeneral;
     }
     deleted = null; announce(""); closeComposer(); drawComments(); refresh();
     // The page is dirty when it holds something the incoming feedback lacks, so loading the same file again stays clean.
