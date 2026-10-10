@@ -61,8 +61,9 @@ def git_executable(repo=None):
     executable = shutil.which("git", path=trusted_path())
     if executable is None:
         raise GitError("git was not found in any absolute PATH directory")
-    top = repository_top(repo) if repo is not None else None
-    if top is not None and Path(executable).resolve().is_relative_to(top):
+    # A bare repository has no .git child, so the supplied path itself counts too.
+    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo)]
+    if any(root is not None and Path(executable).resolve().is_relative_to(root) for root in roots):
         raise GitError(f"git resolves to {executable}, inside the repository under review. Put the system git earlier in PATH.")
     return executable
 

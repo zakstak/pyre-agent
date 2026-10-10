@@ -191,11 +191,11 @@ def tracked_entry(top, change, fmt, config):
         entry["new_blob"] = change["new_blob"] or repository_head(full)
         if entry["new_blob"] is None:
             raise unfingerprintable(path)
+    elif new_mode and change["new_blob"] and not os.path.lexists(full):
+        # A skip-worktree entry in a sparse checkout, file or link, is staged but absent from disk; its content is the index blob.
+        entry.update(new_blob=change["new_blob"], size=int(git(top, *config, "cat-file", "-s", change["new_blob"])), from_index=True)
     elif new_mode == "120000":
         entry["new_blob"] = link_blob(full, fmt)
-    elif new_mode and change["new_blob"] and not os.path.lexists(full):
-        # A skip-worktree entry in a sparse checkout is staged but absent from disk; its content is the index blob.
-        entry.update(new_blob=change["new_blob"], size=int(git(top, *config, "cat-file", "-s", change["new_blob"])), from_index=True)
     elif new_mode:
         blob = read_blob(full, fmt)
         entry.update(new_blob=blob["blob"], size=blob["size"], binary=blob["binary"])
@@ -332,9 +332,9 @@ def assumed_unchanged(top, tracked, config):
 
 
 def hidden_stats(top, entry, config):
-    """Line counts for a file Git's own diff skips, such as one marked assume-unchanged: diff its exact bytes."""
-    if entry["kind"] != "file":
-        return 0, 0, False
+    """Line counts for an entry Git's own diff skips, such as one marked assume-unchanged: diff its exact bytes."""
+    if entry["kind"] == "submodule":
+        return int(bool(entry["new_blob"])), int(bool(entry["old_blob"])), False  # Git counts one "Subproject commit" line a side
     with tempfile.TemporaryDirectory(prefix="review-canvas-") as temp:
         old = os.devnull
         if entry["old_blob"]:
@@ -342,6 +342,10 @@ def hidden_stats(top, entry, config):
             with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
                 git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
+        if entry["kind"] == "symlink" and entry["new_mode"]:
+            # Git counts a link's target as its content. With core.symlinks off, the placeholder file holds the target.
+            full, new = top / entry["path"], str(Path(temp, "new"))
+            Path(new).write_bytes(os.readlink(os.fsencode(full)) if os.path.islink(full) else full.read_bytes())
         output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--numstat", "--no-ext-diff",
                      "--no-textconv", "--", old, new, ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"})
     fields = output.split(b"\t")
