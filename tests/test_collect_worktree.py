@@ -198,6 +198,19 @@ class InventoryTests(Fixture):
         self.assertNotIn("patch_note", link)
         self.assertEqual((files["plain.txt"]["patch_note"], files["plain.txt"]["new_mode"]), ("symlink", "120000"))
 
+    def test_symlink_placeholder_without_symlink_support(self):
+        self.commit({"keep.txt": "k\n"})
+        self.git(self.root, "config", "core.symlinks", "false")
+        target = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.root, input=b"old-target", capture_output=True, check=True).stdout.decode().strip()
+        self.git(self.root, "update-index", "--add", "--cacheinfo", f"120000,{target},link")
+        self.git(self.root, "commit", "-q", "-m", "link")
+        self.git(self.root, "checkout", "--", "link")
+        self.assertFalse((self.root / "link").is_symlink())
+        self.write("link", b"new-target")
+        files = self.collect()
+        self.assertEqual((files["link"]["patch_note"], files["link"]["new_mode"]), ("symlink", "120000"))
+        self.assertEqual(files["link"]["fingerprint"], fingerprint.file_fingerprint("link", None, target, blob(b"new-target"), "120000", "120000"))
+
     def test_intent_to_add_file_matches_the_untracked_entry(self):
         self.commit({"base.txt": "b\n"})
         self.write("ita.txt", "first\nlast")
@@ -581,6 +594,13 @@ class IsolationTests(Fixture):
         self.assertFalse(marker.exists(), "a configured filter driver ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
         self.assertEqual(files["new.txt"]["old_path"], "old.txt")
+
+    def test_filter_driver_names_that_are_not_utf8_stop_collection(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        subprocess.run([b"git", b"config", b"filter.\xff.clean", b"cat"], cwd=self.root, check=True)
+        with self.assertRaisesRegex(collector.CollectError, r"filter\.\\xff\.clean; its name is not valid UTF-8"):
+            self.collect()
 
 
 if __name__ == "__main__":
