@@ -272,9 +272,10 @@ def inventory(top, fmt, config):
             entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt, modes_count)
     if len(entries) > render_review.MAX_FILES:
         raise too_many(len(entries))
+    folds_case = git_bool(top, "core.ignoreCase", default=False)
     for entry in entries.values():
         # With core.ignoreCase on, Git hides a file whose name differs from a deleted one only in case.
-        if entry["status"] == "deleted" and os.path.isdir(top / Path(entry["path"]).parent):
+        if folds_case and entry["status"] == "deleted" and os.path.isdir(top / Path(entry["path"]).parent):
             name = Path(entry["path"]).name
             if any(other != name and other.casefold() == name.casefold() for other in os.listdir(top / Path(entry["path"]).parent)):
                 raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
@@ -282,28 +283,45 @@ def inventory(top, fmt, config):
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
 
 
-def index_entries(top):
-    """Map each index path to (mode, blob, tag), where tag is the ls-files -v letter: S marks skip-worktree."""
-    tags = {decode_path(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]}
-    entries = {}
-    for entry in git(top, "ls-files", "-s", "-z").split(b"\0")[:-1]:
-        info, raw = entry.split(b"\t", 1)
-        mode, blob = info.decode("ascii").split(" ")[:2]
-        entries[decode_path(raw)] = (mode, blob, tags.get(decode_path(raw), "H"))
+def index_entries(top, paths):
+    """Map each of paths found in the index to (mode, blob, tag), where tag is the ls-files -v letter: S marks
+    skip-worktree. Only the named paths are read, so a large index never sits in memory."""
+    wanted, names, entries = set(paths), sorted(paths), {}
+    for start in range(0, len(names), 200):  # in chunks, so many long paths never overflow one command line
+        chunk = names[start:start + 200]
+        tags = {decode_path(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z", "--", *chunk).split(b"\0")[:-1]}
+        for entry in git(top, "ls-files", "-s", "-z", "--", *chunk).split(b"\0")[:-1]:
+            info, raw = entry.split(b"\t", 1)
+            mode, blob = info.decode("ascii").split(" ")[:2]
+            if decode_path(raw) in wanted:  # a pathspec naming a directory also lists its contents
+                entries[decode_path(raw)] = (mode, blob, tags.get(decode_path(raw), "H"))
     return entries
 
 
-def git_bool(top, key):
-    return git(top, "config", "--type=bool", "--default", "true", key).strip() == b"true"
+def git_bool(top, key, default=True):
+    return git(top, "config", "--type=bool", "--default", "true" if default else "false", key).strip() == b"true"
+
+
+def behind_symlink(top, path):
+    """Whether a directory on the way to path is a symlink. Git then counts path as deleted, and reading it would read
+    through the link, outside the working tree."""
+    parent = top
+    for part in Path(path).parts[:-1]:
+        parent = parent / part
+        if os.path.islink(parent):
+            return True
+    return False
 
 
 def assumed_unchanged(top, tracked, config):
     """Compare files that Git trusts without reading by their bytes on disk: assume-unchanged files, and skip-worktree
     files that are present anyway. Git hides edits to both."""
     listing = git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]
-    # A lowercase tag marks assume-unchanged; S or s marks skip-worktree, read from the index only when absent.
+    # A lowercase tag marks assume-unchanged; S or s marks skip-worktree, read from the index only when absent. Either
+    # behind a symlinked directory is a deletion, as staging would record it.
     assumed = {decode_path(entry[2:]) for entry in listing
-               if (entry[:1].islower() and entry[:1] != b"s") or (entry[:1] in b"Ss" and os.path.lexists(top / decode_path(entry[2:])))}
+               if (entry[:1].islower() and entry[:1] != b"s")
+               or (entry[:1] in b"Ss" and (os.path.lexists(top / decode_path(entry[2:])) or behind_symlink(top, decode_path(entry[2:]))))}
     if not assumed:
         return tracked
     changes = {change["path"]: change for change in tracked}
@@ -314,11 +332,11 @@ def assumed_unchanged(top, tracked, config):
             info, path = entry.split(b"\t", 1)
             mode, _, blob = info.decode("ascii").split(" ")
             head[decode_path(path)] = (mode, blob)
-    index = index_entries(top)
+    index = index_entries(top, assumed)
     links_are_files = not git_bool(top, "core.symlinks")
     modes_count = git_bool(top, "core.filemode")
     for path in sorted(assumed):
-        new_mode, indexed = disk_mode(top / path), index.get(path, ("",))[0]
+        new_mode, indexed = None if behind_symlink(top, path) else disk_mode(top / path), index.get(path, ("",))[0]
         if links_are_files and indexed == "120000" and new_mode in ("100644", "100755"):
             new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
         elif not modes_count and indexed in ("100644", "100755") and new_mode in ("100644", "100755"):
@@ -350,10 +368,10 @@ def hidden_stats(top, entry, config):
             with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
                 git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
-        if entry["kind"] == "symlink" and entry["new_mode"]:
-            # Git counts a link's target as its content. With core.symlinks off, the placeholder file holds the target.
-            full, new = top / entry["path"], str(Path(temp, "new"))
-            Path(new).write_bytes(os.readlink(os.fsencode(full)) if os.path.islink(full) else full.read_bytes())
+        if entry["kind"] == "symlink" and entry["new_mode"] and os.path.islink(top / entry["path"]):
+            # Git counts a link's target as its content. With core.symlinks off, the placeholder file already holds it.
+            new = str(Path(temp, "new"))
+            Path(new).write_bytes(os.readlink(os.fsencode(top / entry["path"])))
         output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--numstat", "--no-ext-diff",
                      "--no-textconv", "--", old, new, ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"})
     fields = output.split(b"\t")
@@ -563,17 +581,22 @@ def staged_differently(top, config):
     commit records the staged version."""
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
+    if not staged:
+        return []
     # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
     modes_count = git_bool(top, "core.filemode")
     links_are_links = git_bool(top, "core.symlinks")
     found = []
-    index = index_entries(top)
+    index = index_entries(top, staged)
     # A staged deletion has no index entry; a file kept on disk at that path means the commit removes what was reviewed.
-    found += [path for path in staged - index.keys() if os.path.lexists(top / path)]
+    found += [path for path in staged - index.keys() if os.path.lexists(top / path) and not behind_symlink(top, path)]
     for path, (mode, blob, tag) in index.items():
         full = top / path
-        if path not in staged or (tag in "Ss" and not os.path.lexists(full)):
-            continue  # unstaged, or a sparse entry whose staged blob is what the review showed
+        if behind_symlink(top, path):
+            found.append(path)  # the review shows a deletion, but the commit records the staged file
+            continue
+        if tag in "Ss" and not os.path.lexists(full):
+            continue  # a sparse entry whose staged blob is what the review showed
         try:
             if mode == "160000":
                 differs = repository_head(full) != blob
