@@ -99,7 +99,7 @@ function auditContrast() {
     await page.locator("#toast-dismiss").click();
     await shot("3-thread-dark.png", "#file-1 .thread-row");
 
-    await page.locator("#file-3 .reviewed").check();
+    await page.getByRole("checkbox", { name: "Approve src/server.ts" }).check();
     await page.locator("#general-notes").fill("Request changes: bound the bucket map before merge.");
     await shot("4-finish-dark.png", "#feedback");
     assert.deepEqual(await page.locator("#comment-index .jump-where").allTextContents(), ["src/ratelimit/token-bucket.ts · Line 32", "src/gateway/middleware.ts · Line 7"]);
@@ -126,7 +126,7 @@ function auditContrast() {
 
     // A later snapshot moves one comment's code away: it becomes an orphan, then reattaches.
     const revised = structuredClone(fixture);
-    revised.pr.head_sha = "d".repeat(40);
+    revised.target.head_sha = "d".repeat(40);
     revised.files[1].patch = revised.files[1].patch.replace("+  const buckets = new Map<string, TokenBucket>();", "+  const buckets = new LruCache<string, TokenBucket>({ max: 10_000 });");
     await page.emulateMedia({ colorScheme: "dark" });
     await page.goto(render(revised, "revised"));
@@ -147,8 +147,37 @@ function auditContrast() {
     assert.equal(await page.locator("#file-1 .thread-row .inline-comment").count(), 1);
     report.checks.push("changed code turns a comment into an orphan; selecting new code reattaches it inline");
 
+    // Working tree round 2 with round 1 feedback: carried approvals, one file changed since approval, and every patch note.
+    const worktree = render(JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/worktree-review-round2.json"), "utf8")), "worktree");
+    await page.goto(worktree);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    await page.getByLabel("Import saved feedback").setInputFiles(path.join(__dirname, "fixtures/worktree-feedback.json"));
+    await page.waitForFunction(() => document.querySelector("#import-status").textContent.startsWith("Imported"));
+    assert.equal(await page.locator("#progress").textContent(), "2 of 10 approved");
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({ path: path.join(out, "10-worktree-header-dark.png") }); report.screenshots.push("10-worktree-header-dark.png");
+    await shot("11-changed-since-approval-dark.png", "#file-0 .file-header");
+    for (const id of ["file-4", "file-5", "file-6", "file-7", "file-8", "file-9"]) {
+      const toggle = page.locator(`#${id} .file-toggle`);
+      if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+    }
+    await shot("12-patch-notes-dark.png", "#file-5");
+    await shot("13-approved-and-secret-dark.png", "#file-3");
+    for (const scheme of ["dark", "light"]) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.waitForFunction(scheme => document.documentElement.dataset.theme === scheme, scheme);
+      const results = await page.evaluate(auditContrast);
+      const failures = results.filter(result => result.ratio < result.minimum);
+      report.contrast.push({ scheme, page: "worktree", checked: results.length, lowest: results.slice(0, 5), failures });
+      assert.deepEqual(failures, [], `worktree ${scheme} contrast failures`);
+    }
+    await shot("14-changed-since-approval-light.png", "#file-0 .file-header");
+    await page.emulateMedia({ colorScheme: "dark" });
+    report.checks.push("working tree header, carried approvals, changed since approval, and patch notes meet contrast in both modes");
+
     // Phone and enlarged text: no page-level horizontal scrolling in either mode.
-    await page.goto(url);
+    for (const target of [worktree, url]) {
+    await page.goto(target);
     for (const scheme of ["light", "dark"]) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForFunction(scheme => document.documentElement.dataset.theme === scheme, scheme);
@@ -156,11 +185,12 @@ function auditContrast() {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate(scale => { document.documentElement.style.fontSize = `${16 * scale}px`; }, scale);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-        report.states.push({ scheme, width, textScale: scale, overflow });
+        report.states.push({ page: target === url ? "showcase" : "worktree", scheme, width, textScale: scale, overflow });
         assert.ok(overflow <= 0, `${scheme} ${width} ${scale}x overflow ${overflow}`);
       }
     }
-    report.checks.push("no page overflow at 1440, 390, and 320 pixels, 100% and 200% text, both modes");
+    }
+    report.checks.push("no page overflow at 1440, 390, and 320 pixels, 100% and 200% text, both modes, on the PR and working tree pages");
     await page.evaluate(() => { document.documentElement.style.fontSize = "16px"; });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "dark" });

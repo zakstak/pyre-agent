@@ -1,14 +1,30 @@
 # Review input
 
-The renderer accepts UTF-8 JSON with `schema_version: 1`, a `pr` object, and a `files` array. It rejects unknown fields and invalid types rather than silently dropping data. All strings are plain text, including summaries and patches. HTML and Markdown are not interpreted.
+The renderer accepts UTF-8 JSON with `schema_version: 2`, a `target` object, and a `files` array. It rejects unknown fields and invalid types rather than silently dropping data. All strings are plain text, including summaries and patches. HTML and Markdown are not interpreted.
 
-Use [example-review.json](../assets/example-review.json) as a working starting point. Run the generator with `--help` for its command-line options.
+Version 1 input, which had a `pr` object, fails with a message that names the version. There is no migration. Collect a new snapshot instead.
 
-## PR and coverage
+Use [example-review.json](../assets/example-review.json) as a working starting point. For a working tree, `scripts/collect_worktree.py` writes a valid skeleton; see [the working tree reference](worktree.md). Run each script with `--help` for its command-line options.
 
-`pr.title` is required. `pr.url`, when present, must identify a PR at `https://github.com/OWNER/REPO/pull/NUMBER`. Use `pr.head_sha` and `pr.base_sha` to identify the snapshot, and `pr.changed_files` to record the expected file count.
+## Target
 
-The optional top-level `summary` explains the review's main point. `files_complete` describes whether the file inventory has been reconciled. Leave it false if access, pagination, changing commits, or truncation prevents a complete snapshot. A complete file inventory does not establish complete patch coverage.
+`target.kind` is `github_pr` or `worktree`. Both kinds require `title`.
+
+| Kind | Required | Optional |
+| --- | --- | --- |
+| `github_pr` | `kind`, `title` | `url`, `head_sha`, `base_sha`, `changed_files` |
+| `worktree` | `kind`, `title`, `root`, `head_sha` | `branch`, `changed_files` |
+
+- `url`, when present, must identify a PR at `https://github.com/OWNER/REPO/pull/NUMBER`.
+- `head_sha` and `base_sha` are full commit hashes. For a working tree, `head_sha` is the `HEAD` commit that the uncommitted changes are compared with.
+- `root` is the absolute path of the working tree. `branch` is the checked-out branch; omit it for a detached `HEAD`.
+- `changed_files` records the expected file count.
+
+Inline comments need a pinned target. A `github_pr` target is pinned only when it has both `url` and `head_sha`. A `worktree` target is always pinned.
+
+## Coverage
+
+The optional top-level `summary` explains the review's main point. `files_complete` describes whether the file inventory has been reconciled. `true` requires `target.changed_files` to equal the number of files. Leave it false if access, pagination, changing commits, or truncation prevents a complete snapshot. A complete file inventory does not establish complete patch coverage.
 
 ## Files
 
@@ -19,7 +35,26 @@ Each file requires:
 - `group`: `core`, `wiring`, or `mechanical`
 - `additions` and `deletions`: non-negative integers
 
-`patch` is a unified diff as plain text. Omit it or use null when unavailable. The page flags absent or empty patches. Set `patch_complete` to true only after verifying the entire patch, or false for truncated or redacted patches. An omitted flag means completeness is unverified and produces a warning. Do not mark a patch complete just because the API returned some text.
+Each file in a `worktree` target also requires `fingerprint`. It is optional for a `github_pr` target.
+
+- `fingerprint`: 64 lowercase hexadecimal characters that identify one exact version of the change to this file. An approval stores it, and the page treats the file as approved only while the fingerprint still matches. A file without a fingerprint cannot be approved. `scripts/fingerprint.py` computes it: SHA-256 over the path, the original path for a rename, the old and new Git blob IDs, and the old and new modes.
+- `old_path`: the original path of a `renamed` or `copied` file
+- `old_mode` and `new_mode`: six-digit octal Git modes such as `100644`. The page shows a mode change.
+
+`patch` is a unified diff as plain text, starting at the first `@@` hunk header. Omit it or use null when unavailable. The page flags absent or empty patches. Set `patch_complete` to true only after verifying the entire patch, or false for truncated or redacted patches. An omitted flag means completeness is unverified and produces a warning. Do not mark a patch complete just because the API returned some text. CR characters are kept, so a CRLF line ends in `\r`.
+
+`patch_note` names why a file has no patch, or why its patch differs from the bytes on disk. The renderer writes the notice text.
+
+| `patch_note` | Patch | Meaning |
+| --- | --- | --- |
+| `binary` | none | A binary file |
+| `too_large` | none | The patch exceeds the limits below |
+| `symlink` | none | A symbolic link |
+| `submodule` | none | A submodule or nested repository |
+| `secret` | none | A likely secret file whose contents were left out |
+| `no_content_change` | none | Only the path or mode changed |
+| `empty` | none | An empty file |
+| `replaced_characters` | required | Invalid UTF-8 bytes appear as U+FFFD, and control characters other than tab, LF, and CR appear as Unicode control pictures |
 
 Optional analysis fields are:
 
@@ -40,12 +75,12 @@ The generator rejects oversized input before producing an artifact. It never sil
 - File inventory: at most 2,000 entries, with unique paths
 - One patch: at most 4,194,304 characters and 10,000 LF-delimited lines
 - All patches combined: at most 50,000 lines
-- Paths: at most 4,096 characters
-- Other text fields: at most 20,000 characters, except callout tags, which allow 100
+- Paths and `root`: at most 4,096 characters
+- Other text fields: at most 20,000 characters, except callout tags, which allow 100, and `branch`, which allows 1,024
 - Callouts: at most 100 per file
 - Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
 - Commit SHAs: full hexadecimal hashes with 40 or 64 characters
 
 Duplicate JSON keys, unknown fields, invalid types, unsupported control characters, and Unicode surrogates are rejected. Hunk line numbers up to 12 digits receive line annotations. Unsupported hunk formats remain visible as literal text.
 
-If a PR exceeds these limits, report the limit and the affected coverage. Agree on a narrower review or make explicitly labeled partial artifacts. Keep each available file entry and stats where possible, and label any omitted patch. Set `files_complete` to false for partial inventories and `patch_complete` to false for excerpts. Do not claim that a partial artifact covers the whole PR.
+If a change exceeds these limits, report the limit and the affected coverage. Agree on a narrower review or make explicitly labeled partial artifacts. Keep each available file entry and stats where possible, and label any omitted patch. Set `files_complete` to false for partial inventories and `patch_complete` to false for excerpts. Do not claim that a partial artifact covers the whole change.

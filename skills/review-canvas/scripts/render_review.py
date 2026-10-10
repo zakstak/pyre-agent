@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render normalized PR review JSON to a private, offline, standalone HTML file.
+"""Render normalized review JSON for a GitHub PR or a local working tree to a private, offline, standalone HTML file.
 
 Python 3.10+; standard library only. See ../assets/example-review.json for input.
 No input is executed, no credentials are read, and no network is used.
@@ -26,7 +26,23 @@ GROUPS = (
     ("mechanical", "Boilerplate & mechanical", "Formatting, generated code, and routine changes. Files start collapsed."),
 )
 STATUSES = {"added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"}
+# Why a file has no patch, or why its patch differs from the bytes on disk. The renderer owns the wording.
+PATCH_NOTES = {
+    "binary": ("Binary file.", "The page shows no patch. Inspect the file with the project's own tools before you approve it."),
+    "too_large": ("Patch too large.", "The patch exceeds the page limits, so the page leaves it out. Inspect the file directly before you approve it."),
+    "symlink": ("Symbolic link.", "The page shows no text patch for a link. Check its target before you approve it."),
+    "submodule": ("Submodule or nested repository.", "The page shows no text patch. Inspect the submodule commit before you approve it."),
+    "secret": ("Likely secret file.", "The collector left its contents out. Inspect the file yourself, and keep its contents out of comments."),
+    "no_content_change": ("No content change.", "Only the path or the file mode changed."),
+    "empty": ("Empty file.", "The file has no content."),
+    "replaced_characters": ("Characters replaced.", "Some bytes were not valid UTF-8 or were control characters. The patch shows replacement symbols for them."),
+}
+TEXT_PATCH_NOTES = {"replaced_characters"}
 PR_URL = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*\Z")
+SHA = re.compile(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\Z")
+FINGERPRINT = re.compile(r"[a-f0-9]{64}\Z")
+MODE = re.compile(r"[0-7]{6}\Z")
+ABSOLUTE_ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/])")
 HUNK = re.compile(r"^@@ -([0-9]{1,12})(?:,[0-9]{1,12})? \+([0-9]{1,12})(?:,[0-9]{1,12})? @@")
 
 
@@ -56,38 +72,58 @@ def _text(value, where, *, nonempty=False, limit=20000):
         raise ValidationError(f"{where}: contains an unsupported control character or Unicode surrogate")
 
 
+def _target(target):
+    """A target is a GitHub PR or a local working tree. Only a pinned target can carry inline comments."""
+    if not isinstance(target, dict) or target.get("kind") not in ("github_pr", "worktree"):
+        raise ValidationError("target.kind: expected github_pr or worktree")
+    if target["kind"] == "github_pr":
+        _object(target, "target", ("kind", "title"), ("url", "head_sha", "base_sha", "changed_files"))
+        if "url" in target:
+            _text(target["url"], "target.url", nonempty=True)
+            if not PR_URL.fullmatch(target["url"]):
+                raise ValidationError("target.url: expected https://github.com/OWNER/REPO/pull/NUMBER, or omit url")
+    else:
+        _object(target, "target", ("kind", "title", "root", "head_sha"), ("branch", "changed_files"))
+        _text(target["root"], "target.root", nonempty=True, limit=4096)
+        if not ABSOLUTE_ROOT.match(target["root"]):
+            raise ValidationError("target.root: expected an absolute path")
+        if "branch" in target:
+            _text(target["branch"], "target.branch", nonempty=True, limit=1024)
+    _text(target["title"], "target.title", nonempty=True)
+    for name in ("head_sha", "base_sha"):
+        if name in target:
+            _text(target[name], f"target.{name}")
+            if not SHA.fullmatch(target[name]):
+                raise ValidationError(f"target.{name}: expected a full 40- or 64-character hexadecimal commit hash")
+    if "changed_files" in target and (type(target["changed_files"]) is not int or not 0 <= target["changed_files"] <= 10**12):
+        raise ValidationError("target.changed_files: expected a nonnegative integer at most 1000000000000")
+
+
 def validate_review(review):
     """Validate without changing or dropping input. Return the supplied object."""
-    _object(review, "review", ("schema_version", "pr", "files"), ("summary", "files_complete"))
-    if type(review["schema_version"]) is not int or review["schema_version"] != 1:
-        raise ValidationError("review.schema_version: expected integer 1")
-    _object(review["pr"], "pr", ("title",), ("url", "head_sha", "base_sha", "changed_files"))
-    _text(review["pr"]["title"], "pr.title", nonempty=True)
-    if "url" in review["pr"]:
-        _text(review["pr"]["url"], "pr.url", nonempty=True)
-        if not PR_URL.fullmatch(review["pr"]["url"]):
-            raise ValidationError("pr.url: expected https://github.com/OWNER/REPO/pull/NUMBER, or omit url")
-    for name in ("head_sha", "base_sha"):
-        if name in review["pr"]:
-            _text(review["pr"][name], f"pr.{name}")
-            if not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", review["pr"][name]):
-                raise ValidationError(f"pr.{name}: expected a full 40- or 64-character hexadecimal commit hash")
-    if "changed_files" in review["pr"] and (type(review["pr"]["changed_files"]) is not int or not 0 <= review["pr"]["changed_files"] <= 10**12):
-        raise ValidationError("pr.changed_files: expected a nonnegative integer at most 1000000000000")
+    if isinstance(review, dict) and "schema_version" in review and review["schema_version"] != 2:
+        raise ValidationError(f"review.schema_version: version {review['schema_version']!r} is not supported; expected integer 2. "
+                              "Collect a new snapshot in the version 2 format; there is no migration")
+    _object(review, "review", ("schema_version", "target", "files"), ("summary", "files_complete"))
+    if type(review["schema_version"]) is not int:
+        raise ValidationError("review.schema_version: expected integer 2")
+    _target(review["target"])
+    target = review["target"]
     if "files_complete" in review and type(review["files_complete"]) is not bool:
         raise ValidationError("files_complete: expected a boolean")
     if "summary" in review:
         _text(review["summary"], "summary")
     if not isinstance(review["files"], list) or len(review["files"]) > MAX_FILES:
         raise ValidationError(f"files: expected an array of at most {MAX_FILES} files")
-    if review.get("files_complete") is True and review["pr"].get("changed_files") != len(review["files"]):
-        raise ValidationError("files_complete: true requires pr.changed_files matching the supplied file count")
+    if review.get("files_complete") is True and target.get("changed_files") != len(review["files"]):
+        raise ValidationError("files_complete: true requires target.changed_files matching the supplied file count")
     seen = set()
     total_patch_lines = 0
     for i, file in enumerate(review["files"]):
         where = f"files[{i}]"
         _object(file, where, ("path", "status", "group", "additions", "deletions"),
-                ("patch", "patch_complete", "summary", "pseudocode", "trace", "callouts"))
+                ("fingerprint", "old_path", "old_mode", "new_mode", "patch", "patch_complete", "patch_note",
+                 "summary", "pseudocode", "trace", "callouts"))
         _text(file["path"], f"{where}.path", nonempty=True, limit=4096)
         if file["path"] in seen:
             raise ValidationError(f"{where}.path: duplicate file path")
@@ -99,6 +135,18 @@ def validate_review(review):
         for stat in ("additions", "deletions"):
             if type(file[stat]) is not int or not 0 <= file[stat] <= 10**12:
                 raise ValidationError(f"{where}.{stat}: expected a nonnegative integer at most 1000000000000")
+        if "fingerprint" in file:
+            if not isinstance(file["fingerprint"], str) or not FINGERPRINT.fullmatch(file["fingerprint"]):
+                raise ValidationError(f"{where}.fingerprint: expected 64 lowercase hexadecimal characters")
+        elif target["kind"] == "worktree":
+            raise ValidationError(f"{where}.fingerprint: required for a worktree target")
+        if "old_path" in file:
+            _text(file["old_path"], f"{where}.old_path", nonempty=True, limit=4096)
+            if file["status"] not in ("renamed", "copied") or file["old_path"] == file["path"]:
+                raise ValidationError(f"{where}.old_path: allowed only for a renamed or copied file, and must differ from path")
+        for name in ("old_mode", "new_mode"):
+            if name in file and (not isinstance(file[name], str) or not MODE.fullmatch(file[name])):
+                raise ValidationError(f"{where}.{name}: expected a six-digit octal Git mode such as 100644")
         if file.get("patch") is not None:
             _text(file["patch"], f"{where}.patch", limit=MAX_PATCH_CHARS)
             patch = file["patch"]
@@ -110,6 +158,12 @@ def validate_review(review):
                 raise ValidationError(f"files: patches exceed {MAX_TOTAL_PATCH_LINES} total supplied lines; nothing was truncated")
         if "patch_complete" in file and type(file["patch_complete"]) is not bool:
             raise ValidationError(f"{where}.patch_complete: expected a boolean")
+        if "patch_note" in file:
+            note = file["patch_note"]
+            if not isinstance(note, str) or note not in PATCH_NOTES:
+                raise ValidationError(f"{where}.patch_note: expected one of {', '.join(sorted(PATCH_NOTES))}")
+            if (note in TEXT_PATCH_NOTES) != bool(file.get("patch")):
+                raise ValidationError(f"{where}.patch_note: {note} " + ("needs a patch" if note in TEXT_PATCH_NOTES else "is only for a file without a patch"))
         for name in ("summary", "pseudocode"):
             if name in file:
                 _text(file[name], f"{where}.{name}")
@@ -154,6 +208,11 @@ def escape(value):
     return html.escape(str(value), quote=True)
 
 
+def _code(value):
+    # HTML parsing turns a raw CR into LF. A character reference keeps CRLF patch rows byte-exact for anchors.
+    return escape(value).replace("\r", "&#13;")
+
+
 def _paragraph(value, css_class="commentary"):
     return f'<p class="{css_class}">{escape(value)}</p>' if value else ""
 
@@ -194,6 +253,13 @@ def patch_lines(patch):
     return rows
 
 
+def coverage_counts(files):
+    """Return the missing, incomplete, and unverified patch counts. A file with no content change misses nothing."""
+    return (sum(not f.get("patch") and f.get("patch_note") not in ("no_content_change", "empty") for f in files),
+            sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in files),
+            sum(bool(f.get("patch")) and "patch_complete" not in f for f in files))
+
+
 def _plural(count, singular, plural=None):
     return f"{count:,} {singular if count == 1 else plural or singular + 's'}"
 
@@ -213,27 +279,30 @@ def _patch_html(patch, path=""):
             action = f'<button class="comment-line" type="button" aria-label="Comment on {escape(path)} {where}">+</button>'
         rows.append(f'<tr class="{line["kind"]}" data-row="{i}" data-kind="{line["kind"]}" data-old="{old}" data-new="{new}">'
                     f'<td class="line-number">{old}</td><td class="line-number">{new}</td>'
-                    f'<td class="line-action">{action}</td><td class="source"><code>{escape(line["text"])}</code></td></tr>')
+                    f'<td class="line-action">{action}</td><td class="source"><code>{_code(line["text"])}</code></td></tr>')
     return (f'<div class="diff-scroll" tabindex="0" role="region" aria-label="Diff for {escape(path)}">'
             '<table class="diff"><thead><tr><th scope="col">Old line</th><th scope="col">New line</th>'
             '<th scope="col">Comment</th><th scope="col">Code</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
 
 
-def _notice(title, text):
-    return f'<p class="notice warning file-notice"><strong>{title}</strong> {text}</p>'
+def _notice(title, text, tone="warning"):
+    return f'<p class="notice {tone} file-notice"><strong>{title}</strong> {text}</p>'
 
 
 def _file_html(file, index):
     ident = f"file-{index}"
     path = file["path"]
     missing = not file.get("patch")
+    note = file.get("patch_note")
     notice = ""
-    if missing:
-        notice = _notice("Patch unavailable.", "This may be a binary, omitted, empty, or inaccessible diff. Inspect the source before marking it reviewed.")
-    elif file.get("patch_complete") is False:
-        notice = _notice("Patch marked incomplete.", "Only the supplied lines are shown. Inspect the complete source before marking it reviewed.")
-    elif file.get("patch_complete") is not True:
-        notice = _notice("Patch completeness unverified.", "No patch_complete declaration was supplied. Compare these lines with the complete source before marking it reviewed.")
+    if note:
+        notice = _notice(*PATCH_NOTES[note], tone="" if note in ("no_content_change", "empty") else "warning")
+    if missing and not note:
+        notice += _notice("Patch unavailable.", "This may be a binary, omitted, empty, or inaccessible diff. Inspect the source before you approve it.")
+    elif not missing and file.get("patch_complete") is False:
+        notice += _notice("Patch marked incomplete.", "Only the supplied lines are shown. Inspect the complete source before you approve it.")
+    elif not missing and file.get("patch_complete") is not True:
+        notice += _notice("Patch completeness unverified.", "No patch_complete declaration was supplied. Compare these lines with the complete source before you approve it.")
     analysis = _paragraph(file.get("summary"))
     if file.get("pseudocode"):
         analysis += '<section class="explanation"><h4>Pseudocode</h4><pre class="code-block">' + escape(file["pseudocode"]) + '</pre></section>'
@@ -250,16 +319,26 @@ def _file_html(file, index):
         line_count = len(file["patch"].split("\n")) - int(file["patch"].endswith("\n"))
         body += (f'<details class="patch-details"{"" if file["group"] == "wiring" else " open"}><summary>Diff '
                  f'<span class="summary-meta">{_plural(line_count, "line")}</span></summary>{_patch_html(file["patch"], path)}</details>')
-    if not body:
+    if not body and not note:
         body = '<p class="empty-detail">No review commentary or patch supplied.</p>'
     directory, slash, name = path.rpartition("/")
     path_html = (f'<span class="path-dir">{escape(directory + slash)}</span>' if slash else "") + f'<span class="path-name">{escape(name)}</span>'
-    search = " ".join((path, file["status"], file["group"], file.get("summary", "")))
+    search = " ".join((path, file.get("old_path", ""), file["status"], file["group"], file.get("summary", "")))
+    meta = f'<span class="chip">{escape(file["status"])}</span>{_diffstat(file["additions"], file["deletions"])}'
+    if file.get("old_path"):
+        meta += f'<span class="file-from">from <code>{escape(file["old_path"])}</code></span>'
+    if file.get("old_mode") and file.get("new_mode") and file["old_mode"] != file["new_mode"]:
+        meta += f'<span class="chip">mode {file["old_mode"]} → {file["new_mode"]}</span>'
+    meta += '<span class="chip warning approval-changed" hidden>Changed since approval</span><span class="chip comment-count" hidden></span>'
+    if file.get("fingerprint"):
+        approve = f'<input class="approved" type="checkbox" autocomplete="off" aria-label="Approve {escape(path)}">'
+    else:
+        approve = (f'<input class="approved" type="checkbox" autocomplete="off" disabled aria-label="Approve {escape(path)}" aria-describedby="{ident}-no-fingerprint">'
+                   f'<span class="sr-only" id="{ident}-no-fingerprint">Approval needs a file fingerprint in the input.</span>')
     return (f'<article class="file-card" id="{ident}" data-file-id="{ident}" data-group="{file["group"]}" data-search="{escape(search)}">'
             f'<header class="file-header"><h3 class="file-path"><button class="file-toggle" type="button" aria-expanded="true" aria-controls="{ident}-body">{path_html}</button></h3>'
-            f'<div class="file-meta"><span class="chip">{escape(file["status"])}</span>{_diffstat(file["additions"], file["deletions"])}'
-            '<span class="chip comment-count" hidden></span></div>'
-            f'<label class="review-toggle"><input class="reviewed" type="checkbox" autocomplete="off" aria-label="Mark {escape(path)} reviewed"> Reviewed</label></header>'
+            f'<div class="file-meta">{meta}</div>'
+            f'<label class="review-toggle">{approve} Approved</label></header>'
             + notice + f'<div class="file-body" id="{ident}-body">{body}</div>'
             f'<details class="notes-details"><summary>Your notes<span class="note-indicator"></span></summary>'
             f'<label class="sr-only" for="notes-{index}">Notes for {escape(path)}</label>'
@@ -309,6 +388,11 @@ def shared_style(style_dir=None):
         raise ValidationError("internal-visual-style companion is missing or unreadable. Install its complete folder beside review-canvas, or pass --style-dir /path/to/internal-visual-style. " + str(error)) from error
 
 
+def input_digest(review):
+    """Identify one input snapshot. Feedback records this digest as input_sha256."""
+    return hashlib.sha256(json.dumps(review, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def render_review(review, style_dir=None):
     """Return a self-contained HTML document for a validated review object."""
     validate_review(review)
@@ -316,16 +400,18 @@ def render_review(review, style_dir=None):
     css, theme_js, notices = shared_style(style_dir)
     css += (assets / "review.css").read_text(encoding="utf-8")
     js = theme_js + "\n" + (assets / "feedback.js").read_text(encoding="utf-8") + "\n" + (assets / "review.js").read_text(encoding="utf-8")
-    digest = hashlib.sha256(json.dumps(review, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
-    metadata = {"schema_version": 1, "pr": review["pr"], "input_sha256": digest,
-                "files": [{"id": f"file-{i}", "path": f["path"], "status": f["status"], "group": f["group"],
+    digest = input_digest(review)
+    metadata = {"schema_version": 2, "target": review["target"], "input_sha256": digest,
+                "files": [{"id": f"file-{i}", "path": f["path"], "status": f["status"], "group": f["group"], "fingerprint": f.get("fingerprint"),
                            "patch_sha256": hashlib.sha256(f.get("patch", "").encode()).hexdigest() if f.get("patch") else None} for i, f in enumerate(review["files"])]}
     script_hash = base64.b64encode(hashlib.sha256(js.encode()).digest()).decode()
     style_hash = base64.b64encode(hashlib.sha256(css.encode()).digest()).decode()
     csp = (f"default-src 'none'; script-src 'sha256-{script_hash}'; style-src 'sha256-{style_hash}'; "
            "connect-src 'none'; img-src 'none'; font-src data:; object-src 'none'; base-uri 'none'; "
            "form-action 'none'; frame-src 'none'; worker-src 'none'")
-    pr = review["pr"]
+    target = review["target"]
+    worktree = target["kind"] == "worktree"
+    product = "Working tree review" if worktree else "PR review"
     files = review["files"]
     groups = []
     for key, label, description in GROUPS:
@@ -334,10 +420,9 @@ def render_review(review, style_dir=None):
             groups.append(f'<section class="review-group" data-group="{key}" aria-labelledby="group-{key}"><header class="group-header">'
                           f'<h2 id="group-{key}">{escape(label)} <span class="group-count">{len(members)}</span></h2><p>{description}</p></header>'
                           + "".join(_file_html(f, i) for i, f in members) + '</section>')
-    missing_count = sum(not f.get("patch") for f in files)
-    incomplete_count = sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in files)
-    unverified_count = sum(bool(f.get("patch")) and "patch_complete" not in f for f in files)
-    pinned = bool(pr.get("url") and pr.get("head_sha"))
+    missing_count, incomplete_count, unverified_count = coverage_counts(files)
+    unapprovable = sum("fingerprint" not in f for f in files)
+    pinned = worktree or bool(target.get("url") and target.get("head_sha"))
     chips = []
     if review.get("files_complete") is True:
         chips.append('<li class="chip">File list marked complete</li>')
@@ -346,49 +431,63 @@ def render_review(review, style_dir=None):
     for count, label in ((missing_count, "missing patch"), (incomplete_count, "incomplete patch"), (unverified_count, "unverified patch")):
         if count:
             chips.append(f'<li class="chip warning">{_plural(count, label, label + "es")}</li>')
+    if unapprovable:
+        chips.append(f'<li class="chip">Approval off for {_plural(unapprovable, "file")}</li>')
     if not pinned:
         chips.append('<li class="chip">Inline comments off</li>')
     scope = ('File list marked complete, with a matching declared changed-file count. '
              if review.get("files_complete") is True else
-             'File list completeness is unverified. Reconcile every changed file against the PR source. ')
-    if "changed_files" in pr:
-        scope += f'{len(files)} supplied / {pr["changed_files"]} declared changed files. '
+             'File list completeness is unverified. Reconcile every changed file against the source. ')
+    if "changed_files" in target:
+        scope += f'{len(files)} supplied / {target["changed_files"]} declared changed files. '
     scope += 'Every supplied patch line is included. Source and patch completeness are not independently verified. Counts and commentary come from the input; this renderer does not invent findings.'
+    if unapprovable:
+        scope += ' A file needs a fingerprint in the input before it can be approved.'
     if not pinned:
         scope += ' Inline comments need both a PR URL and a pinned head commit in the input.'
     facts = [f'<li>{_plural(len(files), "file")}</li>', f'<li>{_diffstat(sum(f["additions"] for f in files), sum(f["deletions"] for f in files))}</li>']
     snapshot = ""
-    for name, label in (("head_sha", "Head"), ("base_sha", "Base")):
-        if name in pr:
-            facts.append(f'<li>{label} <code title="{escape(pr[name])}">{escape(pr[name][:7])}</code></li>')
-            snapshot += f'<dt>{label} commit</dt><dd><code>{escape(pr[name])}</code></dd>'
+    if worktree:
+        facts.append(f'<li>Against HEAD <code title="{escape(target["head_sha"])}">{escape(target["head_sha"][:7])}</code></li>')
+        snapshot += f'<dt>Working tree</dt><dd><code>{escape(target["root"])}</code></dd>'
+        if "branch" in target:
+            snapshot += f'<dt>Branch</dt><dd><code>{escape(target["branch"])}</code></dd>'
+        snapshot += f'<dt>HEAD commit</dt><dd><code>{escape(target["head_sha"])}</code></dd>'
+    else:
+        for name, label in (("head_sha", "Head"), ("base_sha", "Base")):
+            if name in target:
+                facts.append(f'<li>{label} <code title="{escape(target[name])}">{escape(target[name][:7])}</code></li>')
+                snapshot += f'<dt>{label} commit</dt><dd><code>{escape(target[name])}</code></dd>'
     snapshot = f'<dl class="snapshot">{snapshot}</dl>' if snapshot else '<p>No commit snapshot supplied. Re-check the PR before relying on this review.</p>'
     origin = ""
-    if pr.get("url"):
-        owner, repo, _, number = pr["url"].split("/")[3:7]
+    if worktree:
+        branch = f'<span>branch {escape(target["branch"])}</span>' if "branch" in target else "<span>detached HEAD</span>"
+        origin = f'<p class="pr-origin worktree-origin"><span>Uncommitted changes in {escape(target["root"])}</span>{branch}</p>'
+    elif target.get("url"):
+        owner, repo, _, number = target["url"].split("/")[3:7]
         origin = (f'<p class="pr-origin"><span>{escape(owner)}/{escape(repo)} #{escape(number)}</span>'
-                  f'<a href="{escape(pr["url"])}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open on GitHub ↗</a></p>')
+                  f'<a href="{escape(target["url"])}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open on GitHub ↗</a></p>')
     comment_hint = ("Select code text, or use + beside a line, to add an inline comment." if pinned
                     else "Inline comments are off. The input needs a PR URL and pinned head commit.")
     return ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
             f'<meta http-equiv="Content-Security-Policy" content="{escape(csp)}">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">'
-            f'<title>{escape(pr["title"])} · PR review</title><style>{css}</style></head><body>'
+            f'<title>{escape(target["title"])} · {product}</title><style>{css}</style></head><body>'
             '<a class="skip-link" href="#files">Skip to changed files</a>'
-            f'<header class="topbar"><p class="topbar-title"><span class="topbar-product">PR review</span><span class="topbar-pr">{escape(pr["title"])}</span></p>'
+            f'<header class="topbar"><p class="topbar-title"><span class="topbar-product">{product}</span><span class="topbar-pr">{escape(target["title"])}</span></p>'
             '<div class="topbar-actions"><div class="progress"><span class="progress-track" aria-hidden="true"><span class="progress-fill"></span></span>'
-            f'<p id="progress" role="status" aria-live="polite">0 of {len(files)} reviewed</p></div>'
+            f'<p id="progress" role="status" aria-live="polite">0 of {len(files)} approved</p></div>'
             '<span id="save-state" class="chip" hidden></span><a class="button" href="#feedback">Finish review</a>'
             '<button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button></div></header>'
             '<div class="layout">' + _nav_html(review) + '<main id="main">'
-            f'<header class="pr-header">{origin}<h1>{escape(pr["title"])}</h1>' + _paragraph(review.get("summary"), "lead")
+            f'<header class="pr-header">{origin}<h1>{escape(target["title"])}</h1>' + _paragraph(review.get("summary"), "lead")
             + '<ul class="pr-facts" aria-label="Snapshot">' + "".join(facts) + '</ul>'
             + '<ul class="pr-chips" aria-label="Coverage">' + "".join(chips) + '</ul>'
             + f'<details class="snapshot-details"><summary>Snapshot and coverage</summary><div class="snapshot-body"><p class="scope-note">{scope}</p>{snapshot}</div></details></header>'
-            '<noscript><p class="notice warning"><strong>JavaScript is off.</strong> Diffs and commentary are readable, but filters, review tracking, comments, and feedback export need JavaScript.</p></noscript>'
+            '<noscript><p class="notice warning"><strong>JavaScript is off.</strong> Diffs and commentary are readable, but filters, approvals, comments, and feedback export need JavaScript.</p></noscript>'
             '<section class="toolbar" aria-label="Review controls"><div class="toolbar-fields">'
             '<label class="sr-only" for="search">Find files</label><input id="search" type="search" placeholder="Filter by path, group, status, or summary" autocomplete="off">'
-            '<label class="sr-only" for="review-filter">Show</label><select id="review-filter"><option value="all">All files</option><option value="remaining">Not reviewed</option><option value="reviewed">Reviewed</option></select></div>'
+            '<label class="sr-only" for="review-filter">Show</label><select id="review-filter"><option value="all">All files</option><option value="remaining">Needs review</option><option value="approved">Approved</option></select></div>'
             '<div class="toolbar-actions"><button id="expand-all" class="quiet" type="button">Expand all</button><button id="collapse-all" class="quiet" type="button">Collapse all</button></div>'
             f'<p id="filter-status" class="toolbar-status" role="status" aria-live="polite">{_plural(len(files), "file")} shown</p>'
             f'<p class="toolbar-hint">{comment_hint}</p></section>'
@@ -405,8 +504,8 @@ def render_review(review, style_dir=None):
             '<input id="import-feedback" class="file-input sr-only" type="file" accept=".json,application/json"><label class="button" for="import-feedback">Import saved feedback</label></div>'
             '<p id="export-status" class="finish-status" role="status" aria-live="polite"></p><p id="import-status" class="finish-status" role="status" aria-live="polite"></p>'
             '<details id="export-preview" hidden><summary>Copy exported JSON</summary><label class="sr-only" for="feedback-json">Exported feedback JSON</label><textarea id="feedback-json" rows="10" readonly spellcheck="false"></textarea></details>'
-            '<details id="retained-reviews" hidden><summary>Notes and flags from earlier snapshots</summary><pre id="retained-json" class="code-block"></pre></details>'
-            '<details class="how-saving-works"><summary>How saving works</summary><p>Comments, notes, and review flags live only in this tab until you export them. Export writes a local JSON file; confirm the download saved before you close the tab. Import that file to restore this snapshot, or to carry comments into a later render of the same PR. Only the theme choice is stored automatically. The feedback file contains selected code, paths, and notes, so keep it private. Nothing is uploaded. Hand the JSON to your agent when you are ready.</p></details></section>'
+            '<details id="retained-reviews" hidden><summary>Notes from earlier snapshots</summary><pre id="retained-json" class="code-block"></pre></details>'
+            '<details class="how-saving-works"><summary>How saving works</summary><p>Comments, notes, and approvals live only in this tab until you export them. Export writes a local JSON file; confirm the download saved before you close the tab. Import that file to restore this snapshot, or to carry comments and approvals into a later round of the same review. An approval covers one exact version of a file, so a file that changed since you approved it returns to the queue. Only the theme choice is stored automatically. The feedback file contains selected code, paths, and notes, so keep it private. Nothing is uploaded. Hand the JSON to your agent when you are ready.</p></details></section>'
             '<footer class="page-footer"><p>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.</p>'
             + f'<details class="font-notices"><summary>Font licenses</summary><pre>{escape(notices)}</pre></details></footer></main></div>'
             '<div id="composer-home" hidden><section id="comment-composer" class="composer" hidden aria-labelledby="composer-heading">'
@@ -438,9 +537,7 @@ def main(argv=None):
     except (ValidationError, OSError, ValueError, RecursionError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
-    missing = sum(not f.get("patch") for f in review["files"])
-    incomplete = sum(bool(f.get("patch")) and f.get("patch_complete") is False for f in review["files"])
-    unverified = sum(bool(f.get("patch")) and "patch_complete" not in f for f in review["files"])
+    missing, incomplete, unverified = coverage_counts(review["files"])
     print(f"Wrote {args.output} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "
           f"{_plural(incomplete, 'incomplete patch', 'incomplete patches')}; {_plural(unverified, 'unverified patch', 'unverified patches')})")
     return 0

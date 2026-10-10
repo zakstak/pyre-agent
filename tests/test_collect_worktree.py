@@ -1,0 +1,493 @@
+"""Standard-library tests: python3 -m unittest discover -s tests -p 'test_collect_worktree.py'.
+
+Each test builds throwaway Git repositories in a temporary directory. User and system Git configuration is shut out.
+"""
+
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "skills/review-canvas/scripts"
+COLLECT = SCRIPTS / "collect_worktree.py"
+FINGERPRINT = SCRIPTS / "fingerprint.py"
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+collector = load("collect_worktree", COLLECT)
+fingerprint = load("fingerprint_script", FINGERPRINT)
+renderer = collector.render_review  # the module whose limits the collector reads at call time
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+# Assembled from pieces so this file does not match the collector's secret patterns.
+PRIVATE_KEY = "-" * 5 + "BEGIN RSA " + "PRIVATE KEY" + "-" * 5 + "\nMIIBsecretbody\n"
+GITHUB_TOKEN = "gh" + "p_" + "A1b2" * 9
+
+
+def blob(data):
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        environment = mock.patch.dict(os.environ, GIT_ENV)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.base = Path(temp.name).resolve()
+        self.root = self.init(self.base / "repo")
+
+    def init(self, path):
+        subprocess.run(["git", "-c", "init.defaultBranch=main", "init", "-q", str(path)], check=True)
+        self.configure(path)
+        return path
+
+    def configure(self, path):
+        for key, value in (("user.name", "Test"), ("user.email", "test@example.com"),
+                           ("commit.gpgsign", "false"), ("init.defaultBranch", "main")):
+            self.git(path, "config", key, value)
+
+    def git(self, cwd, *args):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True).stdout.decode()
+
+    def write(self, name, data, root=None):
+        path = (root or self.root) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data if isinstance(data, bytes) else data.encode())
+        return path
+
+    def commit(self, files=(), root=None, message="commit"):
+        root = root or self.root
+        for name, data in dict(files).items():
+            self.write(name, data, root)
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "-q", "--allow-empty", "-m", message)
+
+    def head(self, root=None):
+        return self.git(root or self.root, "rev-parse", "HEAD").strip()
+
+    def collect(self, **options):
+        self.review, self.flagged = collector.collect(self.root, **options)
+        return {file["path"]: file for file in self.review["files"]}
+
+    def main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = collector.main(["--repo", str(self.root), *args])
+        return code, out.getvalue(), err.getvalue()
+
+
+class InventoryTests(Fixture):
+    def test_staged_unstaged_and_untracked_changes_appear_but_ignored_files_do_not(self):
+        self.commit({"staged.txt": "one\n", "unstaged.txt": "one\n", ".gitignore": "*.log\nbuild/\n"})
+        self.write("staged.txt", "one\nstaged\n")
+        self.git(self.root, "add", "staged.txt")
+        self.write("unstaged.txt", "one\nunstaged\n")
+        self.write("dir/new.txt", "a\nb\n")
+        self.write("debug.log", "ignored\n")
+        self.write("build/out.txt", "ignored\n")
+        files = self.collect()
+        self.assertEqual(sorted(files), ["dir/new.txt", "staged.txt", "unstaged.txt"])
+        self.assertEqual(files["staged.txt"]["patch"], "@@ -1 +1,2 @@\n one\n+staged\n")
+        self.assertEqual(files["unstaged.txt"]["patch"], "@@ -1 +1,2 @@\n one\n+unstaged\n")
+        new = files["dir/new.txt"]
+        self.assertEqual(new, {"path": "dir/new.txt", "status": "added", "group": "core", "additions": 2, "deletions": 0,
+                               "fingerprint": new["fingerprint"], "new_mode": "100644",
+                               "patch": "@@ -0,0 +1,2 @@\n+a\n+b\n", "patch_complete": True})
+        self.assertEqual(self.review["target"], {"kind": "worktree", "title": "Uncommitted changes on main", "root": str(self.root),
+                                                 "head_sha": self.head(), "branch": "main", "changed_files": 3})
+        self.assertIs(self.review["files_complete"], True)
+        self.assertEqual(self.flagged, [])
+
+    def test_binary_files_keep_entry_and_stats_without_a_patch(self):
+        self.commit({"image.bin": b"\x00\x01\x02\n"})
+        self.write("image.bin", b"\x00\x03\n")
+        self.write("blob.dat", b"text\x00more\n")
+        files = self.collect()
+        self.assertEqual(files["image.bin"]["status"], "modified")
+        self.assertEqual(files["blob.dat"]["status"], "added")
+        for file in files.values():
+            self.assertEqual((file["patch_note"], file["additions"], file["deletions"]), ("binary", 0, 0))
+            self.assertNotIn("patch", file)
+            self.assertNotIn("patch_complete", file)
+
+    def test_staged_rename_with_an_edit_and_a_pure_rename(self):
+        lines = "".join(f"line {i}\n" for i in range(10))
+        self.commit({"old.txt": lines, "same.txt": "same\n"})
+        self.git(self.root, "mv", "old.txt", "new.txt")
+        self.write("new.txt", lines + "added\n")
+        self.git(self.root, "mv", "same.txt", "moved.txt")
+        files = self.collect()
+        self.assertEqual(sorted(files), ["moved.txt", "new.txt"])
+        edited = files["new.txt"]
+        self.assertEqual((edited["status"], edited["old_path"], edited["additions"], edited["deletions"]), ("renamed", "old.txt", 1, 0))
+        self.assertEqual(edited["patch"], "@@ -8,3 +8,4 @@ line 6\n line 7\n line 8\n line 9\n+added\n")
+        pure = files["moved.txt"]
+        self.assertEqual((pure["status"], pure["old_path"], pure["patch_note"]), ("renamed", "same.txt", "no_content_change"))
+        self.assertNotIn("patch", pure)
+
+    def test_deletion_and_mode_only_change(self):
+        self.commit({"gone.txt": "bye\n", "run.sh": "echo hi\n"})
+        (self.root / "gone.txt").unlink()
+        (self.root / "run.sh").chmod(0o755)
+        files = self.collect()
+        gone = files["gone.txt"]
+        self.assertEqual((gone["status"], gone["deletions"], gone["old_mode"], gone["patch"]), ("deleted", 1, "100644", "@@ -1 +0,0 @@\n-bye\n"))
+        self.assertNotIn("new_mode", gone)
+        run = files["run.sh"]
+        self.assertEqual((run["status"], run["patch_note"], run["old_mode"], run["new_mode"]), ("changed", "no_content_change", "100644", "100755"))
+        self.assertNotIn("patch", run)
+
+    def test_symlinks_submodules_and_nested_repositories_have_no_patch(self):
+        source = self.init(self.base / "source")
+        self.commit({"s.txt": "s\n"}, root=source)
+        os.symlink("target-a", self.root / "link")
+        self.commit({"file.txt": "f\n"})
+        self.git(self.root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "sub")
+        self.commit(message="add submodule")
+        old_commit = self.head(self.root / "sub")
+        self.configure(self.root / "sub")
+        self.commit({"t.txt": "t\n"}, root=self.root / "sub")
+        (self.root / "link").unlink()
+        os.symlink("target-b", self.root / "link")
+        os.symlink("file.txt", self.root / "new-link")
+        nested = self.init(self.root / "nested")
+        self.commit({"n.txt": "n\n"}, root=nested)
+        files = self.collect()
+        self.assertEqual(sorted(files), ["link", "nested", "new-link", "sub"])
+        for path, note in (("link", "symlink"), ("new-link", "symlink"), ("sub", "submodule"), ("nested", "submodule")):
+            self.assertEqual(files[path]["patch_note"], note, path)
+            self.assertNotIn("patch", files[path])
+        self.assertEqual(files["link"]["fingerprint"],
+                         collector.file_fingerprint("link", None, blob(b"target-a"), blob(b"target-b"), "120000", "120000"))
+        self.assertEqual(files["new-link"]["new_mode"], "120000")
+        sub = files["sub"]
+        self.assertEqual((sub["status"], sub["old_mode"], sub["new_mode"]), ("modified", "160000", "160000"))
+        self.assertEqual(sub["fingerprint"], collector.file_fingerprint("sub", None, old_commit, self.head(self.root / "sub"), "160000", "160000"))
+        self.assertEqual((files["nested"]["status"], files["nested"]["new_mode"]), ("added", "160000"))
+        self.assertEqual(files["nested"]["fingerprint"], collector.file_fingerprint("nested", None, None, self.head(nested), None, "160000"))
+
+    def test_intent_to_add_file_matches_the_untracked_entry(self):
+        self.commit({"base.txt": "b\n"})
+        self.write("ita.txt", "first\nlast")
+        self.write("empty.txt", b"")
+        untracked = self.collect()
+        self.git(self.root, "add", "-N", "ita.txt", "empty.txt")
+        marked = self.collect()
+        self.assertEqual(marked, untracked)
+        self.assertEqual(marked["ita.txt"]["patch"], "@@ -0,0 +1,2 @@\n+first\n+last\n\\ No newline at end of file\n")
+        self.assertEqual((marked["empty.txt"]["status"], marked["empty.txt"]["patch_note"]), ("added", "empty"))
+        self.assertNotIn("patch", marked["empty.txt"])
+
+    def test_invalid_utf8_and_control_characters_are_replaced_and_crlf_is_kept(self):
+        self.commit({"feed.txt": "a\n", "crlf.txt": "one\r\ntwo\r\n"})
+        self.write("latin1.txt", "café\n".encode("latin-1"))
+        self.write("feed.txt", "a\n\x0cb\x7f\n")
+        self.write("crlf.txt", "one\r\nTWO\r\n")
+        self.write("win.txt", "x\r\ny\r\n")
+        files = self.collect()
+        self.assertEqual((files["latin1.txt"]["patch_note"], files["latin1.txt"]["patch"]), ("replaced_characters", "@@ -0,0 +1 @@\n+caf�\n"))
+        self.assertEqual((files["feed.txt"]["patch_note"], files["feed.txt"]["patch"]), ("replaced_characters", "@@ -1 +1,2 @@\n a\n+␌b␡\n"))
+        self.assertEqual(files["crlf.txt"]["patch"], "@@ -1,2 +1,2 @@\n one\r\n-two\r\n+TWO\r\n")
+        self.assertEqual(files["win.txt"]["patch"], "@@ -0,0 +1,2 @@\n+x\r\n+y\r\n")
+        self.assertNotIn("patch_note", files["crlf.txt"])
+        self.assertNotIn("patch_note", files["win.txt"])
+
+    def test_non_utf8_path_fails_with_the_escaped_name(self):
+        self.commit({"a.txt": "a\n"})
+        with open(os.path.join(os.fsencode(self.root), b"bad\xff.txt"), "wb") as handle:
+            handle.write(b"x\n")
+        with self.assertRaisesRegex(ValueError, r"not valid UTF-8.*bad\\xff\.txt"):
+            self.collect()
+
+    def test_path_removed_from_index_but_kept_on_disk_stays_a_deletion(self):
+        self.commit({"kept.txt": "k\n"})
+        self.git(self.root, "rm", "-q", "--cached", "kept.txt")
+        files = self.collect()
+        self.assertEqual(list(files), ["kept.txt"])
+        self.assertEqual(files["kept.txt"]["status"], "deleted")
+
+
+class LimitTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.commit({"base.txt": "b\n"})
+
+    def test_patch_over_the_line_limit_keeps_the_entry(self):
+        self.write("big.txt", "".join(f"{i}\n" for i in range(5)))
+        self.write("small.txt", "1\n")
+        with mock.patch.object(renderer, "MAX_PATCH_LINES", 3):
+            files = self.collect()
+        big = files["big.txt"]
+        self.assertEqual((big["patch_note"], big["patch_complete"], big["additions"]), ("too_large", False, 5))
+        self.assertNotIn("patch", big)
+        self.assertEqual(files["small.txt"]["patch"], "@@ -0,0 +1 @@\n+1\n")
+
+    def test_total_patch_lines_are_counted_in_output_order(self):
+        self.write("a.txt", "1\n2\n")
+        self.write("b.txt", "1\n2\n")
+        self.write("c.txt", "1\n")
+        with mock.patch.object(renderer, "MAX_TOTAL_PATCH_LINES", 5):
+            files = self.collect()
+        self.assertTrue(files["a.txt"]["patch_complete"])
+        self.assertEqual((files["b.txt"]["patch_note"], files["b.txt"]["patch_complete"]), ("too_large", False))
+        self.assertTrue(files["c.txt"]["patch_complete"])
+
+    def test_patch_over_the_character_limit_and_a_huge_untracked_file(self):
+        self.write("base.txt", "b\n" + "x" * 40 + "\n")
+        self.write("huge.txt", "123456789\n" * 100)
+        with mock.patch.object(renderer, "MAX_PATCH_CHARS", 16):
+            files = self.collect()
+        for path in ("base.txt", "huge.txt"):
+            self.assertEqual((files[path]["patch_note"], files[path]["patch_complete"]), ("too_large", False))
+        self.assertEqual(files["huge.txt"]["additions"], 100)
+
+    def test_too_many_files_is_an_error(self):
+        for name in ("a", "b", "c"):
+            self.write(name, "x\n")
+        with mock.patch.object(renderer, "MAX_FILES", 2), self.assertRaisesRegex(collector.CollectError, "3 changed files exceed the review limit of 2"):
+            self.collect()
+
+
+class SecretTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.commit({"config.txt": "name = demo\n"})
+        self.write(".env.local", "API_TOKEN=hunter2-very-secret\n")
+        self.write(".env.example", "API_TOKEN=\n")
+        self.write("config.txt", "name = demo\n" + PRIVATE_KEY)
+        self.write("notes.md", f"token {GITHUB_TOKEN}\n")
+        self.write("deploy/id_ed25519", "key material\n")
+        self.write("deploy/id_ed25519.pub", "ssh-ed25519 AAAA\n")
+
+    def test_likely_secrets_are_flagged_and_absent_from_the_output_file(self):
+        output = self.base / "review.json"
+        code, out, _ = self.main("--output", str(output))
+        self.assertEqual(code, 0)
+        data = output.read_bytes()
+        for secret in (b"hunter2-very-secret", b"key material", GITHUB_TOKEN.encode(), b"MIIBsecretbody"):
+            self.assertNotIn(secret, data)
+        files = {file["path"]: file for file in json.loads(data)["files"]}
+        flagged = [".env.local", "config.txt", "deploy/id_ed25519", "notes.md"]
+        self.assertEqual(sorted(path for path, file in files.items() if file.get("patch_note") == "secret"), flagged)
+        self.assertEqual(files[".env.local"]["additions"], 1)
+        self.assertEqual(files["config.txt"]["status"], "modified")
+        self.assertIn("patch", files[".env.example"])
+        self.assertIn("patch", files["deploy/id_ed25519.pub"])
+        self.assertEqual(out.splitlines(), [f"Wrote {output} (6 files; 0 binary; 0 too large; 4 likely secret)"]
+                         + [f"Likely secret, contents left out: {path}" for path in flagged])
+
+    def test_include_secret_file_restores_one_file(self):
+        files = self.collect(include_secret=[".env.local"])
+        self.assertEqual(files[".env.local"]["patch"], "@@ -0,0 +1 @@\n+API_TOKEN=hunter2-very-secret\n")
+        self.assertNotIn("patch_note", files[".env.local"])
+        self.assertEqual(self.flagged, ["config.txt", "deploy/id_ed25519", "notes.md"])
+
+    def test_include_secret_file_must_name_a_changed_file(self):
+        with self.assertRaisesRegex(collector.CollectError, "not a changed file: missing.env"):
+            self.collect(include_secret=["missing.env"])
+        code, _, err = self.main("--output", str(self.base / "review.json"), "--include-secret-file", "missing.env")
+        self.assertEqual(code, 2)
+        self.assertTrue(err.startswith("Error: --include-secret-file"))
+
+    def test_secret_names_and_patterns(self):
+        for name in (".env", "app/.ENV.production", "server.pem", "tls.key", "id_rsa", "credentials.json", ".npmrc", "_netrc"):
+            self.assertTrue(collector.secret_name(name), name)
+        for name in (".env.example", ".env.local.sample", "id_rsa.pub", "environment.py", "key.txt", "credentials.md"):
+            self.assertFalse(collector.secret_name(name), name)
+        for text in ("AKIA" + "ABCDEFGHIJKLMNOP", "xox" + "b-1234567890-abc", "x=sk-" + "ant-" + "a" * 24,
+                     "sk-" + "proj-" + "B" * 30, "github_" + "pat_" + "a" * 30, GITHUB_TOKEN, PRIVATE_KEY):
+            self.assertRegex(text, collector.SECRET_TEXT)
+        for text in ("task-" + "a" * 30, "AKIA" + "short", "gh" + "p_short"):
+            self.assertNotRegex(text, collector.SECRET_TEXT)
+        for path in (COLLECT, FINGERPRINT, Path(__file__)):
+            self.assertNotRegex(path.read_text(encoding="utf-8"), collector.SECRET_TEXT, path)
+
+
+class ConsistencyTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "first\n")
+
+    def test_change_between_reads_triggers_a_successful_retry(self):
+        calls = []
+
+        def write_once():
+            calls.append(None)
+            if len(calls) == 1:
+                self.write("a.txt", "second\n")
+
+        with mock.patch.object(collector, "between_reads", write_once):
+            files = self.collect()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+second\n")
+
+    def test_change_on_every_attempt_fails(self):
+        calls = []
+
+        def write_always():
+            calls.append(None)
+            self.write("a.txt", "x" * len(calls) + "\n")
+
+        with mock.patch.object(collector, "between_reads", write_always), \
+                self.assertRaisesRegex(collector.CollectError, "kept changing.*Collect again when writes finish"):
+            self.collect()
+        self.assertEqual(len(calls), collector.ATTEMPTS)
+
+
+class HeadTests(Fixture):
+    def test_unborn_head_needs_a_first_commit(self):
+        self.write("a.txt", "a\n")
+        with self.assertRaisesRegex(collector.CollectError, "no commit yet. Make a first commit"):
+            self.collect()
+
+    def test_detached_head_omits_branch(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "checkout", "-q", "--detach")
+        self.write("a.txt", "b\n")
+        self.collect()
+        self.assertNotIn("branch", self.review["target"])
+        self.assertEqual(self.review["target"]["title"], f"Uncommitted changes at {self.head()[:7]}")
+
+
+class FingerprintTests(Fixture):
+    def test_fingerprint_is_sha256_of_canonical_json(self):
+        canonical = '{"new_blob":"b","new_mode":"100644","old_blob":"a","old_mode":"100644","old_path":null,"path":"café.txt"}'
+        self.assertEqual(fingerprint.file_fingerprint("café.txt", None, "a", "b", "100644", "100644"),
+                         hashlib.sha256(canonical.encode()).hexdigest())
+        with self.assertRaisesRegex(ValueError, "not the all-zero object ID"):
+            fingerprint.file_fingerprint("a.txt", None, "0" * 40, None, "100644", None)
+
+    def test_fingerprints_follow_content_and_mode(self):
+        self.commit({"same.txt": "s\n", "edit.txt": "e\n", "mode.txt": "m\n"})
+        for name in ("same.txt", "edit.txt", "mode.txt"):
+            self.write(name, "changed\n")
+        first, second = self.collect(), self.collect()
+        self.assertEqual({p: f["fingerprint"] for p, f in first.items()}, {p: f["fingerprint"] for p, f in second.items()})
+        self.write("edit.txt", "changed again\n")
+        (self.root / "mode.txt").chmod(0o755)
+        third = self.collect()
+        self.assertEqual(third["same.txt"]["fingerprint"], first["same.txt"]["fingerprint"])
+        self.assertNotEqual(third["edit.txt"]["fingerprint"], first["edit.txt"]["fingerprint"])
+        self.assertNotEqual(third["mode.txt"]["fingerprint"], first["mode.txt"]["fingerprint"])
+
+    def test_cli_matches_the_collector_after_the_change_is_committed(self):
+        self.commit({"a.txt": "a\n", "old.txt": "o\n" * 5, "gone.txt": "g\n", "run.sh": "r\n"})
+        self.write("a.txt", "a\nb\n")
+        self.git(self.root, "mv", "old.txt", "new.txt")
+        (self.root / "gone.txt").unlink()
+        (self.root / "run.sh").chmod(0o755)
+        self.write("added.txt", "new\n")
+        os.symlink("a.txt", self.root / "link")
+        files = self.collect()
+        self.assertEqual(len(files), 6)
+        self.commit(message="change")
+        result = subprocess.run([sys.executable, str(FINGERPRINT), "--repo", str(self.root), "HEAD~1", "HEAD"],
+                                capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), {path: file["fingerprint"] for path, file in files.items()})
+
+    def test_cli_compares_the_merge_base_with_the_head(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "checkout", "-q", "-b", "feature")
+        self.commit({"feature.txt": "f\n"})
+        self.git(self.root, "checkout", "-q", "main")
+        self.commit({"main.txt": "m\n"})
+        self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"),
+                         {"feature.txt": fingerprint.file_fingerprint("feature.txt", None, None, blob(b"f\n"), None, "100644")})
+
+    def test_cli_errors(self):
+        self.commit({"a.txt": "a\n"})
+        plain = self.base / "plain"
+        plain.mkdir()
+        for repo, ref, message in ((self.root, "nosuch", "Error: nosuch does not name a commit"), (plain, "HEAD", "Error: not a git repository")):
+            result = subprocess.run([sys.executable, str(FINGERPRINT), "--repo", str(repo), ref, "HEAD"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertTrue(result.stderr.startswith(message), result.stderr)
+
+
+class OutputTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+
+    def test_refuses_output_inside_the_working_tree(self):
+        code, _, err = self.main("--output", str(self.root / "review.json"))
+        self.assertEqual(code, 2)
+        self.assertRegex(err, r"^Error: --output .* is inside the working tree")
+        self.assertFalse((self.root / "review.json").exists())
+
+    def test_writes_private_valid_output_inside_the_git_directory(self):
+        output = self.root / ".git" / "review.json"
+        code, out, _ = self.main("--output", str(output))
+        self.assertEqual(code, 0)
+        self.assertEqual(out, f"Wrote {output} (1 file; 0 binary; 0 too large; 0 likely secret)\n")
+        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+        self.assertEqual(list((self.root / ".git").glob(".review.json.*")), [])
+        review = renderer.load_review(output)
+        self.assertEqual([file["path"] for file in self.collect().values()], ["a.txt"])  # the snapshot is not a change itself
+        self.assertIn("<!doctype html>", renderer.render_review(review))
+
+    def test_cli_end_to_end(self):
+        output = self.base / "review.json"
+        result = subprocess.run([sys.executable, str(COLLECT), "--repo", str(self.root), "--output", str(output), "--title", "Check"],
+                                capture_output=True, text=True)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.assertEqual(result.stdout, f"Wrote {output} (1 file; 0 binary; 0 too large; 0 likely secret)\n")
+        review = renderer.load_review(output)
+        self.assertEqual((review["target"]["title"], review["files"][0]["patch"]), ("Check", "@@ -1 +1 @@\n-a\n+b\n"))
+        plain = self.base / "plain"
+        plain.mkdir()
+        result = subprocess.run([sys.executable, str(COLLECT), "--repo", str(plain), "--output", str(output)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertTrue(result.stderr.startswith("Error: not a git repository"), result.stderr)
+
+
+class IsolationTests(Fixture):
+    def test_configuration_and_environment_cannot_redirect_output_or_run_programs(self):
+        marker = self.base / "ran"
+        tool = self.base / "tool.sh"
+        tool.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        tool.chmod(0o755)
+        other = self.init(self.base / "other")
+        self.commit({"other.txt": "o\n"}, root=other)
+        self.commit({"code.txt": "a\n\nb\n", "naïve.txt": "n\n", "touched.txt": "t\n", ".gitattributes": "*.txt diff=tool\n"})
+        self.write("code.txt", "a\n\nB\n")
+        self.write("naïve.txt", "N\n")
+        os.utime(self.root / "touched.txt", (1, 1))  # stat-only change: tempts Git to refresh and rewrite the index
+        for key, value in (("diff.noprefix", "true"), ("diff.mnemonicPrefix", "true"), ("diff.suppressBlankEmpty", "true"),
+                           ("color.ui", "always"), ("core.quotePath", "true"), ("diff.external", str(tool)),
+                           ("diff.tool.textconv", str(tool)), ("diff.tool.command", str(tool)), ("core.fsmonitor", str(tool))):
+            self.git(self.root, "config", key, value)
+        marker.unlink(missing_ok=True)
+        git_dir = self.root / ".git"
+        before = {path: path.read_bytes() for path in git_dir.rglob("*") if path.is_file()}
+        hostile = {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other), "GIT_INDEX_FILE": str(self.base / "index")}
+        with mock.patch.dict(os.environ, hostile):
+            files = self.collect()
+        self.assertEqual(sorted(files), ["code.txt", "naïve.txt"])
+        self.assertEqual(files["code.txt"]["patch"], "@@ -1,3 +1,3 @@\n a\n \n-b\n+B\n")
+        self.assertFalse(marker.exists())
+        self.assertEqual({path: path.read_bytes() for path in git_dir.rglob("*") if path.is_file()}, before)
+
+
+if __name__ == "__main__":
+    unittest.main()
