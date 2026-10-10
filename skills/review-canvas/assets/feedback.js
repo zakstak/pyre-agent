@@ -92,9 +92,10 @@
       ids.add(reply.id);
       if (reply.actor !== "reviewer") throw Error("Feedback replies come from the reviewer; agent replies belong in the review input.");
       if (!["accept", "reopen", "reply"].includes(reply.action)) throw Error("Invalid reply action.");
-      text(reply.created_at, 40, true); text(reply.body, 20000, reply.action !== "accept");
+      text(reply.created_at, 40, true);
       // Reply times order a thread, so both languages must parse them alike: UTC, with optional milliseconds.
-      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/.test(reply.created_at)) throw Error("Reply times must be UTC ISO 8601.");
+      if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/.test(reply.created_at)) throw Error("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.");
+      text(reply.body, 20000, reply.action !== "accept");
       total += reply.body.length;
     }
     return total;
