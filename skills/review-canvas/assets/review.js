@@ -69,6 +69,7 @@
     };
     return {
       start: show,
+      refresh: show,
       changed() { exported = false; byId("export-status").textContent = "Changes are in this tab only. Export to save them."; show(); },
       draftChanged() { if (exported) { exported = false; show(); } },
       exported(draft) { exported = !draft; show(); },
@@ -141,7 +142,9 @@
         if (!paused) show("Saving");
         clearTimeout(timer); timer = setTimeout(save, 500);
       },
-      draftChanged() {},
+      // A draft never saves until the reviewer saves it, so the status says so while one is open.
+      refresh() { if (ready && !paused && !failed && !timer && !saving) show(draftOpen() ? "Saved, except the open draft" : "Saved"); },
+      draftChanged() { this.refresh(); },
       // A requested download does not prove a saved file, so a failed save keeps its unload warning until a save succeeds.
       exported() {},
       merged() { this.changed(); },
@@ -288,6 +291,7 @@
   function closeComposer(restoreFocus = false) {
     const fallback = composerFallback;
     parkComposer(); editing = null; reattaching = null; selection = null; composerAnchor = null; composerFallback = null; hideFloating();
+    persistence.refresh();
     byId("selection-status").textContent = pinned ? "No code text selected." : "Inline comments are off.";
     if (restoreFocus) (composerReturn?.isConnected && composerReturn.checkVisibility() ? composerReturn : fallback?.())?.focus();
     composerReturn = null;

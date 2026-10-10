@@ -437,7 +437,8 @@ def collect(repo, title=None, include_secret=(), output=None):
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     if output is not None:
         git_dir = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")))
-        if (Path(output).parent / "review.html").exists():
+        round_dir = Path(output).absolute().parent
+        if round_dir.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", round_dir.name) and (round_dir / "review.html").exists():
             raise CollectError(f"{Path(output).parent} has rendered; a round never changes after it renders. Start a new round.")
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
         if os.path.islink(output):

@@ -85,6 +85,13 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     await page.evaluate(() => scrollTo(0, 0));
     await page.screenshot({ path: path.join(out, "server-1-saved-dark.png") });
 
+    // The same holds for a new comment draft before any save happens.
+    await page.getByRole("button", { name: "Comment on src/notes/format.py line 6" }).click();
+    await page.getByLabel("Comment", { exact: true }).fill("draft");
+    await page.locator("#save-state", { hasText: "Saved, except the open draft" }).waitFor();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await waitSaved(page);
+
     // A reload restores everything from the server, with no import.
     await page.reload();
     await waitSaved(page);

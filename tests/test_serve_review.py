@@ -399,6 +399,11 @@ class StateTests(unittest.TestCase):
         collector = load("collect_worktree")
         with self.assertRaisesRegex(collector.CollectError, "has rendered; a round never changes"):
             collector.collect(ROOT, output=directory / "input.json")
+        # The file workflow keeps review.json beside review.html outside any round; that stays allowed.
+        loose = self.temp / "loose"
+        loose.mkdir()
+        (loose / "review.html").write_text("rendered")
+        collector.collect(ROOT, output=loose / "review.json")
 
     def test_platforms_without_posix_permissions_are_refused(self):
         with unittest.mock.patch.object(state_module, "PRIVACY_CHECKABLE", False), \
@@ -454,9 +459,10 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(blocked.returncode, 2)
         self.assertIn("already runs", blocked.stderr)
         self.assertFalse((self.state / "server.json").exists())
-        too_short = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state), "--idle-timeout", "0.2"], capture_output=True, text=True)
-        self.assertEqual(too_short.returncode, 2)
-        self.assertIn("at least 1 second", too_short.stderr)
+        for value in ("0.2", "nan", "inf"):
+            refused = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state), "--idle-timeout", value], capture_output=True, text=True, timeout=30)
+            self.assertEqual(refused.returncode, 2, value)
+            self.assertIn("at least 1 second", refused.stderr)
         process, url = self.start("--idle-timeout", "1")
         started = time.monotonic()
         self.assertEqual(process.wait(timeout=15), 0)
