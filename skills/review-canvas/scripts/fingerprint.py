@@ -2,7 +2,8 @@
 """Fingerprint changed files so a reviewer's approval can carry over between review rounds while a file is unchanged.
 
 A fingerprint is the SHA-256 of canonical JSON naming one exact version of one changed file: its path, its old
-path when renamed or copied, and the Git blob ID and mode on each side. For a GitHub PR review, print the
+path when renamed, and the Git blob ID and mode on each side. Copy detection is off here and in the collector, so a
+copy is an added file whose own content and mode the fingerprint covers. For a GitHub PR review, print the
 fingerprints that match the PR's "Files changed" (the merge base compared with the head) from a local clone:
 
     python3 fingerprint.py --repo DIR BASE HEAD
