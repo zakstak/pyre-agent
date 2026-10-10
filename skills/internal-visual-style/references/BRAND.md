@@ -17,10 +17,17 @@ This file owns the shared guidance. [../assets/tokens.css](../assets/tokens.css)
 
 Typography is confirmed. JetBrains Mono is not selected.
 
-## Unresolved choices
+## Selected design direction
 
-The final palette, theme treatment, and banner are not selected. The values in tokens.css are provisional accessible examples that make structure and behavior reviewable. No banner is implemented. Do not present these examples as approved brand colors or a finished theme.
+Zak selected live playground theme 04, "Margin notes", with legacy style ID `moss`. The palette direction is a violet–indigo mix. Both Atkinson fonts remain confirmed.
 
+The supplied published baseline is themeSite source `d90c38ebb6f38efc2201c85aba031d060c4cf567`. This selection was handed into draft PR 17 on 2026-10-10. Identify the selection by this published baseline, name, and legacy ID. A newer unpublished theme 04 is not the selected baseline.
+
+## Pending implementation and choices
+
+The exact violet–indigo palette values are being refined by the existing Site worker. Wait for its verified palette token handoff before aligning CSS. The selected direction does not finalize color values or all theme implementation details. The banner remains undecided.
+
+The current CSS, HTML specimen, and screenshots are the earlier provisional accessible examples. They do not implement the selected Margin notes direction or its violet–indigo palette. Keep them provisional until the verified handoff, then apply the existing validation checks. No banner is implemented. Do not invent final colors or treat the earlier example values as selected tokens.
 
 ## Semantic tokens
 

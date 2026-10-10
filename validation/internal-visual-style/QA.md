@@ -1,6 +1,8 @@
 # Internal visual style validation
 
-Checked 2026-10-09 on Zak's Linux workstation. This is a draft structure and implementation review. Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono are chosen. The palette, theme treatment, and banner remain undecided.
+Browser implementation checked 2026-10-09 on Zak's Linux workstation. This is a draft structure and implementation review. Both Atkinson fonts were confirmed; the palette, theme treatment, and banner were then undecided.
+
+Documentation-only decision update on 2026-10-10: the selected published design direction, provenance, and pending palette handoff are recorded in the [maintained reference](../../skills/internal-visual-style/references/BRAND.md). CSS and the HTML specimen are unchanged. The browser checks and screenshots below validate the earlier provisional implementation, not the newly selected direction. Local reference checks, skill metadata validation, and whitespace checks passed. Independent Sol 6.1 review found no findings in this narrow update. Browser checks were not rerun.
 
 ## Results
 

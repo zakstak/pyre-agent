@@ -8,7 +8,7 @@ Each skill is proposed in its own draft pull request. Review the wording, compan
 
 ## Shared internal visual reference
 
-[BRAND.md](BRAND.md) points to the self-contained [internal-visual-style skill](skills/internal-visual-style/SKILL.md). Use it for all UI and theming work without a specific product design system, including plans, review pages, reports, and ad hoc visual artifacts. Product-specific branding takes precedence. Install the complete skill folder for its maintained reference, shared semantic tokens, plain HTML, Tailwind v4 build entry, theme control, and bundled Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono fonts. Final palette, theme treatment, and banner remain undecided. No global installation is performed by this proposal.
+[BRAND.md](BRAND.md) points to the self-contained [internal-visual-style skill](skills/internal-visual-style/SKILL.md). Use it for all UI and theming work without a specific product design system, including plans, review pages, reports, and ad hoc visual artifacts. Product-specific branding takes precedence. Install the complete skill folder for its maintained reference, shared semantic tokens, plain HTML, Tailwind v4 build entry, theme control, and bundled Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono fonts. The selected direction and remaining decisions are recorded in the maintained reference. Example styling remains provisional. No global installation is performed by this proposal.
 
 ## Install only what you approve
 
