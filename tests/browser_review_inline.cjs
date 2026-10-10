@@ -5,8 +5,8 @@ const {spawnSync}=require('node:child_process'),{pathToFileURL}=require('node:ur
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 (async()=>{
  const root=path.resolve(__dirname,'..'),tmp=fs.mkdtempSync(path.join(os.tmpdir(),'pr-inline-'));
- const original=JSON.parse(fs.readFileSync(path.join(root,'skills/pr-review-canvas/assets/example-review.json')));
- const render=(value,name)=>{const input=path.join(tmp,name+'.json'),output=path.join(tmp,name+'.html');fs.writeFileSync(input,JSON.stringify(value));const run=spawnSync(process.env.PYTHON||'python3',[path.join(root,'skills/pr-review-canvas/scripts/render_review.py'),input,'--output',output],{encoding:'utf8'});assert.equal(run.status,0,run.stderr);return pathToFileURL(output).href;};
+ const original=JSON.parse(fs.readFileSync(path.join(root,'skills/review-canvas/assets/example-review.json')));
+ const render=(value,name)=>{const input=path.join(tmp,name+'.json'),output=path.join(tmp,name+'.html');fs.writeFileSync(input,JSON.stringify(value));const run=spawnSync(process.env.PYTHON||'python3',[path.join(root,'skills/review-canvas/scripts/render_review.py'),input,'--output',output],{encoding:'utf8'});assert.equal(run.status,0,run.stderr);return pathToFileURL(output).href;};
  // Long surrounding text includes emoji where an 80-unit context slice would bisect a surrogate pair.
  original.files[1].patch='@@ -1,1 +1,2 @@\n '+ '🙂'.repeat(41)+' context\n+selected code marker';
  original.pr.url='https://github.com/example/project/pull/7';

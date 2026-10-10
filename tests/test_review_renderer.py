@@ -17,8 +17,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills/pr-review-canvas/scripts/render_review.py"
-EXAMPLE = ROOT / "skills/pr-review-canvas/assets/example-review.json"
+SCRIPT = ROOT / "skills/review-canvas/scripts/render_review.py"
+EXAMPLE = ROOT / "skills/review-canvas/assets/example-review.json"
 SPEC = importlib.util.spec_from_file_location("render_review", SCRIPT)
 renderer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(renderer)
