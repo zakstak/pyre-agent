@@ -287,7 +287,9 @@ def main(argv=None):
         else:
             print(new_round(args.state_dir))
     except (StateError, OSError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import render_review
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     return 0
 

@@ -969,6 +969,12 @@ class OutputTests(Fixture):
                     self.assertIn("only STATE/rounds/NNNN/input.json", err)
         self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
 
+    def test_output_works_where_ownership_cannot_be_read(self):
+        with mock.patch.object(collector.os, "getuid", None):
+            del collector.os.getuid  # as on Windows
+            code, _, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0, err)
+
     def test_a_shared_ancestor_with_rounds_is_not_a_state_directory(self):
         shared = self.base / "shared"
         (shared / "rounds" / "0001").mkdir(parents=True)

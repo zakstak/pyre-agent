@@ -300,7 +300,7 @@ def main(argv=None):
             check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
             check_inventory(feedback, review, render_review.input_digest(review))
     except (FeedbackError, render_review.ValidationError, OSError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     orphans = sum(comment["attachment"]["state"] == "orphan" for comment in feedback["comments"])
     # Titles and paths are reviewed data and may hold line breaks or terminal controls, so they print escaped.

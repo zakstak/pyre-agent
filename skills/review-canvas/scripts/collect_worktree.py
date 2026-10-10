@@ -166,6 +166,8 @@ def round_input(path):
 def in_state_directory(path):
     """Whether path is a file of a review state directory, STATE/NAME or STATE/rounds/NNNN/NAME. A state directory is
     private to this user and holds a numbered round, so a shared ancestor such as /tmp never counts as one."""
+    if not hasattr(os, "getuid"):
+        return False  # no ownership to check, as on Windows, where server mode and its state directories are refused
     def is_state(directory):
         try:
             info = os.stat(directory)
