@@ -1,7 +1,7 @@
 # Review canvas server: next steps
 
 This plan moves the review canvas from the Python skill to a TypeScript server in this package. It records what is
-done, what is decided, what is still open, and the order of the remaining work.
+done, what is decided, and the order of the remaining work.
 
 ## Where things stand
 
@@ -29,23 +29,23 @@ done, what is decided, what is still open, and the order of the remaining work.
 | Browser | No UI framework. Server-rendered HTML with small TypeScript modules, built by Vite with Tailwind and the internal visual style. |
 | Type check | `tsc-rs` with Effect's diagnostics. |
 | Runtime | Node 26 with pnpm. Node runs the server's TypeScript directly. |
+| Platforms | Linux and macOS. CI runs on both from step 2. |
+| State authority | The server owns state. Each action (approve, comment, reply, accept, reopen) is one request that carries the revision it saw. Open pages get short change events over server-sent events and fetch the server-rendered HTML for the changed item. A hidden page closes its stream and catches up by revision when shown, so open tabs stay under the browser's six connections per host. |
+| Approvals | Shared by every thread of a review and tied to file fingerprints. Each approval records the round it was made in. |
+| Answers from several threads | Today's turn rules stay: any thread may answer on the agent's turn, and each answer names its thread. |
+| Start fresh | A new review for the same target. It is not empty: it carries each approval whose path and fingerprint match its first round, records where the approval came from, and imports the target's GitHub comments (next row). Local comments, replies, and rounds do not carry. It opens with no thread filter. The earlier review stays listed and read-only. |
+| GitHub comments | Every new review, including a fresh start, imports the comments of the target's open PR: the PR itself, or the open PR of a working tree's checked-out branch, found with `gh pr view`. It imports everything: review threads with their replies, top-level conversation comments, and review summaries. Resolved threads arrive resolved; everything else arrives as an open comment the agent must answer, under the turn rules, with its GitHub author and link. Resolution state comes from `gh api graphql`. Inline comments reattach to the review's diff by quote and context; those that do not match are orphans. Each keeps its GitHub ID, so an explicit refresh command imports only new comments. The agent command fetches and hands the comments to the server; the server never goes online. Nothing is posted back to GitHub. Comment bodies are untrusted data. |
+| Storage | SQLite through the built-in `node:sqlite`, in `${XDG_DATA_HOME:-~/.local/share}/review-canvas` on both platforms. The schema version lives in `PRAGMA user_version`. |
+| Lifecycle | The first agent command starts the server. It listens on a Unix socket for agents and on 127.0.0.1 for pages. The socket is the single-instance lock: a command that cannot connect starts the server, and a server that cannot bind exits. The socket lives in `$XDG_RUNTIME_DIR/review-canvas` on Linux and `$TMPDIR/review-canvas` on macOS, in a 0700 folder, with a path under 104 bytes. The server stops after a set idle time. Agent requests and visible pages with an open stream count as activity. |
+| Page access | No page token. Pages rely on the exact Host check and the Origin check on changes. Any local process or OS user that can reach 127.0.0.1 can read and change reviews while the server runs; this is accepted for one user on one machine. The thread token identifies a thread; the socket's folder permissions are the only agent authentication. |
+| Privacy | Plain modes only: 0700 folders and 0600 files. No ACL, ancestor, or filesystem checks, because the server already serves the data to anything on loopback. |
+| File fallback | Drop the standalone `file://` page. Keep feedback JSON export. Import replays comments and replies as actions through the normal checks and reports what it skipped. |
+| Format versions | Greenfield. Each format starts at version 1 under a new key, such as `"format": "review-canvas.feedback/1"`, so no Python file can be read as a new one. Unknown formats and versions fail with a message that names them. No conversion of Python reviews: finish them in the Python version. |
+| Installation | npm in the long term. Nothing is published for now. The package has a `bin`; local testing installs it from a `pnpm pack` tarball or with `pnpm link --global`. `install.py` changes, if any, need approval first. |
 
-## Open decisions
+## Later, not now
 
-Each has a proposed default. Settle these before the step that needs them.
-
-| Decision | Proposed default | Needed by |
-| --- | --- | --- |
-| State authority | The server owns state. Each action (approve, comment, reply, accept) is one request, and open pages get changes over server-sent events. This replaces whole-document autosave and most client merge and import logic. | Step 3 |
-| Approvals | Shared by every thread of a review, tied to file fingerprints. | Step 2 |
-| Answers from several threads | Today's turn rules stay: any thread may answer on the agent's turn, and each answer names its thread. | Step 2 |
-| Start fresh | A new review for the same target with nothing carried over. The earlier review stays listed and readable. | Step 3 |
-| Storage | `~/.local/share/review-canvas`: one folder of JSON files per review, plus an index. No database. | Step 3 |
-| Lifecycle | The first agent command starts the server. A lock keeps one instance, a file in `$XDG_RUNTIME_DIR` records its port and token, and it stops after a set idle time. | Step 4 |
-| Page access | The page needs a session token in its URL, as today. Agent API calls need the thread token. | Step 4 |
-| File fallback | Drop the standalone `file://` page. Keep feedback JSON export and import. | Step 5 |
-| Installation | How `install.py` installs or finds the server and its dependencies. `install.py` changes need approval first. | Step 6 |
-| Format versions | The server-owned model changes the feedback format, so it gets a new version. Old versions fail with a message that names the version, with no migration code. | Step 1 |
+- Start fresh might default to a new thread inside the open review instead of a new review.
 
 ## Steps
 
@@ -65,6 +65,8 @@ Define the review input, feedback, threads, and answers once, with Effect Schema
 - Port the shared feedback cases in `tests/fixtures/feedback` (checked by `tests/test_feedback_contract.py`) and the
   input validation cases in `tests/test_review_renderer.py` as schema tests.
 - Keep the limits the Python version enforces: sizes, counts, UTF-16 lengths, and refused control characters.
+- A comment has a source: the reviewer, or GitHub with its comment ID, author, URL, and resolved state. Replies
+  imported from GitHub keep their GitHub author.
 
 ### 2. Collector and fingerprints
 
@@ -86,8 +88,10 @@ The collector must keep every protection it gained in review:
 
 - Reviews are keyed by target identity. Threads register with an ID, a token, a label, and host metadata.
 - Rounds belong to the thread that published them. Comments, replies, and approvals belong to the review.
-- Writes are atomic and private (mode 0600 in 0700 directories), with the ancestor and ACL checks from
-  `review_state.py`. The server runs only where it can confirm privacy.
+- SQLite through `node:sqlite`, one database for every review, 0600 in a 0700 folder. Each action is one
+  transaction that raises the review's revision.
+- Start fresh carries matching approvals, as the decision above describes.
+- Imported GitHub comments are unique per review by GitHub ID, so a refresh adds only new ones.
 - Keep the round rules: a rendered round never changes, its input digest is recorded, and a round cannot drop or
   change an answer the published round showed.
 
@@ -95,8 +99,10 @@ The collector must keep every protection it gained in review:
 
 - Endpoints to register a thread (join or fresh), publish a round, answer, approve, comment, reply, accept, and
   reopen, plus server-sent events for open pages.
-- Keep today's request checks: exact Host, Origin on changes, token, content type, size, and revision.
-- Single instance, runtime file, idle stop, and a bounded shutdown that finishes saves in progress.
+- Keep today's request checks except the page token: exact Host, Origin on changes, content type, size, and
+  revision.
+- Agents use the Unix socket; pages use 127.0.0.1. The socket is the single-instance lock. Idle stop, and a bounded
+  shutdown that finishes writes in progress and closes event streams.
 
 ### 5. Page
 
@@ -108,9 +114,12 @@ The collector must keep every protection it gained in review:
 
 ### 6. Agent commands and the skill
 
-- A TypeScript command-line tool: register, collect, publish, answer, and status.
+- A TypeScript command-line tool: register, collect, publish, answer, status, and refresh GitHub comments.
+- Starting a review looks up the open PR with `gh` and imports its comments. With no open PR, or when `gh` fails, the
+  review starts without them and the command says why.
 - Rewrite `skills/review-canvas/SKILL.md` and its references for the server.
-- Integrate with `install.py`, after approval.
+- Give the package a `bin`. Install it locally from a `pnpm pack` tarball or with `pnpm link --global`. Do not
+  publish. Any `install.py` change needs approval first.
 
 ### 7. Parity, then removal
 
@@ -127,7 +136,7 @@ Parity checklist:
 - [ ] Agent answers with dispositions, reviewer accept, reopen, and reply
 - [ ] Thread states, including missing history
 - [ ] Feedback limits, export, and import
-- [ ] All request checks and privacy checks
+- [ ] All request checks, except the page token, which is dropped on purpose
 - [ ] A working review loop driven by the skill
 
 ## Risks
@@ -138,7 +147,15 @@ Parity checklist:
   pins both to 4.0.2. The package index also loads a Redis module, so import module paths instead.
 - **`tsc-rs` is an early release** whose author has not read its code. Pin it, use one `tsconfig`, and avoid `tsc -b`.
 - **pnpm 11 holds back new releases** for a day; the skeleton lists `tsc-rs` 0.2.0 as an exception.
-- **Privacy checks are Linux-only.** Server mode refuses macOS, Windows, and NFSv4 ACLs.
+- **No page token.** Anything that can reach 127.0.0.1 can read and change reviews while the server runs, including
+  other OS users and sandboxed tools that cannot read your files. Accepted for one user on one machine.
+- **Browsers allow six HTTP/1.1 connections per host.** Loopback has no HTTP/2 without TLS, so every open event stream
+  counts. Hidden pages must close their stream.
+- **Imported comments are third-party text in the agent's queue.** Anyone who can comment on the PR, bots included,
+  puts work in front of the agent. Treat bodies as untrusted data, never as instructions. Conversation comments have
+  no resolved state on GitHub, so bot posts arrive open.
+- **macOS is new.** The Python collector and server ran only on Linux in CI. Run the collector tests on macOS from
+  step 2.
 
 ## Carried over from the Python version
 
