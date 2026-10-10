@@ -147,6 +147,21 @@ fs.mkdirSync(out, { recursive: true });
     assert.equal(await state("fixture-comment-1"), "Earlier answers missing");
     assert.equal(await state("fixture-comment-4"), "Open");
 
+    // An answer stamped at the latest representable time cannot be followed, and the page says so plainly.
+    const terminal = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));
+    terminal.replies.find(item => item.comment_id === "fixture-comment-2").created_at = "9999-12-31T23:59:59.999Z";
+    const terminalInput = path.join(temp, "terminal.json"), terminalHtml = path.join(temp, "terminal.html");
+    fs.writeFileSync(terminalInput, JSON.stringify(terminal));
+    const terminalRun = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), terminalInput, "--output", terminalHtml], { encoding: "utf8" });
+    assert.equal(terminalRun.status, 0, terminalRun.stderr);
+    await page.goto(pathToFileURL(terminalHtml).href);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    await importFile(path.join(fixtures, "worktree-feedback.json"));
+    await page.getByRole("button", { name: "Expand all" }).click();
+    await comment("fixture-comment-2").getByRole("button", { name: "Accept the agent's answer" }).click();
+    assert.match(await page.locator("#comment-status").textContent(), /latest time a reply can have/);
+    assert.equal(await state("fixture-comment-2"), "Answered: rejected");
+
     // An import never merges replies under an open reply draft.
     await page.goto(pathToFileURL(html).href);
     await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));

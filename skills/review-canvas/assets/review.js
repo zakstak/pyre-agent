@@ -433,6 +433,7 @@
     if (action !== "accept" && !body.trim()) { announce("Write a reply before saving."); return; }
     // A new reply always sorts last, even when the agent's clock ran ahead of this one.
     const latest = Math.max(Date.now(), ...thread(comment).map(when).filter(Number.isFinite).map(time => time + 1));
+    if (new Date(latest).getUTCFullYear() > 9999) { announce("The last reply in this thread is at the latest time a reply can have, so no later reply fits."); return; }
     const reply = { id: crypto.randomUUID(), actor: "reviewer", created_at: new Date(latest).toISOString(), body: action === "accept" ? body.trim() : body, action };
     const before = comments;
     comments = comments.map(item => item.id === comment.id ? { ...item, replies: [...(item.replies || []), reply] } : item);
