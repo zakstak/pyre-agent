@@ -65,6 +65,15 @@ def _object(value, where, required, optional=()):
         raise ValidationError(f"{where}: unknown fields: {', '.join(sorted(unknown))}")
 
 
+CONTROL_ESCAPES = {**{code: f"\\u{code:04x}" for code in [*range(0x20), *range(0x7F, 0xA0), 0x2028, 0x2029]},
+                   0x09: "\\t", 0x0A: "\\n", 0x0D: "\\r"}
+
+
+def escaped(text):
+    """Text for one terminal line, such as an error naming a path: control characters and line separators become escapes."""
+    return str(text).translate(CONTROL_ESCAPES)
+
+
 def shown(path):
     """A path for terminal output. Git allows control characters in names, so a name with one is quoted and escaped,
     and cannot forge or overwrite a line."""
@@ -587,7 +596,7 @@ def main(argv=None):
             page = render_review(review, args.style_dir)
             args.output.write_text(page, encoding="utf-8")
     except (ValidationError, OSError, ValueError, RecursionError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        print(f"Error: {escaped(error)}", file=sys.stderr)
         return 2
     missing, incomplete, unverified = coverage_counts(review["files"])
     print(f"Wrote {args.output} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "

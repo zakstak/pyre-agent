@@ -384,7 +384,8 @@ def assumed_unchanged(top, tracked, config):
             new_mode = indexed  # with core.filemode off, Git records the index mode, not the executable bit on disk
         elif new_mode == "160000" and indexed != "160000" and repository_head(top / path) is None:
             new_mode = None  # an ordinary directory replaced the file: a deletion, with its children collected as untracked
-        if path in changes and not new_mode and path not in head:
+        # A directory HEAD held at this path is no old side for a file: the file was only ever staged.
+        if path in changes and not new_mode and (path not in head or head[path][0] == "040000"):
             if folds_case and case_renamed(top, path):
                 # Git hides the new spelling from the untracked list, and no HEAD deletion is left for the later guard.
                 raise CollectError(f"{path} was renamed by case only, which Git hides with core.ignoreCase on. "
@@ -724,7 +725,7 @@ def main(argv=None):
                 raise CollectError(f"{output.parent} rendered while collecting; a round never changes after it renders. Start a new round.")
             write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks
         return 2
     notes = [file.get("patch_note") for file in review["files"]]
     count = len(notes)
