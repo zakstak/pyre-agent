@@ -650,6 +650,13 @@ class InventoryTests(Fixture):
         self.assertEqual(text["patch_note"], "replaced_characters")
         self.assertIn("next\ufffdline \ufffdevil\ufffd and \ufffd here", text["patch"])
 
+    def test_a_new_file_beside_a_tracked_one_differing_in_case_stops_collection(self):
+        self.commit({"foo": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        self.write("FOO", "a different file\n")
+        with self.assertRaisesRegex(collector.CollectError, "FOO differs from tracked foo only in case"):
+            self.collect()
+
     def test_many_long_hidden_paths_fit(self):
         names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
         self.commit({name: "x\n" for name in names})
@@ -971,6 +978,14 @@ class FingerprintTests(Fixture):
         (self.root / ".git" / "info" / "grafts").write_text(f"{self.git(self.root, 'rev-parse', 'feature').strip()} {self.git(self.root, 'rev-parse', 'main').strip()}\n")
         self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"), expected)
 
+    def test_a_repository_shallow_file_does_not_change_the_merge_base(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "checkout", "-q", "-b", "feature")
+        self.commit({"feature.txt": "f\n"})
+        expected = fingerprint.pr_fingerprints(self.root, "main", "feature")
+        (self.root / ".git" / "shallow").write_text(self.git(self.root, "rev-parse", "feature").strip() + "\n")
+        self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"), expected)
+
     def test_cli_errors(self):
         self.commit({"a.txt": "a\n"})
         plain = self.base / "plain"
@@ -1271,6 +1286,20 @@ class IsolationTests(Fixture):
                         self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
                     self.collect()
                 self.assertFalse(marker.exists())
+
+    def test_a_git_reached_through_a_symlink_in_the_repository_never_runs(self):
+        outside = self.base / "tools"
+        outside.mkdir()
+        marker = self.base / "linked-git-ran"
+        fake = outside / "git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        self.commit({"a.txt": "a\n"})
+        os.symlink(outside, self.root / "bin")
+        with mock.patch.dict(os.environ, {"PATH": str(self.root / "bin") + os.pathsep + os.environ["PATH"]}), \
+                self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
+            self.collect()
+        self.assertFalse(marker.exists())
 
     def test_git_tracing_cannot_write_into_the_working_tree(self):
         self.commit({"a.txt": "a\n"})

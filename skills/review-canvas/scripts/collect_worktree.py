@@ -320,6 +320,18 @@ def inventory(top, fmt, config):
         if folds_case and entry["status"] == "deleted" and case_renamed(top, entry["path"]):
             raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
                                "Stage the rename with git mv, then collect again.")
+    if folds_case:
+        # Git also hides a new file beside a tracked one whose name differs only in case. Listing with exact case
+        # finds it; on a filesystem that folds case too, it is the tracked file itself.
+        exact = git(top, "-c", "core.ignoreCase=false", "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
+        for raw in set(exact) - set(others):
+            path = Path(os.fsdecode(raw.removesuffix(b"/")))
+            for other in os.listdir(top / path.parent):
+                twin = path.parent / other
+                if (other != path.name and os.fsencode(other).lower() == os.fsencode(path.name).lower()
+                        and git(top, "ls-files", "-z", "--", str(twin)) and not os.path.samefile(top / path, top / twin)):
+                    raise CollectError(f"{path} differs from tracked {twin} only in case, which Git hides with core.ignoreCase on. "
+                                       "Rename one of them, then collect again.")
     return {"head": head, "branch": branch, "index": index, "entries": [entries[path] for path in sorted(entries)]}
 
 
