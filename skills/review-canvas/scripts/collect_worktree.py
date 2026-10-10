@@ -294,15 +294,27 @@ def git_bool(top, key, default=True):
     return git(top, "config", "--type=bool", "--default", "true" if default else "false", key).strip() == b"true"
 
 
-def behind_symlink(top, path):
-    """Whether a directory on the way to path is a symlink. Git then counts path as deleted, and reading it would read
-    through the link, outside the working tree."""
+def ancestor_replaced(top, path):
+    """Whether a directory on the way to path is now a symlink or a file. Git then counts path as deleted. Reading it
+    would follow the link outside the working tree, or fail on the file."""
     parent = top
     for part in Path(path).parts[:-1]:
         parent = parent / part
-        if os.path.islink(parent):
+        try:
+            info = os.lstat(parent)
+        except FileNotFoundError:
+            return False  # an absent directory leaves path absent, which callers already handle
+        if not stat.S_ISDIR(info.st_mode):
             return True
     return False
+
+
+def shown(path):
+    """A path for terminal output. Git allows control characters in names, so a name with one is quoted and escaped,
+    and cannot forge or overwrite a line."""
+    if not any(ord(character) < 0x20 or 0x7F <= ord(character) < 0xA0 or character in "\u2028\u2029" for character in path):
+        return path
+    return json.dumps(path, ensure_ascii=False).translate({code: f"\\u{code:04x}" for code in [*range(0x7F, 0xA0), 0x2028, 0x2029]})
 
 
 def assumed_unchanged(top, tracked, config):
@@ -313,7 +325,7 @@ def assumed_unchanged(top, tracked, config):
     # behind a symlinked directory is a deletion, as staging would record it.
     assumed = {decode_path(entry[2:]) for entry in listing
                if (entry[:1].islower() and entry[:1] != b"s")
-               or (entry[:1] in b"Ss" and (os.path.lexists(top / decode_path(entry[2:])) or behind_symlink(top, decode_path(entry[2:]))))}
+               or (entry[:1] in b"Ss" and (os.path.lexists(top / decode_path(entry[2:])) or ancestor_replaced(top, decode_path(entry[2:]))))}
     if not assumed:
         return tracked
     changes = {change["path"]: change for change in tracked}
@@ -328,7 +340,7 @@ def assumed_unchanged(top, tracked, config):
     links_are_files = not git_bool(top, "core.symlinks")
     modes_count = git_bool(top, "core.filemode")
     for path in sorted(assumed):
-        new_mode, indexed = None if behind_symlink(top, path) else disk_mode(top / path), index.get(path, ("",))[0]
+        new_mode, indexed = None if ancestor_replaced(top, path) else disk_mode(top / path), index.get(path, ("",))[0]
         if links_are_files and indexed == "120000" and new_mode in ("100644", "100755"):
             new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
         elif not modes_count and indexed in ("100644", "100755") and new_mode in ("100644", "100755"):
@@ -475,7 +487,8 @@ def build(top, snapshot, fmt, include, config):
         path = entry["path"]
         binary = entry.get("binary", False)
         if entry["untracked"]:
-            additions, deletions = (entry["lines"] if entry["kind"] == "file" and not binary else 0), 0
+            # Git counts a link's target, or a submodule's commit, as one added line.
+            additions, deletions = (0 if binary else entry["lines"] if entry["kind"] == "file" else 1), 0
         elif path in stats and (binary or not stats[path][2]):
             additions, deletions, _ = stats[path]
         elif entry.get("hidden") or path in stats:
@@ -523,15 +536,30 @@ def collect(repo, title=None, include_secret=(), output=None):
     """Return (validated review, secret-flagged paths) for the working tree containing repo."""
     git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
+    git_dir = Path(decode_path(git(repo, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))).resolve()
+    # Every later command runs from top and finds its repository again. If core.worktree points at a checkout with a
+    # .git of its own, that is another repository.
+    try:
+        same = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))).resolve() == git_dir
+    except GitError:
+        same = False
+    if not same:
+        raise CollectError(f"{repo} sets core.worktree to {top}, which Git there resolves to another repository or none. "
+                           f"Collect from the repository that {top} belongs to.")
     if output is not None:
-        git_dir = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")))
+        common_dir = (Path(repo) / decode_path(git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n"))).resolve()
+        states = git_dir / "review-canvas"
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
         if os.path.islink(output):
             raise CollectError(f"--output {output} is a symbolic link; name the real file instead")
         destination = Path(output).absolute().parent.resolve() / Path(output).name
-        if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(git_dir.resolve()):
+        # Git's own files, such as HEAD, index, and config, sit in the Git directory; only its review-canvas folder is ours.
+        if (destination.is_relative_to(git_dir) or destination.is_relative_to(common_dir)) and not destination.is_relative_to(states):
+            raise CollectError(f"--output {output} is inside the Git directory, where it could replace Git's own files. "
+                               f"Write it inside {states} or outside the repository.")
+        if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(states):
             raise CollectError(f"--output {output} is inside the working tree, where the snapshot would become an untracked "
-                               f"change of its own. Write it outside {top} or inside {git_dir}.")
+                               f"change of its own. Write it outside {top} or inside {states}.")
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     config = filter_overrides(top)
     if Path(tempfile.gettempdir()).resolve().is_relative_to(top.resolve()):
@@ -579,10 +607,10 @@ def staged_differently(top, config):
     found = []
     index = index_entries(top, staged)
     # A staged deletion has no index entry; a file kept on disk at that path means the commit removes what was reviewed.
-    found += [path for path in staged - index.keys() if os.path.lexists(top / path) and not behind_symlink(top, path)]
+    found += [path for path in staged - index.keys() if os.path.lexists(top / path) and not ancestor_replaced(top, path)]
     for path, (mode, blob, tag) in index.items():
         full = top / path
-        if behind_symlink(top, path):
+        if ancestor_replaced(top, path):
             found.append(path)  # the review shows a deletion, but the commit records the staged file
             continue
         if tag in "Ss" and not os.path.lexists(full):
@@ -636,9 +664,9 @@ def main(argv=None):
     print(f"Wrote {args.output} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
           f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
     for path in flagged:
-        print(f"Likely secret, contents left out: {path}")
+        print(f"Likely secret, contents left out: {shown(path)}")
     for path in staged:
-        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {path}")
+        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {shown(path)}")
     return 0
 
 
