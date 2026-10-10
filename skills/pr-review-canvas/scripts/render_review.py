@@ -158,7 +158,7 @@ def _paragraph(value, css_class="commentary"):
     return f'<p class="{css_class}">{escape(value)}</p>' if value else ""
 
 
-def _patch_html(patch):
+def patch_lines(patch):
     """Keep every patch line, including headers, markers, and unknown formats."""
     old = new = None
     rows = []
@@ -190,11 +190,22 @@ def _patch_html(patch):
                 new_label, new = new, new + 1
         else:
             kind = "meta"
-        rows.append(f'<tr class="{kind}"><td class="line-number">{old_label}</td>'
-                    f'<td class="line-number">{new_label}</td><td class="source"><code>{escape(line)}</code></td></tr>')
+        rows.append({"text": line, "kind": kind, "old_line": old_label or None, "new_line": new_label or None})
+    return rows
+
+
+def _patch_html(patch):
+    rows = []
+    for i, line in enumerate(patch_lines(patch)):
+        old, new = line["old_line"] or "", line["new_line"] or ""
+        label = f'Comment on diff row {i + 1}, old {old or "none"}, new {new or "none"}'
+        rows.append(f'<tr class="{line["kind"]}" data-row="{i}" data-kind="{line["kind"]}" data-old="{old}" data-new="{new}">'
+                    f'<td class="line-number">{old}</td><td class="line-number">{new}</td>'
+                    f'<td class="source"><code>{escape(line["text"])}</code></td>'
+                    f'<td class="line-action"><button class="comment-line" type="button" aria-label="{label}">+</button></td></tr>')
     return ('<div class="diff-scroll" tabindex="0" aria-label="Scrollable unified diff">'
             '<table class="diff"><thead><tr><th scope="col">Old</th><th scope="col">New</th>'
-            '<th scope="col">Unified diff</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+            '<th scope="col">Unified diff</th><th scope="col">Note</th></tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
 
 
 def _file_html(file, index):
@@ -230,24 +241,50 @@ def _file_html(file, index):
             f'<label class="review-toggle"><input class="reviewed" type="checkbox" autocomplete="off" aria-label="Mark {escape(file["path"])} reviewed"> Reviewed</label></header>'
             + warning + f'<details class="file-details"{" open" if file["group"] != "mechanical" else ""}><summary>Review details</summary>'
             + (commentary + patch if commentary or patch else '<p class="empty-detail">No review commentary or patch supplied.</p>')
+            + '<section class="inline-comments" aria-label="Inline comments"><h4>Inline comments <span class="comment-count">(0)</span></h4><div class="comment-list"></div></section>'
             + f'</details><details class="notes-details"><summary>My notes<span class="note-indicator"></span></summary>'
             f'<label class="sr-only" for="notes-{index}">Notes for {escape(file["path"])}</label>'
-            f'<textarea id="notes-{index}" class="file-notes" rows="3" autocomplete="off" spellcheck="false" placeholder="Questions, findings, or follow-up for this file"></textarea></details></article>')
+            f'<textarea id="notes-{index}" class="file-notes" rows="3" maxlength="20000" autocomplete="off" spellcheck="false" placeholder="Questions, findings, or follow-up for this file"></textarea></details></article>')
 
 
-def render_review(review):
+def shared_style(style_dir=None):
+    """Consume the canonical companion at render time; embed it for offline delivery."""
+    folder = Path(style_dir) if style_dir else Path(__file__).resolve().parents[2] / "internal-visual-style"
+    assets = folder / "assets"
+    try:
+        css = (assets / "tokens.css").read_text(encoding="utf-8")
+        fonts = (assets / "fonts.css").read_text(encoding="utf-8")
+        def embed(match):
+            name = match[1]
+            if name not in {"atkinson-hyperlegible-next.ttf", "atkinson-hyperlegible-mono.ttf"}:
+                raise ValidationError("shared font reference is unsupported; update the dependency adapter")
+            data = base64.b64encode((assets / "fonts" / name).read_bytes()).decode()
+            return f'url("data:font/ttf;base64,{data}")'
+        fonts = re.sub(r'url\("\./fonts/([^"/]+)"\)', embed, fonts)
+        if re.search(r'url\((?!"data:font/ttf;base64,)', fonts):
+            raise ValidationError("shared font URL was not embedded")
+        js = (assets / "theme.js").read_text(encoding="utf-8")
+        notices = "\n\n".join((assets / "fonts" / name).read_text(encoding="utf-8") for name in ("OFL.txt", "atkinson-hyperlegible-mono-OFL.txt"))
+        return css + "\n" + fonts + "\n", js, notices
+    except OSError as error:
+        raise ValidationError("internal-visual-style companion is missing or unreadable. Install its complete folder beside pr-review-canvas, or pass --style-dir /path/to/internal-visual-style. " + str(error)) from error
+
+
+def render_review(review, style_dir=None):
     """Return a self-contained HTML document for a validated review object."""
     validate_review(review)
     assets = Path(__file__).resolve().parent.parent / "assets"
-    css = (assets / "review.css").read_text(encoding="utf-8")
-    js = (assets / "review.js").read_text(encoding="utf-8")
+    css, theme_js, notices = shared_style(style_dir)
+    css += (assets / "review.css").read_text(encoding="utf-8")
+    js = theme_js + "\n" + (assets / "feedback.js").read_text(encoding="utf-8") + "\n" + (assets / "review.js").read_text(encoding="utf-8")
     digest = hashlib.sha256(json.dumps(review, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
     metadata = {"schema_version": 1, "pr": review["pr"], "input_sha256": digest,
-                "files": [{"id": f"file-{i}", "path": f["path"], "status": f["status"], "group": f["group"]} for i, f in enumerate(review["files"])]}
+                "files": [{"id": f"file-{i}", "path": f["path"], "status": f["status"], "group": f["group"],
+                           "patch_sha256": hashlib.sha256(f.get("patch", "").encode()).hexdigest() if f.get("patch") else None} for i, f in enumerate(review["files"])]}
     script_hash = base64.b64encode(hashlib.sha256(js.encode()).digest()).decode()
     style_hash = base64.b64encode(hashlib.sha256(css.encode()).digest()).decode()
     csp = (f"default-src 'none'; script-src 'sha256-{script_hash}'; style-src 'sha256-{style_hash}'; "
-           "connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; "
+           "connect-src 'none'; img-src 'none'; font-src data:; object-src 'none'; base-uri 'none'; "
            "form-action 'none'; frame-src 'none'; worker-src 'none'")
     groups = []
     for key, label, description in GROUPS:
@@ -279,24 +316,34 @@ def render_review(review):
             f'<meta http-equiv="Content-Security-Policy" content="{escape(csp)}">'
             '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer">'
             f'<title>{escape(review["pr"]["title"])} · PR review</title><style>{css}</style></head><body>'
-            '<a class="skip-link" href="#files">Skip to changed files</a><main><header class="page-header"><p class="eyebrow">Private · Offline PR review</p>'
+            '<a class="skip-link" href="#files">Skip to changed files</a><main><header class="page-header">'
+            '<button id="theme-toggle" type="button" aria-label="Dark mode" aria-pressed="false" hidden>Dark mode: off</button>'
             f'<h1>{escape(review["pr"]["title"])}</h1><div class="pr-link">{pr_link}</div>'
             + _paragraph(review.get("summary"), "lead")
             + f'<p class="totals">{len(review["files"])} supplied files · <span class="additions">+{total_additions:,}</span> <span class="deletions">−{total_deletions:,}</span>{warnings}</p>'
-            + f'<p class="scope-note">{scope}</p>' + snapshot + '</header>'
+            + f'<p class="scope-note">{scope}</p>' + snapshot
+            + '<p class="font-status" id="font-status">Reading font: checking; system fallback until loaded.</p><p class="font-status" id="technical-font-status">Technical font: checking; system fallback until loaded.</p></header>'
             '<noscript><p class="warning">JavaScript is disabled. Diffs and commentary are readable, but filters, review tracking, and feedback export require JavaScript. Notes cannot be saved here.</p></noscript>'
             '<section class="toolbar" aria-label="Review controls"><label>Find files<input id="search" type="search" placeholder="Path, group, status, or summary" autocomplete="off"></label>'
             '<label>Show<select id="review-filter"><option value="all">All files</option><option value="remaining">Not reviewed</option><option value="reviewed">Reviewed</option></select></label>'
             '<div class="toolbar-buttons"><button id="expand-all" type="button">Expand shown diffs</button><button id="collapse-all" type="button">Collapse shown diffs</button></div>'
             f'<p id="progress" role="status" aria-live="polite">0 of {len(review["files"])} reviewed</p><p id="filter-status" role="status" aria-live="polite">{len(review["files"])} files shown</p></section>'
-            '<section id="files" aria-label="Changed files">' + ("".join(groups) if groups else '<p class="empty-detail">No changed files supplied. Verify the input if you expected a diff.</p>')
+            '<section class="annotation-tools" aria-label="Comment controls"><p>Select code text within one file, then add a comment. Each diff row also has a keyboard-accessible comment button.</p>'
+            '<button id="comment-selection" type="button" disabled>Add comment on selected text</button><p id="selection-status" role="status" aria-live="polite">No code text selected.</p>'
+            '<section id="comment-composer" hidden aria-label="New inline comment"><h2 id="composer-heading">New comment</h2><pre id="selected-quote"></pre><label for="comment-body">Comment</label><textarea id="comment-body" maxlength="20000" rows="3" spellcheck="false"></textarea><button id="save-comment" type="button">Save comment in review</button><button id="cancel-comment" type="button">Cancel comment</button></section>'
+            '<p id="comment-status" role="status" aria-live="polite"></p><button id="undo-delete" type="button" hidden>Undo last comment deletion</button></section>'
+            '<section id="orphan-comments" hidden aria-labelledby="orphan-heading"><h2 id="orphan-heading">Unattached comments</h2><p>These comments are preserved. Their code changed, moved ambiguously, or is absent. Select the intended text to attach one manually, or leave it here for review.</p><div id="orphan-list"></div></section>'
+            '<section id="files" aria-label="Changed files" tabindex="-1">' + ("".join(groups) if groups else '<p class="empty-detail">No changed files supplied. Verify the input if you expected a diff.</p>')
             + '<p id="no-results" hidden>No files match these filters.</p></section>'
-            '<section class="feedback" aria-labelledby="feedback-heading"><h2 id="feedback-heading">Send your review back</h2>'
-            '<p>Notes and reviewed flags stay in this tab’s memory. Nothing is uploaded or stored by this page. Reloading or closing can lose changes. Download your feedback and send the JSON file to your agent manually. It contains your notes and file paths, but does not copy the patches.</p>'
-            '<label for="general-notes">Overall notes</label><textarea id="general-notes" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback or a decision for the agent"></textarea>'
+            '<section class="feedback" aria-labelledby="feedback-heading"><h2 id="feedback-heading">Save and restore review</h2>'
+            '<p>Export feedback to a local JSON file before closing. Import that file to restore comments and notes, including on a later snapshot of the same PR. Only the theme preference is stored automatically. Feedback includes selected code lines, paths and notes; keep it private. Nothing is uploaded. Hand the JSON to your agent or local report CLI when ready.</p>'
+            '<label for="import-feedback">Import saved feedback (.json)</label><input id="import-feedback" type="file" accept=".json,application/json"><p id="import-status" role="status" aria-live="polite"></p>'
+            '<details id="retained-reviews" hidden><summary>Preserved earlier snapshot notes and flags</summary><pre id="retained-json"></pre></details>'
+            '<label for="general-notes">Overall notes</label><textarea id="general-notes" maxlength="20000" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback or a decision for the agent"></textarea>'
             '<button id="export-feedback" class="primary" type="button">Export feedback (.json)</button><p id="export-status" role="status" aria-live="polite"></p>'
             '<details id="export-preview" hidden><summary>Copy exported JSON</summary><label class="sr-only" for="feedback-json">Exported feedback JSON</label><textarea id="feedback-json" rows="10" readonly spellcheck="false"></textarea></details></section>'
-            '<footer>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.</footer></main>'
+            '<footer>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.'
+            + f'<details class="font-notices"><summary>Bundled font license notices</summary><pre>{escape(notices)}</pre></details></footer></main>'
             f'<span id="review-data" hidden data-review="{escape(json.dumps(metadata, ensure_ascii=True, separators=(",", ":")))}"></span>'
             f'<script>{js}</script></body></html>\n')
 
@@ -305,12 +352,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Normalized UTF-8 JSON review input")
     parser.add_argument("-o", "--output", required=True, type=Path, help="Standalone HTML output file")
+    parser.add_argument("--style-dir", type=Path, help="Complete internal-visual-style companion folder (defaults to sibling)")
     args = parser.parse_args(argv)
     try:
         if args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):
             raise ValidationError("input and output must be different files")
         review = load_review(args.input)
-        page = render_review(review)
+        page = render_review(review, args.style_dir)
         args.output.write_text(page, encoding="utf-8")
     except (ValidationError, OSError, ValueError, RecursionError) as error:
         print(f"Error: {error}", file=sys.stderr)

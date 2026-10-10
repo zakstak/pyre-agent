@@ -69,7 +69,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     const downloaded = path.join(temp, download.suggestedFilename());
     await download.saveAs(downloaded);
     const feedback = JSON.parse(fs.readFileSync(downloaded, "utf8"));
-    assert.equal(feedback.feedback_schema_version, 1);
+    assert.equal(feedback.feedback_schema_version, 2);
     assert.equal(feedback.files.length, 3);
     const core = feedback.files.find(file => file.path === "src/retry.py");
     assert.equal(core.reviewed, true);
