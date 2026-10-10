@@ -167,6 +167,20 @@ function render(name) {
     const returned = await exportFeedback();
     assert.equal(returned.files.length, 10, "every file of the snapshot is listed again");
     assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
+    // A note already typed in this tab stays beside the returning notes; one that differs from a returning note conflicts.
+    await load(round1);
+    await card("src/notes/store.py").locator(".notes-details > summary").click();
+    await card("src/notes/store.py").locator(".file-notes").fill("typed before the import");
+    await importFile(backPath);
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
+    assert.equal(await card("src/notes/store.py").locator(".file-notes").inputValue(), "typed before the import");
+    assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
+    await load(round1);
+    await card("src/notes/cli.py").locator(".notes-details > summary").click();
+    await card("src/notes/cli.py").locator(".file-notes").fill("a different note");
+    await importFile(backPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /Conflicting notes/);
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "a different note");
     // A retained entry for this snapshot that lists other files is refused before anything changes.
     const broken = structuredClone(back);
     broken.retained_reviews[0].files[0] = { ...broken.retained_reviews[0].files[0], path: "not/in/this/round.py" };

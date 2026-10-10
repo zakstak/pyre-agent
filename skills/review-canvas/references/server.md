@@ -88,7 +88,7 @@ A page served this way loads the saved feedback when it opens and merges it as a
 
 When a new round is published, the page offers **Reload**. It never reloads on its own, so an open draft is not lost. Feedback from an earlier round is saved again against the new snapshot, with that round's notes kept under `retained_reviews`.
 
-If a save conflicts, the page stops saving and says so, and offers **Reload**. If a save fails, the page keeps its warning about unsaved changes until a later save succeeds or the reviewer exports. If the server stops, the page says so. Export and import work in every case.
+If a save conflicts, the page stops saving and says so, and offers **Reload**. A conflict that names the revision of this tab's own earlier save, whose reply was lost, is not a conflict: the page saves again on top of it. If a save fails, the page keeps its warning about unsaved changes until a later save succeeds or the reviewer exports. If the server stops, the page says so. Export and import work in every case.
 
 ## Read the feedback
 
