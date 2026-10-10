@@ -55,6 +55,18 @@ ln -s "$PWD/global/AGENTS.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
 
 A non-empty `AGENTS.override.md` in the same directory takes precedence over `AGENTS.md`.
 
+## Skill versions
+
+Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version. Whether a change is major, minor, or a patch is a judgment call.
+
+A pull request check compares every changed skill with the base branch. To run it before you push:
+
+```sh
+python3 tests/check_skill_versions.py --base origin/main
+```
+
+The check counts uncommitted and untracked files. A new skill needs only a valid version in the form `"MAJOR.MINOR.PATCH"`.
+
 ## License and credits
 
 MIT. The project [LICENSE](LICENSE) is Copyright (c) 2026 Zak. Its MIT permission text also covers the upstream material below. If you copy or redistribute the skills, include LICENSE and this section.

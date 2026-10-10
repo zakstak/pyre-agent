@@ -3,6 +3,8 @@ name: codex-branch-review
 description: Ask Codex GPT-6.1 Sol for an independent adversarial review of a Git branch and return actionable findings to Claude Code
 argument-hint: "[base-ref] [review focus or specialist requirements]"
 disable-model-invocation: true
+metadata:
+  version: "1.0.0"
 ---
 
 # Adversarial branch review through Codex
