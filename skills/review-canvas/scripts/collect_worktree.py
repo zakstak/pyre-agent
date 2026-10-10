@@ -164,13 +164,16 @@ def round_input(path):
 
 
 def in_state_directory(path):
-    """Whether path lies in a review state directory: one whose rounds folder holds a numbered round."""
-    def rounds(parent):
+    """Whether path is a file of a review state directory, STATE/NAME or STATE/rounds/NNNN/NAME. A state directory is
+    private to this user and holds a numbered round, so a shared ancestor such as /tmp never counts as one."""
+    def is_state(directory):
         try:
-            return any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(parent / "rounds"))
+            info = os.stat(directory)
+            return (info.st_uid == os.getuid() and not info.st_mode & 0o077
+                    and any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(directory / "rounds")))
         except OSError:
             return False
-    return any(rounds(parent) for parent in path.parents)
+    return is_state(path.parent) or (path.parent.parent.name == "rounds" and is_state(path.parent.parent.parent))
 
 
 def rendered_round_input(output):

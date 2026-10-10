@@ -960,6 +960,19 @@ class OutputTests(Fixture):
                     self.assertIn("only STATE/rounds/NNNN/input.json", err)
         self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
 
+    def test_a_shared_ancestor_with_rounds_is_not_a_state_directory(self):
+        shared = self.base / "shared"
+        (shared / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(shared, 0o755)  # not private, as /tmp is not
+        code, _, err = self.main("--output", str(shared / "review.json"))
+        self.assertEqual(code, 0, err)
+        nested = self.base / "deep"
+        (nested / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(nested, 0o700)
+        (nested / "a" / "b").mkdir(parents=True)
+        code, _, err = self.main("--output", str(nested / "a" / "b" / "review.json"))
+        self.assertEqual(code, 0, err)  # only the directory that holds the output, or its round's state, counts
+
     def test_refuses_git_files_as_output(self):
         head = (self.root / ".git" / "HEAD").read_bytes()
         for name in ("HEAD", "config", "review.json"):
