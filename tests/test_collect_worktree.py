@@ -1215,6 +1215,24 @@ class IsolationTests(Fixture):
         self.assertFalse(marker.exists(), "the repository's git file ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
 
+    def test_a_state_replaced_while_collecting_is_not_written(self):
+        import review_state
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        state = self.base / "state"
+        round_dir = review_state.new_round(state)
+        real = collector.collect
+        def archiving(*args, **options):
+            result = real(*args, **options)
+            review_state.archive(state)  # the review is archived, and an unrelated one starts at the same path
+            (review_state.new_round(state) / "input.json").write_text("{}")
+            return result
+        with mock.patch.object(collector, "collect", archiving):
+            code, _, err = self.main("--output", str(round_dir / "input.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("was archived or replaced while collecting", err)
+        self.assertEqual((state / "rounds/0001/input.json").read_text(), "{}")
+
     def test_the_lock_the_final_check_and_the_write_use_one_resolved_path(self):
         import review_state
         self.commit({"a.txt": "a\n"})

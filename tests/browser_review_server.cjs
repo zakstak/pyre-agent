@@ -327,7 +327,34 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
       assert.equal(await lost.locator("#server-notice").isHidden(), true, "the cut-short reply broke later saves");
       const kept = JSON.parse(fs.readFileSync(path.join(lostState, "feedback.json"), "utf8"));
       assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["docs/logo.png", "scripts/release.sh", "src/notes/cli.py", "src/notes/format.py", "src/notes/legacy.py", "src/notes/store.py", "tests/data/windows.txt"]);
+      // A Reload whose save fails keeps the page, so the reviewer can export instead of losing the change.
+      renderRound("worktree-review-round2.json", lostState);
+      await lost.locator("#server-notice", { hasText: "Round 2 is ready" }).waitFor({ timeout: 10000 });
+      await lost.route("**/feedback", async route => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "disk full" }) });
+      });
+      await lost.getByRole("checkbox", { name: "Approve notes/.keep" }).check();
+      await lost.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      await lost.getByRole("button", { name: "Reload" }).click();
+      await lost.locator("#server-notice", { hasText: "did not reload" }).waitFor();
+      assert.equal(await lost.evaluate(() => document.querySelector('meta[name="review-canvas-round"]').content), "1");
+      await lost.unroute("**/feedback");
       await lost.close();
+      // A load reply cut short pauses saving instead of starting from an unknown revision.
+      const cut = await context.newPage();
+      cut.on("dialog", dialog => dialog.accept());
+      cut.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+      const puts = [];
+      cut.on("request", request => { if (request.method() === "PUT") puts.push(request.url()); });
+      await cut.route("**/feedback", route => route.request().method() === "GET" ? route.fulfill({ status: 200, contentType: "application/json", body: '{"revision": "ab' }) : route.continue());
+      await cut.goto(lostUrl);
+      await cut.locator("#server-notice", { hasText: "incomplete" }).waitFor();
+      assert.equal(await cut.locator("#save-state").textContent(), "Not saved");
+      await cut.getByRole("checkbox", { name: "Approve notes/.keep" }).check();
+      await cut.waitForTimeout(800);
+      assert.deepEqual(puts, [], "a page with an unknown revision saved");
+      await cut.close();
     } finally { lostServer.kill("SIGTERM"); }
 
     assert.deepEqual(foreign.filter(request => !request.startsWith("http://127.0.0.1:")), [], "requests outside loopback");

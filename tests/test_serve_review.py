@@ -172,6 +172,25 @@ class ShutdownTests(ServerCase):
         self.assertEqual(statuses, [403], "a failed write was answered again as a state error")
         self.assertEqual(errors.getvalue(), "")
 
+    def test_a_page_still_being_sent_keeps_the_server_running(self):
+        self.server.idle_timeout = 1
+        real = serve.Handler.respond
+        def slow(handler, status, body, *rest, **options):
+            if body.startswith(b"<!doctype html>"):
+                time.sleep(2.5)  # a large page reaching a slow client
+            return real(handler, status, body, *rest, **options)
+        watcher = threading.Thread(target=self.server.watch_idle, daemon=True)
+        with unittest.mock.patch.object(serve.Handler, "respond", slow):
+            loading = threading.Thread(target=lambda: self.request("GET", f"/?token={self.token}"), daemon=True)
+            loading.start()
+            time.sleep(0.2)
+            watcher.start()
+            time.sleep(1.8)
+            self.assertTrue(watcher.is_alive(), "the idle timer stopped the server while it was sending the page")
+            loading.join(10)
+        watcher.join(5)
+        self.assertFalse(watcher.is_alive(), "the server stays idle-stoppable once the page is sent")
+
     def test_saves_after_shutdown_begins_are_refused(self):
         self.assertTrue(self.server.finish_saves(1))
         status, reply = self.api("PUT", "/feedback", self.body)

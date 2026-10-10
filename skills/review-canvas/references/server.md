@@ -48,7 +48,7 @@ Start the server once, in the background, and give the reviewer the URL it print
 python3 /path/to/review-canvas/scripts/serve_review.py --state-dir "$STATE" &
 ```
 
-It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server holds the review's `server.lock`. The system releases that lock when the server process ends, even after a crash. It stops after `--idle-timeout` seconds without a request that carries the session token, 3600 by default and at least 1, or when it gets SIGTERM or SIGINT. It lets a save in progress finish, waiting up to 30 seconds in total, and then removes `server.json`. Only a request that passed every check counts as a save, so a client that never finishes its request cannot delay the stop. An open page asks for the round number every 3 seconds, or every third of the idle timeout when that is shorter, so the server stays up while the page is open.
+It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server holds the review's `server.lock`. The system releases that lock when the server process ends, even after a crash. It stops after `--idle-timeout` seconds without a request that carries the session token, 3600 by default and at least 1, or when it gets SIGTERM or SIGINT. It lets a save in progress finish, waiting up to 30 seconds in total, and then removes `server.json`. Only a request that passed every check counts as a save, so a client that never finishes its request cannot delay the stop. A request counts as activity until its reply is sent, so a slow page load does not reach the idle timeout. An open page asks for the round number every 3 seconds, or every third of the idle timeout when that is shorter, so the server stays up while the page is open.
 
 The URL is on the machine that runs the agent. A reviewer on another machine needs port forwarding, which is out of scope.
 
@@ -89,7 +89,7 @@ A page served this way loads the saved feedback when it opens and merges it as a
 
 When a new round is published, the page offers **Reload**. It never reloads on its own, so an open draft is not lost. Feedback from an earlier round is saved again against the new snapshot, with that round's notes kept under `retained_reviews`.
 
-If a save conflicts, the page stops saving and says so, and offers **Reload**. A conflict that names the revision of this tab's own earlier save, whose reply was lost or was an error, is not a conflict: the page saves again on top of it. If a save fails, the page keeps its warning about unsaved changes until a later save succeeds or the reviewer exports. If the server stops, the page says so. Export and import work in every case.
+If a save conflicts, the page stops saving and says so, and offers **Reload**. **Reload** saves pending changes first; if that save fails, the page stays and says so. A conflict that names the revision of this tab's own earlier save, whose reply was lost or was an error, is not a conflict: the page saves again on top of it. If a save fails, the page keeps its warning about unsaved changes until a later save succeeds or the reviewer exports. If the server stops, the page says so. Export and import work in every case.
 
 ## Read the feedback
 
