@@ -367,6 +367,26 @@ class InventoryTests(Fixture):
         link = self.collect()["link"]
         self.assertEqual((link["new_mode"], link["patch_note"]), ("120000", "symlink"))
 
+    def test_hidden_symlink_changes_keep_their_line_counts(self):
+        os.symlink("old", self.root / "link")
+        self.commit({"keep.txt": "k\n"})
+        self.git(self.root, "update-index", "--assume-unchanged", "link")
+        (self.root / "link").unlink(); os.symlink("new", self.root / "link")
+        link = self.collect()["link"]
+        self.assertEqual((link["additions"], link["deletions"], link["patch_note"]), (1, 1, "symlink"))
+
+    def test_absent_sparse_symlinks_are_read_from_the_index(self):
+        os.symlink("a", self.root / "link")
+        self.commit({"keep.txt": "k\n"})
+        (self.root / "link").unlink(); os.symlink("b", self.root / "link")
+        self.git(self.root, "add", "link")
+        self.git(self.root, "update-index", "--skip-worktree", "link")
+        (self.root / "link").unlink()
+        link = self.collect()["link"]
+        staged = self.git(self.root, "rev-parse", ":link").strip()
+        self.assertEqual((link["status"], link["new_mode"], link["patch_note"], link["additions"], link["deletions"]), ("modified", "120000", "symlink", 1, 1))
+        self.assertEqual(link["fingerprint"], fingerprint.file_fingerprint("link", None, blob(b"a"), staged, "120000", "120000"))
+
     def test_hidden_files_keep_the_index_mode_when_file_modes_are_off(self):
         self.commit({"plain.txt": "a\n"})
         self.git(self.root, "config", "core.filemode", "false")
@@ -738,6 +758,21 @@ class FingerprintTests(Fixture):
         self.commit({"main.txt": "m\n"})
         self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"),
                          {"feature.txt": fingerprint.file_fingerprint("feature.txt", None, None, blob(b"f\n"), None, "100644")})
+
+    def test_a_git_executable_inside_a_bare_repository_never_runs(self):
+        self.commit({"a.txt": "a\n"})
+        bare = self.base / "bare.git"
+        self.git(self.base, "clone", "-q", "--bare", str(self.root), str(bare))
+        marker = self.base / "bare-git-ran"
+        (bare / "bin").mkdir()
+        fake = bare / "bin/git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        environment = dict(os.environ, PATH=str(bare / "bin") + os.pathsep + os.environ["PATH"])
+        result = subprocess.run([sys.executable, str(FINGERPRINT), "--repo", str(bare), "HEAD", "HEAD"], capture_output=True, text=True, env=environment)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("inside the repository under review", result.stderr)
+        self.assertFalse(marker.exists())
 
     def test_cli_errors(self):
         self.commit({"a.txt": "a\n"})
