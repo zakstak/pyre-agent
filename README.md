@@ -55,6 +55,8 @@ python3 install.py --dry-run   # print the plan without changing installed skill
 python3 install.py uninstall   # remove the installed skills and nothing else
 ```
 
+To have an agent check an install end to end, give it the [install verification runbook](docs/verify-install.md). It changes nothing and reports each finding with a proposed fix.
+
 Invoke a skill by name with `/skill-name` in Claude Code or `$skill-name` in Codex. Agents also pick skills up from matching requests, except `correct`, `deliver-draft-pr`, and `codex-branch-review`, which run only when you invoke them by name.
 
 ### Codex branch review requirements
