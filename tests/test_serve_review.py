@@ -361,6 +361,18 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state_module.read_current(self.state), 3)
         self.assertTrue(third.exists())
 
+    def test_a_symlinked_round_input_is_refused(self):
+        directory = state_module.new_round(self.state)
+        outside = self.temp / "outside.json"
+        shutil.copyfile(FIXTURES / "worktree-review.json", outside)
+        os.symlink(outside, directory / "input.json")
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(directory)]), 2)
+        self.assertIn("is a symbolic link", error.getvalue())
+        self.assertFalse((directory / "review.html").exists())
+        self.assertIsNone(state_module.read_current(self.state))
+
     def test_only_a_state_round_input_takes_the_round_lock(self):
         directory = state_module.new_round(self.state)
         with state_module.round_lock(directory / "input.json"):
