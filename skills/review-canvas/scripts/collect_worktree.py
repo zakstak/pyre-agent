@@ -563,8 +563,11 @@ def build(top, snapshot, fmt, include, config):
         if data is not None:
             patch, replaced = clean_text(data)
             hunk_lines = patch.split("\n")
+            # The patch counts what the reviewer sees. A link or submodule replaced by a file shows only the file, so its
+            # old side keeps Git's count.
             file["additions"] = sum(line.startswith("+") for line in hunk_lines)
-            file["deletions"] = sum(line.startswith("-") for line in hunk_lines)
+            if entry["old_mode"] is None or kind(entry["old_mode"]) == "file":
+                file["deletions"] = sum(line.startswith("-") for line in hunk_lines)
             lines = patch.count("\n") + (not patch.endswith("\n"))
             size = len(json.dumps(patch, ensure_ascii=False).encode())
             if path not in include and SECRET_TEXT.search(patch):
@@ -591,6 +594,7 @@ def collect(repo, title=None, include_secret=(), output=None):
     """Return (validated review, secret-flagged paths) for the working tree containing repo."""
     git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
+    git_executable(top)  # the working tree Git found, which core.worktree may put outside repo
     git_dir = Path(decode_path(git(repo, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))).resolve()
     # Every later command runs from top and finds its repository again. If core.worktree points at a checkout with a
     # .git of its own, that is another repository.
@@ -731,7 +735,7 @@ def main(argv=None):
         return 2
     notes = [file.get("patch_note") for file in review["files"]]
     count = len(notes)
-    print(f"Wrote {args.output} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
+    print(f"Wrote {render_review.shown(str(args.output))} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
           f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
     for path in flagged:
         print(f"Likely secret, contents left out: {render_review.shown(path)}")

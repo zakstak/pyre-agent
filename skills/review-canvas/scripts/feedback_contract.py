@@ -384,7 +384,7 @@ def main(argv=None):
             stored = approvals.get(file["path"])
             states["not approved" if stored is None else "approved" if stored == file.get("fingerprint") else "changed since approval"].append(file["path"])
         same = feedback["input_sha256"] == render_review.input_digest(review)
-        print(f"Against {args.input}: {'same snapshot' if same else 'an earlier snapshot of the same review'}.")
+        print(f"Against {render_review.shown(str(args.input))}: {'same snapshot' if same else 'an earlier snapshot of the same review'}.")
         for state, paths in states.items():
             print(f"  {len(paths)} {state}" + (": " + ", ".join(map(render_review.shown, paths)) if paths and state != "approved" else ""))
         turns = {"agent": [], "reviewer": [], None: []}

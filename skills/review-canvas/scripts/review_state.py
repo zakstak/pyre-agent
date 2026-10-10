@@ -285,7 +285,7 @@ def main(argv=None):
                     raise StateError("a server still runs for this review; stop it before archiving") from None
                 raise
         else:
-            print(new_round(args.state_dir))
+            print(new_round(args.state_dir))  # raw, unlike other output: shells capture it, as in ROUND=$(...)
     except (StateError, OSError) as error:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import render_review

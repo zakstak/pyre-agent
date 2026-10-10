@@ -205,6 +205,15 @@ class InventoryTests(Fixture):
         self.git(self.root, "add", "link")
         self.assertEqual(self.git(self.root, "diff", "--cached", "--numstat", "HEAD").split("\t")[:2], ["2", "0"], "as Git counts it")
 
+    def test_a_link_replaced_by_a_file_keeps_the_link_deletion(self):
+        os.symlink("old", self.root / "link")
+        self.commit({"keep.txt": "k\n"})
+        (self.root / "link").unlink()
+        self.write("link", "new\n")
+        link = self.collect()["link"]
+        self.assertEqual((link["additions"], link["deletions"], link["patch"]), (1, 1, "@@ -0,0 +1 @@\n+new\n"))
+        self.assertEqual(self.git(self.root, "diff", "--numstat", "HEAD", "--", "link").split("\t")[:2], ["1", "1"], "as Git counts it")
+
     def test_type_changes_follow_the_current_file(self):
         os.symlink("target", self.root / "link")
         self.commit({"plain.txt": "was a file\n"})
@@ -935,6 +944,17 @@ class FingerprintTests(Fixture):
         with mock.patch.dict(os.environ, {"GIT_GRAFT_FILE": str(graft)}):
             self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"), expected)
 
+    def test_repository_grafts_do_not_change_the_merge_base(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "checkout", "-q", "-b", "feature")
+        self.commit({"feature.txt": "f\n"})
+        self.git(self.root, "checkout", "-q", "main")
+        self.commit({"main.txt": "m\n"})
+        expected = fingerprint.pr_fingerprints(self.root, "main", "feature")
+        (self.root / ".git" / "info").mkdir(exist_ok=True)
+        (self.root / ".git" / "info" / "grafts").write_text(f"{self.git(self.root, 'rev-parse', 'feature').strip()} {self.git(self.root, 'rev-parse', 'main').strip()}\n")
+        self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"), expected)
+
     def test_cli_errors(self):
         self.commit({"a.txt": "a\n"})
         plain = self.base / "plain"
@@ -1014,6 +1034,12 @@ class OutputTests(Fixture):
         self.assertEqual(code, 2)
         self.assertIn("evil\\nWrote trusted.json", err)
         self.assertEqual(err.count("\n"), 1, "the error stays one line")
+
+    def test_the_written_path_prints_escaped(self):
+        output = self.base / "review\nforged.json"
+        code, out, _ = self.main("--output", str(output))
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith(f'Wrote "{self.base}/review\\nforged.json" ('), out)
 
     def test_notices_escape_control_characters_in_paths(self):
         self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")
@@ -1155,6 +1181,20 @@ class IsolationTests(Fixture):
         fake.chmod(0o755)
         self.commit({"a.txt": "a\n"})
         with mock.patch.dict(os.environ, {"PATH": str(self.root / "bin") + os.pathsep + os.environ["PATH"]}), \
+                self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
+            self.collect()
+        self.assertFalse(marker.exists())
+
+    def test_a_git_executable_inside_an_external_worktree_never_runs(self):
+        outside = self.base / "checkout"
+        (outside / "bin").mkdir(parents=True)
+        marker = self.base / "worktree-git-ran"
+        fake = outside / "bin" / "git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "config", "core.worktree", str(outside))
+        with mock.patch.dict(os.environ, {"PATH": str(outside / "bin") + os.pathsep + os.environ["PATH"]}), \
                 self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
             self.collect()
         self.assertFalse(marker.exists())

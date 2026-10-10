@@ -152,15 +152,17 @@ class CommandLineTests(unittest.TestCase):
         feedback = json.loads((fixtures / "worktree-feedback.json").read_text())
         feedback["target"]["title"] = "Title\rValid feedback for something else"
         with tempfile.TemporaryDirectory() as temp:
-            (Path(temp) / "review.json").write_text(json.dumps(review))
+            (Path(temp) / "review\nforged.json").write_text(json.dumps(review))  # the input path is printed too
             (Path(temp) / "feedback.json").write_text(json.dumps(feedback))
-            result = subprocess.run([sys.executable, str(SCRIPT), str(Path(temp) / "feedback.json"), "--input", str(Path(temp) / "review.json")],
+            result = subprocess.run([sys.executable, str(SCRIPT), str(Path(temp) / "feedback.json"), "--input", str(Path(temp) / "review\nforged.json")],
                                     capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"Title\\rValid feedback for something else"', result.stdout)
         self.assertIn('"src/forged\\n  9 approved"', result.stdout)
         self.assertNotIn("\r", result.stdout)
         self.assertNotIn("\n  9 approved", result.stdout)
+        self.assertIn('review\\nforged.json"', result.stdout)
+        self.assertNotIn("review\nforged", result.stdout)
 
     def test_rejects_invalid_feedback_and_another_review(self):
         result = subprocess.run([sys.executable, str(SCRIPT), str(FIXTURES / "invalid-version-2.json")], capture_output=True, text=True)
