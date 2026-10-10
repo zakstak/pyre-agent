@@ -83,9 +83,18 @@ def filter_overrides(top):
         listing = git(top, "config", "-z", "--get-regexp", r"^filter\.")
     except GitError:
         return ()  # no filter configured
-    options = []
-    for name in sorted({entry.split(b"\n", 1)[0].decode("utf-8", "replace")[len("filter."):].rpartition(".")[0]
-                        for entry in listing.split(b"\0") if entry}):
+    options, names = [], set()
+    for entry in listing.split(b"\0"):
+        if not entry:
+            continue
+        key = entry.split(b"\n", 1)[0]
+        try:
+            names.add(key.decode("utf-8")[len("filter."):].rpartition(".")[0])
+        except UnicodeDecodeError:
+            # A replacement character would switch off a different driver and leave this one running.
+            raise CollectError("cannot switch off the filter driver in " + key.decode("utf-8", "backslashreplace")
+                               + "; its name is not valid UTF-8") from None
+    for name in sorted(names):
         if "=" in name or not name:
             raise CollectError(f"cannot switch off the filter driver {name!r}; its name contains '=' or is empty")
         for setting in ("clean=", "smudge=", "process=", "required=false"):
@@ -138,6 +147,17 @@ def too_many(count):
                         "Commit, stash, or ignore part of the work, then collect again.")
 
 
+def link_target(path):
+    """A symlink's target bytes. With core.symlinks=false, Git checks a link out as a regular file holding its target."""
+    try:
+        return os.readlink(os.fsencode(path))
+    except OSError:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            raise
+    with open(path, "rb") as handle:
+        return handle.read(1 << 20)
+
+
 def kind(mode):
     return {"160000": "submodule", "120000": "symlink"}.get(mode, "file")
 
@@ -154,7 +174,7 @@ def tracked_entry(top, change, fmt):
     if new_mode == "160000":
         entry["new_blob"] = change["new_blob"] or repository_head(full)
     elif new_mode == "120000":
-        entry["new_blob"] = blob_id(fmt, os.readlink(os.fsencode(full)))
+        entry["new_blob"] = blob_id(fmt, link_target(full))
     elif new_mode:
         blob = read_blob(full, fmt)
         entry.update(new_blob=blob["blob"], size=blob["size"])

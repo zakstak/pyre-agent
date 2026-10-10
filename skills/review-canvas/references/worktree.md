@@ -50,7 +50,7 @@ Each patch comes from the exact bytes its fingerprint covers: the old blob from 
 | Deletion | Status `deleted` |
 | Mode-only change | Status `changed`, `old_mode` and `new_mode`, and `patch_note: "no_content_change"` |
 | Binary file | No patch, `patch_note: "binary"` |
-| Symbolic link | No patch, `patch_note: "symlink"` |
+| Symbolic link, including a placeholder file when `core.symlinks` is false | No patch, `patch_note: "symlink"` |
 | Submodule whose checked-out commit changed, or untracked nested repository | No patch, `patch_note: "submodule"`. Uncommitted edits inside a submodule do not count. |
 | Empty file | No patch, `patch_note: "empty"` |
 | Patch over the input limits | No patch, `patch_note: "too_large"`, `patch_complete: false` |
@@ -65,7 +65,7 @@ A fingerprint identifies one exact version of one changed file. It is a SHA-256 
 
 A file stays approved while its fingerprint matches. Any change to its content, mode, or path makes it a new version.
 
-The collector compares and hashes the bytes on disk with every filter driver off, so a configured clean filter never runs. In a repository that uses one, such as Git LFS, a file you changed is compared with its committed form, for example an LFS pointer, and usually shows as a binary change. Fingerprints then differ from the committed blob IDs, but they stay stable between rounds.
+The collector compares and hashes the bytes on disk with every filter driver off, so a configured clean filter never runs. If it cannot name a driver to switch it off, for example because the name is not valid UTF-8, it stops with an error instead of running Git. In a repository that uses one, such as Git LFS, a file you changed is compared with its committed form, for example an LFS pointer, and usually shows as a binary change. Fingerprints then differ from the committed blob IDs, but they stay stable between rounds.
 
 ## Files that change during collection
 
