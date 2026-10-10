@@ -279,7 +279,7 @@ def check_identity(feedback, snapshot):
         raise FeedbackError("Feedback belongs to another review target or an unidentified snapshot.")
 
 
-def _when(reply):
+def reply_time(reply):
     """Sort key matching the page: the reply time, unparseable times last."""
     try:
         return datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00")).timestamp()
@@ -290,7 +290,7 @@ def _when(reply):
 def thread(comment, agent_replies):
     """One comment's replies in order: the agent's from the review input, the reviewer's from feedback."""
     replies = [reply for reply in agent_replies if reply["comment_id"] == comment["id"]] + comment.get("replies", [])
-    return sorted(replies, key=lambda reply: (_when(reply), reply["actor"] != "agent", reply["id"]))
+    return sorted(replies, key=lambda reply: (reply_time(reply), reply["actor"] != "agent", reply["id"]))
 
 
 def thread_state(replies):

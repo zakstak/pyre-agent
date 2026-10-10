@@ -93,7 +93,15 @@ When the reviewer says the review is ready, answer every comment in the next rou
    - `rejected`: leave the code, and give the reason in `body`.
    - `deferred`: leave the code, say why in `body`, and name what blocks the change in `blocker`.
    - `question`: ask in `body` what you need to know.
-4. Create and collect the next round. Copy every agent reply from the previous round's `input.json` into its `replies`, so earlier answers stay visible. Then add one reply for each comment you answered. See [the input reference](references/input-format.md#agent-replies) for the fields.
+4. Create and collect the next round. Before it renders, copy earlier answers forward and add one reply for each comment you answered:
+
+   ```sh
+   python3 /path/to/review-canvas/scripts/reply.py carry --from "$PREVIOUS_ROUND/input.json" --to "$ROUND/input.json"
+   python3 /path/to/review-canvas/scripts/reply.py add --input "$ROUND/input.json" --feedback "$STATE/feedback.json" \
+     --comment COMMENT_ID --disposition fixed --body "What changed" --fixed-in-fingerprint FINGERPRINT
+   ```
+
+   `add` validates the reply and times it after every reply already in that thread, so it sorts after the reviewer reply it answers even when clocks differ. Use `--fixed-in-commit` for a commit, and `--blocker` with `deferred`. See [the input reference](references/input-format.md#agent-replies) for the fields.
 5. Render the round. The open page offers to reload, shows each answer under its comment, and lets the reviewer accept, reopen, or reply.
 6. Repeat until no comment needs your answer and the reviewer is satisfied. Report the approval counts, any open threads, and the tested head.
 

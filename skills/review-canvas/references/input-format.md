@@ -69,7 +69,9 @@ Never include credentials, raw authorization responses, or secrets. The renderer
 
 ## Agent replies
 
-The optional top-level `replies` array holds the agent's answers to feedback comments. The reviewer's answers live in feedback, so each file keeps one writer. Copy every earlier agent reply into each new round, because the page shows the replies of the round it renders.
+The optional top-level `replies` array holds the agent's answers to feedback comments. The reviewer's answers live in feedback, so each file keeps one writer. Copy every earlier agent reply into each new round, because the page shows the replies of the round it renders. `scripts/reply.py carry` copies them, and `scripts/reply.py add` appends one validated reply.
+
+A thread is ordered by `created_at`. A reply must sort after the reply it answers, even when the two machines' clocks differ, so `reply.py add` stamps each reply at least one millisecond after the newest reply already in its thread.
 
 Each reply requires:
 

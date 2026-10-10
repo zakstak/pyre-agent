@@ -42,7 +42,7 @@ fs.mkdirSync(out, { recursive: true });
     await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
 
     // Before the comments load, the page says the agent answered comments it cannot show yet.
-    assert.match(await page.locator("#unmatched-replies").textContent(), /answered 4 comments that this page has not loaded/);
+    assert.match(await page.locator("#unmatched-replies").textContent(), /answered 4 comments that are not in this page's feedback/);
     await importFile(path.join(fixtures, "worktree-feedback.json"));
     assert.equal(await page.locator("#unmatched-replies").isHidden(), true);
     await page.getByRole("button", { name: "Expand all" }).click();
@@ -72,6 +72,9 @@ fs.mkdirSync(out, { recursive: true });
     await comment("fixture-comment-3").getByLabel("Reply to the agent").fill("Keep ISO 8601.");
     await page.keyboard.press("Control+Enter");
     assert.equal(await state("fixture-comment-3"), "Replied");
+    // An answered comment cannot be deleted, so the agent's replies never lose their thread.
+    assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Delete comment" }).count(), 0);
+    assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Edit comment" }).count(), 1);
     // Escape cancels a reply draft without saving it.
     await comment("fixture-comment-4").getByRole("button", { name: "Reply to the agent" }).click();
     await comment("fixture-comment-4").getByLabel("Reply to the agent").fill("draft");
@@ -87,6 +90,14 @@ fs.mkdirSync(out, { recursive: true });
 
     // Feedback carries only the reviewer's replies; the agent's stay in the review input.
     const saved = await exportFeedback();
+    assert.equal(await page.locator("#save-state").textContent(), "Exported");
+    // A reply draft counts as unexported work, like a comment draft.
+    await comment("fixture-comment-4").getByRole("button", { name: "Reply to the agent" }).click();
+    await comment("fixture-comment-4").getByLabel("Reply to the agent").pressSequentially("x");
+    assert.equal(await page.locator("#save-state").textContent(), "Not exported");
+    const partial = page.waitForEvent("download"); await page.getByRole("button", { name: "Export feedback (.json)" }).click(); await partial;
+    assert.match(await page.locator("#export-status").textContent(), /without the open comment draft/);
+    await page.keyboard.press("Escape");
     const replies = Object.fromEntries(saved.data.comments.map(item => [item.id, (item.replies || []).map(reply => [reply.actor, reply.action, reply.body])]));
     assert.deepEqual(replies["fixture-comment-1"], [["reviewer", "accept", ""]]);
     assert.deepEqual(replies["fixture-comment-2"], [["reviewer", "reopen", "It prints a traceback when the notes file itself is missing."]]);

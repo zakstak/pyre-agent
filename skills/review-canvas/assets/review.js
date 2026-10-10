@@ -313,7 +313,8 @@
     if (restoreFocus) (composerReturn?.isConnected && composerReturn.checkVisibility() ? composerReturn : fallback?.())?.focus();
     composerReturn = null;
   }
-  function draftOpen() { return !composer.hidden && byId("comment-body").value.trim() !== ""; }
+  // Comment and reply drafts are never saved or exported until the reviewer saves them.
+  function draftOpen() { return (!composer.hidden && byId("comment-body").value.trim() !== "") || Boolean(replyDraft?.body.trim()); }
   function revealComposer() {
     const card = composer.closest(".file-card"); if (card) reveal(card);
     composer.scrollIntoView({ block: "nearest" }); byId("comment-body").focus({ preventScroll: true });
@@ -360,7 +361,9 @@
       if (!selection) { announce("Select the intended code first, then choose Attach to selected text."); return; }
       compose(selection, comment, true);
     }));
-    actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"), button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
+    actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
+    // An answered comment is a conversation; deleting it would strand the agent's replies, so it stays and can be resolved.
+    if (!agentReplies.has(comment.id)) actions.append(button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
     head.append(actions);
     const lines = comment.anchor.quote.split("\n");
     node.append(head, attached ? element("pre", "comment-quote is-inline", lines[0] + (lines.length > 1 ? " …" : "")) : element("pre", "comment-quote", comment.anchor.quote),
@@ -400,7 +403,7 @@
     const form = element("div", "reply-composer"), label = element("label", "", replyDraft.action === "reopen" ? "Why reopen?" : "Reply to the agent");
     const area = element("textarea"); area.id = `reply-${comment.id}`; label.htmlFor = area.id; area.rows = 3; area.maxLength = 20000; area.spellcheck = false; area.value = replyDraft.body;
     const save = () => addReply(comment, replyDraft.action, area.value), cancel = () => { replyDraft = null; drawComments(); jumpTo(comment.id); };
-    area.addEventListener("input", () => { replyDraft.body = area.value; });
+    area.addEventListener("input", () => { replyDraft.body = area.value; persistence.draftChanged(); });
     area.addEventListener("keydown", event => {
       if (event.isComposing) return;
       if (event.key === "Escape") { event.preventDefault(); cancel(); }
@@ -472,7 +475,7 @@
     }
     const loaded = new Set(comments.map(comment => comment.id)), waiting = [...agentReplies.keys()].filter(id => !loaded.has(id)).length;
     byId("unmatched-replies").hidden = !waiting;
-    byId("unmatched-replies").textContent = waiting ? `The agent answered ${plural(waiting, "comment")} that this page has not loaded. Import the feedback that holds them to see the answers.` : "";
+    byId("unmatched-replies").textContent = waiting ? `The agent answered ${plural(waiting, "comment")} that are not in this page's feedback. Unless they were deleted, import the feedback that holds them to see the answers.` : "";
     byId("orphan-comments").hidden = orphanCount === 0;
     byId("orphan-heading").textContent = `Unattached comments (${orphanCount})`;
     byId("retained-reviews").hidden = retained.length === 0;
@@ -649,7 +652,7 @@
       persistence.merged();
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }
   });
-  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || (!composer.hidden && byId("comment-body").value) || replyDraft?.body.trim()) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || draftOpen()) { event.preventDefault(); event.returnValue = ""; } });
 
   // Keep sticky offsets in step with the app bar, which wraps at large text sizes.
   const topbar = document.querySelector(".topbar");

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Write the agent's answers to review comments into a round's input, before the round renders.
+
+    python3 reply.py carry --from STATE/rounds/0001/input.json --to STATE/rounds/0002/input.json
+    python3 reply.py add --input STATE/rounds/0002/input.json --feedback STATE/feedback.json \\
+        --comment COMMENT_ID --disposition fixed --body "What changed" --fixed-in-fingerprint FINGERPRINT
+
+carry copies every agent reply from an earlier round, so earlier answers stay visible. add appends one reply with a
+new ID, timed after every reply already in that thread, so it sorts after the reviewer reply it answers even when
+the reviewer's clock runs ahead. Both validate the result and refuse a round that has already rendered.
+
+Python 3.10+; standard library only.
+"""
+
+import argparse
+import datetime
+import json
+import sys
+import uuid
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import feedback_contract  # noqa: E402
+import render_review  # noqa: E402
+import review_state  # noqa: E402
+
+
+def load_round_input(path):
+    path = Path(path)
+    if (path.parent / "review.html").exists():
+        raise render_review.ValidationError(f"{path.parent} has rendered; a round never changes after it renders. Start a new round.")
+    return render_review.load_review(path)
+
+
+def save_round_input(path, review):
+    render_review.validate_review(review)
+    review_state.write_private(Path(path), (json.dumps(review, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+
+
+def carry(source, target):
+    """Copy agent replies from an earlier round's input. Replies already present keep their place."""
+    earlier = render_review.load_review(source).get("replies", [])
+    review = load_round_input(target)
+    known = {reply["id"] for reply in review.get("replies", [])}
+    review["replies"] = [reply for reply in earlier if reply["id"] not in known] + review.get("replies", [])
+    save_round_input(target, review)
+    return len(review["replies"]) - len(known)
+
+
+def timestamp(seconds):
+    return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=None, commit=None, blocker=None, now=None):
+    """Append one agent reply to a comment in the feedback. Return the reply."""
+    feedback = feedback_contract.parse_feedback(Path(feedback_path).read_bytes())
+    comment = next((item for item in feedback["comments"] if item["id"] == comment_id), None)
+    if comment is None:
+        raise render_review.ValidationError(f"the feedback has no comment {comment_id}")
+    review = load_round_input(input_path)
+    feedback_contract.check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
+    times = [feedback_contract.reply_time(reply) for reply in feedback_contract.thread(comment, review.get("replies", []))]
+    moment = max([now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()]
+                 + [time + 0.001 for time in times if time != float("inf")])
+    reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": timestamp(moment),
+             "body": body, "disposition": disposition}
+    if fingerprint or commit:
+        reply["fixed_in"] = {"fingerprint": fingerprint} if fingerprint else {"commit": commit}
+    if blocker:
+        reply["blocker"] = blocker
+    review.setdefault("replies", []).append(reply)
+    save_round_input(input_path, review)
+    return reply
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    commands = parser.add_subparsers(dest="command", required=True)
+    copy = commands.add_parser("carry", help="Copy agent replies from an earlier round's input")
+    copy.add_argument("--from", dest="source", type=Path, required=True, help="An earlier round's input.json")
+    copy.add_argument("--to", dest="target", type=Path, required=True, help="The new round's input.json, before it renders")
+    answer = commands.add_parser("add", help="Append one agent reply")
+    answer.add_argument("--input", type=Path, required=True, help="The new round's input.json, before it renders")
+    answer.add_argument("--feedback", type=Path, required=True, help="The feedback that holds the comment")
+    answer.add_argument("--comment", required=True, help="The comment's id")
+    answer.add_argument("--disposition", required=True, choices=render_review.DISPOSITIONS)
+    answer.add_argument("--body", required=True, help="What changed, why not, what blocks it, or the question")
+    fixed = answer.add_mutually_exclusive_group()
+    fixed.add_argument("--fixed-in-fingerprint", help="For fixed: the fingerprint of the file version that fixes the comment")
+    fixed.add_argument("--fixed-in-commit", help="For fixed: the full hash of the commit that fixes the comment")
+    answer.add_argument("--blocker", help="For deferred: what blocks the change")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "carry":
+            print(f"Carried {carry(args.source, args.target)} agent replies into {args.target}")
+        else:
+            reply = add(args.input, args.feedback, args.comment, args.disposition, args.body,
+                        args.fixed_in_fingerprint, args.fixed_in_commit, args.blocker)
+            print(f"Added {reply['disposition']} reply {reply['id']} to comment {args.comment} at {reply['created_at']}")
+    except (render_review.ValidationError, feedback_contract.FeedbackError, review_state.StateError, OSError) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
