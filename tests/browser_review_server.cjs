@@ -80,6 +80,12 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     await approve("src/notes/cli.py").check();
     await approve("src/notes/store.py").check();
     await waitSaved(page);
+    // An open draft is never saved, so the status says so until the draft closes.
+    await page.getByRole("button", { name: "Comment on src/notes/format.py line 6" }).click();
+    await page.getByLabel("Comment", { exact: true }).fill("draft");
+    await page.locator("#save-state", { hasText: "Saved, except the open draft" }).waitFor();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await waitSaved(page);
     assert.deepEqual(saved().approvals.map(record => record.path), ["src/notes/cli.py", "src/notes/store.py"]);
     await page.locator("#toast-dismiss").click();
     await page.evaluate(() => scrollTo(0, 0));

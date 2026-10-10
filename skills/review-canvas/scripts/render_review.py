@@ -7,6 +7,7 @@ No input is executed, no credentials are read, and no network is used.
 
 import argparse
 import base64
+import datetime
 import hashlib
 import html
 import json
@@ -47,6 +48,11 @@ FINGERPRINT = re.compile(r"[a-f0-9]{64}\Z")
 MODE = re.compile(r"[0-7]{6}\Z")
 # POSIX, a Windows drive, or a Windows UNC share such as \\server\share.
 ABSOLUTE_ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)")
+REPLY_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
+DISPOSITIONS = ("fixed", "rejected", "deferred", "question")
+MAX_REPLIES = 5000
+# Reply times order a thread in the page and in feedback_contract.py, so both must parse them alike.
+REPLY_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
 HUNK = re.compile(r"^@@ -([0-9]{1,12})(?:,[0-9]{1,12})? \+([0-9]{1,12})(?:,[0-9]{1,12})? @@")
 
 
@@ -125,12 +131,60 @@ def _target(target):
         raise ValidationError("target.changed_files: expected a nonnegative integer at most 1000000000000")
 
 
+def _replies(replies):
+    """Agent replies to feedback comments. Reviewer replies live in feedback, so the input has one writer: the agent."""
+    if not isinstance(replies, list) or len(replies) > MAX_REPLIES:
+        raise ValidationError(f"replies: expected an array of at most {MAX_REPLIES} agent replies")
+    seen = set()
+    for i, reply in enumerate(replies):
+        where = f"replies[{i}]"
+        _object(reply, where, ("comment_id", "id", "actor", "created_at", "body", "disposition", "comment_updated_at"), ("fixed_in", "blocker"))
+        for name in ("comment_id", "id"):
+            if not isinstance(reply[name], str) or not REPLY_ID.fullmatch(reply[name]):
+                raise ValidationError(f"{where}.{name}: expected 1 to 80 letters, digits, hyphens, or underscores")
+        if reply["id"] in seen:
+            raise ValidationError(f"{where}.id: duplicate reply id")
+        seen.add(reply["id"])
+        if reply["actor"] != "agent":
+            raise ValidationError(f"{where}.actor: expected agent; reviewer replies belong in feedback")
+        _text(reply["created_at"], f"{where}.created_at", nonempty=True, limit=40)
+        try:
+            # fromisoformat rejects impossible dates such as February 31, and the round trip rejects 24:00:00.
+            real = REPLY_TIME.fullmatch(reply["created_at"]) and datetime.datetime.fromisoformat(
+                reply["created_at"].replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M:%S") == reply["created_at"][:19]
+        except ValueError:
+            real = False
+        if not real:
+            raise ValidationError(f"{where}.created_at: expected UTC ISO 8601, such as 2026-10-10T09:00:00Z")
+        _text(reply["body"], f"{where}.body", nonempty=True)
+        # The version of the comment the answer read, from its updated_at, so a later rewrite of it cannot inherit the answer.
+        _text(reply["comment_updated_at"], f"{where}.comment_updated_at", nonempty=True, limit=40)
+        if not isinstance(reply["disposition"], str) or reply["disposition"] not in DISPOSITIONS:
+            raise ValidationError(f"{where}.disposition: expected one of {', '.join(DISPOSITIONS)}")
+        if reply["disposition"] == "fixed":
+            fixed = reply.get("fixed_in")
+            if not isinstance(fixed, dict) or len(fixed) != 1 or not ({"fingerprint", "commit"} & fixed.keys()):
+                raise ValidationError(f"{where}.fixed_in: a fixed reply names one file fingerprint or one commit, as {{\"fingerprint\": ...}} or {{\"commit\": ...}}")
+            if "fingerprint" in fixed and (not isinstance(fixed["fingerprint"], str) or not FINGERPRINT.fullmatch(fixed["fingerprint"])):
+                raise ValidationError(f"{where}.fixed_in.fingerprint: expected 64 lowercase hexadecimal characters")
+            if "commit" in fixed and (not isinstance(fixed["commit"], str) or not SHA.fullmatch(fixed["commit"])):
+                raise ValidationError(f"{where}.fixed_in.commit: expected a full 40- or 64-character hexadecimal commit hash")
+        elif "fixed_in" in reply:
+            raise ValidationError(f"{where}.fixed_in: only a fixed reply names what fixed the comment")
+        if reply["disposition"] == "deferred":
+            if "blocker" not in reply:
+                raise ValidationError(f"{where}.blocker: a deferred reply names its blocker")
+            _text(reply["blocker"], f"{where}.blocker", nonempty=True)
+        elif "blocker" in reply:
+            raise ValidationError(f"{where}.blocker: only a deferred reply has a blocker")
+
+
 def validate_review(review):
     """Validate without changing or dropping input. Return the supplied object."""
     if isinstance(review, dict) and "schema_version" in review and review["schema_version"] != 2:
         raise ValidationError(f"review.schema_version: version {review['schema_version']!r} is not supported; expected integer 2. "
                               "Collect a new snapshot in the version 2 format; there is no migration")
-    _object(review, "review", ("schema_version", "target", "files"), ("summary", "files_complete"))
+    _object(review, "review", ("schema_version", "target", "files"), ("summary", "files_complete", "replies"))
     if type(review["schema_version"]) is not int:
         raise ValidationError("review.schema_version: expected integer 2")
     _target(review["target"])
@@ -139,6 +193,8 @@ def validate_review(review):
         raise ValidationError("files_complete: expected a boolean")
     if "summary" in review:
         _text(review["summary"], "summary")
+    if "replies" in review:
+        _replies(review["replies"])
     if not isinstance(review["files"], list) or len(review["files"]) > MAX_FILES:
         raise ValidationError(f"files: expected an array of at most {MAX_FILES} files")
     if review.get("files_complete") is True and target.get("changed_files") != len(review["files"]):
@@ -442,7 +498,7 @@ def render_review(review, style_dir=None):
     css += (assets / "review.css").read_text(encoding="utf-8")
     js = theme_js + "\n" + (assets / "feedback.js").read_text(encoding="utf-8") + "\n" + (assets / "review.js").read_text(encoding="utf-8")
     digest = input_digest(review)
-    metadata = {"schema_version": 2, "target": review["target"], "input_sha256": digest,
+    metadata = {"schema_version": 2, "target": review["target"], "input_sha256": digest, "replies": review.get("replies", []),
                 "files": [{"id": f"file-{i}", "path": f["path"], "status": f["status"], "group": f["group"], "fingerprint": f.get("fingerprint"),
                            "patch_sha256": hashlib.sha256(f.get("patch", "").encode()).hexdigest() if f.get("patch") else None} for i, f in enumerate(review["files"])]}
     script_hash = base64.b64encode(hashlib.sha256(js.encode()).digest()).decode()
@@ -542,6 +598,7 @@ def render_review(review, style_dir=None):
             '<section id="feedback" class="finish panel" aria-labelledby="feedback-heading"><div class="finish-head"><h2 id="feedback-heading">Finish review</h2>'
             '<p id="review-summary" class="finish-summary"></p></div>'
             '<ol id="comment-index" class="comment-index" aria-label="Your comments"></ol>'
+            '<div id="unmatched-replies" class="finish-status" hidden></div>'
             '<div class="field"><label for="general-notes">Overall notes</label><textarea id="general-notes" maxlength="20000" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback, or a decision for the agent"></textarea></div>'
             '<div class="finish-actions"><button id="export-feedback" class="primary" type="button">Export feedback (.json)</button>'
             '<input id="import-feedback" class="file-input sr-only" type="file" accept=".json,application/json"><label class="button" for="import-feedback">Import saved feedback</label></div>'
@@ -586,8 +643,8 @@ def main(argv=None):
             # Build the paths from the checked state, not the path as given, which could pass through a symlink.
             round_dir = state / "rounds" / f"{number:04d}"
             args.input, args.output = round_dir / "input.json", round_dir / "review.html"
-            # The publish lock spans the check, the read, the page, and current, so the collector cannot change the input
-            # between them and the server cannot see a half-published round.
+            # The publish lock spans the check, the read, the page, and current, so the collector and reply.py cannot
+            # change the input between them and the server cannot see a half-published round.
             with review_state.lock(state, "publish"):
                 if args.output.exists():
                     raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")
@@ -597,6 +654,30 @@ def main(argv=None):
                 if stat.S_ISLNK(info.st_mode) or info.st_nlink > 1:
                     raise ValidationError(f"{args.input} is a symbolic or hard link. Put a private copy of the input in the round, so it cannot change after rendering.")
                 review = load_review(args.input)
+                # Every answer the published round showed stays visible in the next, which reply.py carry ensures.
+                current = review_state.read_current(state)
+                mine = {reply["id"]: reply for reply in review.get("replies", [])}
+                if current is not None:
+                    published = {reply["id"]: reply for reply in load_review(state / "rounds" / f"{current:04d}" / "input.json").get("replies", [])}
+                    missing = published.keys() - mine.keys()
+                    if missing:
+                        raise ValidationError(f"{args.input} omits {len(missing)} answers that round {current:04d} published. Run reply.py carry "
+                                              f"--from {state / 'rounds' / f'{current:04d}' / 'input.json'} first.")
+                    changed = sorted(key for key in published if published[key] != mine[key])
+                    if changed:
+                        raise ValidationError(f"{args.input} changes answers that round {current:04d} published: {', '.join(changed)}. "
+                                              "A published answer never changes; carry it as it was.")
+                # A prepared round below this one would never publish once this one does, so its own answers would vanish.
+                for entry in sorted((state / "rounds").iterdir()):
+                    if (review_state.ROUND_NAME.fullmatch(entry.name) and (current or 0) < int(entry.name) < number
+                            and (entry / "input.json").exists() and not (entry / "review.html").exists()):
+                        try:
+                            held = {reply["id"] for reply in json.loads((entry / "input.json").read_bytes()).get("replies", [])}
+                        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+                            held = {None}  # unreadable, so it may hold answers
+                        if held - mine.keys():
+                            raise ValidationError(f"round {entry.name} holds answers but has not rendered, and would never publish after this round. "
+                                                  "Render it first, or remove it.")
                 page = render_review(review, args.style_dir)
                 review_state.write_private(args.output, page.encode("utf-8"), replace=False)
                 review_state.write_private(round_dir / "input.sha256", (input_digest(review) + "\n").encode("ascii"), replace=False)

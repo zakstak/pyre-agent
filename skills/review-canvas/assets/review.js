@@ -22,7 +22,7 @@
   // IDs of comments deleted in this tab. An import holding one would bring it back, so the import is refused instead.
   const removed = new Set();
   let dirty = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
-  let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null;
+  let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null, replyDraft = null;
   const editedNotes = new Set(), editedApprovals = new Set(); let editedGeneral = false;
   const pinned = contract.pinned(metadata.target);
   const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -55,11 +55,40 @@
     const record = approvals.get(file.path);
     return !record ? "none" : file.fingerprint && record.fingerprint === file.fingerprint ? "approved" : "changed";
   }
+  // Threads: agent replies come from the review input and reviewer replies from feedback, so each file keeps one writer.
+  // A thread's state is never stored; it follows the last reply.
+  const agentReplies = new Map();
+  for (const reply of metadata.replies) {
+    if (!agentReplies.has(reply.comment_id)) agentReplies.set(reply.comment_id, []);
+    agentReplies.get(reply.comment_id).push(reply);
+  }
+  const DISPOSITION = { fixed: "Fixed", rejected: "Rejected", deferred: "Deferred", question: "Question" };
+  const ACTION = { accept: "Accepted", reopen: "Reopened", reply: "Replied" };
+  const when = reply => { const time = Date.parse(reply.created_at); return Number.isNaN(time) ? Infinity : time; };
+  function thread(comment) {
+    return [...(agentReplies.get(comment.id) || []), ...(comment.replies || [])]
+      .sort((a, b) => when(a) - when(b) || (a.actor === b.actor ? 0 : a.actor === "agent" ? -1 : 1) || (a.id < b.id ? -1 : 1));
+  }
+  function threadState(replies) {
+    const last = replies[replies.length - 1];
+    if (!last) return { label: "Open", yours: false };
+    // A reviewer reply always follows an agent answer, and the page offers Accept only right after one and Reopen only
+    // after one or an accept. Any other order means this round's input lacks an answer the reviewer saw.
+    const outOfOrder = (reply, i) => i > 0 && (reply.action === "accept" ? replies[i - 1].actor !== "agent"
+      : reply.action === "reopen" && replies[i - 1].actor !== "agent" && replies[i - 1].action !== "accept");
+    if (replies[0].actor === "reviewer" || replies.some(outOfOrder)) return { label: "Earlier answers missing", yours: false, missing: true };
+    // Answers come only on the agent's turn, so two in a row mean this page lacks the reviewer reply between them.
+    if (replies.some((reply, i) => i > 0 && reply.actor === "agent" && replies[i - 1].actor === "agent")) return { label: "Reviewer replies missing", yours: false, missing: true };
+    if (last.actor === "agent") return { label: `Answered: ${DISPOSITION[last.disposition].toLowerCase()}`, yours: true };
+    return { label: last.action === "accept" ? "Resolved" : ACTION[last.action], yours: false };
+  }
   function summarize() {
     const approved = cards.filter(card => approvalState(byCard.get(card)) === "approved").length;
     const notes = cards.filter(card => card.querySelector(".file-notes").value).length;
+    const answered = comments.filter(comment => threadState(thread(comment)).yours).length;
     byId("review-summary").textContent = [`${approved} of ${plural(cards.length, "file")} approved`,
-      plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : ""), plural(notes, "file note")].join(" · ");
+      plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : "") + (answered ? `, ${answered} answered by the agent` : ""),
+      plural(notes, "file note")].join(" · ");
   }
   // Feedback persistence sits behind one boundary with two implementations: a file the reviewer exports and imports,
   // or the local review server, which saves automatically. Only a page the server served carries its session token.
@@ -105,7 +134,7 @@
       let body;
       try {
         body = JSON.stringify(feedback());
-        if (new Blob([body]).size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB, so it was not saved. Shorten notes or comments to save it again.");
+        if (new Blob([body]).size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB, so it was not saved. Shorten notes, comments, or replies to save it again.");
       } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       show("Saving");
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(async ({ status, reply }) => {
@@ -346,14 +375,20 @@
     if (restoreFocus) (composerReturn?.isConnected && composerReturn.checkVisibility() ? composerReturn : fallback?.())?.focus();
     composerReturn = null;
   }
-  function draftOpen() { return !composer.hidden && byId("comment-body").value.trim() !== ""; }
+  // Comment and reply drafts are never saved or exported until the reviewer saves them.
+  function draftOpen() { return (!composer.hidden && byId("comment-body").value.trim() !== "") || Boolean(replyDraft?.body.trim()); }
   function revealComposer() {
     const card = composer.closest(".file-card"); if (card) reveal(card);
     composer.scrollIntoView({ block: "nearest" }); byId("comment-body").focus({ preventScroll: true });
   }
   function compose(anchor, comment = null, reattach = false) {
     // Never discard a draft silently, even one hidden by a collapsed file or a filter.
-    if (draftOpen()) { revealComposer(); announce("Finish or cancel the open comment first."); return; }
+    if (draftOpen()) {
+      // The text may be in the comment composer or in a thread's reply box; reveal whichever holds it.
+      if (!composer.hidden && byId("comment-body").value.trim()) { revealComposer(); announce("Finish or cancel the open comment first."); }
+      else { jumpTo(replyDraft.commentId); byId(`reply-${replyDraft.commentId}`)?.focus(); announce("Finish or cancel the open reply first."); }
+      return;
+    }
     const trigger = document.activeElement;
     parkComposer();
     composerAnchor = anchor; editing = comment && !reattach ? comment.id : null; reattaching = reattach ? comment.id : null;
@@ -389,17 +424,84 @@
     // Working tree rounds often share a HEAD, so an earlier snapshot is named by round when the commit matches.
     const origin = comment.anchor.snapshot;
     if (origin.input_sha256 !== metadata.input_sha256) head.append(element("span", "chip", origin.target.head_sha !== metadata.target.head_sha ? `From ${origin.target.head_sha.slice(0, 7)}` : "From an earlier round"));
-    if (!attached) actions.append(button("Attach to selected text", () => {
+    // Once a thread has replies, the comment is the question they answer: editing or reattaching it would leave a stale
+    // answer marked done, and deleting it would strand the agent's replies. The reviewer replies or reopens instead.
+    const answered = thread(comment).length > 0;
+    if (!attached && !answered) actions.append(button("Attach to selected text", () => {
       if (!selection) { announce("Select the intended code first, then choose Attach to selected text."); return; }
       compose(selection, comment, true);
     }));
-    actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"), button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
+    if (!answered) actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
+    if (!agentReplies.has(comment.id) && !comment.replies?.length) actions.append(button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
     head.append(actions);
     const lines = comment.anchor.quote.split("\n");
     node.append(head, attached ? element("pre", "comment-quote is-inline", lines[0] + (lines.length > 1 ? " …" : "")) : element("pre", "comment-quote", comment.anchor.quote),
       element("p", "comment-body", comment.body));
     if (attachment.reason !== "Exact patch and range.") node.append(element("p", "anchor-status", attachment.reason));
+    const replies = thread(comment), state = threadState(replies), last = replies[replies.length - 1];
+    head.insertBefore(element("span", state.yours ? "chip warning thread-state" : "chip thread-state", state.label), actions);
+    if (!replies.length) return node;
+    const list = element("div", "thread-replies");
+    list.append(...replies.map(reply => replyNode(reply)));
+    const choices = element("div", "reply-actions");
+    // With part of the thread missing, the page cannot tell what an accept or reopen would answer; replying stays open.
+    if (last.actor === "agent" && !state.missing) choices.append(button("Accept", () => addReply(comment, "accept", ""), "quiet", "Accept the agent's answer"));
+    if ((last.actor === "agent" || last.action === "accept") && !state.missing) choices.append(button("Reopen", () => openReply(comment, "reopen"), "quiet", "Reopen comment"));
+    choices.append(button("Reply", () => openReply(comment, "reply"), "quiet", "Reply to the agent"));
+    node.append(list, replyDraft?.commentId === comment.id ? replyComposer(comment) : choices);
     return node;
+  }
+  function replyNode(reply) {
+    const node = element("div", `reply reply-${reply.actor}`), head = element("div", "comment-head");
+    head.append(element("span", "comment-author", reply.actor === "agent" ? "Agent" : "You"),
+      element("span", "chip", reply.actor === "agent" ? DISPOSITION[reply.disposition] : ACTION[reply.action]));
+    node.append(head);
+    if (reply.body) node.append(element("p", "comment-body", reply.body));
+    if (reply.fixed_in?.commit) node.append(element("p", "anchor-status", `Fixed in commit ${reply.fixed_in.commit.slice(0, 7)}.`));
+    if (reply.fixed_in?.fingerprint) {
+      const fixed = metadata.files.find(file => file.fingerprint === reply.fixed_in.fingerprint);
+      node.append(element("p", "anchor-status", fixed ? `Fixed in this round's version of ${fixed.path}.` : `Fixed in file version ${reply.fixed_in.fingerprint.slice(0, 12)}, which is not in this round.`));
+    }
+    if (reply.blocker) node.append(element("p", "anchor-status", `Blocker: ${reply.blocker}`));
+    return node;
+  }
+  function openReply(comment, action) {
+    // One reply box at a time, and never by discarding what the reviewer typed in another.
+    if (replyDraft && replyDraft.commentId !== comment.id && replyDraft.body.trim()) {
+      jumpTo(replyDraft.commentId); byId(`reply-${replyDraft.commentId}`)?.focus(); announce("Finish or cancel the open reply first."); return;
+    }
+    replyDraft = { commentId: comment.id, action, body: replyDraft?.commentId === comment.id ? replyDraft.body : "" };
+    drawComments(); byId(`reply-${comment.id}`)?.focus();
+  }
+  function replyComposer(comment) {
+    const form = element("div", "reply-composer"), label = element("label", "", replyDraft.action === "reopen" ? "Why reopen?" : "Reply to the agent");
+    const area = element("textarea"); area.id = `reply-${comment.id}`; label.htmlFor = area.id; area.rows = 3; area.maxLength = 20000; area.spellcheck = false; area.value = replyDraft.body;
+    const save = () => addReply(comment, replyDraft.action, area.value), cancel = () => { replyDraft = null; drawComments(); persistence.refresh(); jumpTo(comment.id); };
+    area.addEventListener("input", () => { replyDraft.body = area.value; persistence.draftChanged(); });
+    area.addEventListener("keydown", event => {
+      if (event.isComposing) return;
+      if (event.key === "Escape") { event.preventDefault(); cancel(); }
+      else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); save(); }
+    });
+    const buttons = element("div", "composer-actions");
+    buttons.append(button("Cancel", cancel, "quiet", "Cancel reply"), button(replyDraft.action === "reopen" ? "Reopen comment" : "Save reply", save, "primary"));
+    form.append(label, area, buttons);
+    return form;
+  }
+  function addReply(comment, action, body) {
+    if (action !== "accept" && !body.trim()) { announce("Write a reply before saving."); return; }
+    // A new reply always sorts last, even when the agent's clock ran ahead of this one.
+    const latest = Math.max(Date.now(), ...thread(comment).map(when).filter(Number.isFinite).map(time => time + 1));
+    if (new Date(latest).getUTCFullYear() > 9999) { announce("The last reply in this thread is at the latest time a reply can have, so no later reply fits."); return; }
+    const reply = { id: crypto.randomUUID(), actor: "reviewer", created_at: new Date(latest).toISOString(), body: action === "accept" ? body.trim() : body, action };
+    const before = comments;
+    comments = comments.map(item => item.id === comment.id ? { ...item, replies: [...(item.replies || []), reply] } : item);
+    try { feedback(); } catch (error) { comments = before; announce(error.message); return; }
+    // Accepting one thread keeps a draft typed in another.
+    if (replyDraft?.commentId === comment.id) replyDraft = null;
+    drawComments(); changed();
+    announce(action === "accept" ? "Answer accepted." : action === "reopen" ? "Comment reopened." : "Reply saved.");
+    jumpTo(comment.id);
   }
   function jumpTo(id) {
     if (id === editing) { revealComposer(); return; }
@@ -421,9 +523,9 @@
         if (!threads.has(row)) threads.set(row, []); threads.get(row).push(node);
         counts.set(file.path, (counts.get(file.path) || 0) + 1);
       } else { orphanCount++; byId("orphan-list").append(node); }
-      const jump = button("", () => jumpTo(comment.id), "quiet comment-jump"), item = element("li");
+      const jump = button("", () => jumpTo(comment.id), "quiet comment-jump"), item = element("li"), state = threadState(thread(comment));
       jump.append(element("span", "jump-where", `${comment.anchor.path} · ${attached ? linesLabel(file, attachment.start, attachment.end) : "unattached"}`),
-        element("span", "jump-text", comment.body.split("\n")[0]));
+        element("span", "jump-text", comment.body.split("\n")[0]), element("span", state.yours ? "chip warning" : "chip", state.label));
       item.append(jump); index.push([attached ? cards.indexOf(file.card) : cards.length, attached ? attachment.start : 0, item]);
     }
     // List comments in reading order: file order on the page, then position in the diff.
@@ -447,6 +549,17 @@
           row.code.append(spans.some(([start, end]) => start <= points[i - 1] && end >= points[i]) ? element("mark", "", text) : document.createTextNode(text));
         }
       }
+    }
+    // Answers to comments this page lacks stay readable, whether the comment was deleted or its feedback is not loaded yet.
+    const loaded = new Set(comments.map(comment => comment.id)), waiting = [...agentReplies.keys()].filter(id => !loaded.has(id));
+    const unmatched = byId("unmatched-replies");
+    unmatched.hidden = !waiting.length;
+    unmatched.replaceChildren();
+    if (waiting.length) {
+      unmatched.append(element("p", "", `The agent answered ${plural(waiting.length, "comment")} that are not in this page's feedback. Unless they were deleted, import the feedback that holds them.`));
+      const list = element("ul", "unmatched-list");
+      for (const id of waiting) for (const reply of agentReplies.get(id)) list.append(element("li", "", `${DISPOSITION[reply.disposition]}: ${reply.body}`));
+      unmatched.append(list);
     }
     byId("orphan-comments").hidden = orphanCount === 0;
     byId("orphan-heading").textContent = `Unattached comments (${orphanCount})`;
@@ -548,15 +661,28 @@
   function mergeFeedback(incoming) {
     if (!sameTarget(incoming) || incoming.comments.some(comment => !sameTarget(comment.anchor.snapshot) || comment.history.some(anchor => !sameTarget(anchor.snapshot))) || incoming.retained_reviews.some(review => !sameTarget(review))) throw Error("Feedback belongs to another review target or an unidentified snapshot.");
     if (!composer.hidden && byId("comment-body").value) { revealComposer(); throw Error("Finish or cancel the open comment draft before importing."); }
+    if (replyDraft?.body.trim()) { jumpTo(replyDraft.commentId); throw Error("Finish or cancel the open reply draft before importing."); }
     const same = incoming.input_sha256 === metadata.input_sha256;
     if (same && (incoming.files.length !== metadata.files.length || incoming.files.some(file => !sources.has(file.path)))) throw Error("Feedback inventory does not match this snapshot.");
     const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);
     const normalized = value => Array.isArray(value) ? value.map(normalized) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalized(value[key])])) : value;
     const comparable = value => JSON.stringify(normalized(value));
+    // Reviewer replies merge by ID when one copy of a comment extends the other. Two copies that each added a reply the
+    // other lacks answered without seeing each other: by time alone, an accept could sort after a later request and hide it.
+    const withoutReplies = ({ replies: _, ...comment }) => comment;
     for (const comment of incomingComments) {
       const local = comments.find(item => item.id === comment.id);
-      if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      if (local && comparable(withoutReplies(local)) !== comparable(withoutReplies(comment))) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
       if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
+      // An answer names the version of the comment it read. A copy edited after that, in an older page, would take over the answer.
+      const answered = (agentReplies.get(comment.id) || []).at(-1);
+      if (answered && answered.comment_updated_at !== comment.updated_at) throw Error("This file holds a version of a comment other than the one the agent answered. Open review preserved.");
+      const theirs = new Set((comment.replies || []).map(reply => reply.id)), ours = new Set((local?.replies || []).map(reply => reply.id));
+      if ([...theirs].some(id => !ours.has(id)) && [...ours].some(id => !theirs.has(id))) throw Error("The open review and this file answer a comment differently. Open review preserved; export it before restoring into a fresh page.");
+      for (const reply of comment.replies || []) {
+        const mine = local?.replies?.find(item => item.id === reply.id);
+        if (mine && comparable(mine) !== comparable(reply)) throw Error("Conflicting reply ID. Open review preserved; export it before restoring into a fresh page.");
+      }
     }
     const localFiles = currentFiles();
     if (same && (localFiles.some(local => {
@@ -602,7 +728,11 @@
       if (nextRetained.some(item => !order.has(item.input_sha256))) throw Error("Together, the open review and this file hold more than 50 earlier snapshots. Open review preserved.");
       nextRetained.sort((a, b) => order.get(a.input_sha256) - order.get(b.input_sha256)).splice(0, nextRetained.length - 50);
     }
-    const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
+    const nextComments = comments.map(local => {
+      const incomingReplies = incomingComments.find(comment => comment.id === local.id)?.replies || [];
+      const added = incomingReplies.filter(reply => !local.replies?.some(item => item.id === reply.id));
+      return added.length ? { ...local, replies: [...(local.replies || []), ...added] } : local;
+    }).concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
     // A retained snapshot lists only its noted files; every other file's note is empty.
     const nextFiles = localFiles.map(file => ({ ...file, notes: same ? incoming.files.find(saved => saved.path === file.path).notes : file.notes || restoredNotes.get(file.path) || "" }));
     const nextGeneral = same ? incoming.general_notes : byId("general-notes").value || restored?.general_notes || "";
@@ -636,7 +766,7 @@
       persistence.merged();
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }
   });
-  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || (!composer.hidden && byId("comment-body").value)) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || draftOpen()) { event.preventDefault(); event.returnValue = ""; } });
 
   // Keep sticky offsets in step with the app bar, which wraps at large text sizes.
   const topbar = document.querySelector(".topbar");

@@ -125,5 +125,47 @@
       "new_mode": "100644",
       "patch_note": "empty"
     }
+  ],
+  "replies": [
+    {
+      "comment_id": "fixture-comment-1",
+      "id": "agent-reply-1",
+      "actor": "agent",
+      "created_at": "2026-10-10T10:00:00Z",
+      "disposition": "fixed",
+      "body": "save() now flushes and fsyncs the temporary file before the rename.",
+      "fixed_in": {
+        "fingerprint": "6f7e5635baccb9fb3bef61efe15a7b8cbf2a6e155251ca98347d0e1747c49b5f"
+      },
+      "comment_updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "comment_id": "fixture-comment-2",
+      "id": "agent-reply-2",
+      "actor": "agent",
+      "created_at": "2026-10-10T10:00:00Z",
+      "disposition": "rejected",
+      "body": "remove() already exits with status 1 and a message when the note is missing, and the CLI returns that status.",
+      "comment_updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "comment_id": "fixture-comment-3",
+      "id": "agent-reply-3",
+      "actor": "agent",
+      "created_at": "2026-10-10T10:00:00Z",
+      "disposition": "question",
+      "body": "The notes file is shared between machines. Should the date stay ISO 8601, or follow each reader's locale?",
+      "comment_updated_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "comment_id": "fixture-comment-4",
+      "id": "agent-reply-4",
+      "actor": "agent",
+      "created_at": "2026-10-10T10:00:00Z",
+      "disposition": "deferred",
+      "body": "Converting legacy.py changes how every older notes file is read.",
+      "blocker": "Needs a decision on reading notes files written before UTF-8.",
+      "comment_updated_at": "2026-10-10T09:00:00.000Z"
+    }
   ]
 }

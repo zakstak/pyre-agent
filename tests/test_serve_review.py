@@ -361,6 +361,114 @@ class RoutingTests(ServerCase):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.api(method, path)[0], 404)
 
+    def test_a_save_waits_while_a_round_publishes(self):
+        result = {}
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: result.update(status=self.api("PUT", "/feedback", self.body)[0]))
+            worker.start()
+            worker.join(0.3)
+            self.assertTrue(worker.is_alive(), "the save did not wait for the publish lock")
+        worker.join(10)
+        self.assertEqual(result["status"], 200)
+
+    def test_an_older_page_cannot_delete_change_or_answer_a_comment_the_agent_answered(self):
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual(status, 200)
+        render_round(self.state, "worktree-review-round2.json")  # answers all four fixture comments
+        stale = json.loads(self.body)
+        stale["comments"] = [comment for comment in stale["comments"] if comment["id"] != "fixture-comment-2"]
+        status, refused = self.api("PUT", "/feedback", json.dumps(stale).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page deletes", refused["error"])
+        self.assertEqual((self.state / "feedback.json").read_bytes(), self.body)
+        rewritten = json.loads(self.body)
+        rewritten["comments"][1]["body"] = "A different question than the one the agent answered."
+        status, refused = self.api("PUT", "/feedback", json.dumps(rewritten).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page changes", refused["error"])
+        # Notes still save from the older page, but a reply to an answer it never showed does not.
+        accept = {"id": "r1", "actor": "reviewer", "created_at": "2099-10-10T12:00:00.000Z", "body": "", "action": "accept"}
+        edited = json.loads(self.body)
+        edited["comments"][1]["replies"] = [accept]
+        status, refused = self.api("PUT", "/feedback", json.dumps(edited).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page replies to", refused["error"])
+        noted = json.loads(self.body)
+        noted["general_notes"] = "still here"
+        status, reply = self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200)
+        # The round 2 page shows the answer, so its reply saves.
+        current = renderer.load_review(self.state / "rounds/0002/input.json")
+        noted["input_sha256"] = renderer.input_digest(current)
+        noted["comments"][1]["replies"] = [accept]
+        self.assertEqual(self.api("PUT", "/feedback", json.dumps(noted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
+
+    def test_an_older_page_may_reply_to_an_answer_the_current_round_only_carries(self):
+        render_round(self.state, "worktree-review-round2.json")
+        round2 = renderer.load_review(self.state / "rounds/0002/input.json")
+        page = json.loads(self.body)
+        page["input_sha256"] = renderer.input_digest(round2)
+        status, reply = self.api("PUT", "/feedback", json.dumps(page).encode())
+        self.assertEqual(status, 200)
+        # Round 3 carries every answer and adds a new one to comment 2.
+        round3 = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        round3["summary"] = "Round 3."
+        round3["replies"].append({**next(item for item in round3["replies"] if item["comment_id"] == "fixture-comment-2"),
+                                  "id": "agent-round-3", "created_at": "2026-10-10T23:00:00Z", "disposition": "question", "body": "Which file?"})
+        round3["replies"][-1].pop("fixed_in", None)
+        directory = state_module.new_round(self.state)
+        (directory / "input.json").write_text(json.dumps(round3))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(directory)]), 0)
+        accepted = json.loads(json.dumps(page))
+        accepted["comments"][0]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "", "action": "accept"}]
+        status, reply = self.api("PUT", "/feedback", json.dumps(accepted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200, reply)
+        reopened = json.loads(json.dumps(accepted))
+        reopened["comments"][1]["replies"] = [{"id": "r2", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "Still broken.", "action": "reopen"}]
+        status, refused = self.api("PUT", "/feedback", json.dumps(reopened).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page replies to", refused["error"])
+
+    def test_answers_an_unpublished_round_only_carries_do_not_block_replies(self):
+        render_round(self.state, "worktree-review-round2.json")
+        page = json.loads(self.body)
+        page["input_sha256"] = renderer.input_digest(renderer.load_review(self.state / "rounds/0002/input.json"))
+        status, reply = self.api("PUT", "/feedback", json.dumps(page).encode())
+        self.assertEqual(status, 200)
+        pending = state_module.new_round(self.state)
+        (pending / "input.json").write_bytes((FIXTURES / "worktree-review-round2.json").read_bytes())  # carries, adds nothing
+        accepted = json.loads(json.dumps(page))
+        accepted["comments"][0]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "", "action": "accept"}]
+        status, reply = self.api("PUT", "/feedback", json.dumps(accepted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200, reply)
+
+    def test_answers_written_for_an_unpublished_round_protect_their_comments(self):
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual(status, 200)
+        pending = state_module.new_round(self.state)
+        (pending / "input.json").write_bytes((FIXTURES / "worktree-review-round2.json").read_bytes())  # answers all four, not rendered
+        base = {"X-Review-Revision": reply["revision"]}
+        deleted = json.loads(self.body)
+        deleted["comments"] = deleted["comments"][1:]
+        changed = json.loads(self.body)
+        changed["comments"][1]["body"] = "A different question."
+        replied = json.loads(self.body)
+        replied["comments"][0]["replies"] = [{"id": "early", "actor": "reviewer", "created_at": "2099-10-10T12:00:00.000Z", "body": "More.", "action": "reply"}]
+        for document in (deleted, changed, replied):
+            status, refused = self.api("PUT", "/feedback", json.dumps(document).encode(), **base)
+            self.assertEqual(status, 409)
+            self.assertIn("answering this page's comments for the next round", refused["error"])
+        noted = json.loads(self.body)
+        noted["general_notes"] = "Notes still save."
+        status, reply = self.api("PUT", "/feedback", json.dumps(noted).encode(), **base)
+        self.assertEqual(status, 200)
+        # An input still being written could answer any comment, so every saved comment is protected until it reads.
+        (pending / "input.json").write_text('{"schema_version": 2, "replies": [')
+        deleted = json.loads(json.dumps(noted))
+        deleted["comments"] = deleted["comments"][1:]
+        self.assertEqual(self.api("PUT", "/feedback", json.dumps(deleted).encode(), **{"X-Review-Revision": reply["revision"]})[0], 409)
+
     def test_round_follows_each_publish(self):
         self.assertEqual(self.api("GET", "/round")[1], {"round": 1})
         render_round(self.state, "worktree-review-round2.json")
@@ -400,6 +508,18 @@ class StateTests(unittest.TestCase):
             self.assertEqual(renderer.main(["--round", str(self.temp)]), 2)
         self.assertEqual(state_module.read_current(self.state), 3)
         self.assertTrue(third.exists())
+
+    def test_rendering_holds_the_publish_lock_from_check_to_publish(self):
+        directory = state_module.new_round(self.state)
+        shutil.copyfile(FIXTURES / "worktree-review.json", directory / "input.json")
+        done = threading.Event()
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (contextlib.redirect_stdout(io.StringIO()).__enter__(), renderer.main(["--round", str(directory)]), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "rendering ran while the publish lock was held")
+            self.assertFalse((directory / "review.html").exists())
+        self.assertTrue(done.wait(30))
+        self.assertEqual(state_module.read_current(self.state), 1)
 
     def test_a_rendered_round_input_cannot_change_unnoticed(self):
         directory = render_round(self.state, "worktree-review.json")
@@ -482,7 +602,8 @@ class StateTests(unittest.TestCase):
             shutil.copyfile(FIXTURES / "worktree-review.json", second / "input.json")
             with contextlib.redirect_stdout(io.StringIO()):
                 renderer.main(["--round", str(link / "state" / "rounds" / second.name)])
-        self.assertEqual(real, [second.resolve() / "input.json"])
+        # The round's own input, then the published round's for the carried answers, both through the validated path.
+        self.assertEqual(real, [second.resolve() / "input.json", directory.resolve() / "input.json"])
 
     def test_publish_waits_for_another_publish(self):
         render_round(self.state, "worktree-review.json")

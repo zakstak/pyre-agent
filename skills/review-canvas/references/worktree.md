@@ -10,7 +10,7 @@ A working tree review shows the uncommitted changes in a local Git repository: s
 4. The reviewer comments and approves files. The page saves feedback to the server automatically.
 5. The reviewer chooses **Finish review**, then tells you. The page cannot wake the agent.
 6. Read the saved feedback, validate it and its identity with `feedback_contract.py`, and verify each quote against the patch in the snapshot it names. For each comment, fix the code, reject the comment with a reason, defer it with a blocker, or ask a question.
-7. Create, collect, and render the next round. The open page offers to reload. Approvals carry over for every file whose fingerprint still matches. Changed files return to the queue. Comments reattach to the new patch or show as orphans.
+7. Create, collect, and render the next round, with your replies in its `replies`. The open page offers to reload. Approvals carry over for every file whose fingerprint still matches. Changed files return to the queue. Comments reattach to the new patch or show as orphans, and each shows the replies under it. The reviewer accepts an answer, reopens the comment, or replies.
 8. Stop when the reviewer is satisfied. Report the approval counts and any open comments. Committing still needs the user's normal authorization.
 
 Without the server, render with `render_review.py INPUT --output FILE`. The reviewer then exports feedback, and imports the previous round's feedback into each new page.

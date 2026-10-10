@@ -128,6 +128,120 @@
         "start": 466,
         "end": 495
       }
+    },
+    {
+      "id": "fixture-comment-2",
+      "body": "What does the CLI print when the note does not exist?",
+      "created_at": "2026-10-10T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "target": {
+            "kind": "worktree",
+            "title": "Write notes atomically",
+            "root": "/home/dev/notes-cli",
+            "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+            "branch": "atomic-save",
+            "changed_files": 10
+          },
+          "input_sha256": "aca81436a0fc5c8bd8463fd6bbacfba932310ebe1e892483570e63929da44aba"
+        },
+        "path": "src/notes/cli.py",
+        "patch_sha256": "fdaa5c44af0823a1982c8538974425d21f1781b6b15e27e6c34c65abf48646ee",
+        "start": 153,
+        "end": 195,
+        "quote": "return store.remove(args.file, args.title)",
+        "prefix": ")\n     notes = store.load(args.file)\n+    if args.command == \"remove\":\n+        ",
+        "suffix": "\n     print(format.line(notes[-1]))\n     return 0",
+        "start_row": 4,
+        "end_row": 4,
+        "side": "new",
+        "start_line": 23,
+        "end_line": 23
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 153,
+        "end": 195
+      }
+    },
+    {
+      "id": "fixture-comment-3",
+      "body": "Should this date follow the reader's locale?",
+      "created_at": "2026-10-10T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "target": {
+            "kind": "worktree",
+            "title": "Write notes atomically",
+            "root": "/home/dev/notes-cli",
+            "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+            "branch": "atomic-save",
+            "changed_files": 10
+          },
+          "input_sha256": "aca81436a0fc5c8bd8463fd6bbacfba932310ebe1e892483570e63929da44aba"
+        },
+        "path": "src/notes/format.py",
+        "patch_sha256": "f6f9721ef9912e40d7a29afad4584d6ebf30bb0066c8c286fe39b902b9aa5206",
+        "start": 142,
+        "end": 173,
+        "quote": "date.fromisoformat(note['day'])",
+        "prefix": "\n-    return f\"{note['title']}: {note['body']}\"\n+    return f\"{note['title']} ({",
+        "suffix": "}): {note['body']}\"",
+        "start_row": 5,
+        "end_row": 5,
+        "side": "new",
+        "start_line": 6,
+        "end_line": 6
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 142,
+        "end": 173
+      }
+    },
+    {
+      "id": "fixture-comment-4",
+      "body": "This file is still Latin-1. Convert it to UTF-8?",
+      "created_at": "2026-10-10T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "target": {
+            "kind": "worktree",
+            "title": "Write notes atomically",
+            "root": "/home/dev/notes-cli",
+            "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+            "branch": "atomic-save",
+            "changed_files": 10
+          },
+          "input_sha256": "aca81436a0fc5c8bd8463fd6bbacfba932310ebe1e892483570e63929da44aba"
+        },
+        "path": "src/notes/legacy.py",
+        "patch_sha256": "df4da111e604018c25380fc40d887798df84d9c226ded489659821ecdd2d5966",
+        "start": 75,
+        "end": 87,
+        "quote": "caf� au lait",
+        "prefix": "@@ -1,3 +1,3 @@\n # -*- coding: latin-1 -*-\n-GREETING = \"caf�\"\n+GREETING = \"",
+        "suffix": "\"\n ␌SECTION = 2",
+        "start_row": 3,
+        "end_row": 3,
+        "side": "new",
+        "start_line": 2,
+        "end_line": 2
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 75,
+        "end": 87
+      }
     }
   ],
   "retained_reviews": []

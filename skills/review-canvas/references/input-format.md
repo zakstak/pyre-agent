@@ -67,6 +67,39 @@ The renderer groups files as core, wiring, and mechanical. Within a group, it ke
 
 Never include credentials, raw authorization responses, or secrets. The renderer validates structure and escapes content, but it cannot identify every secret in source code. Redaction and coverage claims are the agent's responsibility.
 
+## Agent replies
+
+The optional top-level `replies` array holds the agent's answers to feedback comments. The reviewer's answers live in feedback, so each file keeps one writer. Copy every earlier agent reply into each new round, because the page shows the replies of the round it renders. `scripts/reply.py carry` copies them, and `scripts/reply.py add` appends one validated reply.
+
+A thread is ordered by `created_at`. A reply must sort after the reply it answers, even when the two machines' clocks differ, so `reply.py add` stamps each reply at least one millisecond after the newest reply already in its thread. `created_at` must be a real UTC time from year 1 on; February 31 and `24:00:00` are refused, because JavaScript and Python would order them differently.
+
+`reply.py add` requires `--revision`, the feedback revision that `feedback_contract.py` printed, and refuses the answer if the feedback has changed since, because the comment may have been rewritten. It refuses an answer while earlier answers are missing from the round, and asks you to run `carry` first. It also refuses one when it is not the agent's turn: after the reviewer accepts, or while an earlier answer waits for the reviewer. A `fixed` answer's fingerprint must belong to a file in the round. `reply.py carry` refuses a round from another review, a source that is not the newest rendered round before the target, a target that already answers a thread without the earlier answers carry would add, a source round that is not earlier than the target in the same state directory, and a new round that already holds a different reply under the same ID. Both commands hold the review's publish lock while they write, so a render cannot read a half-written input, and both refuse to write an input past the 32 MiB limit.
+
+Each reply requires:
+
+- `comment_id`: the `id` of the feedback comment it answers
+- `id`: a stable reply ID, unique in this input, of 1 to 80 letters, digits, hyphens, or underscores
+- `actor`: `agent`
+- `created_at`: the UTC time in ISO 8601, such as `2026-10-10T09:00:00Z`, optionally with milliseconds
+- `body`: plain text
+- `disposition`: `fixed`, `rejected`, `deferred`, or `question`
+- `comment_updated_at`: the comment's `updated_at` as the agent read it, which `reply.py add` copies from the feedback. The page refuses an import whose copy of that comment has another `updated_at`, because the answer would then seem to answer a rewritten question.
+
+A `fixed` reply also requires `fixed_in`, either `{"fingerprint": "..."}` for the file version that fixes the comment or `{"commit": "..."}` with a full commit hash. A `deferred` reply also requires `blocker`, the reason the change waits. A `rejected` reply gives its reason in `body`. Other dispositions cannot carry `fixed_in` or `blocker`.
+
+```json
+{
+  "comment_id": "3f0c2e9a-6c1d-4b8e-9a51-7d2f4c8b1e60",
+  "id": "agent-reply-1",
+  "actor": "agent",
+  "created_at": "2026-10-10T10:00:00Z",
+  "disposition": "fixed",
+  "body": "save() now flushes and fsyncs the temporary file before the rename.",
+  "fixed_in": { "fingerprint": "9c1d5e..." },
+  "comment_updated_at": "2026-10-10T09:00:00.000Z"
+}
+```
+
 ## Input limits
 
 The generator rejects oversized input before producing an artifact. It never silently truncates it.
@@ -79,10 +112,11 @@ The generator rejects oversized input before producing an artifact. It never sil
 - All paths together: small enough that feedback, which lists each path twice, stays under 6 MiB before notes and comments. Feedback is limited to 8 MiB.
 - Other text fields: at most 20,000 UTF-16 code units, except callout tags, which allow 100, and `branch`, which allows 1,024
 - Callouts: at most 100 per file
+- Agent replies: at most 5,000, with unique IDs
 - Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
 - Commit SHAs: full hexadecimal hashes with 40 or 64 characters
 
-Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. The page refuses to save feedback over 8 MiB and says so, so notes and comments past that limit must be shortened.
+Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. The page refuses to save feedback over 8 MiB and says so, so notes, comments, and replies past that limit must be shortened.
 
 Duplicate JSON keys, unknown fields, invalid types, unsupported control characters, and Unicode surrogates are rejected. Hunk line numbers up to 12 digits receive line annotations. Unsupported hunk formats remain visible as literal text.
 

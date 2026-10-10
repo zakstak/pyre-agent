@@ -103,7 +103,7 @@ function render(name) {
     for (const file of ["scripts/release.sh", "src/notes/cli.py"]) assert.equal(await approve(file).isChecked(), true, file);
     // The fix rewrote the code around the comment, so the comment waits as an orphan.
     assert.equal(await page.locator("#orphan-list .inline-comment").count(), 1);
-    assert.equal(await page.locator("#orphan-list .inline-comment .chip").textContent(), "From an earlier round");
+    assert.equal(await page.locator("#orphan-list .inline-comment").getByText("From an earlier round").isVisible(), true);
     await page.getByLabel("Show").selectOption("remaining");
     assert.equal(await card("src/notes/store.py").isVisible(), true);
     assert.equal(await card("src/notes/cli.py").isVisible(), false);

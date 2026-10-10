@@ -98,11 +98,41 @@ class ReviewServer(ThreadingHTTPServer):
             return self.saves_done.wait_for(lambda: self.active_saves == 0, timeout)
 
     def snapshot(self, number):
-        """The target and input digest of a round, read once from its immutable input."""
+        """The target, input digest, and agent answers of a published round, read once from its immutable input."""
         if number not in self.snapshots:
             review = render_review.load_review(self.state / "rounds" / f"{number:04d}" / "input.json")
-            self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review)}
+            answers = {}
+            for reply in review.get("replies", []):
+                answers.setdefault(reply["comment_id"], set()).add(reply["id"])
+            self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review),
+                                      "answered": frozenset(answers), "answers": {key: frozenset(ids) for key, ids in answers.items()}}
         return self.snapshots[number]
+
+    def shown_answers(self, digest, current):
+        """The agent answers, by comment, that the page of the published round with this input digest showed. None when
+        no published round has that digest."""
+        for number in range(current, 0, -1):
+            if (self.state / "rounds" / f"{number:04d}" / "review.html").exists() and self.snapshot(number)["input_sha256"] == digest:
+                return self.snapshot(number)["answers"]
+        return None
+
+    def pending_answers(self, current):
+        """Agent answer IDs, by comment, in rounds after the current one that have not published, as after reply.py add
+        and before the render. None when such an input cannot be read yet, as while the agent writes its analysis."""
+        answered = {}
+        for entry in (self.state / "rounds").iterdir():
+            if not review_state.ROUND_NAME.fullmatch(entry.name) or int(entry.name) <= current:
+                continue
+            try:
+                with (entry / "input.json").open("rb") as handle:
+                    replies = json.loads(handle.read(render_review.MAX_INPUT_BYTES + 1)).get("replies", [])
+                for reply in replies:
+                    answered.setdefault(reply["comment_id"], set()).add(reply["id"])
+            except FileNotFoundError:
+                continue
+            except (ValueError, AttributeError, TypeError, KeyError):
+                return None
+        return answered
 
     def saved(self):
         try:
@@ -263,13 +293,53 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, error="The body ended early.")
         try:
             feedback = feedback_contract.parse_feedback(body)
-            feedback_contract.check_identity(feedback, self.server.snapshot(review_state.read_current(self.server.state)))
         except feedback_contract.FeedbackError as error:
             return self.reply(400, error=str(error))
-        with self.server.save_lock:
-            current = revision(self.server.saved())
+        # The publish lock holds the current round still from this read to the write, so a round published meanwhile
+        # cannot slip past the identity and answered-comment checks.
+        with self.server.save_lock, review_state.lock(self.server.state, "publish"):
+            number = review_state.read_current(self.server.state)
+            snapshot = self.server.snapshot(number)
+            try:
+                feedback_contract.check_identity(feedback, snapshot)
+            except feedback_contract.FeedbackError as error:
+                return self.reply(400, error=str(error))
+            saved = self.server.saved()
+            current = revision(saved)
             if base != current:
                 return self.reply(409, error="Feedback changed since this page loaded it, in another tab or round. Reload to continue.", revision=current)
+            # A page from an earlier round does not know the agent's newest answers. It must not delete a comment that
+            # the current round answers, or the answer would lose its thread.
+            # It must not change one either: the answer refers to the comment as the agent read it.
+            previous = json.loads(saved)["comments"] if saved else []
+            question = lambda comment: (comment["body"], comment["anchor"], comment["history"])
+            kept = {comment["id"]: question(comment) for comment in feedback["comments"]}
+            before = {comment["id"]: question(comment) for comment in previous}
+            for comment_id in snapshot["answered"] & before.keys():
+                if comment_id not in kept:
+                    return self.reply(409, error="The agent answered a comment this page deletes. Reload to see the answer.", revision=current)
+                if kept[comment_id] != before[comment_id]:
+                    return self.reply(409, error="The agent answered a comment this page changes. Reload to see the answer.", revision=current)
+            # Nor may it answer one: its reply could sort before an answer it never showed, and the agent would miss it.
+            earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
+            replied = {comment["id"] for comment in feedback["comments"] if comment.get("replies", []) != earlier.get(comment["id"], [])}
+            # The answers the saving page showed. An answer merely carried into this round is one of them; only an answer
+            # it never showed blocks it.
+            shown = snapshot["answers"] if feedback["input_sha256"] == snapshot["input_sha256"] else self.server.shown_answers(feedback["input_sha256"], number)
+            if feedback["input_sha256"] != snapshot["input_sha256"]:
+                if any(shown is None or shown.get(comment_id) != snapshot["answers"][comment_id] for comment_id in replied & snapshot["answered"]):
+                    return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
+                                      revision=current)
+            # Answers already written for the next round, before it publishes, protect their comments the same way. Until
+            # such an input can be read, every saved comment is protected.
+            pending = self.server.pending_answers(number)
+            if pending is None:
+                pending = set(before)
+            else:  # answers the round merely carries were shown already, so only new ones protect their comments
+                pending = {comment_id for comment_id, ids in pending.items() if shown is None or not ids <= shown.get(comment_id, frozenset())}
+            if any(comment_id not in kept or kept[comment_id] != before[comment_id] for comment_id in pending & before.keys()) or replied & pending:
+                return self.reply(409, error="The agent is answering this page's comments for the next round. Reload when that round is ready.",
+                                  revision=current)
             review_state.write_private(self.server.state / "feedback.json", body)
         self.reply(200, revision=revision(body))
 

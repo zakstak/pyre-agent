@@ -254,8 +254,8 @@ def publish(state, number, held=False):
 def round_lock(input_path):
     """The publish lock of the review that holds a round's input, or no lock for an input outside a state directory.
 
-    Rendering and the collector hold it from checking that a round has not rendered to writing, so neither can change a
-    round under the other."""
+    Rendering, the collector, and reply.py hold it from checking that a round has not rendered to writing, so none
+    can change a round under another."""
     # Resolve aliases first, so a symlinked rounds directory still names the lock that rendering takes.
     path = Path(input_path).resolve()
     if path.name != "input.json" or path.parent.parent.name != "rounds" or not ROUND_NAME.fullmatch(path.parent.name):
