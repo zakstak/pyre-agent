@@ -91,6 +91,7 @@
     };
     return {
       start: show,
+      refresh: show,
       changed() { exported = false; byId("export-status").textContent = "Changes are in this tab only. Export to save them."; show(); },
       draftChanged() { if (exported) { exported = false; show(); } },
       exported(draft) { exported = !draft; show(); },
@@ -163,7 +164,9 @@
         if (!paused) show("Saving");
         clearTimeout(timer); timer = setTimeout(save, 500);
       },
-      draftChanged() {},
+      // A draft never saves until the reviewer saves it, so the status says so while one is open.
+      refresh() { if (ready && !paused && !failed && !timer && !saving) show(draftOpen() ? "Saved, except the open draft" : "Saved"); },
+      draftChanged() { this.refresh(); },
       // A requested download does not prove a saved file, so a failed save keeps its unload warning until a save succeeds.
       exported() {},
       merged() { this.changed(); },
@@ -310,6 +313,7 @@
   function closeComposer(restoreFocus = false) {
     const fallback = composerFallback;
     parkComposer(); editing = null; reattaching = null; selection = null; composerAnchor = null; composerFallback = null; hideFloating();
+    persistence.refresh();
     byId("selection-status").textContent = pinned ? "No code text selected." : "Inline comments are off.";
     if (restoreFocus) (composerReturn?.isConnected && composerReturn.checkVisibility() ? composerReturn : fallback?.())?.focus();
     composerReturn = null;
@@ -362,9 +366,10 @@
       if (!selection) { announce("Select the intended code first, then choose Attach to selected text."); return; }
       compose(selection, comment, true);
     }));
-    actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
-    // An answered comment is a conversation; deleting it would strand the agent's replies, so it stays and can be resolved.
-    if (!agentReplies.has(comment.id)) actions.append(button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
+    // Once a thread has replies, the comment is the question they answer: editing it would leave a stale answer marked
+    // done, and deleting it would strand the agent's replies. The reviewer replies or reopens instead.
+    if (!thread(comment).length) actions.append(button("Edit", () => compose(comment.anchor, comment), "quiet", "Edit comment"));
+    if (!agentReplies.has(comment.id) && !comment.replies?.length) actions.append(button("Delete", () => removeComment(comment), "quiet", "Delete comment"));
     head.append(actions);
     const lines = comment.anchor.quote.split("\n");
     node.append(head, attached ? element("pre", "comment-quote is-inline", lines[0] + (lines.length > 1 ? " …" : "")) : element("pre", "comment-quote", comment.anchor.quote),
@@ -407,7 +412,7 @@
   function replyComposer(comment) {
     const form = element("div", "reply-composer"), label = element("label", "", replyDraft.action === "reopen" ? "Why reopen?" : "Reply to the agent");
     const area = element("textarea"); area.id = `reply-${comment.id}`; label.htmlFor = area.id; area.rows = 3; area.maxLength = 20000; area.spellcheck = false; area.value = replyDraft.body;
-    const save = () => addReply(comment, replyDraft.action, area.value), cancel = () => { replyDraft = null; drawComments(); jumpTo(comment.id); };
+    const save = () => addReply(comment, replyDraft.action, area.value), cancel = () => { replyDraft = null; drawComments(); persistence.refresh(); jumpTo(comment.id); };
     area.addEventListener("input", () => { replyDraft.body = area.value; persistence.draftChanged(); });
     area.addEventListener("keydown", event => {
       if (event.isComposing) return;
@@ -480,9 +485,17 @@
         }
       }
     }
-    const loaded = new Set(comments.map(comment => comment.id)), waiting = [...agentReplies.keys()].filter(id => !loaded.has(id)).length;
-    byId("unmatched-replies").hidden = !waiting;
-    byId("unmatched-replies").textContent = waiting ? `The agent answered ${plural(waiting, "comment")} that are not in this page's feedback. Unless they were deleted, import the feedback that holds them to see the answers.` : "";
+    // Answers to comments this page lacks stay readable, whether the comment was deleted or its feedback is not loaded yet.
+    const loaded = new Set(comments.map(comment => comment.id)), waiting = [...agentReplies.keys()].filter(id => !loaded.has(id));
+    const unmatched = byId("unmatched-replies");
+    unmatched.hidden = !waiting.length;
+    unmatched.replaceChildren();
+    if (waiting.length) {
+      unmatched.append(element("p", "", `The agent answered ${plural(waiting.length, "comment")} that are not in this page's feedback. Unless they were deleted, import the feedback that holds them.`));
+      const list = element("ul", "unmatched-list");
+      for (const id of waiting) for (const reply of agentReplies.get(id)) list.append(element("li", "", `${DISPOSITION[reply.disposition]}: ${reply.body}`));
+      unmatched.append(list);
+    }
     byId("orphan-comments").hidden = orphanCount === 0;
     byId("orphan-heading").textContent = `Unattached comments (${orphanCount})`;
     byId("retained-reviews").hidden = retained.length === 0;

@@ -293,6 +293,16 @@ class RoutingTests(ServerCase):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.api(method, path)[0], 404)
 
+    def test_a_save_waits_while_a_round_publishes(self):
+        result = {}
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: result.update(status=self.api("PUT", "/feedback", self.body)[0]))
+            worker.start()
+            worker.join(0.3)
+            self.assertTrue(worker.is_alive(), "the save did not wait for the publish lock")
+        worker.join(10)
+        self.assertEqual(result["status"], 200)
+
     def test_an_older_page_cannot_delete_a_comment_the_agent_answered(self):
         status, reply = self.api("PUT", "/feedback", self.body)
         self.assertEqual(status, 200)

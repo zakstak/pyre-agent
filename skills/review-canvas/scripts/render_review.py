@@ -561,7 +561,7 @@ def render_review(review, style_dir=None):
             '<section id="feedback" class="finish panel" aria-labelledby="feedback-heading"><div class="finish-head"><h2 id="feedback-heading">Finish review</h2>'
             '<p id="review-summary" class="finish-summary"></p></div>'
             '<ol id="comment-index" class="comment-index" aria-label="Your comments"></ol>'
-            '<p id="unmatched-replies" class="finish-status" hidden></p>'
+            '<div id="unmatched-replies" class="finish-status" hidden></div>'
             '<div class="field"><label for="general-notes">Overall notes</label><textarea id="general-notes" maxlength="20000" rows="4" autocomplete="off" spellcheck="false" placeholder="Overall feedback, or a decision for the agent"></textarea></div>'
             '<div class="finish-actions"><button id="export-feedback" class="primary" type="button">Export feedback (.json)</button>'
             '<input id="import-feedback" class="file-input sr-only" type="file" accept=".json,application/json"><label class="button" for="import-feedback">Import saved feedback</label></div>'

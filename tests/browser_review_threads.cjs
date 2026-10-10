@@ -43,6 +43,8 @@ fs.mkdirSync(out, { recursive: true });
 
     // Before the comments load, the page says the agent answered comments it cannot show yet.
     assert.match(await page.locator("#unmatched-replies").textContent(), /answered 4 comments that are not in this page's feedback/);
+    // The answers stay readable even when their comment is missing or was deleted.
+    assert.match(await page.locator("#unmatched-replies li").first().textContent(), /^Fixed: save\(\) now flushes/);
     await importFile(path.join(fixtures, "worktree-feedback.json"));
     assert.equal(await page.locator("#unmatched-replies").isHidden(), true);
     await page.getByRole("button", { name: "Expand all" }).click();
@@ -78,8 +80,9 @@ fs.mkdirSync(out, { recursive: true });
     await page.keyboard.press("Control+Enter");
     assert.equal(await state("fixture-comment-3"), "Replied");
     // An answered comment cannot be deleted, so the agent's replies never lose their thread.
+    // Editing it would leave a stale answer marked done, so the reviewer replies or reopens instead.
     assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Delete comment" }).count(), 0);
-    assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Edit comment" }).count(), 1);
+    assert.equal(await comment("fixture-comment-4").getByRole("button", { name: "Edit comment" }).count(), 0);
     // Escape cancels a reply draft without saving it.
     await comment("fixture-comment-4").getByRole("button", { name: "Reply to the agent" }).click();
     await comment("fixture-comment-4").getByLabel("Reply to the agent").fill("draft");

@@ -213,11 +213,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, error="The body ended early.")
         try:
             feedback = feedback_contract.parse_feedback(body)
-            snapshot = self.server.snapshot(review_state.read_current(self.server.state))
-            feedback_contract.check_identity(feedback, snapshot)
         except feedback_contract.FeedbackError as error:
             return self.reply(400, error=str(error))
-        with self.server.save_lock:
+        # The publish lock holds the current round still from this read to the write, so a round published meanwhile
+        # cannot slip past the identity and answered-comment checks.
+        with self.server.save_lock, review_state.lock(self.server.state, "publish"):
+            snapshot = self.server.snapshot(review_state.read_current(self.server.state))
+            try:
+                feedback_contract.check_identity(feedback, snapshot)
+            except feedback_contract.FeedbackError as error:
+                return self.reply(400, error=str(error))
             saved = self.server.saved()
             current = revision(saved)
             if base != current:
