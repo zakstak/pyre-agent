@@ -198,13 +198,26 @@ def read_current(state):
     return int(text)
 
 
-def publish(state, number):
-    """Point current at a rendered round. A round never replaces a newer one, even when two renders finish together."""
-    with lock(state, "publish"):
+def publish(state, number, held=False):
+    """Point current at a rendered round. A round never replaces a newer one, even when two renders finish together.
+
+    Pass held=True when the caller already holds the publish lock."""
+    with contextlib.nullcontext() if held else lock(state, "publish"):
         current = read_current(state)
         if current is not None and number < current:
             raise StateError(f"round {number:04d} is older than the published round {current:04d}")
         write_private(Path(state) / "current", f"{number:04d}\n".encode("ascii"))
+
+
+def round_lock(input_path):
+    """The publish lock of the review that holds a round's input, or no lock for an input outside a state directory.
+
+    Rendering and reply.py hold it from checking that a round has not rendered to writing, so neither can change a
+    round under the other."""
+    directory = Path(input_path).absolute().parent
+    if directory.parent.name == "rounds" and ROUND_NAME.fullmatch(directory.name):
+        return lock(directory.parent.parent, "publish")
+    return contextlib.nullcontext()
 
 
 def archive(state):

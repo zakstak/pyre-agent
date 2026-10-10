@@ -10,7 +10,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 
@@ -109,6 +111,25 @@ class ReplyTests(unittest.TestCase):
         for call in (lambda: reply.carry(self.previous, self.input), lambda: reply.add(self.input, self.feedback, "fixture-comment-3", "question", "?")):
             with self.assertRaisesRegex(ValueError, "never changes after it renders"):
                 call()
+
+    def test_reply_writes_wait_for_a_render_in_progress(self):
+        done = threading.Event()
+        with reply.review_state.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (reply.carry(self.previous, self.input), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "carry wrote while the round's publish lock was held")
+        self.assertTrue(done.wait(10))
+        self.assertEqual(len(self.replies()), 4)
+
+    def test_an_input_past_the_size_limit_is_not_written(self):
+        before = self.input.read_bytes()
+        review = json.loads(before)
+        review["replies"] = self.earlier
+        size = len((json.dumps(review, ensure_ascii=False, indent=2) + "\n").encode())
+        with unittest.mock.patch.object(reply.render_review, "MAX_INPUT_BYTES", size - 1):
+            with self.assertRaisesRegex(ValueError, "would exceed"):
+                reply.save_round_input(self.input, review)
+        self.assertEqual(self.input.read_bytes(), before)
 
     def test_command_line(self):
         run = lambda *args: subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)

@@ -313,8 +313,14 @@ class RoutingTests(ServerCase):
         self.assertEqual(status, 409)
         self.assertIn("The agent answered a comment this page deletes", refused["error"])
         self.assertEqual((self.state / "feedback.json").read_bytes(), self.body)
+        rewritten = json.loads(self.body)
+        rewritten["comments"][1]["body"] = "A different question than the one the agent answered."
+        status, refused = self.api("PUT", "/feedback", json.dumps(rewritten).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 409)
+        self.assertIn("The agent answered a comment this page changes", refused["error"])
         edited = json.loads(self.body)
         edited["general_notes"] = "still here"
+        edited["comments"][1]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T12:00:00.000Z", "body": "", "action": "accept"}]
         self.assertEqual(self.api("PUT", "/feedback", json.dumps(edited).encode(), **{"X-Review-Revision": reply["revision"]})[0], 200)
 
     def test_round_follows_each_publish(self):
@@ -356,6 +362,18 @@ class StateTests(unittest.TestCase):
             self.assertEqual(renderer.main(["--round", str(self.temp)]), 2)
         self.assertEqual(state_module.read_current(self.state), 3)
         self.assertTrue(third.exists())
+
+    def test_rendering_holds_the_publish_lock_from_check_to_publish(self):
+        directory = state_module.new_round(self.state)
+        shutil.copyfile(FIXTURES / "worktree-review.json", directory / "input.json")
+        done = threading.Event()
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (contextlib.redirect_stdout(io.StringIO()).__enter__(), renderer.main(["--round", str(directory)]), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "rendering ran while the publish lock was held")
+            self.assertFalse((directory / "review.html").exists())
+        self.assertTrue(done.wait(30))
+        self.assertEqual(state_module.read_current(self.state), 1)
 
     def test_publish_waits_for_another_publish(self):
         render_round(self.state, "worktree-review.json")

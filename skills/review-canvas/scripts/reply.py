@@ -34,11 +34,19 @@ def load_round_input(path):
 
 def save_round_input(path, review):
     render_review.validate_review(review)
-    review_state.write_private(Path(path), (json.dumps(review, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    data = (json.dumps(review, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    if len(data) > render_review.MAX_INPUT_BYTES:
+        raise render_review.ValidationError(f"the input would exceed {render_review.MAX_INPUT_BYTES} bytes; {path} was not changed")
+    review_state.write_private(Path(path), data)
 
 
 def carry(source, target):
     """Copy agent replies from an earlier round's input. Replies already present keep their place."""
+    with review_state.round_lock(target):
+        return _carry(source, target)
+
+
+def _carry(source, target):
     previous = render_review.load_review(source)
     review = load_round_input(target)
     snapshot = lambda item: {"target": item["target"], "input_sha256": render_review.input_digest(item)}
@@ -61,6 +69,11 @@ def timestamp(seconds):
 
 def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=None, commit=None, blocker=None, now=None):
     """Append one agent reply to a comment in the feedback. Return the reply."""
+    with review_state.round_lock(input_path):
+        return _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now)
+
+
+def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now):
     feedback = feedback_contract.parse_feedback(Path(feedback_path).read_bytes())
     comment = next((item for item in feedback["comments"] if item["id"] == comment_id), None)
     if comment is None:

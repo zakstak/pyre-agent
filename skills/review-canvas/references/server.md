@@ -24,7 +24,7 @@ Each file has exactly one writer, so the only coordination is one revision check
 | `feedback.json` | The browser, through the server. The agent only reads it. |
 | `server.json` | The server, while it runs: its URL, port, and process ID |
 | `server.lock` | Held by the running server for its whole life, so a second server cannot start |
-| `publish.lock` | Held while `render_review.py --round` compares and replaces `current` |
+| `publish.lock` | Held while `render_review.py --round` renders and publishes a round, while `reply.py` writes a round's input, and while the server saves |
 
 A state directory holds one review. Feedback carries over between its rounds, so before an unrelated review, stop the server and run `review_state.py archive --state-dir "$STATE"`. It moves the directory aside as `review-canvas.archived-TIMESTAMP` and refuses while a server holds the lock.
 
@@ -79,7 +79,7 @@ A save must also pass these checks, in order:
 5. The body is valid version 3 feedback, checked by `scripts/feedback_contract.py`, the same contract as the page's own validator.
 6. Every snapshot it names belongs to the same review as the current round: the same PR URL or working tree root.
 7. The revision still matches the saved file. Otherwise the server answers 409, for example when a second tab saved first.
-8. It keeps every saved comment that the current round's agent replies answer. The server holds `publish.lock` from reading the current round to writing, so a round published meanwhile cannot slip past this check. A page from an earlier round does not know those answers, so its attempt to delete one gets 409, and the page offers **Reload**.
+8. It keeps every saved comment that the current round's agent replies answer, with its body, anchor, and history unchanged; new reviewer replies are fine. The server holds `publish.lock` from reading the current round to writing, so a round published meanwhile cannot slip past this check. A page from an earlier round does not know those answers, so its attempt to delete one gets 409, and the page offers **Reload**.
 
 The server writes the file atomically: a mode 0600 temporary file in the state directory, then `os.replace`. A revision is the SHA-256 digest of the saved bytes.
 
