@@ -207,7 +207,7 @@ def tracked_entry(top, change, fmt, config):
     return entry
 
 
-def untracked_entry(top, path, nested, fmt):
+def untracked_entry(top, path, nested, fmt, modes_count=True):
     full = top / path
     entry = {"path": path, "old_path": None, "status": "added", "untracked": True, "old_blob": None, "old_mode": None, "size": 0}
     info = os.lstat(full)
@@ -221,7 +221,8 @@ def untracked_entry(top, path, nested, fmt):
         entry.update(kind="symlink", new_mode="120000", new_blob=blob_id(fmt, os.readlink(os.fsencode(full))))
     else:
         blob = read_blob(full, fmt)
-        entry.update(kind="file", new_mode=blob["mode"], new_blob=blob["blob"], size=blob["size"],
+        # With core.filemode off, Git adds a file as 100644 whatever its executable bit.
+        entry.update(kind="file", new_mode=blob["mode"] if modes_count else "100644", new_blob=blob["blob"], size=blob["size"],
                      lines=blob["lines"], binary=blob["binary"])
     entry["fingerprint"] = file_fingerprint(path, None, None, entry["new_blob"], None, entry["new_mode"])
     return entry
@@ -245,6 +246,7 @@ def inventory(top, fmt, config):
     others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
     if len(others) > render_review.MAX_FILES:
         raise too_many(len(others))
+    modes_count = git_bool(top, "core.filemode")
     entries = {}
     for change in tracked:
         with reading(change["path"]):
@@ -259,7 +261,7 @@ def inventory(top, fmt, config):
             raise CollectError(f"{path} is removed from Git's index but still on disk, as after git rm --cached. Restore it with "
                                "git restore --staged, or move or ignore the file, then collect again.")
         with reading(path):
-            entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt)
+            entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt, modes_count)
     if len(entries) > render_review.MAX_FILES:
         raise too_many(len(entries))
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
@@ -437,11 +439,12 @@ def build(top, snapshot, fmt, include, config):
         binary = entry.get("binary", False)
         if entry["untracked"]:
             additions, deletions = (entry["lines"] if entry["kind"] == "file" and not binary else 0), 0
-        elif path in stats:
+        elif path in stats and not (stats[path][2] and not binary):
             additions, deletions, _ = stats[path]
         else:
             # Git's numstat skips files it trusts without reading; count their exact bytes instead.
-            additions, deletions, _ = hidden_stats(top, entry, config) if entry.get("hidden") else (0, 0, False)
+            # numstat skipped the file, or called text binary because of a diff attribute: count its exact bytes.
+            additions, deletions, _ = hidden_stats(top, entry, config) if entry.get("hidden") or path in stats else (0, 0, False)
         file = {"path": path, "status": entry["status"], "group": "core", "additions": additions, "deletions": deletions,
                 "fingerprint": entry["fingerprint"]}
         if entry["old_path"]:
@@ -532,6 +535,7 @@ def staged_differently(top, config):
     staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
     # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
     modes_count = git_bool(top, "core.filemode")
+    links_are_links = git_bool(top, "core.symlinks")
     found = []
     index = index_entries(top)
     # A staged deletion has no index entry; a file kept on disk at that path means the commit removes what was reviewed.
@@ -544,7 +548,8 @@ def staged_differently(top, config):
             if mode == "160000":
                 differs = repository_head(full) != blob
             elif mode == "120000":
-                differs = link_blob(full, fmt) != blob
+                # A regular file holding the target's bytes has the same blob; only the mode shows the type change.
+                differs = link_blob(full, fmt) != blob or (links_are_links and disk_mode(full) != "120000")
             else:
                 differs = read_blob(full, fmt)["blob"] != blob or (modes_count and disk_mode(full) != mode)
         except (OSError, Changed):
