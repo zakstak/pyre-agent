@@ -228,7 +228,8 @@ def round_lock(input_path):
 def archive(state):
     """Move a finished review's state aside, so an unrelated review starts empty. Return the new location."""
     state = private_dir(state)
-    with lock(state, "server", wait=False):
+    # The publish lock waits for any render or input write to finish, so none lands in the moved or a new directory.
+    with lock(state, "server", wait=False), lock(state, "publish"):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         destination = state.with_name(f"{state.name}.archived-{stamp}")
         os.rename(state, destination)

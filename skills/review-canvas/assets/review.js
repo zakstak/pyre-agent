@@ -93,7 +93,10 @@
       if (paused || !ready) return Promise.resolve();
       if (saving) { again = true; return saving; }
       let body;
-      try { body = JSON.stringify(feedback()); } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
+      try {
+        body = JSON.stringify(feedback());
+        if (new Blob([body]).size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB, so it was not saved. Shorten notes or comments to save it again.");
+      } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       show("Saving");
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
         failed = status !== 200;
@@ -117,7 +120,8 @@
       }, () => notify("The review server stopped. Export your feedback to keep changes you make from now on.", false));
     }
     byId("server-reload").addEventListener("click", async () => {
-      await save(); while (saving) await saving;
+      // A change made during the last save waits in the debounce timer or the queue; save it too before leaving.
+      while (ready && !paused && (timer || saving || again)) { if (saving) await saving; else await save(); }
       location.reload();
     });
     return {

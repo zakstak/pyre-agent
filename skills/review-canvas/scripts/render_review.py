@@ -20,6 +20,7 @@ MAX_PATCH_CHARS = 4 * 1024 * 1024
 MAX_PATCH_LINES = 10000
 MAX_TOTAL_PATCH_LINES = 50000
 MAX_FILES = 2000
+MAX_FEEDBACK_PATH_BYTES = 6 * 1024 * 1024
 GROUPS = (
     ("core", "Core logic", "Behavior, algorithms, state, and API changes. Start here."),
     ("wiring", "Wiring & integration", "Connections and configuration. Diffs start collapsed."),
@@ -123,6 +124,10 @@ def validate_review(review):
         raise ValidationError(f"files: expected an array of at most {MAX_FILES} files")
     if review.get("files_complete") is True and target.get("changed_files") != len(review["files"]):
         raise ValidationError("files_complete: true requires target.changed_files matching the supplied file count")
+    # Feedback lists every path twice, in files and approvals, within its 8 MiB limit. Leave room for notes and comments.
+    paths = sum(len(json.dumps(file.get("path", ""))) for file in review["files"] if isinstance(file, dict))
+    if 2 * paths + 200 * len(review["files"]) > MAX_FEEDBACK_PATH_BYTES:
+        raise ValidationError("files: the paths are too long for feedback on this review to fit its 8 MiB limit; split the review")
     seen = set()
     total_patch_lines = 0
     for i, file in enumerate(review["files"]):

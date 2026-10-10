@@ -136,7 +136,7 @@ class ShutdownTests(ServerCase):
         connection.sendall((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
                             f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\nContent-Length: {len(body)}\r\n\r\n").encode() + body[:100])
         time.sleep(0.2)
-        stopping = threading.Thread(target=lambda: (self.server.shutdown(), self.server.server_close()))
+        stopping = threading.Thread(target=lambda: (self.server.shutdown(), self.server.finish_saves(10), self.server.server_close()))
         stopping.start()
         time.sleep(0.2)
         self.assertTrue(stopping.is_alive(), "shutdown did not wait for the save in progress")
@@ -145,6 +145,18 @@ class ShutdownTests(ServerCase):
         stopping.join(10)
         self.assertEqual(int(reply.split(b" ", 2)[1]), 200)
         self.assertEqual((self.state / "feedback.json").read_bytes(), body)
+
+
+    def test_a_client_that_never_finishes_its_headers_does_not_hold_shutdown(self):
+        stalled = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        self.addCleanup(stalled.close)
+        stalled.sendall(f"GET /round HTTP/1.1\r\nHost: {self.host}\r\n".encode())
+        time.sleep(0.2)
+        started = time.monotonic()
+        self.server.shutdown()
+        self.assertTrue(self.server.finish_saves(5))
+        self.server.server_close()
+        self.assertLess(time.monotonic() - started, 3)
 
 
 class PolicyTextTests(unittest.TestCase):
@@ -402,6 +414,17 @@ class StateTests(unittest.TestCase):
         self.assertTrue((archived / "rounds/0001/review.html").exists())
         self.assertFalse(self.state.exists())
         self.assertEqual(state_module.new_round(self.state).name, "0001")
+
+    def test_archive_waits_for_a_publish_in_progress(self):
+        render_round(self.state, "worktree-review.json")
+        done = threading.Event()
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (state_module.archive(self.state), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "archive moved the state while a publish held its lock")
+            self.assertTrue(self.state.exists())
+        self.assertTrue(done.wait(10))
+        self.assertFalse(self.state.exists())
 
     def test_ancestors_another_user_could_replace_are_refused(self):
         shared = self.temp / "shared"
