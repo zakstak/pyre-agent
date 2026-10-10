@@ -232,10 +232,16 @@ def load_review(path):
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValidationError(f"invalid UTF-8 JSON: {error}") from error
     review = validate_review(review)
-    # A rendered round records its input's digest. A later edit would make readers see other input than the page.
-    recorded = Path(path).parent / "input.sha256"
-    if Path(path).name == "input.json" and recorded.exists() and recorded.read_text(encoding="ascii").strip() != input_digest(review):
-        raise ValidationError(f"{path} changed after its round rendered; a round never changes. Start a new round.")
+    # A rendered round records its input's digest. A later edit would make readers see other input than the page, and a
+    # rendered round without its digest cannot show it has none.
+    directory = Path(path).parent
+    if Path(path).name == "input.json" and (directory / "review.html").exists():
+        try:
+            recorded = (directory / "input.sha256").read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            raise ValidationError(f"{directory} rendered but has no readable input.sha256, so its input cannot be checked") from None
+        if recorded != input_digest(review):
+            raise ValidationError(f"{path} changed after its round rendered; a round never changes. Start a new round.")
     return review
 
 

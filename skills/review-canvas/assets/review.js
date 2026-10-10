@@ -109,6 +109,11 @@
         if (status === 409 && unconfirmed.has(reply.revision)) {
           revision = reply.revision; unconfirmed.clear(); again = true; return;  // save again on top of this tab's own write
         }
+        if (status === 200 && !/^[0-9a-f]{64}$/.test(reply.revision ?? "")) {
+          // The server saved, but its reply arrived broken, so the new revision is unknown. Treat it as a lost reply.
+          failed = true; show("Not saved", true); byId("export-status").textContent = "The review server's reply was incomplete. Export your feedback to keep it.";
+          unconfirmed.add(await digest(body)); return;
+        }
         failed = status !== 200;
         if (status === 200) {
           unconfirmed.clear();

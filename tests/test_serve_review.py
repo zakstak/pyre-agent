@@ -391,6 +391,9 @@ class StateTests(unittest.TestCase):
         with self.assertRaisesRegex(renderer.ValidationError, "changed after its round rendered"):
             renderer.load_review(directory / "input.json")
         self.assertEqual(renderer.load_review(FIXTURES / "worktree-review.json")["target"]["kind"], "worktree")  # loose inputs are not checked
+        (directory / "input.sha256").unlink()  # a rendered round without its digest cannot show its input is unchanged
+        with self.assertRaisesRegex(renderer.ValidationError, "rendered but has no readable input.sha256"):
+            renderer.load_review(directory / "input.json")
 
     def test_the_collector_never_writes_into_a_superseded_round(self):
         older = state_module.new_round(self.state)
