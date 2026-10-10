@@ -186,7 +186,7 @@ function contrast(a, b) {
       assert.equal(await staticPage.locator('#theme-toggle').isVisible(), false);
       assert.equal(await staticPage.locator('html').evaluate(e => getComputedStyle(e).colorScheme), 'light dark');
       const bg = await staticPage.locator('html').evaluate(e => getComputedStyle(e).backgroundColor);
-      assert.equal(bg, theme === 'dark' ? 'rgb(20, 20, 39)' : 'rgb(244, 243, 251)');
+      assert.equal(bg, theme === 'dark' ? 'rgb(25, 25, 30)' : 'rgb(243, 241, 247)');
       assert.ok(await staticPage.locator('noscript').isVisible());
       await noScript.close();
     }
@@ -209,7 +209,7 @@ function contrast(a, b) {
       });
       assert.equal(actual.headingSize, '36px'); assert.equal(actual.weight, '400'); assert.equal(actual.decoration, 'underline');
       assert.equal(actual.padding, '32px'); assert.equal(actual.background, actual.page);
-      assert.equal(actual.status, 'rgb(143, 214, 178)'); assert.equal(actual.tint, 'rgb(30, 29, 54)');
+      assert.equal(actual.status, 'rgb(183, 203, 185)'); assert.equal(actual.tint, 'rgb(30, 28, 36)');
       assert.ok(actual.font.startsWith('\"Atkinson Hyperlegible Next\"'));
       assert.ok(actual.mono.startsWith('\"Atkinson Hyperlegible Mono\"'));
       report.tailwindUtilities = actual; report.checks.push('compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults');

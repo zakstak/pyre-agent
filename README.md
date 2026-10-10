@@ -56,7 +56,7 @@ After approval, manually install the reconciled file at the selected provider's 
 
 ## Scope and private reviews
 
-Skills guide work within your current request and agent permissions. Review requests do not authorize source changes, commits, merges, publication, or credential changes. The offline PR review viewer keeps source and notes local; export notes before closing it. Do not publish private-code reviews to an unapproved audience.
+Skills guide work within your current request and agent permissions. Review requests do not authorize source changes, commits, merges, publication, or credential changes. The offline PR review viewer keeps source and feedback local; export version2 feedback JSON before closing, then import to restore highlights and notes. Install complete `pr-review-canvas` and `internal-visual-style` folders as siblings (or pass the renderer `--style-dir`); no automatic installation occurs. Do not publish private-code reviews to an unapproved audience.
 
 ## Official discovery references
 
@@ -72,11 +72,11 @@ Merge this root-documentation proposal before merging the twelve upstream-derive
 
 ## Renderer verification
 
-The [PR review canvas proposal](https://github.com/zakstak/pyre-agent/pull/2) passed 22 Python tests and the production-JS DOM test. Existing Chromium and Playwright also passed the real browser interaction suite: desktop, mobile, dark mode, grouping, filters, folding, notes, flags, JSON download, reload privacy, injection probes, no external requests, CSP and no-JS fallback.
+The [PR review canvas proposal](https://github.com/zakstak/pyre-agent/pull/2) passed 24 Python tests and dependency-free feedback contract checks. Existing Chromium and Playwright also passed the real browser interaction suite: desktop, mobile, dark mode, grouping, filters, folding, notes, flags, JSON download, reload privacy, injection probes, no external requests, CSP and no-JS fallback.
 
-Its screenshots under `validation/pr-review-canvas/` show only the fictional bundled example, using the same renderer/assets tested in that proposal. No private PR source or credentials appear. At a 375-pixel viewport, the page had no horizontal overflow; individual code views retain their own scrolling. The evidence files are `desktop.png`, `mobile.png` and `dark-mobile.png`.
+Its screenshots under `validation/pr-review-canvas/` show only the fictional bundled example, using the same renderer/assets tested in that proposal. No private PR source or credentials appear. Both320/390px phones and1440px desktop pass100%/200% text with no page overflow; individual code views retain their own scrolling. The evidence files are `desktop.png`, `mobile.png`, `dark-mobile.png`, `inline-desktop-dark.png` and `inline-phone-dark.png`.
 
-Once that proposal is merged, run `python3 -m unittest discover -s tests -p test_review_renderer.py` and `node tests/browser_review.unit.cjs`. Real-browser checks require already available Playwright and Chromium; `tests/browser_review.cjs` documents its environment overrides. No dependency installation or global activation is performed by these checks.
+Once that proposal is merged, run `python3 -m unittest discover -s tests -p test_review_renderer.py`, `python3 -m unittest discover -s tests -p test_shared_review_style.py` and `node tests/browser_review.unit.cjs`. Real-browser checks require already available Playwright and Chromium; `tests/browser_review.cjs` documents its environment overrides. Run `tests/browser_review_inline.cjs` with the same browser overrides for actual text selection, save/reload/import, revised anchors, orphan reattachment and phone keyboard coverage. No dependency installation or global activation is performed by these checks.
 
 ## Qualification checked 2026-10-09
 
@@ -84,7 +84,7 @@ Source review and direct helper tests do not qualify every provider session. PAS
 
 | Path and installed version | Result | Evidence and boundary |
 | --- | --- | --- |
-| Direct renderer: Python 3.14.7, Node 26.10.0; prior Chromium 152 | PASS | 22 Python tests and production-JS DOM checks passed; unchanged renderer/assets retain prior desktop/mobile/dark browser QA. This is not an agent skill invocation. |
+| Direct renderer: Python3.14.7, Node26.10.0, Chromium152.0.7977.82 | PASS | 24 Python tests and feedback contract checks passed; current renderer/assets pass desktop/mobile/dark browser QA and inline restoration flows. This is not an agent skill invocation. |
 | Direct bridge: Python 3.14.7, Git 2.55.0, Codex 0.162.0, requested Sol 6.1 | PASS | Preflight passed. Two live specialists and the lead detected the synthetic empty-input regression and returned one deduplicated P2 finding. The fixture worktree and Git objects were unchanged. Exact CLI model request checked; service routing not independently verified. |
 | Codex 0.162.0 skill discovery | PASS | Non-inference `skills/list` found renderer/workflow copies in a temporary repository, including the workflow's Claude control field. No thread or model turn was started. User-level installation and workflow execution remain untested. |
 | Claude Code 2.1.295 | UNTESTED | Version/help inspection passed; current docs support discovery, substitution and explicit-invocation metadata. Full skill execution, actual permission matching and nested Codex runtime access were not tested. No paid Claude inference was attempted. |
