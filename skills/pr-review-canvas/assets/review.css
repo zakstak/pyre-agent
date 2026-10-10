@@ -209,7 +209,10 @@ mark { color: var(--text-primary); background: var(--pyre-message); text-decorat
 @media (max-width: 47.99rem) {
   :root { --sticky-offset: 0px; }
   main { padding: var(--space-5) var(--space-4) var(--space-6); }
-  .topbar-pr { display: none; }
+  /* The page title sits right below, so the bar keeps only progress and actions. */
+  .topbar-title, .progress-track { display: none; }
+  .topbar-actions { flex: 1 1 auto; justify-content: flex-end; }
+  .progress { margin-inline-end: auto; }
   .analysis { padding: var(--space-3) var(--space-4); }
   .finish, .orphans { padding: var(--space-4); }
   .toolbar-status { margin-inline-start: 0; }

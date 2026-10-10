@@ -199,7 +199,7 @@
       "colorScheme": "light",
       "controls": [
         {
-          "height": 117.1875,
+          "height": 88,
           "text": "Dark mode"
         },
         {
@@ -421,7 +421,7 @@
       "colorScheme": "dark",
       "controls": [
         {
-          "height": 117.1875,
+          "height": 88,
           "text": "Dark mode"
         },
         {

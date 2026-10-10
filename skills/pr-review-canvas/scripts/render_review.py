@@ -379,7 +379,7 @@ def render_review(review, style_dir=None):
             '<div class="topbar-actions"><div class="progress"><span class="progress-track" aria-hidden="true"><span class="progress-fill"></span></span>'
             f'<p id="progress" role="status" aria-live="polite">0 of {len(files)} reviewed</p></div>'
             '<span id="save-state" class="chip" hidden></span><a class="button" href="#feedback">Finish review</a>'
-            '<button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden>Dark mode</button></div></header>'
+            '<button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button></div></header>'
             '<div class="layout">' + _nav_html(review) + '<main id="main">'
             f'<header class="pr-header">{origin}<h1>{escape(pr["title"])}</h1>' + _paragraph(review.get("summary"), "lead")
             + '<ul class="pr-facts" aria-label="Snapshot">' + "".join(facts) + '</ul>'

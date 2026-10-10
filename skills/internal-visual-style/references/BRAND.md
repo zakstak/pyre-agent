@@ -74,7 +74,7 @@ Atkinson Hyperlegible Next is the reading font. Atkinson Hyperlegible Mono is th
 The classes below are in components.css. The specimen shows each one.
 
 - **Buttons.** `button` is the default. `.primary` marks the one primary action. `.quiet` has no border or fill until hover. Every button is at least 44px tall. Toggle buttons use `aria-pressed`.
-- **Mode switch.** `.theme-toggle` keeps the label **Dark mode**. The track and `aria-pressed` show the state. Load theme.js in the head.
+- **Mode switch.** `.theme-toggle` keeps the label **Dark mode** in a `.theme-label` span. The track and `aria-pressed` show the state. On phones the label is visually hidden but stays the accessible name, so the app bar fits one row. Load theme.js in the head.
 - **Fields.** Text fields, selects, and text areas sit on the code fill with a control border. Give every field a label. A visually hidden label is acceptable only for a filter field whose placeholder states its purpose.
 - **Panels.** `.panel` with `.panel-body` padding.
 - **Chips.** `.chip` for metadata, with `.success`, `.warning`, and `.danger` variants that add a dot and a border.

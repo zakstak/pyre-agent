@@ -136,6 +136,9 @@ details[open] > summary::before { transform: rotate(45deg); }
 
 @media (max-width: 47.99rem) {
   .topbar { position: static; padding-inline: var(--space-4); }
+  /* Phones keep the switch and its accessible name, and drop the visible label to fit one row. */
+  .theme-toggle { padding-inline: var(--space-3); }
+  .theme-label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .page { padding: var(--space-5) var(--space-4) var(--space-6); }
   .panel-body { padding: var(--space-3) var(--space-4); }
 }
