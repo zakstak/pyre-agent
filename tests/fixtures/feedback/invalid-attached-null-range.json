@@ -1,0 +1,66 @@
+{
+ "feedback_schema_version": 3,
+ "target": {
+  "kind": "branch",
+  "title": "Synthetic",
+  "url": "https://github.com/example/repo/pull/2\n",
+  "head_sha": "1111111111111111111111111111111111111111"
+ },
+ "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "exported_at": "2026-10-10T00:00:00Z",
+ "general_notes": "Overall",
+ "files": [
+  {
+   "path": "source.js",
+   "status": "modified",
+   "group": "core",
+   "notes": "note"
+  }
+ ],
+ "approvals": [
+  {
+   "path": "source.js",
+   "fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "approved_at": "2026-10-10T00:00:00Z"
+  }
+ ],
+ "comments": [
+  {
+   "id": "one",
+   "body": "Check this",
+   "created_at": "2026-10-10T00:00:00Z",
+   "updated_at": "2026-10-10T00:00:00Z",
+   "anchor": {
+    "snapshot": {
+     "target": {
+      "kind": "branch",
+      "title": "Synthetic",
+      "url": "https://github.com/example/repo/pull/2\n",
+      "head_sha": "1111111111111111111111111111111111111111"
+     },
+     "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "path": "source.js",
+    "patch_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "start": 7,
+    "end": 11,
+    "quote": "code",
+    "prefix": "before ",
+    "suffix": " after",
+    "start_row": 0,
+    "end_row": 0,
+    "side": "new",
+    "start_line": 1,
+    "end_line": 1
+   },
+   "history": [],
+   "attachment": {
+    "state": "attached",
+    "reason": "",
+    "start": null,
+    "end": null
+   }
+  }
+ ],
+ "retained_reviews": []
+}

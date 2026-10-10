@@ -1,0 +1,311 @@
+"""Standard-library tests: python3 -m unittest discover -s tests -p 'test_serve_review.py'.
+
+Each test starts the review server on a real loopback port and sends requests with http.client or a raw socket.
+Every security check has a test that sends the request it must reject.
+"""
+
+import base64
+import contextlib
+import hashlib
+import http.client
+import importlib.util
+import io
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "skills/review-canvas/scripts"
+FIXTURES = ROOT / "tests/fixtures"
+
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+serve = load("serve_review")
+state_module = serve.review_state
+renderer = serve.render_review
+
+
+def render_round(state, fixture):
+    directory = state_module.new_round(state)
+    shutil.copyfile(FIXTURES / fixture, directory / "input.json")
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert renderer.main(["--round", str(directory)]) == 0
+    return directory
+
+
+class ServerCase(unittest.TestCase):
+    def setUp(self):
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.state = self.temp / "state"
+        render_round(self.state, "worktree-review.json")
+        self.server = serve.ReviewServer(self.state, idle_timeout=60)
+        thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.port, self.token = self.server.port, self.server.token
+        self.host = f"127.0.0.1:{self.port}"
+        self.body = (FIXTURES / "worktree-feedback.json").read_bytes()
+
+    def request(self, method, path, body=None, **overrides):
+        headers = {"Host": self.host}
+        headers.update(overrides)
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        self.addCleanup(connection.close)
+        connection.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        for name, value in headers.items():
+            if value is not None:
+                connection.putheader(name, value)
+        if body is not None and "Content-Length" not in headers:
+            connection.putheader("Content-Length", str(len(body)))
+        connection.endheaders(body)
+        response = connection.getresponse()
+        data = response.read()
+        return response.status, dict(response.getheaders()), data
+
+    def api(self, method, path, body=None, **overrides):
+        headers = {"X-Review-Token": self.token}
+        if method == "PUT":
+            headers.update({"Origin": f"http://{self.host}", "Content-Type": "application/json", "X-Review-Revision": "none"})
+        headers.update(overrides)
+        status, response_headers, data = self.request(method, path, body, **headers)
+        return status, json.loads(data) if data and response_headers.get("Content-Type", "").startswith("application/json") else data
+
+    def raw(self, request):
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as connection:
+            connection.sendall(request)
+            data = b""
+            while chunk := connection.recv(65536):
+                data += chunk
+        return int(data.split(b" ", 2)[1])
+
+
+class PageTests(ServerCase):
+    def test_page_needs_the_url_token_and_gets_a_session(self):
+        status, headers, page = self.request("GET", f"/?token={self.token}")
+        self.assertEqual(status, 200)
+        page = page.decode()
+        self.assertIn("connect-src &#x27;self&#x27;", page)
+        self.assertNotIn("connect-src &#x27;none&#x27;", page)
+        self.assertIn(f'<meta name="review-canvas-token" content="{self.token}"><meta name="review-canvas-round" content="1">', page)
+        self.assertEqual(headers["Content-Security-Policy"], "frame-ancestors 'none'")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        # The script is unchanged, so its hash in the page's policy still matches.
+        script = re.search(r"<script>(.*?)</script>", page, re.S)[1]
+        digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+        self.assertTrue(f"script-src &#x27;sha256-{digest}&#x27;" in page, "script hash no longer matches")
+        on_disk = (self.state / "rounds/0001/review.html").read_text()
+        self.assertIn("connect-src &#x27;none&#x27;", on_disk)
+        self.assertNotIn(self.token, on_disk)
+        for query in ("", "?token=wrong", f"?token={self.token}&extra=1", f"?token={self.token}&token={self.token}"):
+            with self.subTest(query=query):
+                self.assertEqual(self.request("GET", "/" + query)[0], 403)
+
+
+class HostTests(ServerCase):
+    def test_only_loopback_host_names_with_this_port_are_answered(self):
+        self.assertEqual(self.api("GET", "/round", Host=f"localhost:{self.port}")[0], 200)
+        for host in (f"attacker.example:{self.port}", "127.0.0.1", f"127.0.0.1:{self.port + 1}", f"LOCALHOST:{self.port}", f"[::1]:{self.port}"):
+            with self.subTest(host=host):
+                self.assertEqual(self.api("GET", "/round", Host=host)[0], 403)
+                self.assertEqual(self.request("GET", f"/?token={self.token}", Host=host)[0], 403)
+
+    def test_missing_or_repeated_host_is_rejected(self):
+        self.assertEqual(self.raw(f"GET /round HTTP/1.0\r\nX-Review-Token: {self.token}\r\n\r\n".encode()), 403)
+        self.assertEqual(self.raw(f"GET /round HTTP/1.1\r\nHost: {self.host}\r\nHost: {self.host}\r\nX-Review-Token: {self.token}\r\n\r\n".encode()), 403)
+
+
+class SaveCheckTests(ServerCase):
+    def test_origin_must_be_this_server(self):
+        for origin in (None, "null", "http://attacker.example", f"https://{self.host}", f"http://localhost:{self.port}", f"http://{self.host}/"):
+            with self.subTest(origin=origin):
+                self.assertEqual(self.api("PUT", "/feedback", self.body, Origin=origin)[0], 403)
+        self.assertFalse((self.state / "feedback.json").exists())
+        self.assertEqual(self.api("PUT", "/feedback", self.body)[0], 200)
+
+    def test_content_type_must_be_json(self):
+        for content_type in (None, "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x",
+                             "application/json-patch+json", "application/json; charset=latin-1"):
+            with self.subTest(content_type=content_type):
+                self.assertEqual(self.api("PUT", "/feedback", self.body, **{"Content-Type": content_type})[0], 415)
+        self.assertEqual(self.api("PUT", "/feedback", self.body, **{"Content-Type": "application/json; charset=UTF-8"})[0], 200)
+
+    def test_session_token_is_required(self):
+        for token in (None, "", "wrong", self.token + "x"):
+            with self.subTest(token=token):
+                self.assertEqual(self.api("PUT", "/feedback", self.body, **{"X-Review-Token": token})[0], 403)
+                self.assertEqual(self.api("GET", "/feedback", **{"X-Review-Token": token})[0], 403)
+                self.assertEqual(self.api("GET", "/round", **{"X-Review-Token": token})[0], 403)
+
+    def test_body_limits(self):
+        self.assertEqual(self.api("PUT", "/feedback", b"", **{"Content-Length": str(8 * 1024 * 1024 + 1)})[0], 413)
+        self.assertEqual(self.raw((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
+                                   f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\n\r\n").encode()), 411)
+        self.assertEqual(self.raw((f"PUT /feedback HTTP/1.1\r\nHost: {self.host}\r\nOrigin: http://{self.host}\r\nContent-Type: application/json\r\n"
+                                   f"X-Review-Token: {self.token}\r\nX-Review-Revision: none\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n").encode()), 411)
+
+    def test_whole_document_is_validated_before_writing(self):
+        other = json.loads(self.body)
+        other["target"]["root"] = "/home/dev/elsewhere"
+        cases = {
+            b"{not json": "not valid UTF-8 JSON",
+            self.body.replace(b'"feedback_schema_version": 3', b'"feedback_schema_version": 2'): "version 2 is not supported",
+            self.body.replace(b'"general_notes": ""', b'"general_notes": "", "general_notes": ""'): "Duplicate",
+            json.dumps(other).encode(): "another review target",
+        }
+        for body, message in cases.items():
+            with self.subTest(message=message):
+                status, reply = self.api("PUT", "/feedback", body)
+                self.assertEqual(status, 400)
+                self.assertIn(message, reply["error"])
+        self.assertFalse((self.state / "feedback.json").exists())
+
+
+class RevisionTests(ServerCase):
+    def test_a_stale_revision_conflicts(self):
+        self.assertEqual(self.api("GET", "/feedback")[1], {"revision": "none", "feedback": None})
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual((status, reply), (200, {"revision": hashlib.sha256(self.body).hexdigest()}))
+        first = reply["revision"]
+        self.assertEqual(self.api("GET", "/feedback")[1], {"revision": first, "feedback": json.loads(self.body)})
+        # A second tab that loaded before the first save is based on "none".
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual((status, reply["revision"]), (409, first))
+        changed = self.body.replace(b'"general_notes": ""', b'"general_notes": "second save"')
+        status, reply = self.api("PUT", "/feedback", changed, **{"X-Review-Revision": first})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.api("PUT", "/feedback", self.body, **{"X-Review-Revision": first})[0], 409)
+        for base in (None, "", "abc", first.upper()):
+            with self.subTest(base=base):
+                self.assertEqual(self.api("PUT", "/feedback", self.body, **{"X-Review-Revision": base})[0], 400)
+        self.assertEqual((self.state / "feedback.json").read_bytes(), changed)
+
+    def test_saves_are_atomic_and_private(self):
+        self.assertEqual(self.api("PUT", "/feedback", self.body)[0], 200)
+        saved = self.state / "feedback.json"
+        self.assertEqual(saved.read_bytes(), self.body)
+        self.assertEqual(stat.S_IMODE(saved.stat().st_mode), 0o600)
+        self.assertEqual(sorted(path.name for path in self.state.iterdir()), ["current", "feedback.json", "rounds"])
+
+    def test_invalid_saved_feedback_pauses_saving(self):
+        (self.state / "feedback.json").write_text("{}")
+        status, reply = self.api("GET", "/feedback")
+        self.assertEqual(status, 500)
+        self.assertIn("saving is paused", reply["error"])
+
+
+class RoutingTests(ServerCase):
+    def test_everything_else_is_not_found(self):
+        for method, path in (("GET", "/rounds/0001/input.json"), ("GET", "/rounds/"), ("GET", "/current"), ("GET", "/feedback.json"),
+                             ("GET", "/../current"), ("GET", "/feedback?x=1"), ("GET", "/index.html"), ("POST", "/feedback"),
+                             ("DELETE", "/feedback"), ("OPTIONS", "/feedback"), ("HEAD", "/"), ("PATCH", "/feedback"), ("PUT", "/round")):
+            with self.subTest(method=method, path=path):
+                self.assertEqual(self.api(method, path)[0], 404)
+
+    def test_round_follows_each_publish(self):
+        self.assertEqual(self.api("GET", "/round")[1], {"round": 1})
+        render_round(self.state, "worktree-review-round2.json")
+        self.assertEqual(self.api("GET", "/round")[1], {"round": 2})
+        self.assertIn(b'<meta name="review-canvas-round" content="2">', self.request("GET", f"/?token={self.token}")[2])
+        # Feedback from the open round 1 page still belongs to this review, so it saves.
+        self.assertEqual(self.api("PUT", "/feedback", self.body)[0], 200)
+
+
+class StateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.state = self.temp / "state"
+
+    def test_new_rounds_are_private_and_numbered(self):
+        first, second = state_module.new_round(self.state), state_module.new_round(self.state)
+        self.assertEqual((first.name, second.name), ("0001", "0002"))
+        for path in (self.state, self.state / "rounds", first):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+        result = subprocess.run([sys.executable, str(SCRIPTS / "review_state.py"), "new-round", "--state-dir", str(self.state)], capture_output=True, text=True)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, str(self.state / "rounds/0003")))
+
+    def test_a_round_renders_once_and_never_replaces_a_newer_one(self):
+        first = render_round(self.state, "worktree-review.json")
+        self.assertEqual(stat.S_IMODE((first / "review.html").stat().st_mode), 0o600)
+        self.assertEqual(state_module.read_current(self.state), 1)
+        quiet = contextlib.redirect_stderr(io.StringIO())
+        with quiet:
+            self.assertEqual(renderer.main(["--round", str(first)]), 2)
+        second = state_module.new_round(self.state)
+        third = render_round(self.state, "worktree-review-round2.json")
+        self.assertEqual(state_module.read_current(self.state), 3)
+        shutil.copyfile(FIXTURES / "worktree-review.json", second / "input.json")
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(second)]), 2)
+            self.assertEqual(renderer.main(["--round", str(self.temp)]), 2)
+        self.assertEqual(state_module.read_current(self.state), 3)
+        self.assertTrue(third.exists())
+
+    def test_server_needs_a_private_state_with_a_rendered_round(self):
+        with self.assertRaisesRegex(state_module.StateError, "not a review state directory"):
+            serve.ReviewServer(self.state, 60)
+        state_module.new_round(self.state)
+        with self.assertRaisesRegex(state_module.StateError, "no rendered round"):
+            serve.ReviewServer(self.state, 60)
+        render_round(self.state, "worktree-review.json")
+        os.chmod(self.state, 0o755)
+        with self.assertRaisesRegex(state_module.StateError, "private"):
+            serve.ReviewServer(self.state, 60)
+
+
+class CommandLineTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.state = self.temp / "state"
+        render_round(self.state, "worktree-review.json")
+
+    def start(self, *args):
+        process = subprocess.Popen([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state), *args],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        url = process.stdout.readline().strip().removeprefix("Review server: ")
+        return process, url
+
+    def test_server_file_second_server_signal_and_idle_stop(self):
+        process, url = self.start()
+        record = json.loads((self.state / "server.json").read_text())
+        self.assertEqual((record["url"], record["pid"]), (url, process.pid))
+        self.assertEqual(stat.S_IMODE((self.state / "server.json").stat().st_mode), 0o600)
+        self.assertTrue(url.startswith("http://127.0.0.1:") and "/?token=" in url)
+        second = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(second.returncode, 2)
+        self.assertIn("already runs", second.stderr)
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(timeout=10), 0)
+        self.assertFalse((self.state / "server.json").exists())
+        process, url = self.start("--idle-timeout", "1")
+        started = time.monotonic()
+        self.assertEqual(process.wait(timeout=15), 0)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertFalse((self.state / "server.json").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

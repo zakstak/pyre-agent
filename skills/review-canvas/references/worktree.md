@@ -4,18 +4,23 @@ A working tree review shows the uncommitted changes in a local Git repository: s
 
 ## The review loop
 
-1. Finish the change, then run the collector. It writes a snapshot of every changed file with its patch and fingerprint.
+1. Finish the change, create a round, and run the collector into it. It writes a snapshot of every changed file with its patch and fingerprint.
 2. Add analysis to the snapshot: groups, summaries, pseudocode, traces, and callouts. Keep every collector field as it is.
-3. Render the page and give it to the reviewer.
-4. The reviewer comments, approves files, and exports feedback. To continue an earlier round, the reviewer first imports the previous round's feedback into the new page.
-5. Validate the feedback, then verify each quote against the patch in the snapshot it names. For each comment, fix the code, reject the comment with a reason, defer it with a blocker, or ask a question.
-6. Collect and render the next round. Approvals carry over for every file whose fingerprint still matches. Changed files return to the queue. Comments reattach to the new patch or show as orphans.
-7. Stop when the reviewer is satisfied. Report the approval counts and any open comments. Committing still needs the user's normal authorization.
+3. Render the round. Start the review server in the background, once per review, and give the reviewer its URL. See [the server reference](server.md).
+4. The reviewer comments and approves files. The page saves feedback to the server automatically.
+5. The reviewer chooses **Finish review**, then tells you. The page cannot wake the agent.
+6. Read the saved feedback, validate it and its identity with `feedback_contract.py`, and verify each quote against the patch in the snapshot it names. For each comment, fix the code, reject the comment with a reason, defer it with a blocker, or ask a question.
+7. Create, collect, and render the next round. The open page offers to reload. Approvals carry over for every file whose fingerprint still matches. Changed files return to the queue. Comments reattach to the new patch or show as orphans.
+8. Stop when the reviewer is satisfied. Report the approval counts and any open comments. Committing still needs the user's normal authorization.
+
+Without the server, render with `render_review.py INPUT --output FILE`. The reviewer then exports feedback, and imports the previous round's feedback into each new page.
 
 ## Run the collector
 
 ```sh
-python3 /path/to/review-canvas/scripts/collect_worktree.py --repo /path/to/repo --output /private/review.json --title "Short change title"
+STATE="$(git -C /path/to/repo rev-parse --absolute-git-dir)/review-canvas"
+ROUND="$(python3 /path/to/review-canvas/scripts/review_state.py new-round --state-dir "$STATE")"
+python3 /path/to/review-canvas/scripts/collect_worktree.py --repo /path/to/repo --output "$ROUND/input.json" --title "Short change title"
 ```
 
 | Option | Meaning |
@@ -76,4 +81,4 @@ The check applies to tracked and untracked files, and to the old path of a renam
 
 ## Where to keep the files
 
-Keep the snapshot, the rendered page, and the exported feedback in a private directory outside the working tree, so they never land in a commit.
+Keep every round in the state directory inside the Git directory, `$(git rev-parse --absolute-git-dir)/review-canvas`. Each Git worktree has its own Git directory, so parallel worktrees do not share review state, and nothing lands in the working tree or a commit. Keep any exported feedback in a private directory outside the working tree.

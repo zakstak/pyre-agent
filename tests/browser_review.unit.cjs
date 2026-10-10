@@ -67,4 +67,13 @@ const hostile=fixture();hostile.comments[0].body='</script><img onerror="alert(1
 assert.deepEqual(core.parseFeedback(JSON.stringify(hostile)),hostile);
 const oversized=fixture();oversized.comments=Array.from({length:120},(_,i)=>({...structuredClone(comment),id:String(i),body:'x'.repeat(20000)}));
 assert.throws(()=>core.validateFeedback(oversized),/budget/);
-console.log('PASS: strict v3 roundtrip for PR and working tree targets, target identity, approvals, side-aware anchors, version messages, exact/moved/changed/ambiguous/absent anchors, duplicate keys, Unicode, nesting, byte/collection/text limits, hostile text retained as data.');
+// Shared cases: test_feedback_contract.py runs the same files through the Python validator.
+const fs = require('node:fs'), path = require('node:path');
+const shared = path.join(__dirname, 'fixtures/feedback'), names = fs.readdirSync(shared).filter(name => name.endsWith('.json')).sort();
+assert.ok(names.filter(name => name.startsWith('valid-')).length >= 5 && names.filter(name => name.startsWith('invalid-')).length >= 40);
+for (const name of names) {
+  const raw = fs.readFileSync(path.join(shared, name), 'utf8');
+  if (name.startsWith('valid-')) assert.deepEqual(core.parseFeedback(raw), JSON.parse(raw), name);
+  else assert.throws(() => core.parseFeedback(raw), undefined, name);
+}
+console.log('PASS: strict v3 roundtrip for PR and working tree targets, target identity, approvals, side-aware anchors, version messages, exact/moved/changed/ambiguous/absent anchors, duplicate keys, Unicode, nesting, byte/collection/text limits, hostile text retained as data, and every shared fixture in tests/fixtures/feedback.');

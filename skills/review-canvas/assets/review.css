@@ -65,6 +65,14 @@ main > * { max-inline-size: var(--measure-work); margin-inline: auto; }
 .additions { color: var(--status-success); }
 .deletions { color: var(--status-danger); }
 
+/* Round and save notices from the local review server */
+.server-notice {
+  position: fixed; inset-inline: var(--space-4); inset-block-start: calc(var(--topbar-height) + var(--space-2)); z-index: 35;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); max-inline-size: 48rem; margin-inline: auto; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 0.25);
+}
+.server-notice[hidden] { display: none; }
+.server-notice p { flex: 1 1 18rem; }
+
 /* Filters */
 noscript .notice { margin-block-end: var(--space-4); }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-block-end: var(--space-5); padding-block: var(--space-4); border-block: 1px solid var(--separator); }

@@ -123,7 +123,8 @@
     if (a.target.kind === "worktree") return a.target.root === b.target.root;
     return a.target.url && b.target.url ? a.target.url === b.target.url : a.input_sha256 === b.input_sha256;
   }
-  // JSON.parse checks syntax first. A bounded token walk additionally rejects duplicate keys.
+  // JSON.parse checks syntax first. A bounded token walk additionally rejects duplicate keys and non-integer numbers,
+  // which JSON.parse would silently turn into integers such as 7 for 7.0.
   function parseFeedback(raw) {
     if (typeof raw !== "string" || (raw.length > MAX_BYTES || new TextEncoder().encode(raw).length > MAX_BYTES)) throw Error("Feedback exceeds 8 MiB.");
     const value = JSON.parse(raw);
@@ -144,7 +145,7 @@
       } else if (token === "[") {
         if (tokens[i] === "]") { i++; return; }
         while (true) { walk(depth + 1); if (tokens[i++] === "]") break; }
-      }
+      } else if (/^-?\d/.test(token) && /[.eE]/.test(token)) throw Error("Feedback numbers must be integers.");
     }
     walk(0);
     return validateFeedback(value);
