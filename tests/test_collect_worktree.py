@@ -413,6 +413,32 @@ class InventoryTests(Fixture):
         (self.root / "run.sh").chmod(0o755)
         self.assertEqual(self.collect()["run.sh"]["new_mode"], "100644")
 
+    def test_a_hidden_file_replaced_by_a_directory_is_a_deletion(self):
+        self.commit({"thing": "t\n"})
+        self.git(self.root, "update-index", "--assume-unchanged", "thing")
+        (self.root / "thing").unlink()
+        self.write("thing/inside.txt", "i\n")
+        files = self.collect()
+        self.assertEqual((files["thing"]["status"], files["thing/inside.txt"]["status"]), ("deleted", "added"))
+
+    def test_hidden_file_stats_stream_the_old_blob(self):
+        self.commit({"big.txt": "x\n" * 1000})
+        self.git(self.root, "update-index", "--assume-unchanged", "big.txt")
+        self.write("big.txt", "y\n")
+        captured = []
+        real = collector.git
+
+        def record(cwd, *args, **options):
+            output = real(cwd, *args, **options)
+            if "blob" in args:
+                captured.append(len(output))
+            return output
+
+        with mock.patch.object(renderer, "MAX_PATCH_CHARS", 16), mock.patch.object(collector, "git", record):
+            big = self.collect()["big.txt"]
+        self.assertEqual((big["patch_note"], big["additions"], big["deletions"]), ("too_large", 1, 1000))
+        self.assertTrue(captured and not any(captured), "the old blob was read into memory")
+
     def test_a_failure_after_collecting_writes_nothing(self):
         self.commit({"a.txt": "a\n"})
         self.write("a.txt", "b\n")

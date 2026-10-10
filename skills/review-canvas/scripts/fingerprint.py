@@ -65,8 +65,9 @@ def git_executable(repo=None):
     return executable
 
 
-def git(cwd, *args, ok=(0,), env=None):
-    """Run Git in cwd and return stdout bytes. Exit codes outside ok raise GitError."""
+def git(cwd, *args, ok=(0,), env=None, into=None):
+    """Run Git in cwd and return stdout bytes, or stream stdout into an open file when given. Exit codes outside ok
+    raise GitError."""
     executable = git_executable()
     # Tracing variables would make every call append to a file, which could sit in the working tree.
     environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV and not key.startswith("GIT_TRACE")}
@@ -74,13 +75,14 @@ def git(cwd, *args, ok=(0,), env=None):
     # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
     environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", **(env or {}))
     try:
-        result = subprocess.run([executable, *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL, capture_output=True)
+        result = subprocess.run([executable, *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                stdout=into or subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as error:
         raise GitError(f"cannot run git in {cwd}: {error.strerror}") from error
     if result.returncode not in ok:
         message = result.stderr.decode("utf-8", "replace").strip().removeprefix("fatal: ")
         raise GitError(message or f"git exited with status {result.returncode}")
-    return result.stdout
+    return result.stdout or b""
 
 
 def decode_path(raw):

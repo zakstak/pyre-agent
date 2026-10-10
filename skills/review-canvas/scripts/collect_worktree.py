@@ -306,6 +306,8 @@ def assumed_unchanged(top, tracked, config):
             new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
         elif not modes_count and indexed in ("100644", "100755") and new_mode in ("100644", "100755"):
             new_mode = indexed  # with core.filemode off, Git records the index mode, not the executable bit on disk
+        elif new_mode == "160000" and indexed != "160000" and repository_head(top / path) is None:
+            new_mode = None  # an ordinary directory replaced the file: a deletion, with its children collected as untracked
         if path in changes and not new_mode and path not in head:
             del changes[path]  # added to the index, then removed from disk: nothing changed between HEAD and the tree
         elif path in changes:
@@ -325,7 +327,8 @@ def hidden_stats(top, entry, config):
         old = os.devnull
         if entry["old_blob"]:
             old = str(Path(temp, "old"))
-            Path(old).write_bytes(git(top, *config, "cat-file", "blob", entry["old_blob"]))
+            with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
+                git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
         output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--numstat", "--no-ext-diff",
                      "--no-textconv", "--", old, new, ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"})
