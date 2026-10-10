@@ -26,6 +26,7 @@ import errno
 import os
 import re
 import stat
+import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -56,13 +57,35 @@ def _group_has_others(gid):
         return True
 
 
-def _others_can_replace(info):
+def _acl_writers(path, gid):
+    """The users and groups a POSIX access ACL lets write to path, or None when path has none or the platform cannot
+    read one. With an ACL, the mode's group bits are only its mask, so they cannot say who may write."""
+    try:
+        raw = os.getxattr(path, "system.posix_acl_access")
+    except (AttributeError, OSError):
+        return None
+    if len(raw) < 4 or (len(raw) - 4) % 8 or struct.unpack_from("<I", raw)[0] != 2:
+        raise StateError(f"cannot read the access control list of {path}")
+    entries = [struct.unpack_from("<HHI", raw, offset) for offset in range(4, len(raw), 8)]
+    mask = next((perm for tag, perm, _ in entries if tag == 0x10), 0o7)  # ACL_MASK limits every entry below
+    users = {uid for tag, perm, uid in entries if tag == 0x02 and perm & mask & 0o2}  # ACL_USER
+    groups = {gid if tag == 0x04 else id_ for tag, perm, id_ in entries if tag in (0x04, 0x08) and perm & mask & 0o2}  # ACL_GROUP_OBJ, ACL_GROUP
+    return users, groups
+
+
+def _others_can_replace(path, info):
     """Whether another user could rename or replace entries in a directory with this stat result."""
     if info.st_uid not in (0, os.getuid()):
         return True
     if info.st_mode & stat.S_ISVTX:
         return False  # sticky, as /tmp is: only an entry's owner can rename it
-    return bool(info.st_mode & 0o002) or bool(info.st_mode & 0o020 and _group_has_others(info.st_gid))
+    if info.st_mode & 0o002:
+        return True
+    acl = _acl_writers(path, info.st_gid)
+    if acl is None:
+        return bool(info.st_mode & 0o020 and _group_has_others(info.st_gid))
+    users, groups = acl
+    return bool(users - {0, os.getuid()}) or any(_group_has_others(gid) for gid in groups)
 
 
 def private_dir(path, create=False):
@@ -87,7 +110,7 @@ def private_dir(path, create=False):
     # check and its use. Once no ancestor can be replaced by another user, the resolved path stays this directory.
     resolved = path.resolve()
     for parent in resolved.parents:
-        if _others_can_replace(os.stat(parent)):
+        if _others_can_replace(parent, os.stat(parent)):
             raise StateError(f"another user can rename or replace entries in {parent}, an ancestor of {path}. "
                              "Keep the review state under directories only you and root can change.")
     try:
@@ -212,7 +235,7 @@ def publish(state, number, held=False):
 def round_lock(input_path):
     """The publish lock of the review that holds a round's input, or no lock for an input outside a state directory.
 
-    Rendering and reply.py hold it from checking that a round has not rendered to writing, so neither can change a
+    Rendering and the collector hold it from checking that a round has not rendered to writing, so neither can change a
     round under the other."""
     # Resolve aliases first, so a symlinked rounds directory still names the lock that rendering takes.
     path = Path(input_path).resolve()

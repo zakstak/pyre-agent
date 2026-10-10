@@ -572,7 +572,7 @@
     if (!file) return;
     try {
       if (file.size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB.");
-      const incoming = contract.parseFeedback(await file.text()); if (token !== importSequence) return;
+      const incoming = contract.parseFeedbackBytes(new Uint8Array(await file.arrayBuffer())); if (token !== importSequence) return;
       byId("import-status").textContent = `Imported ${mergeFeedback(incoming).summary}`;
       persistence.merged();
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }

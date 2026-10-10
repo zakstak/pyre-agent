@@ -239,7 +239,11 @@ def parse_feedback(raw):
     if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
         raise FeedbackError("Feedback exceeds 8 MiB.")
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number,
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise FeedbackError("Feedback is not valid UTF-8.") from None
+    try:
+        value = json.loads(text, object_pairs_hook=_unique, parse_float=_reject_number,
                            parse_int=_integer_token, parse_constant=_reject_constant)
     except FeedbackError:
         raise

@@ -143,7 +143,6 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(500, error=f"The review state is unreadable: {error}")
 
     def route(self):
-        self.server.last_request = time.monotonic()
         self.close_connection = True
         hosts = self.headers.get_all("Host") or []
         if len(hosts) != 1 or hosts[0] not in self.server.hosts:
@@ -164,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(415, error="Content-Type must be application/json.")
         if not self.token_matches(self.headers.get("X-Review-Token")):
             return self.reply(403, error="Missing or wrong session token. Reload the page from the URL the agent gave you.")
+        # Only a request with the token counts as activity, so another local process cannot keep the server alive.
+        self.server.last_request = time.monotonic()
         return handler()
 
     def token_matches(self, value):
@@ -173,6 +174,7 @@ class Handler(BaseHTTPRequestHandler):
         values = parse_qs(query, keep_blank_values=True, strict_parsing=False)
         if list(values) != ["token"] or len(values["token"]) != 1 or not self.token_matches(values["token"][0]):
             return self.respond(403, b"Open the review URL that the agent gave you.\n", "text/plain; charset=utf-8")
+        self.server.last_request = time.monotonic()
         number = review_state.read_current(self.server.state)
         path = self.server.state / "rounds" / f"{number:04d}" / "review.html"
         if path.stat().st_size > MAX_PAGE_BYTES:
