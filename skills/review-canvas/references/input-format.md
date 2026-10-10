@@ -83,6 +83,7 @@ Each reply requires:
 - `created_at`: the UTC time in ISO 8601, such as `2026-10-10T09:00:00Z`, optionally with milliseconds
 - `body`: plain text
 - `disposition`: `fixed`, `rejected`, `deferred`, or `question`
+- `comment_updated_at`: the comment's `updated_at` as the agent read it, which `reply.py add` copies from the feedback. The page refuses an import whose copy of that comment has another `updated_at`, because the answer would then seem to answer a rewritten question.
 
 A `fixed` reply also requires `fixed_in`, either `{"fingerprint": "..."}` for the file version that fixes the comment or `{"commit": "..."}` with a full commit hash. A `deferred` reply also requires `blocker`, the reason the change waits. A `rejected` reply gives its reason in `body`. Other dispositions cannot carry `fixed_in` or `blocker`.
 

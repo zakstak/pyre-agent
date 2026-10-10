@@ -328,7 +328,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_agent_replies(self):
         def reply(**changes):
-            value = {"comment_id": "c1", "id": "a1", "actor": "agent", "created_at": "2026-10-10T10:00:00Z", "body": "Done.",
+            value = {"comment_id": "c1", "id": "a1", "actor": "agent", "created_at": "2026-10-10T10:00:00Z", "body": "Done.", "comment_updated_at": "2026-10-10T09:00:00.000Z",
                      "disposition": "fixed", "fixed_in": {"fingerprint": "c" * 64}}
             value.update(changes)
             return {key: item for key, item in value.items() if item is not None}

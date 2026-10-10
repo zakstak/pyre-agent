@@ -138,7 +138,7 @@ def _replies(replies):
     seen = set()
     for i, reply in enumerate(replies):
         where = f"replies[{i}]"
-        _object(reply, where, ("comment_id", "id", "actor", "created_at", "body", "disposition"), ("fixed_in", "blocker"))
+        _object(reply, where, ("comment_id", "id", "actor", "created_at", "body", "disposition", "comment_updated_at"), ("fixed_in", "blocker"))
         for name in ("comment_id", "id"):
             if not isinstance(reply[name], str) or not REPLY_ID.fullmatch(reply[name]):
                 raise ValidationError(f"{where}.{name}: expected 1 to 80 letters, digits, hyphens, or underscores")
@@ -157,6 +157,8 @@ def _replies(replies):
         if not real:
             raise ValidationError(f"{where}.created_at: expected UTC ISO 8601, such as 2026-10-10T09:00:00Z")
         _text(reply["body"], f"{where}.body", nonempty=True)
+        # The version of the comment the answer read, from its updated_at, so a later rewrite of it cannot inherit the answer.
+        _text(reply["comment_updated_at"], f"{where}.comment_updated_at", nonempty=True, limit=40)
         if not isinstance(reply["disposition"], str) or reply["disposition"] not in DISPOSITIONS:
             raise ValidationError(f"{where}.disposition: expected one of {', '.join(DISPOSITIONS)}")
         if reply["disposition"] == "fixed":
@@ -652,6 +654,14 @@ def main(argv=None):
                 if stat.S_ISLNK(info.st_mode) or info.st_nlink > 1:
                     raise ValidationError(f"{args.input} is a symbolic or hard link. Put a private copy of the input in the round, so it cannot change after rendering.")
                 review = load_review(args.input)
+                # Every answer the published round showed stays visible in the next, which reply.py carry ensures.
+                current = review_state.read_current(state)
+                if current is not None:
+                    published = {reply["id"] for reply in load_review(state / "rounds" / f"{current:04d}" / "input.json").get("replies", [])}
+                    missing = published - {reply["id"] for reply in review.get("replies", [])}
+                    if missing:
+                        raise ValidationError(f"{args.input} omits {len(missing)} answers that round {current:04d} published. Run reply.py carry "
+                                              f"--from {state / 'rounds' / f'{current:04d}' / 'input.json'} first.")
                 page = render_review(review, args.style_dir)
                 review_state.write_private(args.output, page.encode("utf-8"), replace=False)
                 review_state.write_private(round_dir / "input.sha256", (input_digest(review) + "\n").encode("ascii"), replace=False)

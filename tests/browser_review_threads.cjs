@@ -152,6 +152,16 @@ fs.mkdirSync(out, { recursive: true });
     await page.getByRole("button", { name: "Expand all" }).click();
     assert.deepEqual(await Promise.all([1, 2, 3, 4].map(n => state(`fixture-comment-${n}`))), ["Resolved", "Reopened", "Replied", "Answered: deferred"]);
     assert.match(await page.locator("#review-summary").textContent(), /1 answered by the agent/);
+    // A copy of an answered comment edited later, in a page that never showed the answer, cannot take over that answer.
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    const rewritten = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-feedback.json"), "utf8"));
+    Object.assign(rewritten.comments.find(item => item.id === "fixture-comment-2"), { body: "A different question.", updated_at: "2026-10-10T09:30:00.000Z" });
+    const rewrittenPath = path.join(temp, "rewritten.json"); fs.writeFileSync(rewrittenPath, JSON.stringify(rewritten));
+    await importFile(rewrittenPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /other than the one the agent answered/);
+    await importFile(path.join(fixtures, "worktree-feedback-round2.json"));
+    await page.getByRole("button", { name: "Expand all" }).click();
     // A reply draft blocks a new comment, and the page takes the reviewer to that draft, not the empty comment box.
     await comment("fixture-comment-3").getByRole("button", { name: "Reply to the agent" }).click();
     await comment("fixture-comment-3").getByLabel("Reply to the agent").fill("Half a reply.");

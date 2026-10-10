@@ -583,7 +583,8 @@ class StateTests(unittest.TestCase):
             shutil.copyfile(FIXTURES / "worktree-review.json", second / "input.json")
             with contextlib.redirect_stdout(io.StringIO()):
                 renderer.main(["--round", str(link / "state" / "rounds" / second.name)])
-        self.assertEqual(real, [second.resolve() / "input.json"])
+        # The round's own input, then the published round's for the carried answers, both through the validated path.
+        self.assertEqual(real, [second.resolve() / "input.json", directory.resolve() / "input.json"])
 
     def test_publish_waits_for_another_publish(self):
         render_round(self.state, "worktree-review.json")

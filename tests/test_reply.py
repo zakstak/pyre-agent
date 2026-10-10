@@ -154,6 +154,32 @@ class ReplyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "older than the published round 0002"):
                 call()
 
+    def test_an_unreadable_published_round_stops_the_write(self):
+        (self.state / "current").write_text("not a round\n")
+        with self.assertRaisesRegex(ValueError, "does not name a round"):
+            self.answer(self.feedback, "fixture-comment-3", "question", "?")
+        self.assertEqual(self.replies(), [])
+
+    def test_an_answer_records_the_comment_version_it_read(self):
+        reply.carry(self.previous, self.input)
+        added = self.answer(self.feedback, "fixture-comment-3", "question", "Which zone?")
+        self.assertEqual(added["comment_updated_at"], "2026-10-10T09:00:00.000Z")
+
+    def test_a_round_that_drops_published_answers_does_not_render(self):
+        published = json.loads((FIXTURES / "worktree-review-round2.json").read_text())
+        (self.round / "input.json").write_text(json.dumps(published))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(reply.render_review.main(["--round", str(self.round)]), 0)
+        later = reply.review_state.new_round(self.state)
+        (later / "input.json").write_text(json.dumps({key: value for key, value in published.items() if key != "replies"}))
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(reply.render_review.main(["--round", str(later)]), 2)
+        self.assertIn("omits 4 answers that round 0001 published", error.getvalue())
+        reply.carry(self.round / "input.json", later / "input.json")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(reply.render_review.main(["--round", str(later)]), 0)
+
     def test_carry_refuses_another_review(self):
         other = json.loads(self.previous.read_text())
         other["target"]["root"] = "/home/dev/elsewhere"

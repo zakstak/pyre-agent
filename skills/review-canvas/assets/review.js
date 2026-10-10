@@ -665,6 +665,9 @@
       const local = comments.find(item => item.id === comment.id);
       if (local && comparable(withoutReplies(local)) !== comparable(withoutReplies(comment))) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
       if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
+      // An answer names the version of the comment it read. A copy edited after that, in an older page, would take over the answer.
+      const answered = (agentReplies.get(comment.id) || []).at(-1);
+      if (answered && answered.comment_updated_at !== comment.updated_at) throw Error("This file holds a version of a comment other than the one the agent answered. Open review preserved.");
       const theirs = new Set((comment.replies || []).map(reply => reply.id)), ours = new Set((local?.replies || []).map(reply => reply.id));
       if ([...theirs].some(id => !ours.has(id)) && [...ours].some(id => !theirs.has(id))) throw Error("The open review and this file answer a comment differently. Open review preserved; export it before restoring into a fresh page.");
       for (const reply of comment.replies || []) {

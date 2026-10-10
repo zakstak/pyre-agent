@@ -31,9 +31,9 @@ def load_round_input(path):
         raise render_review.ValidationError(f"{path.parent} has rendered; a round never changes after it renders. Start a new round.")
     try:
         state, number = review_state.round_of(path.parent)
-        current = review_state.read_current(state)
     except review_state.StateError:
-        current = None  # an input outside a state directory has no published round to compare
+        state = None  # an input outside a state directory has no published round to compare
+    current = review_state.read_current(state) if state else None  # a state whose current cannot be read stops the write
     if current is not None and number <= current:
         raise render_review.ValidationError(f"{path.parent} is older than the published round {current:04d}, so it can never publish. "
                                             "Start a new round.")
@@ -147,7 +147,7 @@ def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, 
     except (ValueError, OverflowError):
         raise render_review.ValidationError(f"comment {comment_id}'s latest reply is at the last representable time, so no later reply fits") from None
     reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": created,
-             "body": body, "disposition": disposition}
+             "body": body, "disposition": disposition, "comment_updated_at": comment["updated_at"]}
     if fingerprint or commit:
         reply["fixed_in"] = {"fingerprint": fingerprint} if fingerprint else {"commit": commit}
     if blocker:
