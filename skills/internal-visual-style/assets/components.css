@@ -78,10 +78,11 @@ label { font-weight: 600; }
 .panel { min-width: 0; background: var(--bg-surface); border: 1px solid var(--separator); border-radius: var(--radius-panel); }
 .panel-body { padding: var(--space-4) var(--space-5); }
 
-/* Chips label metadata. Status chips always pair color with words. */
+/* Chips label metadata. Status chips always pair color with words.
+   break-word, not anywhere: a table or grid sizing columns to content must not squeeze a label to one letter. */
 .chip {
   display: inline-flex; align-items: center; gap: 0.375rem; min-block-size: 1.75rem; padding: 0.125rem 0.5rem;
-  font-size: var(--size-small); font-weight: 600; line-height: var(--leading-tight); overflow-wrap: anywhere;
+  font-size: var(--size-small); font-weight: 600; line-height: var(--leading-tight); overflow-wrap: break-word;
   color: var(--status-neutral); background: var(--status-neutral-bg); border: 1px solid var(--separator); border-radius: var(--radius-chip);
 }
 .chip.success { color: var(--status-success); background: var(--status-success-bg); border-color: currentColor; }
@@ -109,6 +110,25 @@ details[open] > summary::before { transform: rotate(45deg); }
 /* Technical text keeps whitespace and scrolls inside its own labeled region. */
 .code-region { max-width: 100%; overflow: auto; background: var(--bg-code); border: 1px solid var(--separator); border-radius: var(--radius); }
 .code-region pre { padding: var(--space-3) var(--space-4); }
+
+/* Tables scroll inside a labeled .table-region. Cells break words only to avoid overflow, so a narrow
+   screen widens the table and scrolls the region instead of splitting labels and links mid-word. */
+.table-region { max-width: 100%; overflow-x: auto; background: var(--bg-surface); border: 1px solid var(--separator); border-radius: var(--radius-panel); }
+.table { inline-size: 100%; border-collapse: collapse; font-size: var(--size-small); }
+.table :is(th, td) { padding: var(--space-2) var(--space-3); text-align: start; vertical-align: top; border-block-end: 1px solid var(--separator); }
+.table :is(th, td), .table :is(th, td) * { overflow-wrap: break-word; }
+.table thead th { background: var(--bg-raised); }
+.table tbody tr:last-child > * { border-block-end: 0; }
+.table code { font-size: var(--size-technical); }
+
+/* Decisions: one question, its options, and the outcome in one reading column. Options stack because they
+   differ in length; compare them in a .table. The chosen option has a Chosen chip and an accent edge. */
+.decision { max-width: var(--measure-reading); }
+.decision > * + * { margin-block-start: var(--space-4); }
+.option > * + * { margin-block-start: var(--space-3); }
+.option.chosen { border-color: var(--pyre-accent); border-inline-start-width: 3px; }
+.tradeoffs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-3) var(--space-5); }
+.tradeoffs ul { margin-block-start: var(--space-1); }
 
 /* Diffs: unified rows with old and new line numbers. The +/- marker carries the meaning; tints and edges repeat it. */
 .diff-scroll { max-width: 100%; overflow-x: auto; background: var(--bg-code); }

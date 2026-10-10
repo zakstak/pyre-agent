@@ -2,7 +2,7 @@
 name: internal-visual-style
 description: Apply the shared internal visual reference to UI and theming work without a specific product design system, including developer plans, review pages, reports, and ad hoc visual artifacts. Product-specific branding takes precedence.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Internal visual style

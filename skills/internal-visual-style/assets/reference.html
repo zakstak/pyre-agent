@@ -136,6 +136,51 @@ result: 42 selected rows exported; filename check failed</code></pre></div>
       </div>
     </section>
 
+    <section aria-labelledby="tables">
+      <h2 id="tables">Tables</h2>
+      <p class="reading">Columns size to their content. On a narrow screen the table scrolls inside its region, and no label or link splits mid-word.</p>
+      <div class="table-region" role="region" aria-label="Example decision summary" tabindex="0">
+        <table class="table">
+          <thead><tr><th scope="col">Decision</th><th scope="col">Status</th><th scope="col">Choice</th><th scope="col">Needed by</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><a href="#export-format">1. Export format</a></th><td><span class="chip success">Decided</span></td><td>One HTML file with embedded fonts</td><td>Step 2</td></tr>
+            <tr><th scope="row">2. Filename authority</th><td><span class="chip warning">Open</span></td><td>Waiting on the storage review</td><td>Step 3</td></tr>
+            <tr><th scope="row">3. Retention</th><td><span class="chip">Deferred</span></td><td>Keep exports in <code>./artifacts</code> until release</td><td>Step 5</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="decision-record">
+      <h2 id="decision-record">Decision record</h2>
+      <article class="decision" aria-labelledby="export-format">
+        <div class="cluster">
+          <h3 id="export-format">1. Export format</h3>
+          <span class="chip success">Decided</span>
+          <span class="chip">Needed by step 2</span>
+        </div>
+        <p>This decides whether a report opens offline from one file or needs a folder beside it.</p>
+        <div class="panel panel-body option chosen">
+          <div class="cluster">
+            <h4>A. One HTML file with embedded fonts</h4>
+            <span class="chip">Chosen</span>
+            <span class="chip">Recommended</span>
+          </div>
+          <p>The export inlines styles and fonts, so the reader can open or attach a single file.</p>
+          <div class="tradeoffs">
+            <div><p><strong>Pros</strong></p><ul><li>Opens offline from one file.</li><li>Nothing to lose when the file moves.</li></ul></div>
+            <div><p><strong>Cons</strong></p><ul><li>Each file carries about 225 KB of fonts.</li></ul></div>
+          </div>
+          <p><strong>Long term.</strong> Easy to change later, because only the writer knows the layout.</p>
+        </div>
+        <details class="panel panel-body option">
+          <summary>B. HTML with a sibling assets folder</summary>
+          <p>Smaller files, but the report breaks when someone moves the HTML without its folder.</p>
+        </details>
+        <p><strong>Decided: A.</strong> Attached reports must open without their folder.</p>
+      </article>
+    </section>
+
     <section aria-labelledby="disclosure">
       <h2 id="disclosure">Disclosure</h2>
       <details class="panel panel-body">

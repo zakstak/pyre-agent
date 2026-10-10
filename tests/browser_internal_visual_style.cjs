@@ -120,9 +120,23 @@ function contrast(a, b) {
             modeLabel: document.querySelector('#theme-toggle').textContent,
             modePressed: document.querySelector('#theme-toggle').getAttribute('aria-pressed'),
             colorScheme: getComputedStyle(document.documentElement).colorScheme,
-            controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() }))
+            controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() })),
+            // A word whose glyphs land on more than one line was split mid-word.
+            splitWords: [...document.querySelectorAll('.table :is(th, td), .chip')].flatMap(element => {
+              const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), split = [];
+              for (let node; (node = walker.nextNode());) {
+                for (const match of node.data.matchAll(/\S+/g)) {
+                  const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+                  if (new Set([...range.getClientRects()].map(rect => Math.round(rect.top))).size > 1) split.push(match[0]);
+                }
+              }
+              return split;
+            }),
+            optionEdges: [...document.querySelectorAll('.decision .option')].map(e => Math.round(e.getBoundingClientRect().left))
           }));
           assert.ok(state.scrollWidth <= width, `overflow ${theme} ${width} ${scale}`);
+          assert.deepEqual(state.splitWords, [], `split words ${theme} ${width} ${scale}`);
+          assert.equal(new Set(state.optionEdges).size, 1, `options side by side ${theme} ${width} ${scale}`);
           assert.equal(state.readingSize, `${17 * scale}px`);
           assert.equal(state.colorScheme, theme);
           assert.ok(state.controls.every(control => control.height >= 44));
@@ -172,7 +186,8 @@ function contrast(a, b) {
     const changed = await page.locator('html').getAttribute('data-theme'); assert.notEqual(changed, previous);
     assert.equal(await page.locator('#theme-toggle').getAttribute('aria-pressed'), String(changed === 'dark'));
     await page.reload(); assert.equal(await page.locator('html').getAttribute('data-theme'), changed);
-    await page.locator('summary').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('details').getAttribute('open'), '');
+    const disclosure = page.locator('#disclosure + details');
+    await disclosure.locator('summary').focus(); await page.keyboard.press('Enter'); assert.equal(await disclosure.getAttribute('open'), '');
     await page.locator('.code-region').focus(); assert.ok(await page.locator('.code-region').evaluate(e => e.scrollWidth > e.clientWidth));
     await page.keyboard.press('ArrowRight'); await page.waitForFunction(() => document.querySelector('.code-region').scrollLeft > 0);
     await page.locator('a[href="../references/BRAND.md"]').click(); assert.ok((await page.textContent('body')).includes('Internal visual reference'));
