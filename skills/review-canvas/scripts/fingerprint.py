@@ -58,13 +58,37 @@ def repository_top(path):
     return None
 
 
+def configured_worktree(repo):
+    """The working tree that core.worktree names in repo's own config file, read without running Git, or None.
+
+    The checkout under review may sit there, outside repo, so a git inside it must be refused before Git first runs."""
+    top = repository_top(repo)
+    git_dir = top / ".git" if top is not None else Path(repo).resolve()
+    if git_dir.is_file():  # a linked worktree or submodule: .git names the Git directory
+        text = git_dir.read_text(errors="replace").strip()
+        git_dir = (git_dir.parent / text.removeprefix("gitdir:").strip()).resolve() if text.startswith("gitdir:") else git_dir
+    for name in ("config.worktree", "config"):
+        try:
+            lines = (git_dir / name).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        section = None
+        for line in lines:
+            line = line.split("#", 1)[0].split(";", 1)[0].strip()
+            if line.startswith("["):
+                section = line.strip("[]").strip().lower()
+            elif section == "core" and line.partition("=")[0].strip().lower() == "worktree":
+                return (git_dir / line.partition("=")[2].strip().strip('"')).resolve()
+    return None
+
+
 def git_executable(repo=None):
     """The git to run: the first in an absolute PATH directory, and never one inside the repository under review."""
     executable = shutil.which("git", path=trusted_path())
     if executable is None:
         raise GitError("git was not found in any absolute PATH directory")
-    # A bare repository has no .git child, so the supplied path itself counts too.
-    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo)]
+    # A bare repository has no .git child, so the supplied path itself counts too, as does a core.worktree elsewhere.
+    roots = [] if repo is None else [Path(repo).resolve(), repository_top(repo), configured_worktree(repo)]
     if any(root is not None and Path(executable).resolve().is_relative_to(root) for root in roots):
         raise GitError(f"git resolves to {executable}, inside the repository under review. Put the system git earlier in PATH.")
     return executable
@@ -78,7 +102,9 @@ def git(cwd, *args, ok=(0,), env=None, into=None):
     environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV and not key.startswith("GIT_TRACE")}
     environment["PATH"] = trusted_path()
     # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
-    environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", **(env or {}))
+    # An empty graft file replaces .git/info/grafts, whose fake ancestry would otherwise move the merge base.
+    environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1",
+                       GIT_GRAFT_FILE=os.devnull, **(env or {}))
     try:
         result = subprocess.run([executable, *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
                                 stdout=into or subprocess.PIPE, stderr=subprocess.PIPE)
