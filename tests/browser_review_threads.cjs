@@ -128,6 +128,18 @@ fs.mkdirSync(out, { recursive: true });
     const conflictPath = path.join(temp, "conflict.json"); fs.writeFileSync(conflictPath, JSON.stringify(conflict));
     await importFile(conflictPath, "Import rejected");
     assert.match(await page.locator("#import-status").textContent(), /Conflicting reply ID/);
+    // A copy that answered the same comment without seeing this tab's reply is a fork, not an addition.
+    const fork = structuredClone(saved.data);
+    fork.comments.find(item => item.id === "fixture-comment-1").replies = [{ id: "fork-reply", actor: "reviewer", created_at: "2026-10-10T11:30:00.000Z", body: "Check the empty file too.", action: "reopen" }];
+    const forkPath = path.join(temp, "fork.json"); fs.writeFileSync(forkPath, JSON.stringify(fork));
+    await importFile(forkPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /answer a comment differently/);
+    assert.equal(await state("fixture-comment-1"), "Resolved");
+    // A copy that extends this tab's replies still merges.
+    const extended = structuredClone(saved.data);
+    extended.comments.find(item => item.id === "fixture-comment-3").replies.push({ id: "later-reply", actor: "reviewer", created_at: "2099-10-10T12:00:00.000Z", body: "Also show the zone.", action: "reply" });
+    const extendedPath = path.join(temp, "extended.json"); fs.writeFileSync(extendedPath, JSON.stringify(extended));
+    await importFile(extendedPath);
 
     // A fresh page restores every state from the saved round 2 feedback fixture.
     await page.reload();

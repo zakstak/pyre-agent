@@ -627,11 +627,14 @@
     const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);
     const normalized = value => Array.isArray(value) ? value.map(normalized) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalized(value[key])])) : value;
     const comparable = value => JSON.stringify(normalized(value));
-    // Reviewer replies merge by ID, so two copies of one comment differ only in replies the other has not seen yet.
+    // Reviewer replies merge by ID when one copy of a comment extends the other. Two copies that each added a reply the
+    // other lacks answered without seeing each other: by time alone, an accept could sort after a later request and hide it.
     const withoutReplies = ({ replies: _, ...comment }) => comment;
     for (const comment of incomingComments) {
       const local = comments.find(item => item.id === comment.id);
       if (local && comparable(withoutReplies(local)) !== comparable(withoutReplies(comment))) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      const theirs = new Set((comment.replies || []).map(reply => reply.id)), ours = new Set((local?.replies || []).map(reply => reply.id));
+      if ([...theirs].some(id => !ours.has(id)) && [...ours].some(id => !theirs.has(id))) throw Error("The open review and this file answer a comment differently. Open review preserved; export it before restoring into a fresh page.");
       for (const reply of comment.replies || []) {
         const mine = local?.replies?.find(item => item.id === reply.id);
         if (mine && comparable(mine) !== comparable(reply)) throw Error("Conflicting reply ID. Open review preserved; export it before restoring into a fresh page.");
