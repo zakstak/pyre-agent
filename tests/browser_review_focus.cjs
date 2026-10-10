@@ -69,9 +69,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.equal(await page.locator("#file-1 .file-body").isVisible(), true);
     assert.equal(await focused(), "inline-comment");
 
-    // A draft is never hidden by marking its file reviewed, and never silently replaced.
+    // A draft is never hidden by approving its file, and never silently replaced.
     await rowButton("+new one").click(); await page.locator("#comment-body").fill("draft text");
-    await page.locator("#file-1 .reviewed").check();
+    await page.getByRole("checkbox", { name: "Approve src/retry.py" }).check();
     assert.equal(await page.locator("#comment-composer").isVisible(), true);
     await page.locator("#file-1 .file-toggle").click();
     assert.equal(await page.locator("#comment-composer").isVisible(), false);

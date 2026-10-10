@@ -1,10 +1,12 @@
 /* Offline feedback contract and conservative anchor matching. No DOM, storage or network. */
 "use strict";
 (() => {
+  const VERSION = 3;
   const MAX_BYTES = 8 * 1024 * 1024;
   const HASH = /^[a-f0-9]{64}$/;
   const SHA = /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/;
   const PR = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/;
+  const ROOT = /^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)/;
   const statuses = new Set(["added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"]);
   function object(value, required, optional = []) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Expected an object.");
@@ -22,41 +24,63 @@
       }
     }
   }
-  function integer(value, max = 50000000) {
-    if (!Number.isSafeInteger(value) || value < 0 || value > max) throw Error("Invalid feedback position.");
+  function integer(value, max = 50000000, min = 0) {
+    if (!Number.isSafeInteger(value) || value < min || value > max) throw Error("Invalid feedback position.");
   }
-  function pr(value) {
-    object(value, ["title"], ["url", "head_sha", "base_sha", "changed_files"]);
+  // Mirrors the renderer's target validation: a GitHub PR, or a working tree that is always pinned.
+  function target(value) {
+    if (!value || typeof value !== "object" || !["github_pr", "worktree"].includes(value.kind)) throw Error("Invalid review target.");
+    if (value.kind === "github_pr") {
+      object(value, ["kind", "title"], ["url", "head_sha", "base_sha", "changed_files"]);
+      if (Object.hasOwn(value, "url") && (typeof value.url !== "string" || !PR.test(value.url))) throw Error("Invalid PR identity.");
+    } else {
+      object(value, ["kind", "title", "root", "head_sha"], ["branch", "changed_files"]);
+      text(value.root, 4096, true);
+      if (!ROOT.test(value.root)) throw Error("Invalid working tree root.");
+      if (Object.hasOwn(value, "branch")) text(value.branch, 1024, true);
+    }
     text(value.title, 20000, true);
-    if (Object.hasOwn(value, "url") && (typeof value.url !== "string" || !PR.test(value.url))) throw Error("Invalid PR identity.");
     for (const key of ["head_sha", "base_sha"]) if (Object.hasOwn(value, key) && (typeof value[key] !== "string" || !SHA.test(value[key]))) throw Error("Invalid commit snapshot.");
     if (Object.hasOwn(value, "changed_files")) integer(value.changed_files, 10 ** 12);
   }
+  const pinned = value => value.kind === "worktree" || Boolean(value.url && value.head_sha);
   function snapshot(value) {
-    object(value, ["pr", "input_sha256"]);
-    pr(value.pr);
+    object(value, ["target", "input_sha256"]);
+    target(value.target);
     if (typeof value.input_sha256 !== "string" || !HASH.test(value.input_sha256)) throw Error("Invalid input digest.");
   }
   function files(value) {
     if (!Array.isArray(value) || value.length > 2000) throw Error("Invalid feedback file inventory.");
     const paths = new Set();
     for (const file of value) {
-      object(file, ["path", "status", "group", "reviewed", "notes"]);
+      object(file, ["path", "status", "group", "notes"]);
       text(file.path, 4096, true); text(file.notes);
-      if (paths.has(file.path) || !statuses.has(file.status) || !["core", "wiring", "mechanical"].includes(file.group) || typeof file.reviewed !== "boolean") throw Error("Invalid or duplicate feedback file.");
+      if (paths.has(file.path) || !statuses.has(file.status) || !["core", "wiring", "mechanical"].includes(file.group)) throw Error("Invalid or duplicate feedback file.");
       paths.add(file.path);
     }
   }
+  function approvals(value) {
+    if (!Array.isArray(value) || value.length > 2000) throw Error("Invalid approval list.");
+    const paths = new Set();
+    for (const approval of value) {
+      object(approval, ["path", "fingerprint", "approved_at"]);
+      text(approval.path, 4096, true); text(approval.approved_at, 40, true);
+      if (typeof approval.fingerprint !== "string" || !HASH.test(approval.fingerprint) || paths.has(approval.path)) throw Error("Invalid or duplicate approval.");
+      paths.add(approval.path);
+    }
+  }
   function anchor(value) {
-    object(value, ["snapshot", "path", "patch_sha256", "start", "end", "quote", "prefix", "suffix", "start_row", "end_row", "old_line", "new_line"]);
+    object(value, ["snapshot", "path", "patch_sha256", "start", "end", "quote", "prefix", "suffix", "start_row", "end_row", "side", "start_line", "end_line"]);
     snapshot(value.snapshot);
-    if (!value.snapshot.pr.url || !value.snapshot.pr.head_sha) throw Error("Comments require a PR URL and pinned head commit.");
+    if (!pinned(value.snapshot.target)) throw Error("Comments require a pinned target: a PR URL and head commit, or a working tree.");
     text(value.path, 4096, true);
     if (typeof value.patch_sha256 !== "string" || !HASH.test(value.patch_sha256)) throw Error("Invalid patch digest.");
     integer(value.start); integer(value.end); integer(value.start_row, 10000); integer(value.end_row, 10000);
     text(value.quote, 20000, true); text(value.prefix, 80); text(value.suffix, 80);
     if (value.end <= value.start || value.end - value.start !== value.quote.length || value.end_row < value.start_row) throw Error("Invalid quote range.");
-    for (const key of ["old_line", "new_line"]) if (value[key] !== null) integer(value[key], 10 ** 12);
+    if (!["old", "new"].includes(value.side)) throw Error("Invalid anchor side.");
+    integer(value.start_line, 10 ** 12, 1); integer(value.end_line, 10 ** 12, 1);
+    if (value.end_line < value.start_line) throw Error("Invalid source line range.");
   }
   function attachment(value) {
     object(value, ["state", "reason", "start", "end"]);
@@ -66,10 +90,10 @@
     else if (value.start !== null || value.end !== null) throw Error("Orphan range must be null.");
   }
   function validateFeedback(value) {
-    object(value, ["feedback_schema_version", "pr", "input_sha256", "exported_at", "general_notes", "files", "comments", "retained_reviews"]);
-    if (value.feedback_schema_version !== 2) throw Error("Unsupported feedback version; expected 2.");
-    snapshot({ pr: value.pr, input_sha256: value.input_sha256 });
-    text(value.exported_at, 40, true); text(value.general_notes); files(value.files);
+    if (value && typeof value === "object" && value.feedback_schema_version !== VERSION) throw Error(`Feedback version ${JSON.stringify(value.feedback_schema_version ?? null)} is not supported; expected ${VERSION}. There is no migration.`);
+    object(value, ["feedback_schema_version", "target", "input_sha256", "exported_at", "general_notes", "files", "approvals", "comments", "retained_reviews"]);
+    snapshot(reviewSnapshot(value));
+    text(value.exported_at, 40, true); text(value.general_notes); files(value.files); approvals(value.approvals);
     if (!Array.isArray(value.comments) || value.comments.length > 1000 || !Array.isArray(value.retained_reviews) || value.retained_reviews.length > 50) throw Error("Feedback collection limit exceeded.");
     const ids = new Set(); let total = value.general_notes.length;
     for (const file of value.files) total += file.notes.length;
@@ -83,7 +107,7 @@
     }
     const retained = new Set();
     for (const review of value.retained_reviews) {
-      object(review, ["pr", "input_sha256", "general_notes", "files"]);
+      object(review, ["target", "input_sha256", "general_notes", "files"]);
       snapshot(reviewSnapshot(review)); text(review.general_notes); files(review.files);
       if (retained.has(review.input_sha256)) throw Error("Duplicate retained snapshot.");
       retained.add(review.input_sha256); total += review.general_notes.length;
@@ -92,7 +116,13 @@
     if (total > 2 * 1024 * 1024) throw Error("Feedback text budget exceeded.");
     return value;
   }
-  const reviewSnapshot = review => ({ pr: review.pr, input_sha256: review.input_sha256 });
+  const reviewSnapshot = review => ({ target: review.target, input_sha256: review.input_sha256 });
+  // Two snapshots belong to one review when they name the same PR, or the same working tree root.
+  function sameTarget(a, b) {
+    if (a.target.kind !== b.target.kind) return false;
+    if (a.target.kind === "worktree") return a.target.root === b.target.root;
+    return a.target.url && b.target.url ? a.target.url === b.target.url : a.input_sha256 === b.input_sha256;
+  }
   // JSON.parse checks syntax first. A bounded token walk additionally rejects duplicate keys.
   function parseFeedback(raw) {
     if (typeof raw !== "string" || (raw.length > MAX_BYTES || new TextEncoder().encode(raw).length > MAX_BYTES)) throw Error("Feedback exceeds 8 MiB.");
@@ -135,7 +165,7 @@
     if (!count) return orphan("Selected text or its context changed.");
     return { state: "attached", reason: "Unique quote and context in revised patch.", start: match, end: match + value.quote.length };
   }
-  const api = Object.freeze({ MAX_BYTES, parseFeedback, validateFeedback, resolveAnchor, reviewSnapshot });
+  const api = Object.freeze({ VERSION, MAX_BYTES, parseFeedback, validateFeedback, resolveAnchor, reviewSnapshot, sameTarget, pinned });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else globalThis.PyreReviewFeedback = api;
 })();

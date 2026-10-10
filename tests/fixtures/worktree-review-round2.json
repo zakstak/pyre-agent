@@ -1,0 +1,129 @@
+{
+  "schema_version": 2,
+  "target": {
+    "kind": "worktree",
+    "title": "Write notes atomically",
+    "root": "/home/dev/notes-cli",
+    "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+    "branch": "atomic-save",
+    "changed_files": 10
+  },
+  "files_complete": true,
+  "summary": "Synthetic working tree. save() becomes atomic; the rest is a rename, a CLI hook, and assorted files that show each kind of entry the collector writes.",
+  "files": [
+    {
+      "path": "src/notes/store.py",
+      "status": "modified",
+      "group": "core",
+      "additions": 9,
+      "deletions": 1,
+      "fingerprint": "6f7e5635baccb9fb3bef61efe15a7b8cbf2a6e155251ca98347d0e1747c49b5f",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "patch_complete": true,
+      "patch": "@@ -1,13 +1,21 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path\n \n \n def load(path):\n     return json.loads(Path(path).read_text(encoding=\"utf-8\"))\n \n \n def save(path, notes):\n-    Path(path).write_text(json.dumps(notes), encoding=\"utf-8\")\n+    target = Path(path)\n+    handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=\".notes-\")\n+    with os.fdopen(handle, \"w\", encoding=\"utf-8\") as stream:\n+        json.dump(notes, stream)\n+        stream.flush()\n+        os.fsync(stream.fileno())\n+    os.replace(temporary, target)\n \n \n def remove(path, title):\n",
+      "summary": "save() now writes a temporary file in the same directory and renames it over the old one, so a crash cannot leave half a file."
+    },
+    {
+      "path": "src/notes/format.py",
+      "old_path": "src/notes/render.py",
+      "status": "renamed",
+      "group": "core",
+      "additions": 1,
+      "deletions": 1,
+      "fingerprint": "7696b83f5d77816015e91565fceaebb7f536775080db294539a2adedcf27922e",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "patch_complete": true,
+      "patch": "@@ -3,4 +3,4 @@ from datetime import date\n \n \n def line(note):\n-    return f\"{note['title']}: {note['body']}\"\n+    return f\"{note['title']} ({date.fromisoformat(note['day'])}): {note['body']}\"\n",
+      "summary": "Renamed from render.py. The line format adds the note's date."
+    },
+    {
+      "path": "src/notes/legacy.py",
+      "status": "modified",
+      "group": "core",
+      "additions": 1,
+      "deletions": 1,
+      "fingerprint": "f89be146a87d549b746f33de57745decf62b6039333ae544440674953f5db27f",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "patch_complete": true,
+      "patch_note": "replaced_characters",
+      "patch": "@@ -1,3 +1,3 @@\n # -*- coding: latin-1 -*-\n-GREETING = \"caf�\"\n+GREETING = \"caf� au lait\"\n ␌SECTION = 2\n"
+    },
+    {
+      "path": "src/notes/cli.py",
+      "status": "modified",
+      "group": "wiring",
+      "additions": 2,
+      "deletions": 0,
+      "fingerprint": "eb66c1c8de5a693b75c524a2b6ebe4763260bac93588a1bd120bafc9fd6a15b9",
+      "old_mode": "100644",
+      "new_mode": "100644",
+      "patch_complete": true,
+      "patch": "@@ -20,4 +20,6 @@ def main(argv=None):\n     args = parser.parse_args(argv)\n     notes = store.load(args.file)\n+    if args.command == \"remove\":\n+        return store.remove(args.file, args.title)\n     print(format.line(notes[-1]))\n     return 0\n"
+    },
+    {
+      "path": ".env.local",
+      "status": "added",
+      "group": "wiring",
+      "additions": 2,
+      "deletions": 0,
+      "fingerprint": "d37a893831df6df9684692b62ad97bf5c15f99d5f13a04c6ac5f15ff50ab7943",
+      "new_mode": "100644",
+      "patch_note": "secret"
+    },
+    {
+      "path": "scripts/release.sh",
+      "status": "changed",
+      "group": "mechanical",
+      "additions": 0,
+      "deletions": 0,
+      "fingerprint": "36fbd6c454f4a535de8fa2ca88c7a558ac7b0a183f87071aee2a37a1facbcf8a",
+      "old_mode": "100644",
+      "new_mode": "100755",
+      "patch_note": "no_content_change"
+    },
+    {
+      "path": "tests/data/windows.txt",
+      "status": "added",
+      "group": "mechanical",
+      "additions": 2,
+      "deletions": 0,
+      "fingerprint": "ea3ebe2581ff88d0bfa54b9d47149c78ac261e63d71a18ee469eda5ef1397172",
+      "new_mode": "100644",
+      "patch_complete": true,
+      "patch": "@@ -0,0 +1,2 @@\n+first line\r\n+second line\r\n"
+    },
+    {
+      "path": "docs/logo.png",
+      "status": "added",
+      "group": "mechanical",
+      "additions": 0,
+      "deletions": 0,
+      "fingerprint": "334458566a18a370dbc0bd87cc3cbadc681f3c35cfa5ba1dc309f71d4472117f",
+      "new_mode": "100644",
+      "patch_note": "binary"
+    },
+    {
+      "path": "docs/current",
+      "status": "added",
+      "group": "mechanical",
+      "additions": 0,
+      "deletions": 0,
+      "fingerprint": "6efe2c112f804a8778cf1e99bc360aa0111ca57f5937892b3c42890338ef0f4a",
+      "new_mode": "120000",
+      "patch_note": "symlink"
+    },
+    {
+      "path": "notes/.keep",
+      "status": "added",
+      "group": "mechanical",
+      "additions": 0,
+      "deletions": 0,
+      "fingerprint": "240e098b73838a68c530fcd4759a208e6f833bf53cb5ba01e5a86e95b2e8644d",
+      "new_mode": "100644",
+      "patch_note": "empty"
+    }
+  ]
+}

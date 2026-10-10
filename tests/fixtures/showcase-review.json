@@ -1,6 +1,7 @@
 {
-  "schema_version": 1,
-  "pr": {
+  "schema_version": 2,
+  "target": {
+    "kind": "github_pr",
     "title": "Add per-tenant rate limiting to the API gateway",
     "url": "https://github.com/example/gateway/pull/42",
     "changed_files": 6,
@@ -16,6 +17,7 @@
       "group": "core",
       "additions": 38,
       "deletions": 0,
+      "fingerprint": "1d651ded812ca8c0e0532eb0fa2906e3ff279aaa6652f9f1ad9acc24f5a59a99",
       "summary": "New token bucket. Refill is lazy: each take() first credits tokens for the time since the last call, capped at capacity. Tokens are fractional, so a tenant at 1 token per second regains a whole token only after a full second.",
       "pseudocode": "take(cost):\n  tokens = min(capacity, tokens + elapsed_ms * refill_per_ms)\n  if tokens < cost: reject\n  tokens -= cost; allow",
       "trace": {
@@ -42,6 +44,7 @@
       "group": "core",
       "additions": 14,
       "deletions": 1,
+      "fingerprint": "b399ef1630d464a1b4fc101a6769b6306c0f7729e1520a7c3d3a65f957b8098f",
       "summary": "The middleware creates one bucket per tenant on first sight and rejects with 429 when take() fails. The tenant header is client-supplied, so any caller can mint unlimited buckets.",
       "callouts": [
         {
@@ -58,6 +61,7 @@
       "group": "wiring",
       "additions": 9,
       "deletions": 0,
+      "fingerprint": "54be448b13adeccbe47fb63e83aad6d8f5893b4970f9b35f1b91f8005c575cc8",
       "summary": "Default limit of 60 requests with 1 per second refill, plus one internal override.",
       "patch_complete": true,
       "patch": "@@ -1,6 +1,15 @@\n export const defaults = {\n   timeoutMs: 15_000,\n   maxBodyBytes: 1_048_576,\n+  rateLimit: { capacity: 60, refillPerSecond: 1 },\n };\n+\n+const overrides: Record<string, { capacity: number; refillPerSecond: number }> = {\n+  \"tenant-internal\": { capacity: 600, refillPerSecond: 10 },\n+};\n+\n+export function limitsFor(tenant: string) {\n+  return overrides[tenant] ?? defaults.rateLimit;\n+}\n \n export type Defaults = typeof defaults;\n"
@@ -68,6 +72,7 @@
       "group": "wiring",
       "additions": 1,
       "deletions": 1,
+      "fingerprint": "99b213a9cd0186f81c0fc21526dcee232a4b04d24422a6bad17c647184ded4dc",
       "summary": "Mounts the gateway in front of the API router only. Health checks outside /api are not limited.",
       "patch_complete": true,
       "patch": "@@ -8,6 +8,6 @@ const app = express();\n app.use(express.json({ limit: defaults.maxBodyBytes }));\n app.use(requestId());\n-app.use(\"/api\", router);\n+app.use(\"/api\", gateway(), router);\n app.use(errorHandler);\n \n export default app;\n"
@@ -78,6 +83,7 @@
       "group": "mechanical",
       "additions": 4,
       "deletions": 0,
+      "fingerprint": "5c9905eee0025e4b6516e7dd700082bcf30448cf7c8525e52e2d002bac682925",
       "patch_complete": true,
       "patch": "@@ -1,5 +1,9 @@\n # Changelog\n \n+## Unreleased\n+\n+- Add per-tenant rate limiting to the API gateway. Responses over the limit return 429 with `Retry-After`.\n+\n ## 2.4.0\n \n - Add request IDs to every log line.\n"
     },
@@ -87,6 +93,7 @@
       "group": "mechanical",
       "additions": 212,
       "deletions": 3,
+      "fingerprint": "be9a0827930ec412e3f090d8c3bad075e98c9825cf333fddb2a2f6f11df0f38b",
       "patch": null,
       "summary": "Lockfile churn from adding a dev dependency. Too large to include."
     }

@@ -1,12 +1,22 @@
 /** Dependency-free feedback contract checks. Real DOM interactions are tested in browser_review.cjs. */
 const assert = require('node:assert/strict');
 const core = require('../skills/review-canvas/assets/feedback.js');
-const snapshot = {pr:{title:'Synthetic',url:'https://github.com/example/repo/pull/2',head_sha:'1'.repeat(40)},input_sha256:'a'.repeat(64)};
-const anchor = {snapshot,path:'source.js',patch_sha256:'b'.repeat(64),start:7,end:11,quote:'code',prefix:'before ',suffix:' after',start_row:0,end_row:0,old_line:null,new_line:1};
+const snapshot = {target:{kind:'github_pr',title:'Synthetic',url:'https://github.com/example/repo/pull/2',head_sha:'1'.repeat(40)},input_sha256:'a'.repeat(64)};
+const worktree = {target:{kind:'worktree',title:'Uncommitted changes on main',root:'/home/dev/repo',head_sha:'2'.repeat(40),branch:'main'},input_sha256:'e'.repeat(64)};
+const anchor = {snapshot,path:'source.js',patch_sha256:'b'.repeat(64),start:7,end:11,quote:'code',prefix:'before ',suffix:' after',start_row:0,end_row:0,side:'new',start_line:1,end_line:1};
 const comment = {id:'one',body:'Check this',created_at:'2026-10-10T00:00:00Z',updated_at:'2026-10-10T00:00:00Z',anchor,history:[],attachment:{state:'attached',reason:'Exact',start:7,end:11}};
-const fixture = () => structuredClone({feedback_schema_version:2,...snapshot,exported_at:'2026-10-10T00:00:00Z',general_notes:'',files:[{path:'source.js',status:'modified',group:'core',reviewed:false,notes:''}],comments:[comment],retained_reviews:[]});
-const rejects = mutate => {const value=fixture();mutate(value);assert.throws(()=>core.parseFeedback(JSON.stringify(value)));};
+const approval = {path:'source.js',fingerprint:'f'.repeat(64),approved_at:'2026-10-10T00:00:00Z'};
+const fixture = () => structuredClone({feedback_schema_version:3,...snapshot,exported_at:'2026-10-10T00:00:00Z',general_notes:'',files:[{path:'source.js',status:'modified',group:'core',notes:''}],approvals:[approval],comments:[comment],retained_reviews:[]});
+const rejects = (mutate, pattern) => {const value=fixture();mutate(value);assert.throws(()=>core.parseFeedback(JSON.stringify(value)),pattern);};
 assert.deepEqual(core.parseFeedback(JSON.stringify(fixture())),fixture());
+// A working tree target is always pinned, so its comments need no PR URL.
+const local=fixture();Object.assign(local,structuredClone(worktree));local.comments[0].anchor.snapshot=structuredClone(worktree);local.comments[0].anchor.side='old';
+assert.deepEqual(core.parseFeedback(JSON.stringify(local)),local);
+for (const root of ['C:\\work\\repo','\\\\server\\share\\repo']) {const windows=structuredClone(local);windows.target.root=root;windows.comments[0].anchor.snapshot.target.root=root;core.parseFeedback(JSON.stringify(windows));}
+assert.equal(core.sameTarget(worktree,{...worktree,input_sha256:'c'.repeat(64)}),true);
+assert.equal(core.sameTarget(worktree,{target:{...worktree.target,root:'/elsewhere'},input_sha256:worktree.input_sha256}),false);
+assert.equal(core.sameTarget(worktree,snapshot),false);
+assert.equal(core.sameTarget(snapshot,{...snapshot,input_sha256:'c'.repeat(64)}),true);
 assert.equal(core.resolveAnchor(anchor,{path:anchor.path,patch_sha256:anchor.patch_sha256,source:'before code after'}).state,'attached');
 const moved=core.resolveAnchor(anchor,{path:anchor.path,patch_sha256:'c'.repeat(64),source:'new\nbefore code after'});
 assert.equal(moved.state,'attached');assert.equal(moved.start,11);
@@ -16,8 +26,25 @@ assert.equal(core.resolveAnchor(anchor,null).state,'orphan');
 assert.equal(core.resolveAnchor(anchor,{path:'renamed.js',source:'before code after'}).state,'orphan');
 rejects(v=>v.comments.push(structuredClone(v.comments[0])));
 rejects(v=>v.files.push(structuredClone(v.files[0])));
-rejects(v=>v.comments[0].anchor.snapshot.pr.url='https://evil.invalid/pull/2');
-rejects(v=>delete v.comments[0].anchor.snapshot.pr.head_sha);
+rejects(v=>v.files[0].reviewed=true);
+rejects(v=>v.approvals.push(structuredClone(v.approvals[0])));
+rejects(v=>v.approvals[0].fingerprint='F'.repeat(64));
+rejects(v=>delete v.approvals[0].approved_at);
+rejects(v=>v.approvals=Array.from({length:2001},(_,i)=>({...approval,path:`f${i}`})));
+rejects(v=>v.comments[0].anchor.snapshot.target.url='https://evil.invalid/pull/2');
+rejects(v=>delete v.comments[0].anchor.snapshot.target.head_sha,/pinned target/);
+rejects(v=>v.comments[0].anchor.snapshot={target:{...worktree.target,root:'relative'},input_sha256:worktree.input_sha256});
+rejects(v=>delete v.comments[0].anchor.snapshot.target.kind);
+rejects(v=>v.comments[0].anchor.snapshot.target.root='/home/dev/repo');
+rejects(v=>v.target={...worktree.target,url:'https://github.com/example/repo/pull/2'});
+rejects(v=>{v.target=structuredClone(worktree.target);delete v.target.head_sha;});
+rejects(v=>v.target={...worktree.target,branch:''});
+rejects(v=>v.target={...worktree.target,root:'\\\\server'});
+rejects(v=>v.comments[0].anchor.side='both');
+rejects(v=>v.comments[0].anchor.start_line=0);
+rejects(v=>v.comments[0].anchor.end_line=0);
+rejects(v=>{v.comments[0].anchor.start_line=5;v.comments[0].anchor.end_line=4;});
+rejects(v=>{delete v.comments[0].anchor.side;v.comments[0].anchor.new_line=1;});
 rejects(v=>v.comments[0].anchor.end++);
 rejects(v=>v.comments[0].anchor.start=-1);
 rejects(v=>v.comments[0].body='\ud800');
@@ -28,9 +55,12 @@ rejects(v=>v.comments=Array.from({length:1001},(_,i)=>({...comment,id:String(i)}
 rejects(v=>v.comments[0].attachment.start=-1);
 rejects(v=>v.general_notes='x'.repeat(20001));
 rejects(v=>v.extra='unsupported');
-rejects(v=>v.feedback_schema_version=1);
+rejects(v=>v.retained_reviews=[{...snapshot,general_notes:'',files:[{path:'source.js',status:'modified',group:'core',reviewed:true,notes:''}]}]);
+// Older versions fail with a message that names the version; there is no migration.
+rejects(v=>v.feedback_schema_version=2,/version 2 is not supported/);
+rejects(v=>{v.feedback_schema_version=1;v.pr=v.target;delete v.target;},/version 1 is not supported/);
 const raw=JSON.stringify(fixture());
-assert.throws(()=>core.parseFeedback(raw.replace('"feedback_schema_version":2','"feedback_schema_version":2,"feedback_schema_version":2')),/Duplicate/);
+assert.throws(()=>core.parseFeedback(raw.replace('"feedback_schema_version":3','"feedback_schema_version":3,"feedback_schema_version":3')),/Duplicate/);
 assert.throws(()=>core.parseFeedback(raw.replace('"body":"Check this"','"body":"Check this","\\u0062ody":"Check this"')),/Duplicate/);
 assert.throws(()=>core.parseFeedback('['.repeat(34)+'0'+']'.repeat(34)),/deeply/);
 assert.throws(()=>core.parseFeedback(' '.repeat(core.MAX_BYTES+1)),/8 MiB/);
@@ -39,4 +69,4 @@ const hostile=fixture();hostile.comments[0].body='</script><img onerror="alert(1
 assert.deepEqual(core.parseFeedback(JSON.stringify(hostile)),hostile);
 const oversized=fixture();oversized.comments=Array.from({length:120},(_,i)=>({...structuredClone(comment),id:String(i),body:'x'.repeat(20000)}));
 assert.throws(()=>core.validateFeedback(oversized),/budget/);
-console.log('PASS: strict v2 roundtrip, exact/moved/changed/ambiguous/absent anchors, identity, duplicate keys, Unicode, nesting, byte/collection/text limits, hostile text retained as data.');
+console.log('PASS: strict v3 roundtrip for PR and working tree targets, target identity, approvals, side-aware anchors, version messages, exact/moved/changed/ambiguous/absent anchors, duplicate keys, Unicode, nesting, byte/collection/text limits, hostile text retained as data.');

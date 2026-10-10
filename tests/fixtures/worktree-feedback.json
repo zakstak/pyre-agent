@@ -1,0 +1,134 @@
+{
+  "feedback_schema_version": 3,
+  "target": {
+    "kind": "worktree",
+    "title": "Write notes atomically",
+    "root": "/home/dev/notes-cli",
+    "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+    "branch": "atomic-save",
+    "changed_files": 10
+  },
+  "input_sha256": "aca81436a0fc5c8bd8463fd6bbacfba932310ebe1e892483570e63929da44aba",
+  "exported_at": "2026-10-10T09:00:00.000Z",
+  "general_notes": "",
+  "files": [
+    {
+      "path": "src/notes/store.py",
+      "status": "modified",
+      "group": "core",
+      "notes": ""
+    },
+    {
+      "path": "src/notes/format.py",
+      "status": "renamed",
+      "group": "core",
+      "notes": ""
+    },
+    {
+      "path": "src/notes/legacy.py",
+      "status": "modified",
+      "group": "core",
+      "notes": ""
+    },
+    {
+      "path": "src/notes/cli.py",
+      "status": "modified",
+      "group": "wiring",
+      "notes": ""
+    },
+    {
+      "path": ".env.local",
+      "status": "added",
+      "group": "wiring",
+      "notes": ""
+    },
+    {
+      "path": "scripts/release.sh",
+      "status": "changed",
+      "group": "mechanical",
+      "notes": ""
+    },
+    {
+      "path": "tests/data/windows.txt",
+      "status": "added",
+      "group": "mechanical",
+      "notes": ""
+    },
+    {
+      "path": "docs/logo.png",
+      "status": "added",
+      "group": "mechanical",
+      "notes": ""
+    },
+    {
+      "path": "docs/current",
+      "status": "added",
+      "group": "mechanical",
+      "notes": ""
+    },
+    {
+      "path": "notes/.keep",
+      "status": "added",
+      "group": "mechanical",
+      "notes": ""
+    }
+  ],
+  "approvals": [
+    {
+      "path": "scripts/release.sh",
+      "fingerprint": "36fbd6c454f4a535de8fa2ca88c7a558ac7b0a183f87071aee2a37a1facbcf8a",
+      "approved_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "path": "src/notes/cli.py",
+      "fingerprint": "eb66c1c8de5a693b75c524a2b6ebe4763260bac93588a1bd120bafc9fd6a15b9",
+      "approved_at": "2026-10-10T09:00:00.000Z"
+    },
+    {
+      "path": "src/notes/store.py",
+      "fingerprint": "6263cfcdd401e9324557d7888e0acd3cefc846e4fc3061a127b31539b2a9df07",
+      "approved_at": "2026-10-10T09:00:00.000Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": "fixture-comment-1",
+      "body": "Fsync the temporary file before the rename, or a power loss can still leave an empty file.",
+      "created_at": "2026-10-10T09:00:00.000Z",
+      "updated_at": "2026-10-10T09:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "target": {
+            "kind": "worktree",
+            "title": "Write notes atomically",
+            "root": "/home/dev/notes-cli",
+            "head_sha": "4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39",
+            "branch": "atomic-save",
+            "changed_files": 10
+          },
+          "input_sha256": "aca81436a0fc5c8bd8463fd6bbacfba932310ebe1e892483570e63929da44aba"
+        },
+        "path": "src/notes/store.py",
+        "patch_sha256": "55eb0e086c18b845989ab3aa978998af0aac46b6e793561faaf8422cfd41322f",
+        "start": 466,
+        "end": 495,
+        "quote": "os.replace(temporary, target)",
+        "prefix": "andle, \"w\", encoding=\"utf-8\") as stream:\n+        json.dump(notes, stream)\n+    ",
+        "suffix": "\n \n \n def remove(path, title):",
+        "start_row": 17,
+        "end_row": 17,
+        "side": "new",
+        "start_line": 16,
+        "end_line": 16
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 466,
+        "end": 495
+      }
+    }
+  ],
+  "retained_reviews": []
+}

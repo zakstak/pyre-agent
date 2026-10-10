@@ -6,7 +6,7 @@
   const cards = Array.from(document.querySelectorAll(".file-card"));
   const search = byId("search"), filter = byId("review-filter");
   const composer = byId("comment-composer"), floating = byId("comment-selection"), toast = byId("toast");
-  const snapshot = { pr: metadata.pr, input_sha256: metadata.input_sha256 };
+  const snapshot = { target: metadata.target, input_sha256: metadata.input_sha256 };
   const sources = new Map(metadata.files.map(file => {
     const card = byId(file.id);
     let offset = 0;
@@ -19,10 +19,12 @@
   }));
   const byCard = new Map(Array.from(sources.values(), file => [file.card, file]));
   const nav = new Map(Array.from(document.querySelectorAll(".file-nav li[data-file]"), item => [item.dataset.file, item]));
-  let dirty = false, exported = false, comments = [], retained = [], selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
+  // IDs of comments deleted in this tab. An import holding one would bring it back, so the import is refused instead.
+  const removed = new Set();
+  let dirty = false, exported = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
   let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null;
-  const editedNotes = new Set(), editedFlags = new Set(); let editedGeneral = false;
-  const pinned = Boolean(metadata.pr.url && metadata.pr.head_sha);
+  const editedNotes = new Set(), editedApprovals = new Set(); let editedGeneral = false;
+  const pinned = contract.pinned(metadata.target);
   const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
   function element(tag, className, content) {
@@ -48,10 +50,15 @@
     setExpanded(card, true);
     const diff = card.querySelector(".patch-details"); if (diff) diff.open = true;
   }
+  // An approval covers one exact file version. A stored approval for another version means the file changed since.
+  function approvalState(file) {
+    const record = approvals.get(file.path);
+    return !record ? "none" : file.fingerprint && record.fingerprint === file.fingerprint ? "approved" : "changed";
+  }
   function summarize() {
-    const reviewed = cards.filter(card => card.querySelector(".reviewed").checked).length;
+    const approved = cards.filter(card => approvalState(byCard.get(card)) === "approved").length;
     const notes = cards.filter(card => card.querySelector(".file-notes").value).length;
-    byId("review-summary").textContent = [`${reviewed} of ${plural(cards.length, "file")} reviewed`,
+    byId("review-summary").textContent = [`${approved} of ${plural(cards.length, "file")} approved`,
       plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : ""), plural(notes, "file note")].join(" · ");
   }
   function saveState() {
@@ -60,18 +67,22 @@
   }
   function refresh() {
     const query = search.value.trim().toLocaleLowerCase();
-    let shown = 0, reviewed = 0;
+    let shown = 0, approved = 0;
     for (const card of cards) {
-      const checked = card.querySelector(".reviewed").checked;
-      reviewed += Number(checked); card.classList.toggle("is-reviewed", checked);
-      card.hidden = !card.dataset.search.toLocaleLowerCase().includes(query) || (filter.value === "reviewed" && !checked) || (filter.value === "remaining" && checked);
+      const state = approvalState(byCard.get(card)), checked = state === "approved";
+      card.querySelector(".approved").checked = checked; card.querySelector(".approval-changed").hidden = state !== "changed";
+      approved += Number(checked); card.classList.toggle("is-approved", checked);
+      card.hidden = !card.dataset.search.toLocaleLowerCase().includes(query) || (filter.value === "approved" && !checked) || (filter.value === "remaining" && checked);
       shown += Number(!card.hidden);
       const item = nav.get(card.id);
-      if (item) { item.hidden = card.hidden; item.classList.toggle("is-reviewed", checked); item.querySelector(".nav-state").textContent = checked ? ", reviewed" : ""; }
+      if (item) {
+        item.hidden = card.hidden; item.classList.toggle("is-approved", checked); item.classList.toggle("is-changed", state === "changed");
+        item.querySelector(".nav-state").textContent = checked ? ", approved" : state === "changed" ? ", changed since approval" : "";
+      }
     }
     for (const group of document.querySelectorAll(".review-group, .nav-group")) group.hidden = !Array.from(group.querySelectorAll(".file-card, li[data-file]")).some(item => !item.hidden);
-    byId("progress").textContent = `${reviewed} of ${cards.length} reviewed`;
-    document.querySelector(".progress").style.setProperty("--progress", `${cards.length ? reviewed / cards.length * 100 : 0}%`);
+    byId("progress").textContent = `${approved} of ${cards.length} approved`;
+    document.querySelector(".progress").style.setProperty("--progress", `${cards.length ? approved / cards.length * 100 : 0}%`);
     byId("filter-status").textContent = `${shown} of ${cards.length} files shown`;
     byId("no-results").hidden = shown > 0 || cards.length === 0;
     summarize();
@@ -84,25 +95,52 @@
   function currentFiles() {
     return metadata.files.map(file => {
       const card = byId(file.id);
-      return { path: file.path, status: file.status, group: file.group, reviewed: card.querySelector(".reviewed").checked, notes: card.querySelector(".file-notes").value };
+      return { path: file.path, status: file.status, group: file.group, notes: card.querySelector(".file-notes").value };
     });
   }
+  // Approvals for files outside this snapshot stay, so a file that returns unchanged is still approved. Past the limit, the oldest of those go first.
+  function approvalList(map = approvals) {
+    let list = [...map.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    if (list.length > 2000) {
+      const drop = new Set(list.filter(record => !sources.has(record.path)).sort((a, b) => a.approved_at < b.approved_at ? -1 : 1).slice(0, list.length - 2000).map(record => record.path));
+      list = list.filter(record => !drop.has(record.path));
+    }
+    return list;
+  }
+  // Approvals for files outside this snapshot only spare re-approving a file that returns unchanged. Past the 8 MiB limit,
+  // measured as exported, the oldest of those go first, so carried approvals never make feedback impossible to keep.
+  function fitted(value) {
+    const encoder = new TextEncoder(), measure = item => encoder.encode(JSON.stringify(item, null, 2) + "\n").length;
+    const outside = value.approvals.filter(record => !sources.has(record.path)).sort((a, b) => a.approved_at < b.approved_at ? -1 : 1);
+    let size = measure(value), next = 0;
+    while (size > contract.MAX_BYTES && next < outside.length) {
+      const drop = new Set();
+      for (let excess = size - contract.MAX_BYTES; excess > 0 && next < outside.length; next++) {
+        drop.add(outside[next].path); excess -= encoder.encode(JSON.stringify(outside[next])).length;
+      }
+      value = { ...value, approvals: value.approvals.filter(record => !drop.has(record.path)) }; size = measure(value);
+    }
+    return value;
+  }
   function feedback() {
-    return contract.validateFeedback({ feedback_schema_version: 2, ...snapshot, exported_at: new Date().toISOString(),
-      general_notes: byId("general-notes").value, files: currentFiles(),
-      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained });
+    return contract.validateFeedback(fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(),
+      general_notes: byId("general-notes").value, files: currentFiles(), approvals: approvalList(),
+      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained }));
   }
-  function samePR(other) {
-    return metadata.pr.url && other.pr.url ? metadata.pr.url === other.pr.url : other.input_sha256 === metadata.input_sha256;
-  }
+  const sameTarget = other => contract.sameTarget(snapshot, other);
   function makeAnchor(file, start, end) {
     const first = file.rows.find(row => start >= row.start && start <= row.end);
     const last = file.rows.find(row => end > row.start && end <= row.end);
     if (!first || !last || end <= start || end - start > 20000 || !file.source.slice(start, end).trim()) throw Error("Select 1–20,000 code characters within one file.");
+    // A comment names one side. Deleted lines, alone or with context, are old-side; anything that reaches the new file is new-side.
+    const rows = file.rows.slice(file.rows.indexOf(first), file.rows.indexOf(last) + 1).map(row => row.row.dataset);
+    const oldOnly = rows.some(row => row.kind === "deletion") && !rows.some(row => row.kind === "addition");
+    let side = oldOnly ? "old" : "new", lines = rows.filter(row => row[side]).map(row => Number(row[side]));
+    if (!lines.length && side === "new") { side = "old"; lines = rows.filter(row => row.old).map(row => Number(row.old)); }
+    if (!lines.length) throw Error("Select code lines, not diff headers.");
     return { snapshot, path: file.path, patch_sha256: file.patch_sha256, start, end, quote: file.source.slice(start, end),
       prefix: file.source.slice(Math.max(0, start - 80), start).replace(/^[\uDC00-\uDFFF]/, ""), suffix: file.source.slice(end, end + 80).replace(/[\uD800-\uDBFF]$/, ""),
-      start_row: Number(first.row.dataset.row), end_row: Number(last.row.dataset.row),
-      old_line: first.row.dataset.old ? Number(first.row.dataset.old) : null, new_line: first.row.dataset.new ? Number(first.row.dataset.new) : null };
+      start_row: Number(first.row.dataset.row), end_row: Number(last.row.dataset.row), side, start_line: lines[0], end_line: lines[lines.length - 1] };
   }
   function rowAt(file, offset) {
     return file.rows.find(row => offset > row.start && offset <= row.end) || file.rows.find(row => offset >= row.start && offset <= row.end) || file.rows[file.rows.length - 1];
@@ -118,8 +156,7 @@
     return `${name(first)} ${first.number} to ${name(last).toLowerCase()} ${last.number}`;
   }
   function originLabel(anchor) {
-    const line = anchor.new_line ?? anchor.old_line;
-    return line ? `originally line ${line}` : `originally diff row ${anchor.start_row + 1}`;
+    return `originally ${anchor.side === "old" ? "old line" : "line"} ${anchor.start_line}`;
   }
 
   // Selection: snap a browser selection to the code rows of one file, then offer a floating button.
@@ -225,7 +262,9 @@
     const head = element("div", "comment-head"), actions = element("div", "comment-actions");
     head.append(element("span", "comment-author", "Your comment"),
       element("span", "comment-location", attached ? linesLabel(file, attachment.start, attachment.end) : `${comment.anchor.path} · ${originLabel(comment.anchor)}`));
-    if (comment.anchor.snapshot.pr.head_sha !== metadata.pr.head_sha) head.append(element("span", "chip", `From ${comment.anchor.snapshot.pr.head_sha.slice(0, 7)}`));
+    // Working tree rounds often share a HEAD, so an earlier snapshot is named by round when the commit matches.
+    const origin = comment.anchor.snapshot;
+    if (origin.input_sha256 !== metadata.input_sha256) head.append(element("span", "chip", origin.target.head_sha !== metadata.target.head_sha ? `From ${origin.target.head_sha.slice(0, 7)}` : "From an earlier round"));
     if (!attached) actions.append(button("Attach to selected text", () => {
       if (!selection) { announce("Select the intended code first, then choose Attach to selected text."); return; }
       compose(selection, comment, true);
@@ -293,7 +332,7 @@
   }
   function removeComment(comment) {
     const card = sources.get(comment.anchor.path)?.card;
-    deleted = comment; comments = comments.filter(item => item.id !== comment.id);
+    deleted = comment; removed.add(comment.id); comments = comments.filter(item => item.id !== comment.id);
     if (editing === comment.id || reattaching === comment.id) closeComposer();
     drawComments(); changed();
     lastFocus = card && !card.hidden ? card.querySelector(".file-toggle") : byId("files");
@@ -327,7 +366,7 @@
     if (comments.length >= 1000) { announce("Comment limit reached; export before adding more."); return; }
     const before = comments, restored = deleted; comments = [...comments, deleted];
     try { feedback(); } catch (error) { comments = before; announce(`Cannot undo: ${error.message}`); return; }
-    deleted = null; drawComments(); changed(); announce("Comment restored."); jumpTo(restored.id);
+    deleted = null; removed.delete(restored.id); drawComments(); changed(); announce("Comment restored."); jumpTo(restored.id);
   });
   byId("toast-dismiss").addEventListener("click", () => { deleted = null; announce(""); });
   document.addEventListener("focusin", event => { if (!toast.contains(event.target)) lastFocus = event.target; });
@@ -344,9 +383,12 @@
   for (const card of cards) {
     card.querySelector(".file-toggle").addEventListener("click", () => setExpanded(card, card.querySelector(".file-body").hidden));
     if (card.dataset.group === "mechanical") setExpanded(card, false);
-    card.querySelector(".reviewed").addEventListener("change", event => {
-      editedFlags.add(card.id); changed();
-      // Collapse a reviewed file, unless that would hide an open comment draft.
+    card.querySelector(".approved").addEventListener("change", event => {
+      const file = byCard.get(card);
+      if (event.target.checked) approvals.set(file.path, { path: file.path, fingerprint: file.fingerprint, approved_at: new Date().toISOString() });
+      else approvals.delete(file.path);
+      editedApprovals.add(file.path); changed();
+      // Collapse an approved file, unless that would hide an open comment draft.
       if (composer.hidden || !card.contains(composer)) setExpanded(card, !event.target.checked);
       refresh();
       if (event.target.checked && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: "start" });
@@ -362,12 +404,12 @@
   });
   byId("export-feedback").addEventListener("click", () => {
     let output;
-    try { output = JSON.stringify(feedback(), null, 2) + "\n"; if (new Blob([output]).size > contract.MAX_BYTES) throw Error("Feedback exceeds the 8 MiB save/import limit."); }
+    try { output = JSON.stringify(feedback(), null, 2) + "\n"; if (new Blob([output]).size > contract.MAX_BYTES) throw Error("Feedback exceeds the 8 MiB save/import limit. Shorten notes or comments to export it."); }
     catch (error) { byId("export-status").textContent = error.message; return; }
     byId("feedback-json").value = output; const preview = byId("export-preview"); preview.hidden = false;
     try {
       const url = URL.createObjectURL(new Blob([output], { type: "application/json;charset=utf-8" }));
-      const link = document.createElement("a"); link.href = url; link.download = `pr-review-feedback-${metadata.input_sha256.slice(0, 12)}.json`;
+      const link = document.createElement("a"); link.href = url; link.download = `review-feedback-${metadata.input_sha256.slice(0, 12)}.json`;
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       const draft = draftOpen();
       byId("export-status").textContent = draft
@@ -383,7 +425,7 @@
     try {
       if (file.size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB.");
       const incoming = contract.parseFeedback(await file.text()); if (token !== importSequence) return;
-      if (!samePR(incoming) || incoming.comments.some(comment => !samePR(comment.anchor.snapshot) || comment.history.some(anchor => !samePR(anchor.snapshot))) || incoming.retained_reviews.some(review => !samePR(review))) throw Error("Feedback belongs to another PR or an unidentified snapshot.");
+      if (!sameTarget(incoming) || incoming.comments.some(comment => !sameTarget(comment.anchor.snapshot) || comment.history.some(anchor => !sameTarget(anchor.snapshot))) || incoming.retained_reviews.some(review => !sameTarget(review))) throw Error("Feedback belongs to another review target or an unidentified snapshot.");
       if (!composer.hidden && byId("comment-body").value) { revealComposer(); throw Error("Finish or cancel the open comment draft before importing."); }
       const same = incoming.input_sha256 === metadata.input_sha256;
       if (same && (incoming.files.length !== metadata.files.length || incoming.files.some(file => !sources.has(file.path)))) throw Error("Feedback inventory does not match this snapshot.");
@@ -393,16 +435,30 @@
       for (const comment of incomingComments) {
         const local = comments.find(item => item.id === comment.id);
         if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+        if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
       }
       const localFiles = currentFiles();
       if (same && (localFiles.some(local => {
         const saved = incoming.files.find(file => file.path === local.path);
-        const id = sources.get(local.path).id;
-        return ((editedNotes.has(id) || local.notes) && local.notes !== saved.notes) || (editedFlags.has(id) && local.reviewed !== saved.reviewed);
-      }) || ((editedGeneral || byId("general-notes").value) && byId("general-notes").value !== incoming.general_notes))) throw Error("Conflicting notes or review flags. Open review preserved; export it before restoring into a fresh page.");
+        return (editedNotes.has(sources.get(local.path).id) || local.notes) && local.notes !== saved.notes;
+      }) || ((editedGeneral || byId("general-notes").value) && byId("general-notes").value !== incoming.general_notes))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
+      // Approvals merge by path. Keep the one for the current version, or else the newer one. An approval made in this
+      // tab stays; one cleared in this tab is never restored silently.
+      const nextApprovals = new Map(approvals);
+      for (const record of incoming.approvals) {
+        const local = approvals.get(record.path), current = sources.get(record.path)?.fingerprint;
+        if (editedApprovals.has(record.path)) {
+          if (!local) throw Error("Conflicting approval. Open review preserved; export it before restoring into a fresh page.");
+        } else if (!local || ((record.fingerprint === current) !== (local.fingerprint === current) ? record.fingerprint === current : record.approved_at > local.approved_at)) {
+          nextApprovals.set(record.path, record);
+        }
+      }
       const nextRetained = retained.slice();
       const earlier = incoming.retained_reviews.slice();
-      if (!same) earlier.push({ pr: incoming.pr, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files });
+      // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes. One with no
+      // notes at all has nothing to keep, and would only use up the retained limit.
+      const noted = incoming.files.filter(file => file.notes);
+      if (!same && (incoming.general_notes || noted.length)) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: noted });
       for (const review of earlier) {
         const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
         if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
@@ -411,20 +467,25 @@
       const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
       const nextFiles = same ? incoming.files : localFiles;
       const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
-      contract.validateFeedback({ feedback_schema_version: 2, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles,
+      const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
         comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
-      const hadLocal = dirty || comments.length || retained.length;
-      comments = nextComments; retained = nextRetained;
+      contract.validateFeedback(merged);
+      if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
+      comments = nextComments; retained = nextRetained; approvals = nextApprovals;
       if (same) {
         for (const saved of incoming.files) {
-          const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes; card.querySelector(".reviewed").checked = saved.reviewed;
+          const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
           card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
         }
         byId("general-notes").value = incoming.general_notes;
       }
       deleted = null; announce(""); closeComposer(); drawComments(); refresh();
-      dirty = Boolean(hadLocal || !same); exported = false; saveState(); byId("export-preview").hidden = true;
-      byId("import-status").textContent = `Imported ${incoming.comments.length} comments. ${orphanCount} unattached. ${same ? "Snapshot notes restored." : "Earlier notes and flags preserved separately; current review flags were not carried forward."}`;
+      // The page is dirty when it holds something the imported file lacks, so importing the same file again stays clean.
+      const key = review => comparable({ general_notes: review.general_notes, files: review.files, approvals: [...review.approvals].sort((a, b) => a.path < b.path ? -1 : 1),
+        comments: review.comments.map(({ attachment: _, ...comment }) => comment).sort((a, b) => a.id < b.id ? -1 : 1), retained: [...review.retained_reviews].sort((a, b) => a.input_sha256 < b.input_sha256 ? -1 : 1) });
+      dirty = !same || key(feedback()) !== key(incoming); exported = false; saveState(); byId("export-preview").hidden = true;
+      const states = metadata.files.map(approvalState), approvedCount = states.filter(state => state === "approved").length, changedCount = states.filter(state => state === "changed").length;
+      byId("import-status").textContent = `Imported ${plural(incoming.comments.length, "comment")}. ${orphanCount} unattached. ${approvedCount} of ${plural(cards.length, "file")} approved, ${changedCount} changed since approval. ${same ? "Snapshot notes restored." : "Notes from the earlier snapshot are kept separately."}`;
       byId("export-status").textContent = dirty ? "Export the combined feedback to save this state." : "Saved snapshot restored from your local file.";
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }
   });
