@@ -1,6 +1,8 @@
 ---
 name: principle-boundary-discipline
 description: "Apply when wiring validation, error handling, or framework adapters. Concentrate guards at system boundaries (CLI, config, network, external APIs); trust validated invariants and keep business logic in pure functions."
+metadata:
+  version: "1.0.0"
 ---
 
 # Boundary Discipline

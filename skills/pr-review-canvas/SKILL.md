@@ -1,6 +1,8 @@
 ---
 name: pr-review-canvas
 description: Create a standalone interactive HTML review when the user asks for a PR review canvas or HTML walkthrough of a specified GitHub pull request.
+metadata:
+  version: "1.0.0"
 ---
 
 # PR review canvas

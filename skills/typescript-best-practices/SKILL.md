@@ -1,6 +1,8 @@
 ---
 name: typescript-best-practices
 description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
+metadata:
+  version: "1.0.0"
 ---
 
 # TypeScript best practices

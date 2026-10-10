@@ -1,6 +1,8 @@
 ---
 name: unslop
 description: Edit prose to remove AI writing patterns while preserving its meaning and intended tone.
+metadata:
+  version: "1.0.0"
 ---
 
 # Unslop

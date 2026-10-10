@@ -1,0 +1,21 @@
+name: Skill versions
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Require a version raise for every changed skill
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python3 -m unittest tests/test_skill_versions.py
+          python3 tests/check_skill_versions.py --base "origin/$BASE_REF"
