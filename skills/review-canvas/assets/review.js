@@ -116,8 +116,11 @@
     const unconfirmed = new Set();
     const digest = async text => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
     const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
+    // A reply cut short is no reply: callers see status 0, as for a dropped connection, never an empty success.
     const call = (path, options = {}) => fetch(path, { ...options, cache: "no-store", credentials: "same-origin", headers: { "X-Review-Token": token, ...options.headers } })
-      .then(async response => ({ status: response.status, reply: await response.json().catch(() => ({})) }));
+      .then(async response => {
+        try { return { status: response.status, reply: await response.json() }; } catch { return { status: 0, reply: { error: "The review server's reply was incomplete." } }; }
+      });
     function notify(message, reload) {
       byId("server-notice-text").textContent = message; byId("server-reload").hidden = !reload; byId("server-notice").hidden = false;
     }
@@ -164,20 +167,23 @@
       call("/round").then(({ status, reply }) => {
         // Polling continues after the offer: it is also what keeps the server running while this page stays open.
         if (status === 200 && reply.round !== round) notify(`Round ${reply.round} is ready. Reload to review it; your saved feedback carries over.`, true);
-        if (status === 200) setTimeout(poll, interval);
+        if (status === 200 || status === 0) setTimeout(poll, interval);  // a reply cut short is retried
         else notify(`The review server refused to answer: ${reply.error || `HTTP ${status}`}`, false);
       }, () => notify("The review server stopped. Export your feedback to keep changes you make from now on.", false));
     }
     byId("server-reload").addEventListener("click", async () => {
-      // A change made during the last save waits in the debounce timer or the queue; save it too before leaving.
+      // A change made during the last save waits in the debounce timer or the queue; save it too before leaving. A save
+      // that failed before is tried again, and one that still fails keeps the page, so the reload loses nothing.
+      if (failed && !paused) await save();
       while (ready && !paused && (timer || saving || again)) { if (saving) await saving; else await save(); }
+      if (failed && !paused) { notify("The last save failed, so the page did not reload. Export your feedback, or choose Reload to try again.", true); return; }
       location.reload();
     });
     return {
       async start() {
         byId("saving-file").hidden = true; byId("saving-server").hidden = false; show("Loading");
         const { status, reply } = await call("/feedback").catch(() => ({ status: 0, reply: {} }));
-        if (status !== 200) { show("Not saved", true); paused = reply.error || "The review server did not return the saved feedback."; notify(`${paused} Saving is paused so nothing is overwritten.`, false); return; }
+        if (status !== 200 || !/^([0-9a-f]{64}|none)$/.test(reply.revision ?? "")) { show("Not saved", true); paused = reply.error || "The review server did not return the saved feedback."; notify(`${paused} Saving is paused so nothing is overwritten.`, false); return; }
         revision = reply.revision;
         let carried = false;
         if (reply.feedback) {

@@ -72,6 +72,22 @@ class ReviewServer(ThreadingHTTPServer):
         self.active_saves = 0
         self.closing = False
         self.saves_done = threading.Condition()
+        self.busy = 0
+        self.busy_lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def activity(self):
+        """Count an authenticated request as activity from its start to its end, so the idle timer never stops the
+        server while it is still answering, such as while a slow client receives a large page."""
+        with self.busy_lock:
+            self.busy += 1
+            self.last_request = time.monotonic()
+        try:
+            yield
+        finally:
+            with self.busy_lock:
+                self.busy -= 1
+                self.last_request = time.monotonic()
 
     def finish_saves(self, timeout):
         """Refuse new saves, then wait up to timeout seconds for those in progress. Return whether they finished.
@@ -127,7 +143,7 @@ class ReviewServer(ThreadingHTTPServer):
     def watch_idle(self):
         while True:
             time.sleep(min(1.0, self.idle_timeout))
-            if time.monotonic() - self.last_request > self.idle_timeout:
+            if self.busy == 0 and time.monotonic() - self.last_request > self.idle_timeout:
                 self.shutdown()
                 return
 
@@ -203,8 +219,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.token_matches(self.headers.get("X-Review-Token")):
             return self.reply(403, error="Missing or wrong session token. Reload the page from the URL the agent gave you.")
         # Only a request with the token counts as activity, so another local process cannot keep the server alive.
-        self.server.last_request = time.monotonic()
-        return handler()
+        with self.server.activity():
+            return handler()
 
     def token_matches(self, value):
         return isinstance(value, str) and hmac.compare_digest(value.encode(), self.server.token.encode())
@@ -213,7 +229,10 @@ class Handler(BaseHTTPRequestHandler):
         values = parse_qs(query, keep_blank_values=True, strict_parsing=False)
         if list(values) != ["token"] or len(values["token"]) != 1 or not self.token_matches(values["token"][0]):
             return self.respond(403, b"Open the review URL that the agent gave you.\n", "text/plain; charset=utf-8")
-        self.server.last_request = time.monotonic()
+        with self.server.activity():
+            return self.send_page()
+
+    def send_page(self):
         number = review_state.read_current(self.server.state)
         path = self.server.state / "rounds" / f"{number:04d}" / "review.html"
         if path.stat().st_size > MAX_PAGE_BYTES:

@@ -320,6 +320,18 @@ def inventory(top, fmt, config):
         if folds_case and entry["status"] == "deleted" and case_renamed(top, entry["path"]):
             raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
                                "Stage the rename with git mv, then collect again.")
+    if folds_case:
+        # Git also hides a new file beside a tracked one whose name differs only in case. Listing with exact case
+        # finds it; on a filesystem that folds case too, it is the tracked file itself.
+        exact = git(top, "-c", "core.ignoreCase=false", "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
+        for raw in set(exact) - set(others):
+            path = Path(os.fsdecode(raw.removesuffix(b"/")))
+            for other in os.listdir(top / path.parent):
+                twin = path.parent / other
+                if (other != path.name and os.fsencode(other).lower() == os.fsencode(path.name).lower()
+                        and git(top, "ls-files", "-z", "--", str(twin)) and not os.path.samefile(top / path, top / twin)):
+                    raise CollectError(f"{path} differs from tracked {twin} only in case, which Git hides with core.ignoreCase on. "
+                                       "Rename one of them, then collect again.")
     return {"head": head, "branch": branch, "index": index, "entries": [entries[path] for path in sorted(entries)]}
 
 
@@ -745,12 +757,18 @@ def main(argv=None):
         # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
         # symlink on the way cannot point them at different rounds.
         output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
+        # A round's state could be archived and a new one made at the same path while collecting; its identity tells them apart.
+        state = output.parent.parent.parent if round_input(output) else None
+        identity = lambda: (lambda info: (info.st_dev, info.st_ino))(os.stat(state)) if state and state.exists() else None
+        before = identity()
         staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
         review, flagged = collect(args.repo, args.title, args.include_secret_file, output, staged=staged)
         # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
         with review_state.round_lock(output):
+            if identity() != before:
+                raise CollectError(f"{state} was archived or replaced while collecting; nothing was written. Create a round and collect again.")
             if rendered_round_input(output):
                 raise CollectError(f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round.")
             write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
