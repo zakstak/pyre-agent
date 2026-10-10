@@ -6,7 +6,7 @@
   const HASH = /^[a-f0-9]{64}$/;
   const SHA = /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/;
   const PR = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/;
-  const ROOT = /^(?:\/|[A-Za-z]:[\\/])/;
+  const ROOT = /^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)/;
   const statuses = new Set(["added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"]);
   function object(value, required, optional = []) {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("Expected an object.");

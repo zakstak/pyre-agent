@@ -301,9 +301,15 @@ class ValidationTests(unittest.TestCase):
         del review["files"][0]["fingerprint"]
         with self.assertRaisesRegex(renderer.ValidationError, "fingerprint: required for a worktree target"):
             renderer.validate_review(review)
-        review = worktree_review()
-        review["target"]["root"] = "C:\\work\\project"
-        renderer.validate_review(review)
+        for root in ("C:\\work\\project", "\\\\server\\share\\project"):
+            review = worktree_review()
+            review["target"]["root"] = root
+            renderer.validate_review(review)
+        for root in ("\\\\server", "\\project"):
+            review = worktree_review()
+            review["target"]["root"] = root
+            with self.subTest(root=root), self.assertRaises(renderer.ValidationError):
+                renderer.validate_review(review)
 
     def test_text_limits_count_utf16_units_like_the_page(self):
         review = worktree_review()

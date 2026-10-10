@@ -124,16 +124,27 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     await other.close();
 
     // A stopped server is reported, and export still works.
+    const third = await context.newPage();
+    const dialogs = [];
+    third.on("dialog", dialog => { dialogs.push(dialog.type()); dialog.accept(); });
+    third.on("console", message => { if (message.type() === "error" && !(stopped && /ERR_CONNECTION_REFUSED/.test(message.text()))) errors.push(message.text()); });
+    await third.goto(url);
+    await waitSaved(third);
     stopped = true; server.kill("SIGTERM");
     await new Promise(resolve => server.on("exit", resolve));
     assert.equal(fs.existsSync(path.join(state, "server.json")), false);
     await page.locator("#server-notice", { hasText: "The review server stopped" }).waitFor({ timeout: 10000 });
+    // A save that fails keeps the unload warning, so the reviewer cannot close the tab and lose the change unwarned.
+    await third.getByRole("checkbox", { name: "Approve docs/logo.png" }).check();
+    await third.locator("#save-state", { hasText: "Not saved" }).waitFor();
+    await third.reload().catch(() => {});
+    assert.deepEqual(dialogs, ["beforeunload"]);
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Export feedback (.json)" }).click();
     assert.match((await download).suggestedFilename(), /^review-feedback-[0-9a-f]{12}\.json$/);
     assert.deepEqual(foreign, [], "requests outside the review server");
     assert.deepEqual(errors, [], "page errors");
-    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
+    console.log(`PASS: served page loads saved feedback, saves approvals and comments automatically, restores on reload, offers round 2 and carries approvals, a second tab's save pauses this tab with a conflict, a failed save keeps the unload warning, a stopped server is reported and export still works, no requests leave the server. Screenshots: ${out}`);
   } finally {
     await browser.close();
     if (server.exitCode === null) server.kill("SIGTERM");

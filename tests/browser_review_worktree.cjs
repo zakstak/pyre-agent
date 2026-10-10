@@ -68,6 +68,10 @@ function render(name) {
     // Round 1: restore the saved feedback, then comment on an old-side line and a CRLF line.
     let status = await importFile(savedFeedback);
     assert.match(status, /3 of 10 files approved, 0 changed since approval/);
+    // The page now matches the file, so importing it again leaves nothing to export.
+    assert.equal(await page.locator("#save-state").isHidden(), true);
+    await importFile(savedFeedback);
+    assert.equal(await page.locator("#save-state").isHidden(), true);
     assert.equal(await page.locator("#progress").textContent(), "3 of 10 approved");
     for (const file of ["scripts/release.sh", "src/notes/cli.py", "src/notes/store.py"]) assert.equal(await approve(file).isChecked(), true, file);
     assert.equal(await page.locator("#file-0 .thread-row .inline-comment").count(), 1, "the saved comment attaches");
@@ -135,6 +139,17 @@ function render(name) {
     const otherPath = path.join(temp, "other-root.json"); fs.writeFileSync(otherPath, JSON.stringify(other));
     await importFile(otherPath, "Import rejected");
     assert.match(await page.locator("#import-status").textContent(), /another review target/);
+
+    // Carrying feedback into a new round keeps only the newest 50 earlier snapshots, so the merge stays valid.
+    await load(round2);
+    const long = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
+    long.retained_reviews = Array.from({ length: 50 }, (_, i) => ({ target: long.target, input_sha256: i.toString(16).padStart(64, "0"), general_notes: `round ${i}`, files: [] }));
+    const longPath = path.join(temp, "fifty-retained.json"); fs.writeFileSync(longPath, JSON.stringify(long));
+    await importFile(longPath);
+    const carried = await exportFeedback();
+    assert.equal(carried.retained_reviews.length, 50);
+    assert.equal(carried.retained_reviews.some(review => review.general_notes === "round 0"), false, "the oldest snapshot is dropped");
+    assert.equal(carried.retained_reviews.at(-1).input_sha256, long.input_sha256, "round 1 is kept as the newest");
 
     // A PR file without a fingerprint cannot be approved.
     const pr = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));

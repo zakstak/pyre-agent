@@ -24,7 +24,7 @@ MAX_DEPTH = 32
 HASH = re.compile(r"[a-f0-9]{64}")
 SHA = re.compile(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
 PR = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*")
-ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/])")
+ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)")
 COMMENT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 STATUSES = {"added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"}
 GROUPS = {"core", "wiring", "mechanical"}
@@ -32,7 +32,7 @@ ACTIONS = ("accept", "reopen", "reply")
 # Reply times order a thread, so both languages must parse them alike: UTC, with optional milliseconds.
 REPLY_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
 # String.prototype.trim removes these: WhiteSpace (including every Zs character) and LineTerminator.
-JS_SPACE = set("\t\n\v\f\r                  　﻿")
+JS_SPACE = set("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
 SAFE_INTEGER = 2**53 - 1
 
 

@@ -42,7 +42,8 @@ PR_URL = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[
 SHA = re.compile(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\Z")
 FINGERPRINT = re.compile(r"[a-f0-9]{64}\Z")
 MODE = re.compile(r"[0-7]{6}\Z")
-ABSOLUTE_ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/])")
+# POSIX, a Windows drive, or a Windows UNC share such as \\server\share.
+ABSOLUTE_ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)")
 REPLY_ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 DISPOSITIONS = ("fixed", "rejected", "deferred", "question")
 MAX_REPLIES = 5000
