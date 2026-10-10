@@ -611,8 +611,8 @@ def main(argv=None):
             # Build the paths from the checked state, not the path as given, which could pass through a symlink.
             round_dir = state / "rounds" / f"{number:04d}"
             args.input, args.output = round_dir / "input.json", round_dir / "review.html"
-            # The publish lock spans the check, the read, the page, and current, so reply.py cannot change the input
-            # between them and the server cannot see a half-published round.
+            # The publish lock spans the check, the read, the page, and current, so the collector and reply.py cannot
+            # change the input between them and the server cannot see a half-published round.
             with review_state.lock(state, "publish"):
                 if args.output.exists():
                     raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")

@@ -18,6 +18,7 @@ import shutil
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -146,7 +147,6 @@ class ShutdownTests(ServerCase):
         self.assertEqual(int(reply.split(b" ", 2)[1]), 200)
         self.assertEqual((self.state / "feedback.json").read_bytes(), body)
 
-
     def test_a_client_that_never_finishes_its_headers_does_not_hold_shutdown(self):
         stalled = socket.create_connection(("127.0.0.1", self.port), timeout=10)
         self.addCleanup(stalled.close)
@@ -157,6 +157,22 @@ class ShutdownTests(ServerCase):
         self.assertTrue(self.server.finish_saves(5))
         self.server.server_close()
         self.assertLess(time.monotonic() - started, 3)
+
+    def test_requests_without_the_token_do_not_keep_the_server_alive(self):
+        before = self.server.last_request
+        time.sleep(0.01)
+        self.assertEqual(self.request("GET", "/round", **{"X-Review-Token": self.token})[0], 200)
+        self.assertGreater(self.server.last_request, before, "a request with the token is activity")
+        self.server.idle_timeout = 1
+        watcher = threading.Thread(target=self.server.watch_idle, daemon=True)
+        watcher.start()
+        deadline = time.monotonic() + 4
+        while watcher.is_alive() and time.monotonic() < deadline:
+            with contextlib.suppress(OSError), socket.create_connection(("127.0.0.1", self.port), timeout=0.5) as probe:
+                probe.sendall(f"GET /round HTTP/1.1\r\nHost: {self.host}\r\n\r\n".encode())
+                probe.recv(100)
+            time.sleep(0.2)
+        self.assertFalse(watcher.is_alive(), "requests without the token kept the server running")
 
 
 class PolicyTextTests(unittest.TestCase):
@@ -476,6 +492,33 @@ class StateTests(unittest.TestCase):
             state_module.new_round(shared / "state")
         os.chmod(shared, 0o1777)  # sticky, as /tmp is
         self.assertEqual(state_module.new_round(shared / "state").name, "0001")
+
+    @unittest.skipUnless(shutil.which("setfacl") and hasattr(os, "getxattr"), "needs POSIX ACLs")
+    def test_ancestors_writable_through_a_named_acl_entry_are_refused(self):
+        shared = self.temp / "acl"
+        shared.mkdir(mode=0o700)
+        if subprocess.run(["setfacl", "-m", "u:nobody:rwx", str(shared)], capture_output=True).returncode:
+            self.skipTest("this filesystem or system has no POSIX ACLs or no nobody user")
+        with self.assertRaisesRegex(state_module.StateError, "another user can rename or replace entries"):
+            state_module.new_round(shared / "state")
+        subprocess.run(["setfacl", "-m", "m::r-x", str(shared)], check=True)  # the mask now withholds write from every entry
+        self.assertEqual(state_module.new_round(shared / "state").name, "0001")
+
+    def test_acl_entries_count_only_within_the_mask(self):
+        def acl(*entries):
+            return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *entry) for entry in entries)
+        undefined = 0xFFFFFFFF
+        cases = [
+            (acl((1, 7, undefined), (2, 7, 4242), (4, 5, undefined), (0x10, 7, undefined), (0x20, 5, undefined)), ({4242}, set())),
+            (acl((1, 7, undefined), (2, 7, 4242), (4, 7, undefined), (0x10, 5, undefined), (0x20, 5, undefined)), (set(), set())),
+            (acl((1, 7, undefined), (4, 7, undefined), (8, 7, 77), (0x10, 7, undefined), (0x20, 5, undefined)), (set(), {1000, 77})),
+        ]
+        for raw, expected in cases:
+            with self.subTest(expected=expected), unittest.mock.patch.object(state_module.os, "getxattr", return_value=raw, create=True):
+                self.assertEqual(state_module._acl_writers("/x", 1000), expected)
+        with unittest.mock.patch.object(state_module.os, "getxattr", return_value=b"\x01\x00\x00\x00", create=True), \
+                self.assertRaisesRegex(state_module.StateError, "cannot read the access control list"):
+            state_module._acl_writers("/x", 1000)
 
     def test_the_checked_resolved_path_is_the_one_used(self):
         render_round(self.state, "worktree-review.json")

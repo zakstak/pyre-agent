@@ -75,9 +75,9 @@ const shared = path.join(__dirname, 'fixtures/feedback'), names = fs.readdirSync
 const expected = JSON.parse(fs.readFileSync(path.join(shared, 'expected-errors.json'), 'utf8'));
 assert.ok(names.filter(name => name.startsWith('valid-')).length >= 5 && names.filter(name => name.startsWith('invalid-')).length >= 40);
 for (const name of names) {
-  const raw = fs.readFileSync(path.join(shared, name), 'utf8');
-  if (name.startsWith('valid-')) assert.deepEqual(core.parseFeedback(raw), JSON.parse(raw), name);
+  const raw = fs.readFileSync(path.join(shared, name));
+  if (name.startsWith('valid-')) assert.deepEqual(core.parseFeedbackBytes(raw), JSON.parse(raw.toString('utf8')), name);
   // Each invalid fixture fails with the same message as in Python, or with a JSON syntax error when that is expected.
-  else assert.throws(() => core.parseFeedback(raw), error => expected[name] === null ? error instanceof SyntaxError : error.message === expected[name], name);
+  else assert.throws(() => core.parseFeedbackBytes(raw), error => expected[name] === null ? error instanceof SyntaxError : error.message === expected[name], name);
 }
 console.log('PASS: strict v3 roundtrip for PR and working tree targets, target identity, approvals, side-aware anchors, version messages, exact/moved/changed/ambiguous/absent anchors, duplicate keys, Unicode, nesting, byte/collection/text limits, hostile text retained as data, and every shared fixture in tests/fixtures/feedback.');

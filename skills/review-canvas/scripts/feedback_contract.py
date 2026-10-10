@@ -267,7 +267,11 @@ def parse_feedback(raw):
     if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
         raise FeedbackError("Feedback exceeds 8 MiB.")
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique, parse_float=_reject_number,
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise FeedbackError("Feedback is not valid UTF-8.") from None
+    try:
+        value = json.loads(text, object_pairs_hook=_unique, parse_float=_reject_number,
                            parse_int=_integer_token, parse_constant=_reject_constant)
     except FeedbackError:
         raise
@@ -326,6 +330,12 @@ def thread_state(replies):
     return (None, "resolved") if last["action"] == "accept" else ("agent", {"reopen": "reopened", "reply": "replied"}[last["action"]])
 
 
+def read_feedback(path):
+    """Read and validate a feedback file. Reading stops one byte past the limit, so a huge file is refused unread."""
+    with Path(path).open("rb") as handle:
+        return parse_feedback(handle.read(MAX_BYTES + 1))
+
+
 def main(argv=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import render_review
@@ -335,7 +345,7 @@ def main(argv=None):
     parser.add_argument("--input", type=Path, help="Review input of the round to compare with: target identity and approvals")
     args = parser.parse_args(argv)
     try:
-        feedback = parse_feedback(args.feedback.read_bytes())
+        feedback = read_feedback(args.feedback)
         review = render_review.load_review(args.input) if args.input else None
         if review:
             check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})

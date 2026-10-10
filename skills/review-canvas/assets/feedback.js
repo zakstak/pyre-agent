@@ -189,7 +189,14 @@
     if (!count) return orphan("Selected text or its context changed.");
     return { state: "attached", reason: "Unique quote and context in revised patch.", start: match, end: match + value.quote.length };
   }
-  const api = Object.freeze({ VERSION, MAX_BYTES, parseFeedback, validateFeedback, resolveAnchor, reviewSnapshot, sameTarget, pinned });
+  // A file's bytes, decoded as strictly as feedback_contract.py does: malformed UTF-8 fails, and a BOM stays to fail as JSON.
+  function parseFeedbackBytes(bytes) {
+    if (bytes.byteLength > MAX_BYTES) throw Error("Feedback exceeds 8 MiB.");
+    let raw;
+    try { raw = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw Error("Feedback is not valid UTF-8."); }
+    return parseFeedback(raw);
+  }
+  const api = Object.freeze({ VERSION, MAX_BYTES, parseFeedback, parseFeedbackBytes, validateFeedback, resolveAnchor, reviewSnapshot, sameTarget, pinned });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else globalThis.PyreReviewFeedback = api;
 })();
