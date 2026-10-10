@@ -321,8 +321,13 @@ def thread_state(replies):
     """Return whose turn it is, from the last reply: agent, reviewer, or None once the reviewer accepts."""
     if not replies:
         return "agent", "open"
-    if replies[0]["actor"] == "reviewer":
-        # A reviewer reply always follows an agent answer. Without one, earlier answers were not carried into this round.
+    def out_of_order(previous, reply):
+        if reply.get("action") == "accept":
+            return previous["actor"] != "agent"
+        return reply.get("action") == "reopen" and previous["actor"] != "agent" and previous.get("action") != "accept"
+    # A reviewer reply always follows an agent answer, and the page offers accept only right after one and reopen only
+    # after one or an accept. Any other order means earlier answers were not carried into this round.
+    if replies[0]["actor"] == "reviewer" or any(out_of_order(previous, reply) for previous, reply in zip(replies, replies[1:])):
         return "agent", "earlier answers missing"
     last = replies[-1]
     if last["actor"] == "agent":

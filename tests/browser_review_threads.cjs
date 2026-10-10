@@ -162,6 +162,16 @@ fs.mkdirSync(out, { recursive: true });
     await importFile(path.join(fixtures, "worktree-feedback-round2.json"));
     assert.equal(await state("fixture-comment-1"), "Earlier answers missing");
     assert.equal(await state("fixture-comment-4"), "Open");
+    // An accept after a reopen, with no answer between them in this round, means the answer it accepted is missing.
+    await page.goto(pathToFileURL(html).href);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    const skipped = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-feedback-round2.json"), "utf8"));
+    skipped.comments.find(item => item.id === "fixture-comment-1").replies = [
+      { id: "skip-reopen", actor: "reviewer", created_at: "2026-10-10T11:00:00.000Z", body: "Not yet.", action: "reopen" },
+      { id: "skip-accept", actor: "reviewer", created_at: "2026-10-10T13:00:00.000Z", body: "", action: "accept" }];
+    const skippedPath = path.join(temp, "skipped-answer.json"); fs.writeFileSync(skippedPath, JSON.stringify(skipped));
+    await importFile(skippedPath);
+    assert.equal(await state("fixture-comment-1"), "Earlier answers missing");
 
     // An answer stamped at the latest representable time cannot be followed, and the page says so plainly.
     const terminal = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));

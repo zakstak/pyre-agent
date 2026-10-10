@@ -120,6 +120,15 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(contract.thread_state([]), ("agent", "open"))
         # A reviewer accept with no agent answer before it means earlier answers were not carried forward.
         self.assertEqual(contract.thread_state(contract.thread(comment, [])), ("agent", "earlier answers missing"))
+        # An accept must follow an agent answer, and a reopen an answer or an accept; otherwise an answer was not carried.
+        def reviewer(id_, action, minute):
+            return {"id": id_, "actor": "reviewer", "created_at": f"2026-10-10T10:{minute:02d}:00Z", "action": action, "body": "" if action == "accept" else "z"}
+        for actions, state in (((("accept", 1), ("reopen", 2)), ("agent", "reopened")), ((("reply", 1), ("reply", 2)), ("agent", "replied")),
+                               ((("reopen", 1), ("accept", 2)), ("agent", "earlier answers missing")),
+                               ((("reply", 1), ("reopen", 2)), ("agent", "earlier answers missing"))):
+            with self.subTest(actions=actions):
+                replies = agent + [reviewer(f"r{minute}", action, minute) for action, minute in actions]
+                self.assertEqual(contract.thread_state(replies), state)
 
     def test_rejects_invalid_feedback_and_another_review(self):
         result = subprocess.run([sys.executable, str(SCRIPT), str(FIXTURES / "invalid-version-2.json")], capture_output=True, text=True)

@@ -70,8 +70,11 @@
   function threadState(replies) {
     const last = replies[replies.length - 1];
     if (!last) return { label: "Open", yours: false };
-    // A reviewer reply always follows an agent answer. Without one, this round's input lacks the earlier answers.
-    if (replies[0].actor === "reviewer") return { label: "Earlier answers missing", yours: false };
+    // A reviewer reply always follows an agent answer, and the page offers Accept only right after one and Reopen only
+    // after one or an accept. Any other order means this round's input lacks an answer the reviewer saw.
+    const outOfOrder = (reply, i) => i > 0 && (reply.action === "accept" ? replies[i - 1].actor !== "agent"
+      : reply.action === "reopen" && replies[i - 1].actor !== "agent" && replies[i - 1].action !== "accept");
+    if (replies[0].actor === "reviewer" || replies.some(outOfOrder)) return { label: "Earlier answers missing", yours: false };
     if (last.actor === "agent") return { label: `Answered: ${DISPOSITION[last.disposition].toLowerCase()}`, yours: true };
     return { label: last.action === "accept" ? "Resolved" : ACTION[last.action], yours: false };
   }
