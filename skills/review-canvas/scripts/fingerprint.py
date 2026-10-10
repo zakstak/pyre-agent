@@ -25,6 +25,8 @@ from pathlib import Path
 # These would point Git at another repository, index, or object store, or change pathspec and diff parsing.
 DROPPED_ENV = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
                "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_DIFF_OPTS", "GIT_EXTERNAL_DIFF",
+               # Grafts and a shallow file rewrite ancestry, which GIT_NO_REPLACE_OBJECTS does not cover.
+               "GIT_GRAFT_FILE", "GIT_SHALLOW_FILE", "GIT_REPLACE_REF_BASE",
                "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
                # GIT_CONFIG redirects git config but no other command, so filter discovery would read a different file.
                "GIT_CONFIG"}
