@@ -79,7 +79,7 @@
   }
   function serverStore(token, round) {
     const chip = byId("save-state");
-    let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "";
+    let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "", failed = false;
     const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
     const call = (path, options = {}) => fetch(path, { ...options, cache: "no-store", credentials: "same-origin", headers: { "X-Review-Token": token, ...options.headers } })
       .then(async response => ({ status: response.status, reply: await response.json().catch(() => ({})) }));
@@ -94,12 +94,13 @@
       let body;
       try { body = JSON.stringify(feedback()); } catch (error) { show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
+        failed = status !== 200;
         if (status === 200) {
           revision = reply.revision; show(draftOpen() ? "Saved, except the open draft" : "Saved");
           byId("export-status").textContent = "Saved to the agent's review folder. When you finish, tell your agent.";
         } else if (status === 409) pause(`${reply.error} Changes made in this tab since its last save are not saved; export them first to keep them.`);
         else { show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`; }
-      }, () => { show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it."; })
+      }, () => { failed = true; show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it."; })
         .finally(() => { saving = null; if (again) { again = false; save(); } });
       return saving;
     }
@@ -141,9 +142,10 @@
         clearTimeout(timer); timer = setTimeout(save, 500);
       },
       draftChanged() {},
-      exported() {},
+      // An exported file holds what a failed save could not, so the unload warning can stop.
+      exported(draft) { if (!draft) failed = false; },
       merged() { this.changed(); },
-      unsaved: () => Boolean(timer || saving || again || (paused && dirty)),
+      unsaved: () => Boolean(timer || saving || again || failed || (paused && dirty)),
     };
   }
   const session = document.querySelector('meta[name="review-canvas-token"]');
@@ -524,6 +526,8 @@
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
       if (!local) nextRetained.push(review);
     }
+    // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
+    nextRetained.splice(0, Math.max(0, nextRetained.length - 50));
     const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
     const nextFiles = same ? incoming.files : localFiles;
     const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;

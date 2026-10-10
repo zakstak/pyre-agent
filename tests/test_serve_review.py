@@ -6,6 +6,7 @@ Every security check has a test that sends the request it must reject.
 
 import base64
 import contextlib
+import errno
 import hashlib
 import http.client
 import importlib.util
@@ -23,6 +24,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 
@@ -122,6 +124,32 @@ class PageTests(ServerCase):
                 self.assertEqual(self.request("GET", "/" + query)[0], 403)
 
 
+class PolicyTextTests(unittest.TestCase):
+    def test_reviewed_text_that_repeats_the_policy_does_not_break_the_page(self):
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, temp)
+        state = temp / "state"
+        directory = state_module.new_round(state)
+        review = json.loads((FIXTURES / "worktree-review.json").read_text())
+        review["summary"] = "This change sets connect-src 'none' and <meta charset=\"utf-8\"> in the page."
+        (directory / "input.json").write_text(json.dumps(review))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(renderer.main(["--round", str(directory)]), 0)
+        server = serve.ReviewServer(state, idle_timeout=60)
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        connection = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
+        self.addCleanup(connection.close)
+        connection.request("GET", f"/?token={server.token}")
+        response = connection.getresponse()
+        page = response.read().decode()
+        self.assertEqual(response.status, 200)
+        policy = re.search(r'<meta http-equiv="Content-Security-Policy" content="([^"]*)">', page)[1]
+        self.assertIn("connect-src &#x27;self&#x27;", policy)
+        self.assertIn("This change sets connect-src &#x27;none&#x27; and &lt;meta charset", page)
+
+
 class HostTests(ServerCase):
     def test_only_loopback_host_names_with_this_port_are_answered(self):
         self.assertEqual(self.api("GET", "/round", Host=f"localhost:{self.port}")[0], 200)
@@ -205,7 +233,7 @@ class RevisionTests(ServerCase):
         saved = self.state / "feedback.json"
         self.assertEqual(saved.read_bytes(), self.body)
         self.assertEqual(stat.S_IMODE(saved.stat().st_mode), 0o600)
-        self.assertEqual(sorted(path.name for path in self.state.iterdir()), ["current", "feedback.json", "rounds"])
+        self.assertEqual(sorted(path.name for path in self.state.iterdir()), ["current", "feedback.json", "publish.lock", "rounds"])
 
     def test_invalid_saved_feedback_pauses_saving(self):
         (self.state / "feedback.json").write_text("{}")
@@ -262,6 +290,34 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state_module.read_current(self.state), 3)
         self.assertTrue(third.exists())
 
+    def test_publish_waits_for_another_publish(self):
+        render_round(self.state, "worktree-review.json")
+        second = state_module.new_round(self.state)
+        done = threading.Event()
+        with state_module.lock(self.state, "publish"):
+            worker = threading.Thread(target=lambda: (state_module.publish(self.state, int(second.name)), done.set()))
+            worker.start()
+            self.assertFalse(done.wait(0.3), "publish ran while another publish held the lock")
+        self.assertTrue(done.wait(5))
+        self.assertEqual(state_module.read_current(self.state), 2)
+
+    def test_directory_sync_that_the_file_system_refuses_is_skipped(self):
+        state_module.private_dir(self.state, create=True)
+        real = os.fsync
+
+        def refuse(errno_value):
+            def fsync(fd):
+                if stat.S_ISDIR(os.fstat(fd).st_mode):
+                    raise OSError(errno_value, os.strerror(errno_value))
+                return real(fd)
+            return fsync
+
+        with unittest.mock.patch.object(state_module.os, "fsync", refuse(errno.EINVAL)):
+            state_module.write_private(self.state / "file", b"saved")
+        self.assertEqual((self.state / "file").read_bytes(), b"saved")
+        with unittest.mock.patch.object(state_module.os, "fsync", refuse(errno.EIO)), self.assertRaises(OSError):
+            state_module.write_private(self.state / "file", b"again")
+
     def test_server_needs_a_private_state_with_a_rendered_round(self):
         with self.assertRaisesRegex(state_module.StateError, "not a review state directory"):
             serve.ReviewServer(self.state, 60)
@@ -299,6 +355,12 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("already runs", second.stderr)
         process.send_signal(signal.SIGTERM)
         self.assertEqual(process.wait(timeout=10), 0)
+        self.assertFalse((self.state / "server.json").exists())
+        # A process that holds the review's server lock keeps any other server from starting.
+        with state_module.lock(self.state, "server", wait=False):
+            blocked = subprocess.run([sys.executable, str(SCRIPTS / "serve_review.py"), "--state-dir", str(self.state)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("already runs", blocked.stderr)
         self.assertFalse((self.state / "server.json").exists())
         process, url = self.start("--idle-timeout", "1")
         started = time.monotonic()

@@ -140,6 +140,17 @@ function render(name) {
     await importFile(otherPath, "Import rejected");
     assert.match(await page.locator("#import-status").textContent(), /another review target/);
 
+    // Carrying feedback into a new round keeps only the newest 50 earlier snapshots, so the merge stays valid.
+    await load(round2);
+    const long = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
+    long.retained_reviews = Array.from({ length: 50 }, (_, i) => ({ target: long.target, input_sha256: i.toString(16).padStart(64, "0"), general_notes: `round ${i}`, files: [] }));
+    const longPath = path.join(temp, "fifty-retained.json"); fs.writeFileSync(longPath, JSON.stringify(long));
+    await importFile(longPath);
+    const carried = await exportFeedback();
+    assert.equal(carried.retained_reviews.length, 50);
+    assert.equal(carried.retained_reviews.some(review => review.general_notes === "round 0"), false, "the oldest snapshot is dropped");
+    assert.equal(carried.retained_reviews.at(-1).input_sha256, long.input_sha256, "round 1 is kept as the newest");
+
     // A PR file without a fingerprint cannot be approved.
     const pr = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));
     delete pr.files[1].fingerprint;

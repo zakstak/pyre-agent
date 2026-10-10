@@ -6,6 +6,8 @@
     current                  render_review.py --round, after the round's page is written
     feedback.json            serve_review.py, for the browser
     server.json              serve_review.py, while it runs
+    server.lock              held by the running serve_review.py, so only one serves a review
+    publish.lock             held while render_review.py --round publishes
 
 A round directory never changes after it renders. The directory and its subdirectories are mode 0700, and the
 files are mode 0600. For a working tree, use $(git rev-parse --absolute-git-dir)/review-canvas, so parallel Git
@@ -17,12 +19,20 @@ Python 3.10+; standard library only.
 """
 
 import argparse
+import contextlib
+import errno
 import os
 import re
 import stat
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 
 ROUND_NAME = re.compile(r"[0-9]{4}")
@@ -72,15 +82,39 @@ def write_private(path, data, replace=True):
     except BaseException:
         _remove_if_present(temp)
         raise
-    # Flush the rename itself. Windows cannot open a directory this way, and NTFS journals the rename anyway.
+    # Flush the rename itself. Windows cannot open a directory this way, and some file systems cannot sync one; the
+    # file is already in place, so only those cases are skipped.
     try:
         directory = os.open(path.parent, os.O_RDONLY)
     except OSError:
         return
     try:
         os.fsync(directory)
+    except OSError as error:
+        if error.errno not in {errno.EINVAL, getattr(errno, "ENOTSUP", errno.EINVAL), getattr(errno, "EOPNOTSUPP", errno.EINVAL)}:
+            raise
     finally:
         os.close(directory)
+
+
+@contextlib.contextmanager
+def lock(state, name, wait=True):
+    """Hold an exclusive lock on STATE/NAME.lock. The system releases it when the process ends, even after a crash.
+
+    With wait=False, raise StateError at once if another process holds it."""
+    path = Path(state) / f"{name}.lock"
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            if fcntl:
+                fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            else:
+                msvcrt.locking(fd, msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            raise StateError(f"another process holds {path}") from error
+        yield
+    finally:
+        os.close(fd)
 
 
 def _remove_if_present(path):
@@ -127,11 +161,12 @@ def read_current(state):
 
 
 def publish(state, number):
-    """Point current at a rendered round. A round never replaces a newer one."""
-    current = read_current(state)
-    if current is not None and number < current:
-        raise StateError(f"round {number:04d} is older than the published round {current:04d}")
-    write_private(Path(state) / "current", f"{number:04d}\n".encode("ascii"))
+    """Point current at a rendered round. A round never replaces a newer one, even when two renders finish together."""
+    with lock(state, "publish"):
+        current = read_current(state)
+        if current is not None and number < current:
+            raise StateError(f"round {number:04d} is older than the published round {current:04d}")
+        write_private(Path(state) / "current", f"{number:04d}\n".encode("ascii"))
 
 
 def main(argv=None):

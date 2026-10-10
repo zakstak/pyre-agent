@@ -23,6 +23,8 @@ Each file has exactly one writer, so the only coordination is one revision check
 | `current` | `render_review.py --round`, after the round's page is written. It names the newest round. |
 | `feedback.json` | The browser, through the server. The agent only reads it. |
 | `server.json` | The server, while it runs: its URL, port, and process ID |
+| `server.lock` | Held by the running server for its whole life, so a second server cannot start |
+| `publish.lock` | Held while `render_review.py --round` compares and replaces `current` |
 
 A round directory never changes after it renders: `render_review.py --round` refuses a round that already has a page, and never publishes a round older than `current`. Directories are mode 0700, and files are mode 0600. The server refuses a state directory that other users can read.
 
@@ -41,7 +43,7 @@ Start the server once, in the background, and give the reviewer the URL it print
 python3 /path/to/review-canvas/scripts/serve_review.py --state-dir "$STATE" &
 ```
 
-It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server runs for the same state directory. It stops after `--idle-timeout` seconds without a request, 3600 by default, or when it gets SIGTERM or SIGINT, and it then removes `server.json`. An open page asks for the round number every 3 seconds, so the server stays up while the page is open.
+It keeps serving whatever `current` names, so later rounds need no restart. It refuses to start while another server holds the review's `server.lock`. The system releases that lock when the server process ends, even after a crash. It stops after `--idle-timeout` seconds without a request, 3600 by default, or when it gets SIGTERM or SIGINT, and it then removes `server.json`. An open page asks for the round number every 3 seconds, so the server stays up while the page is open.
 
 The URL is on the machine that runs the agent. A reviewer on another machine needs port forwarding, which is out of scope.
 
@@ -51,7 +53,7 @@ The server binds `127.0.0.1` on a random free port. It answers only these reques
 
 | Request | Answer |
 | --- | --- |
-| `GET /?token=TOKEN` | The current round's page, with the session token embedded and `connect-src 'self'` in its security policy |
+| `GET /?token=TOKEN` | The current round's page, with the session token embedded and `connect-src 'self'` in its security policy. Only the page's own head is edited, so reviewed text that quotes the policy changes nothing. |
 | `GET /feedback` | The saved feedback and its revision, or `null` and revision `none` |
 | `GET /round` | The current round number |
 | `PUT /feedback` | Saves the feedback and returns its new revision |
@@ -82,7 +84,7 @@ A page served this way loads the saved feedback when it opens and merges it as a
 
 When a new round is published, the page offers **Reload**. It never reloads on its own, so an open draft is not lost. Feedback from an earlier round is saved again against the new snapshot, with that round's notes kept under `retained_reviews`.
 
-If a save conflicts, the page stops saving and says so, and offers **Reload**. If the server stops, the page says so. Export and import work in every case.
+If a save conflicts, the page stops saving and says so, and offers **Reload**. If a save fails, the page keeps its warning about unsaved changes until a later save succeeds or the reviewer exports. If the server stops, the page says so. Export and import work in every case.
 
 ## Read the feedback
 

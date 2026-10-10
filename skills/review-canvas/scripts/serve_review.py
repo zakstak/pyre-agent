@@ -11,6 +11,7 @@ Python 3.10+; standard library only.
 """
 
 import argparse
+import contextlib
 import hashlib
 import hmac
 import html
@@ -37,6 +38,8 @@ REVISION = re.compile(r"none|[a-f0-9]{64}")
 # The renderer escapes the policy inside its meta tag; the served page may call back to its own origin only.
 CSP_CONNECT = html.escape("connect-src 'none'", quote=True)
 CSP_CONNECT_SERVED = html.escape("connect-src 'self'", quote=True)
+CSP_META = '<meta http-equiv="Content-Security-Policy" content="'
+CHARSET_META = '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
 COMMON_HEADERS = (("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
                   ("Cross-Origin-Resource-Policy", "same-origin"), ("Cross-Origin-Opener-Policy", "same-origin"))
 
@@ -163,12 +166,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.stat().st_size > MAX_PAGE_BYTES:
             return self.reply(500, error="The rendered page is too large to serve.")
         page = path.read_text(encoding="utf-8")
-        charset = '<meta charset="utf-8">'
-        if page.count(CSP_CONNECT) != 1 or page.count(charset) != 1:
+        # Edit only the renderer's own head. Reviewed text is escaped, but its escaped form can repeat the policy text.
+        start = page.find(CSP_META, 0, page.find("</head>"))
+        end = page.find('">', start)
+        policy = page[start:end]
+        if not page.startswith(CHARSET_META) or start < 0 or policy.count(CSP_CONNECT) != 1:
             return self.reply(500, error="The rendered page lacks the expected security policy.")
         # The script and its hash are unchanged, and so is the file on disk.
         session = f'<meta name="review-canvas-token" content="{self.server.token}"><meta name="review-canvas-round" content="{number}">'
-        page = page.replace(CSP_CONNECT, CSP_CONNECT_SERVED, 1).replace(charset, charset + session, 1)
+        page = CHARSET_META + session + page[len(CHARSET_META):start] + policy.replace(CSP_CONNECT, CSP_CONNECT_SERVED) + page[end:]
         self.respond(200, page.encode("utf-8"), "text/html; charset=utf-8", "frame-ancestors 'none'")
 
     def round(self):
@@ -233,26 +239,31 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.idle_timeout <= 0:
         parser.error("--idle-timeout must be positive")
+    # One server per review: its lock lasts as long as the process, so two starts cannot both serve and both save.
+    ownership = contextlib.ExitStack()
     try:
-        url = running_server(args.state_dir)
-        if url:
-            raise review_state.StateError(f"a server already runs for this review: {url}")
+        review_state.private_dir(args.state_dir)
+        try:
+            ownership.enter_context(review_state.lock(args.state_dir, "server", wait=False))
+        except review_state.StateError:
+            raise review_state.StateError(f"a server already runs for this review: {running_server(args.state_dir) or 'see server.json'}") from None
         server = ReviewServer(args.state_dir, args.idle_timeout)
         write_server_file(server)
     except (review_state.StateError, OSError) as error:
+        ownership.close()
         print(f"Error: {error}", file=sys.stderr)
         return 2
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(signum, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
-    threading.Thread(target=server.watch_idle, daemon=True).start()
-    print(f"Review server: {server.url}", flush=True)
-    print(f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {server.state / 'feedback.json'}.", flush=True)
-    try:
-        server.serve_forever(poll_interval=0.25)
-    finally:
-        server.server_close()
-        if running_server(server.state) == server.url:
-            (server.state / "server.json").unlink()
+    with ownership:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+        threading.Thread(target=server.watch_idle, daemon=True).start()
+        print(f"Review server: {server.url}", flush=True)
+        print(f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {server.state / 'feedback.json'}.", flush=True)
+        try:
+            server.serve_forever(poll_interval=0.25)
+        finally:
+            server.server_close()
+            (server.state / "server.json").unlink(missing_ok=True)
     return 0
 
 

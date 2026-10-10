@@ -44,7 +44,7 @@
     "patch_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "start": 7,
     "end": 8,
-    "quote": "🙂",
+    "quote": "\ud83d\ude42",
     "prefix": "before ",
     "suffix": " after",
     "start_row": 0,
