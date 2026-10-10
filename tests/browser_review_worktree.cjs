@@ -116,7 +116,7 @@ function render(name) {
     const round2Input = JSON.parse(fs.readFileSync(path.join(fixtures, "worktree-review-round2.json"), "utf8"));
     assert.equal(feedback.approvals.find(record => record.path === "src/notes/store.py").fingerprint, round2Input.files[0].fingerprint);
     assert.equal(feedback.approvals.length, 3);
-    assert.equal(feedback.retained_reviews.length, 1, "round 1 notes are kept separately");
+    assert.equal(feedback.retained_reviews.length, 0, "round 1 had no notes, so nothing of it is retained");
     // Importing the older round again keeps the approval for the current version.
     await importFile(savedFeedback);
     assert.equal(await approve("src/notes/store.py").isChecked(), true);
@@ -144,6 +144,7 @@ function render(name) {
     await load(round2);
     const long = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
     long.retained_reviews = Array.from({ length: 50 }, (_, i) => ({ target: long.target, input_sha256: i.toString(16).padStart(64, "0"), general_notes: `round ${i}`, files: [] }));
+    long.general_notes = "round one notes";  // a snapshot with notes is retained; one without would not be
     const longPath = path.join(temp, "fifty-retained.json"); fs.writeFileSync(longPath, JSON.stringify(long));
     await importFile(longPath);
     const carried = await exportFeedback();
@@ -166,7 +167,7 @@ function render(name) {
     assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
     const returned = await exportFeedback();
     assert.equal(returned.files.length, 10, "every file of the snapshot is listed again");
-    assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
+    assert.deepEqual(returned.retained_reviews, [], "round 1 is current again, and round 2 had no notes to keep");
     // A note already typed in this tab stays beside the returning notes; one that differs from a returning note conflicts.
     await load(round1);
     await card("src/notes/store.py").locator(".notes-details > summary").click();

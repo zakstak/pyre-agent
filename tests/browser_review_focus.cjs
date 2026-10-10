@@ -31,6 +31,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.equal(await page.locator("#toast-dismiss").isHidden(), true);
     assert.equal(await page.locator("#undo-delete").isHidden(), true);
 
+    // On a fresh page, a first comment draft is in no export yet, so the status says so; cancelling the draft clears it.
+    assert.equal(await page.locator("#save-state").isHidden(), true);
+    await rowButton("new two").click(); await page.locator("#comment-body").fill("First draft.");
+    assert.equal(await page.locator("#save-state").isVisible(), true, "a first draft shows as not exported");
+    assert.equal(await page.locator("#save-state").textContent(), "Not exported");
+    await page.locator("#cancel-comment").click();
+    assert.equal(await page.locator("#save-state").isHidden(), true);
+
     // Mixed-side ranges name both sides; single rows use their own side.
     await page.evaluate(() => {
       const codes = [...document.querySelectorAll("#file-1 .source code")];
@@ -125,6 +133,6 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     assert.match(timing.status, /^\d+ code characters selected in src\/retry\.py\.$/);
 
     assert.deepEqual(errors, []);
-    console.log(`PASS: idle toast, mixed-side line labels, focus after floating-button cancel, persistent Undo, Dismiss focus, Undo into collapsed file, draft guard, IME Escape, jump to edited comment, draft export state, ${timing.median.toFixed(1)}ms selection on a 9,990-line diff.`);
+    console.log(`PASS: idle toast, a first draft shows as not exported, mixed-side line labels, focus after floating-button cancel, persistent Undo, Dismiss focus, Undo into collapsed file, draft guard, IME Escape, jump to edited comment, draft export state, ${timing.median.toFixed(1)}ms selection on a 9,990-line diff.`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

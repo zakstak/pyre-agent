@@ -581,6 +581,20 @@ class InventoryTests(Fixture):
         with self.assertRaisesRegex(collector.CollectError, "dir/file was renamed by case only"):
             self.collect()
 
+    def test_a_case_renamed_directory_is_found_beside_its_old_spelling(self):
+        self.commit({"dir/file": "f\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "dir", self.root / "DIR")
+        (self.root / "dir").mkdir()  # the old spelling remains, empty
+        with self.assertRaisesRegex(collector.CollectError, "dir/file was renamed by case only"):
+            self.collect()
+
+    def test_names_that_differ_beyond_ascii_case_are_not_case_renames(self):
+        self.commit({"straße": "s\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        os.rename(self.root / "straße", self.root / "STRASSE")
+        self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"STRASSE": "added", "straße": "deleted"})
+
     def test_many_long_hidden_paths_fit(self):
         names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
         self.commit({name: "x\n" for name in names})
@@ -901,6 +915,18 @@ class OutputTests(Fixture):
         self.assertRegex(err, r"^Error: --output .* is inside the working tree")
         self.assertFalse((self.root / "review.json").exists())
 
+    def test_only_a_round_input_is_written_in_a_state_directory(self):
+        import review_state
+        for state in (self.root / ".git" / "review-canvas", self.base / "state"):
+            round_dir = review_state.new_round(state)
+            (round_dir / "input.json").write_text("{}")
+            for target in (round_dir / "review.html", state / "server.lock", state / "feedback.json", state / "notes.json"):
+                with self.subTest(target=target):
+                    code, _, err = self.main("--output", str(target))
+                    self.assertEqual(code, 2)
+                    self.assertIn("only STATE/rounds/NNNN/input.json", err)
+        self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
+
     def test_refuses_git_files_as_output(self):
         head = (self.root / ".git" / "HEAD").read_bytes()
         for name in ("HEAD", "config", "review.json"):
@@ -936,8 +962,8 @@ class OutputTests(Fixture):
         self.assertFalse(outside.exists())
 
     def test_writes_private_valid_output_inside_the_git_directory(self):
-        (self.root / ".git" / "review-canvas").mkdir()
-        output = self.root / ".git" / "review-canvas" / "review.json"
+        import review_state
+        output = review_state.new_round(self.root / ".git" / "review-canvas") / "input.json"
         code, out, _ = self.main("--output", str(output))
         self.assertEqual(code, 0)
         self.assertEqual(out, f"Wrote {output} (1 file; 0 binary; 0 too large; 0 likely secret)\n")

@@ -158,6 +158,13 @@ class ShutdownTests(ServerCase):
         self.server.server_close()
         self.assertLess(time.monotonic() - started, 3)
 
+    def test_saves_after_shutdown_begins_are_refused(self):
+        self.assertTrue(self.server.finish_saves(1))
+        status, reply = self.api("PUT", "/feedback", self.body)
+        self.assertEqual(status, 503)
+        self.assertIn("stopping", reply["error"])
+        self.assertFalse((self.state / "feedback.json").exists())
+
     def test_requests_without_the_token_do_not_keep_the_server_alive(self):
         before = self.server.last_request
         time.sleep(0.01)
@@ -574,11 +581,20 @@ class StateTests(unittest.TestCase):
             (acl((1, 7, undefined), (2, 7, 4242), (4, 7, undefined), (0x10, 5, undefined), (0x20, 5, undefined)), (set(), set())),
             (acl((1, 7, undefined), (4, 7, undefined), (8, 7, 77), (0x10, 7, undefined), (0x20, 5, undefined)), (set(), {1000, 77})),
         ]
+        def attributes(**values):
+            def getxattr(path, name):
+                if name not in values:
+                    raise OSError(errno.ENODATA, "No data available")
+                return values[name]
+            return unittest.mock.patch.object(state_module.os, "getxattr", getxattr, create=True)
         for raw, expected in cases:
-            with self.subTest(expected=expected), unittest.mock.patch.object(state_module.os, "getxattr", return_value=raw, create=True):
+            with self.subTest(expected=expected), attributes(**{"system.posix_acl_access": raw}):
                 self.assertEqual(state_module._acl_writers("/x", 1000), expected)
-        with unittest.mock.patch.object(state_module.os, "getxattr", return_value=b"\x01\x00\x00\x00", create=True), \
+        with attributes(**{"system.posix_acl_access": b"\x01\x00\x00\x00"}), \
                 self.assertRaisesRegex(state_module.StateError, "cannot read the access control list"):
+            state_module._acl_writers("/x", 1000)
+        # An NFSv4 ACL can grant access the mode bits do not show, and these scripts cannot read it.
+        with attributes(**{"system.nfs4_acl": b"\x00"}), self.assertRaisesRegex(state_module.StateError, "uses NFSv4 access control lists"):
             state_module._acl_writers("/x", 1000)
 
     def test_the_checked_resolved_path_is_the_one_used(self):
