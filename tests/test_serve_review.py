@@ -108,7 +108,11 @@ class PageTests(ServerCase):
         page = page.decode()
         self.assertIn("connect-src &#x27;self&#x27;", page)
         self.assertNotIn("connect-src &#x27;none&#x27;", page)
-        self.assertIn(f'<meta name="review-canvas-token" content="{self.token}"><meta name="review-canvas-round" content="1">', page)
+        self.assertIn(f'<meta name="review-canvas-token" content="{self.token}"><meta name="review-canvas-round" content="1">'
+                      '<meta name="review-canvas-poll" content="3000">', page)
+        # A short idle timeout gets a shorter poll, so an open page still keeps the server running.
+        self.server.idle_timeout = 1
+        self.assertIn('<meta name="review-canvas-poll" content="333">', self.request("GET", f"/?token={self.token}")[2].decode())
         self.assertEqual(headers["Content-Security-Policy"], "frame-ancestors 'none'")
         self.assertEqual(headers["Cache-Control"], "no-store")
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
@@ -337,6 +341,20 @@ class StateTests(unittest.TestCase):
         self.assertEqual((self.state / "file").read_bytes(), b"saved")
         with unittest.mock.patch.object(state_module.os, "fsync", refuse(errno.EIO)), self.assertRaises(OSError):
             state_module.write_private(self.state / "file", b"again")
+
+    def test_archive_moves_a_finished_review_aside(self):
+        render_round(self.state, "worktree-review.json")
+        with state_module.lock(self.state, "server", wait=False):
+            result = subprocess.run([sys.executable, str(SCRIPTS / "review_state.py"), "archive", "--state-dir", str(self.state)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("a server still runs", result.stderr)
+        result = subprocess.run([sys.executable, str(SCRIPTS / "review_state.py"), "archive", "--state-dir", str(self.state)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        archived = Path(result.stdout.strip())
+        self.assertRegex(archived.name, r"^state\.archived-\d{8}T\d{6}Z$")
+        self.assertTrue((archived / "rounds/0001/review.html").exists())
+        self.assertFalse(self.state.exists())
+        self.assertEqual(state_module.new_round(self.state).name, "0001")
 
     def test_ancestors_another_user_could_replace_are_refused(self):
         shared = self.temp / "shared"

@@ -99,7 +99,7 @@
       unsaved: () => dirty,
     };
   }
-  function serverStore(token, round) {
+  function serverStore(token, round, interval) {
     const chip = byId("save-state");
     let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "", failed = false;
     const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
@@ -130,7 +130,7 @@
     function poll() {
       call("/round").then(({ status, reply }) => {
         if (status === 200 && reply.round !== round) notify(`Round ${reply.round} is ready. Reload to review it; your saved feedback carries over.`, true);
-        else if (status === 200) setTimeout(poll, 3000);
+        else if (status === 200) setTimeout(poll, interval);
         else notify(`The review server refused to answer: ${reply.error || `HTTP ${status}`}`, false);
       }, () => notify("The review server stopped. Export your feedback to keep changes you make from now on.", false));
     }
@@ -172,7 +172,8 @@
   }
   const session = document.querySelector('meta[name="review-canvas-token"]');
   const persistence = location.protocol === "http:" && session
-    ? serverStore(session.content, Number(document.querySelector('meta[name="review-canvas-round"]').content)) : fileStore();
+    ? serverStore(session.content, Number(document.querySelector('meta[name="review-canvas-round"]').content),
+      Number(document.querySelector('meta[name="review-canvas-poll"]')?.content) || 3000) : fileStore();
   function refresh() {
     const query = search.value.trim().toLocaleLowerCase();
     let shown = 0, approved = 0;

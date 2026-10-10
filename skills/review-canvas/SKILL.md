@@ -38,7 +38,7 @@ ROUND="$(python3 /path/to/review-canvas/scripts/review_state.py new-round --stat
 python3 /path/to/review-canvas/scripts/collect_worktree.py --repo /path/to/repo --output "$ROUND/input.json" --title "Short change title"
 ```
 
-The state directory lives in the Git directory, so nothing lands in the working tree or a commit. The collector refuses any other output path inside the working tree, because the snapshot would become an untracked change of its own. It records every staged, unstaged, and untracked change compared with `HEAD`, with a fingerprint for each file. It leaves out the contents of likely secret files and prints their paths; tell the reviewer about them. Read surrounding code from the working tree, and keep in mind that it can change after the collector runs.
+The state directory lives in the Git directory, so nothing lands in the working tree or a commit. It holds one review: its rounds and the reviewer's saved feedback. Before you start a review unrelated to the last one, stop its server and run `python3 /path/to/review-canvas/scripts/review_state.py archive --state-dir "$STATE"` so the new review starts empty. The collector refuses any other output path inside the working tree, because the snapshot would become an untracked change of its own. It records every staged, unstaged, and untracked change compared with `HEAD`, with a fingerprint for each file. It leaves out the contents of likely secret files and prints their paths; tell the reviewer about them. Read surrounding code from the working tree, and keep in mind that it can change after the collector runs.
 
 ### Both targets
 

@@ -210,6 +210,12 @@ class InventoryTests(Fixture):
         files = self.collect()
         self.assertEqual((files["link"]["patch_note"], files["link"]["new_mode"]), ("symlink", "120000"))
         self.assertEqual(files["link"]["fingerprint"], fingerprint.file_fingerprint("link", None, target, blob(b"new-target"), "120000", "120000"))
+        # A placeholder past 1 MiB is hashed in full, so a change near its end still changes the fingerprint.
+        big = b"t" * (2 << 20)
+        self.write("link", big)
+        first = self.collect()["link"]["fingerprint"]
+        self.write("link", big[:-1] + b"u")
+        self.assertNotEqual(self.collect()["link"]["fingerprint"], first)
 
     def test_a_text_file_marked_minus_diff_still_shows_its_patch(self):
         self.commit({".gitattributes": "*.lock -diff\n", "deps.lock": "a 1\n"})
@@ -252,12 +258,38 @@ class InventoryTests(Fixture):
         with self.assertRaisesRegex(ValueError, r"not valid UTF-8.*bad\\xff\.txt"):
             self.collect()
 
-    def test_path_removed_from_index_but_kept_on_disk_stays_a_deletion(self):
+    def test_path_removed_from_index_but_kept_on_disk_stops_collection(self):
+        # A deletion and an untracked file at one path cannot both be reviewed, and neither alone is the truth.
         self.commit({"kept.txt": "k\n"})
         self.git(self.root, "rm", "-q", "--cached", "kept.txt")
+        with self.assertRaisesRegex(collector.CollectError, "kept.txt is removed from Git's index but still on disk"):
+            self.collect()
+
+    def test_assume_unchanged_files_are_compared_by_their_bytes(self):
+        self.commit({"hidden.txt": "a\n", "gone.txt": "g\n", "same.txt": "s\n"})
+        self.git(self.root, "update-index", "--assume-unchanged", "hidden.txt", "gone.txt", "same.txt")
+        self.write("hidden.txt", "b\n")
+        (self.root / "gone.txt").unlink()
         files = self.collect()
-        self.assertEqual(list(files), ["kept.txt"])
-        self.assertEqual(files["kept.txt"]["status"], "deleted")
+        self.assertEqual(sorted(files), ["gone.txt", "hidden.txt"])
+        self.assertEqual(files["hidden.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
+        self.assertEqual(files["gone.txt"]["status"], "deleted")
+
+    def test_staged_skip_worktree_entry_reads_the_index(self):
+        self.commit({"sparse.txt": "a\n"})
+        self.write("sparse.txt", "b\n")
+        self.git(self.root, "add", "sparse.txt")
+        self.git(self.root, "update-index", "--skip-worktree", "sparse.txt")
+        (self.root / "sparse.txt").unlink()
+        files = self.collect()
+        self.assertEqual((files["sparse.txt"]["status"], files["sparse.txt"]["patch"]), ("modified", "@@ -1 +1 @@\n-a\n+b\n"))
+
+    def test_nested_repository_without_a_commit_stops_collection(self):
+        self.commit({"a.txt": "a\n"})
+        self.init(self.root / "nested")
+        self.write("nested/file.txt", "x\n")
+        with self.assertRaisesRegex(collector.CollectError, "nested is a nested repository or submodule with no commit"):
+            self.collect()
 
 
 class LimitTests(Fixture):

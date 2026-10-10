@@ -14,12 +14,14 @@ files are mode 0600. For a working tree, use $(git rev-parse --absolute-git-dir)
 worktrees keep separate state. For a PR review, use a private temporary directory.
 
     python3 review_state.py new-round --state-dir STATE      # prints the new round directory
+    python3 review_state.py archive --state-dir STATE        # moves a finished review aside before an unrelated one
 
 Python 3.10+; standard library only.
 """
 
 import argparse
 import contextlib
+import datetime
 import errno
 import os
 import re
@@ -200,15 +202,35 @@ def publish(state, number):
         write_private(Path(state) / "current", f"{number:04d}\n".encode("ascii"))
 
 
+def archive(state):
+    """Move a finished review's state aside, so an unrelated review starts empty. Return the new location."""
+    state = private_dir(state)
+    with lock(state, "server", wait=False):
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        destination = state.with_name(f"{state.name}.archived-{stamp}")
+        os.rename(state, destination)
+    return destination
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("new-round", help="Create the next round directory and print its path")
     create.add_argument("--state-dir", type=Path, required=True, help="The review's state directory; created if missing")
+    aside = commands.add_parser("archive", help="Move a finished review's state aside and print where it went")
+    aside.add_argument("--state-dir", type=Path, required=True, help="The review's state directory; no server may be running for it")
     args = parser.parse_args(argv)
     try:
-        print(new_round(args.state_dir))
-    except StateError as error:
+        if args.command == "archive":
+            try:
+                print(archive(args.state_dir))
+            except StateError as error:
+                if "another process holds" in str(error):
+                    raise StateError("a server still runs for this review; stop it before archiving") from None
+                raise
+        else:
+            print(new_round(args.state_dir))
+    except (StateError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
     return 0
