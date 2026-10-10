@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Install pyre-agent skills from a Git ref for Claude Code and Codex.
+"""Install pyre-agent skills and global instructions from a Git ref for Claude Code and Codex.
 
 Run: python3 install.py [install|status|uninstall] [--ref REF] [--host HOST]
                         [--dry-run] [--offline] [--force]
-Copies skills from the commit that REF names (default main), never from the
-working tree, and changes only paths it recorded installing. Python 3.10+;
+Copies skills and global/AGENTS.md from the commit that REF names (default
+main), never from the working tree. Changes only skill folders it recorded
+installing and one marked block in each host's instruction file. Python 3.10+;
 standard library only.
 """
 import argparse
+import difflib
 import hashlib
 import io
 import json
@@ -28,6 +30,22 @@ RECORD_VERSION = 1
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 METADATA_VERSION = re.compile(r'^metadata:\n(?:[ \t]+\S.*\n)*?[ \t]+version:[ \t]*"?([^"\n]*?)"?[ \t]*$', re.MULTILINE)
 PROBLEMS = ("conflict", "edited")
+BEGIN = re.compile(r"^<!-- pyre-agent:begin\b[^\n]*-->[ \t]*$", re.MULTILINE)
+END = re.compile(r"^<!-- pyre-agent:end -->[ \t]*$", re.MULTILINE)
+QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+PREAMBLE = "the text before the first heading"
+INSTRUCTION_SUMMARY = {
+    "create": "create it with the global instructions block",
+    "update": "update the block",
+    "adopt": "replace the symlink into this checkout with a file that holds the block",
+    "merge": "back it up, then write the block followed by the sections it keeps",
+    "current": "up to date",
+    "edited": "the block changed since install; --force overwrites it",
+    "conflict": "conflict, nothing written",
+    "missing": "this commit has no global/AGENTS.md; unchanged",
+    "remove": "remove the block",
+    "delete": "delete it; install.py created it and only the block remains",
+}
 
 
 class Failure(Exception):
@@ -39,6 +57,7 @@ class Host:
     name: str
     config_dir: Path
     skills_dir: Path
+    instructions: Path
 
 
 @dataclass(frozen=True)
@@ -51,13 +70,22 @@ class Action:
     old_version: str | None = None
 
 
+@dataclass(frozen=True)
+class Instructions:
+    kind: str  # a key of INSTRUCTION_SUMMARY, or forget
+    path: Path
+    text: str | None = None
+    body_hash: str | None = None
+    notes: tuple[str, ...] = ()
+
+
 def all_hosts():
     home = Path.home()
     claude = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude").expanduser()
     codex = Path(os.environ.get("CODEX_HOME") or home / ".codex").expanduser()
     return {
-        "claude-code": Host("claude-code", claude, claude / "skills"),
-        "codex": Host("codex", codex, home / ".agents" / "skills"),
+        "claude-code": Host("claude-code", claude, claude / "skills", claude / "CLAUDE.md"),
+        "codex": Host("codex", codex, home / ".agents" / "skills", codex / "AGENTS.md"),
     }
 
 
@@ -102,7 +130,7 @@ def resolve(ref):
 
 
 def extract(commit, dest):
-    present = git("ls-tree", "--name-only", commit, "--", "skills", "host-skills").split()
+    present = git("ls-tree", "--name-only", commit, "--", "skills", "host-skills", "global").split()
     if "skills" not in present:
         raise Failure(f"commit {commit[:12]} has no skills/ folder")
     data = git("archive", "--format=tar", commit, "--", *present, binary=True)
@@ -279,6 +307,176 @@ def apply(host, actions, skills, save):
         shutil.rmtree(staging, ignore_errors=True)
 
 
+def text_hash(text):
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def write_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.pyre-tmp")
+    temporary.write_text(text, encoding="utf-8")
+    if path.exists() and not path.is_symlink():
+        shutil.copymode(path, temporary)
+    os.replace(temporary, path)
+
+
+def render_block(body, commit):
+    return (f"<!-- pyre-agent:begin {commit[:12]}. install.py writes this block from global/AGENTS.md. Edit outside it. -->\n"
+            f"{body}<!-- pyre-agent:end -->\n")
+
+
+def find_block(text):
+    """Return (start, end, body) of the owned block, or None without markers. Raise Failure for broken markers."""
+    begins, ends = list(BEGIN.finditer(text)), list(END.finditer(text))
+    if not begins and not ends:
+        return None
+    if len(begins) != 1 or len(ends) != 1 or ends[0].start() < begins[0].end():
+        raise Failure("its pyre-agent markers are broken; keep exactly one begin line above one end line")
+    end = ends[0].end() + (text[ends[0].end():ends[0].end() + 1] == "\n")
+    return begins[0].start(), end, text[begins[0].end() + 1:ends[0].start()]
+
+
+def sections(text):
+    """Split Markdown at level-2 headings outside code fences into (heading, text) pairs. The first heading is None."""
+    parts, heading, lines, fence = [], None, [], None
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            fence = None if fence == stripped[:3] else fence or stripped[:3]
+        elif fence is None and line.startswith("## "):
+            parts.append((heading, "".join(lines)))
+            heading, lines = line[3:].strip(), []
+        lines.append(line)
+    parts.append((heading, "".join(lines)))
+    return parts
+
+
+def strip_legacy_imports(text):
+    """Drop `@path` lines that import this checkout's global/AGENTS.md, as the old README told Claude Code users to add."""
+    target = REPO / "global" / "AGENTS.md"
+    kept, removed = [], []
+    for line in text.splitlines(keepends=True):
+        found = re.fullmatch(r"@(\S+)\s*", line)
+        if found and Path(os.path.realpath(os.path.expanduser(found[1]))) == target:
+            removed.append(found[0].strip())
+        else:
+            kept.append(line)
+    return "".join(kept), removed
+
+
+def merge(existing, body):
+    """Drop sections the block repeats, keep local ones, and report sections whose heading matches but text differs."""
+    def normalize(text):
+        return " ".join(text.translate(QUOTES).split())
+
+    repo = dict(sections(body))
+    kept, kept_names, dropped, conflicts = [], [], [], []
+    for heading, text in sections(existing):
+        if not text.strip():
+            continue
+        name = heading or PREAMBLE
+        if heading is not None and heading in repo and normalize(text) != normalize(repo[heading]):
+            diff = difflib.unified_diff(text.splitlines(), repo[heading].splitlines(), "yours", "global/AGENTS.md", lineterm="")
+            conflicts.append((name, list(diff)))
+        elif normalize(text) == normalize(repo.get(heading, "")):
+            dropped.append(name)
+        else:
+            kept.append(text if text.endswith("\n") else text + "\n")
+            kept_names.append(name)
+    return kept, kept_names, dropped, conflicts
+
+
+def plan_instructions(host, body, commit, recorded, force):
+    path = host.instructions
+    if body is None:
+        return Instructions("missing", path)
+    block, body_hash = render_block(body, commit), text_hash(body)
+    if path.is_symlink():
+        if Path(os.path.realpath(path)) == REPO / "global" / "AGENTS.md":
+            return Instructions("adopt", path, block, body_hash)
+        return Instructions("conflict", path, notes=(f"{shown(path)} is a symlink, and install.py does not write through it",))
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if not existing.strip():
+        return Instructions("create", path, block, body_hash)
+    try:
+        found = find_block(existing)
+    except Failure as error:
+        return Instructions("conflict", path, notes=(str(error),))
+    if found:
+        start, end, current = found
+        if recorded and text_hash(current) != recorded["hash"] and not force:
+            return Instructions("edited", path)
+        if current == body:
+            return Instructions("current", path, body_hash=body_hash)
+        return Instructions("update", path, existing[:start] + block + existing[end:], body_hash)
+    existing, imports = strip_legacy_imports(existing)
+    kept, kept_names, dropped, conflicts = merge(existing, body)
+    if conflicts:
+        notes = []
+        for name, diff in conflicts:
+            notes.append(f"{name}: same heading as global/AGENTS.md, different text. Edit or rename your section, then run again.")
+            notes.extend(f"  {line}" for line in diff)
+        return Instructions("conflict", path, notes=tuple(notes))
+    notes = [f"remove the import line {line}" for line in imports]
+    if dropped:
+        notes.append("drop, because the block repeats them: " + ", ".join(dropped))
+    if kept_names:
+        notes.append("keep after the block: " + ", ".join(kept_names) + ". Delete any that repeat the block under another heading.")
+    return Instructions("merge", path, block + ("\n" + "".join(kept) if kept else ""), body_hash, tuple(notes))
+
+
+def plan_instructions_removal(host, recorded, force):
+    path = host.instructions
+    if path.is_symlink() or not path.exists():
+        return Instructions("forget", path) if recorded else None
+    existing = path.read_text(encoding="utf-8")
+    try:
+        found = find_block(existing)
+    except Failure as error:
+        return Instructions("conflict", path, notes=(str(error),))
+    if not found:
+        return Instructions("forget", path) if recorded else None
+    start, end, current = found
+    if recorded and text_hash(current) != recorded["hash"] and not force:
+        return Instructions("edited", path)
+    backup = (f"your file from before the first install is at {shown(recorded['backup'])}",) if recorded and recorded.get("backup") else ()
+    rest = (existing[:start] + existing[end:]).lstrip("\n")
+    if not rest.strip() and (not recorded or recorded.get("created")):
+        return Instructions("delete", path, notes=backup)
+    return Instructions("remove", path, rest, notes=backup)
+
+
+def report_instructions(host, instructions):
+    if instructions.kind == "forget":
+        return
+    print(f"  instructions  {shown(instructions.path)}: {INSTRUCTION_SUMMARY[instructions.kind]}")
+    for note in instructions.notes:
+        print(f"    {note}")
+    override = host.config_dir / "AGENTS.override.md"
+    if host.name == "codex" and instructions.kind not in ("remove", "delete") and override.is_file() and override.read_text(encoding="utf-8").strip():
+        print(f"    warning: {shown(override)} is not empty, so Codex reads it instead of AGENTS.md")
+
+
+def apply_instructions(instructions, recorded):
+    """Write the planned file and return its new record entry."""
+    path = instructions.path
+    created = recorded["created"] if recorded else instructions.kind in ("create", "adopt")
+    backup = recorded.get("backup") if recorded else None
+    if instructions.kind == "merge":
+        backup = str(path.with_name(f"{path.name}.pyre-backup-{datetime.now().strftime('%Y%m%dT%H%M%S')}"))
+        shutil.copy2(path, backup)
+    if instructions.text is not None:
+        write_atomic(path, instructions.text)
+    return {"path": str(path), "hash": instructions.body_hash, "created": created, "backup": backup}
+
+
+def apply_instructions_removal(instructions):
+    if instructions.kind == "delete":
+        instructions.path.unlink()
+    elif instructions.kind == "remove":
+        write_atomic(instructions.path, instructions.text)
+
+
 def record_path():
     base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
     return Path(base).expanduser() / "pyre-agent" / "install.json"
@@ -298,11 +496,7 @@ def load_record():
 
 
 def save_record(record):
-    path = record_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    write_atomic(record_path(), json.dumps(record, indent=2, sort_keys=True) + "\n")
 
 
 def install(args):
@@ -317,19 +511,32 @@ def install(args):
     with tempfile.TemporaryDirectory(prefix="pyre-agent-") as temporary:
         tree = Path(temporary)
         extract(commit, tree)
+        body = read_body(tree)
         for host in hosts:
             entry = record["hosts"].get(host.name, {"skills": {}})
             actions = plan(host, source_skills(tree, host.name), entry["skills"], args.force)
+            instructions = plan_instructions(host, body, commit, entry.get("instructions"), args.force)
             was = entry.get("commit")
             report(host, actions, f"(was {entry['ref']} at {was[:12]})" if was and was != commit else "")
-            problems += sum(action.kind in PROBLEMS for action in actions)
+            report_instructions(host, instructions)
+            problems += sum(action.kind in PROBLEMS for action in actions) + (instructions.kind in PROBLEMS)
             if args.dry_run:
                 continue
             record["hosts"][host.name] = entry
             apply(host, actions, entry["skills"], lambda: save_record(record))
+            if instructions.kind in ("create", "update", "adopt", "merge", "current"):
+                entry["instructions"] = apply_instructions(instructions, entry.get("instructions"))
             entry.update(ref=ref, commit=commit, installed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
             save_record(record)
     return 1 if problems else 0
+
+
+def read_body(tree):
+    path = tree / "global" / "AGENTS.md"
+    if not path.is_file():
+        return None
+    body = path.read_text(encoding="utf-8")
+    return body if body.endswith("\n") else body + "\n"
 
 
 def status(args):
@@ -346,6 +553,7 @@ def status(args):
         if main:
             extract(main, tree)
         problems = 0
+        main_body = read_body(tree) if main else None
         for host in hosts:
             entry = record["hosts"][host.name]
             main_skills = source_skills(tree, host.name) if main else {}
@@ -368,7 +576,28 @@ def status(args):
                     notes.append(f"main has {skill_version(main_skills[name]) or 'unversioned'}")
                 problems += "missing" in notes or "edited locally" in notes
                 print(f"  {name:<52} {item['version'] or 'unversioned':<12} {', '.join(notes)}".rstrip())
+            if "instructions" in entry:
+                state = instruction_state(entry["instructions"], main_body)
+                problems += state.startswith(("missing", "edited"))
+                print(f"  instructions  {shown(entry['instructions']['path'])}: {state}")
     return 1 if problems else 0
+
+
+def instruction_state(recorded, main_body):
+    path = Path(recorded["path"])
+    if path.is_symlink() or not path.is_file():
+        return "missing"
+    try:
+        found = find_block(path.read_text(encoding="utf-8"))
+    except Failure as error:
+        return f"edited: {error}"
+    if not found:
+        return "missing its block"
+    if text_hash(found[2]) != recorded["hash"]:
+        return "edited inside the block"
+    if main_body is not None and text_hash(main_body) != recorded["hash"]:
+        return "up to date with the installed ref; main has different instructions"
+    return "up to date"
 
 
 def uninstall(args):
@@ -377,13 +606,19 @@ def uninstall(args):
     for host in pick_hosts(args.host, record):
         entry = record["hosts"].get(host.name, {"skills": {}})
         actions = plan(host, {}, entry["skills"], args.force)
+        removal = plan_instructions_removal(host, entry.get("instructions"), args.force)
         report(host, actions, "(dry run)" if args.dry_run else "")
-        problems += sum(action.kind in PROBLEMS for action in actions)
-        if args.dry_run or (host.name not in record["hosts"] and not actions):
+        if removal:
+            report_instructions(host, removal)
+        problems += sum(action.kind in PROBLEMS for action in actions) + bool(removal and removal.kind in PROBLEMS)
+        if args.dry_run or (host.name not in record["hosts"] and not actions and removal is None):
             continue
         record["hosts"][host.name] = entry
         apply(host, actions, entry["skills"], lambda: save_record(record))
-        if not entry["skills"]:
+        if removal and removal.kind in ("remove", "delete", "forget"):
+            apply_instructions_removal(removal)
+            entry.pop("instructions", None)
+        if not entry["skills"] and "instructions" not in entry:
             del record["hosts"][host.name]
         save_record(record)
     return 1 if problems else 0
@@ -396,7 +631,7 @@ def main():
     parser.add_argument("--host", choices=tuple(all_hosts()), help="act on one host (default: every host found)")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and change no installed files")
     parser.add_argument("--offline", action="store_true", help="skip git fetch and use refs already in this checkout")
-    parser.add_argument("--force", action="store_true", help="replace or remove installed skills that were edited locally")
+    parser.add_argument("--force", action="store_true", help="overwrite or remove installed skills and instruction blocks that were edited locally")
     args = parser.parse_args()
     if args.ref is not None and args.command != "install":
         parser.error("--ref applies only to install")

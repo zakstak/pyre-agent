@@ -7,7 +7,7 @@ Zak's global agent defaults: reusable skills for Claude Code, Codex, and T3 Code
 | `skills/` | Portable skills for any provider that reads `SKILL.md` folders. |
 | `host-skills/claude-code/` | Claude Code-only skills. |
 | `global/AGENTS.md` | Global instructions. |
-| `install.py` | Installs the skills. |
+| `install.py` | Installs the skills and global instructions. |
 
 ## Install the skills
 
@@ -63,19 +63,24 @@ The installer adds `codex-branch-review` for Claude Code only. The skill needs P
 
 ## Install the global instructions
 
-Claude Code: add this line to `~/.claude/CLAUDE.md`, using the absolute path of this checkout:
+`install.py` also writes `global/AGENTS.md`, from the same commit as the skills, into each host's instruction file:
 
-```text
-@/path/to/pyre-agent/global/AGENTS.md
-```
+| Host | File |
+| --- | --- |
+| Claude Code | `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` |
+| Codex | `${CODEX_HOME:-~/.codex}/AGENTS.md` |
 
-Codex: merge anything you want to keep from your existing `~/.codex/AGENTS.md` into `global/AGENTS.md`, remove the old file, and then link it:
+The installer owns one block that starts with a `<!-- pyre-agent:begin ... -->` line and ends with `<!-- pyre-agent:end -->`. Later installs replace only that block. Text outside the block is yours, and the installer never changes it. If you edit inside the block, the installer keeps your edit and reports it until you pass `--force`.
 
-```sh
-ln -s "$PWD/global/AGENTS.md" "${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
-```
+The first install into an existing file merges it. The installer backs up the file to `<name>.pyre-backup-<timestamp>`, then compares its `##` sections with `global/AGENTS.md`. Curly quotes and whitespace do not count as differences.
 
-A non-empty `AGENTS.override.md` in the same directory takes precedence over `AGENTS.md`.
+- If a section has the same heading and the same text, the installer drops it, because the block repeats it.
+- If a section has a heading that `global/AGENTS.md` lacks, the installer keeps it after the block. It also keeps text above the first heading when that text differs from the repository's.
+- If a section has the same heading but different text, the installer shows a diff and writes nothing. Edit or rename your section, then run the installer again.
+
+The installer cannot recognize a section whose heading changed, so it lists every section it keeps. Delete any that repeat the block. It removes an `@.../global/AGENTS.md` import line or an `AGENTS.md` symlink into this checkout, which the earlier README steps created.
+
+Codex reads a non-empty `AGENTS.override.md` instead of `AGENTS.md`, and the installer warns when one exists. `uninstall` removes the block and deletes any instruction file the installer created. A backup stays where the merge left it.
 
 ## Skill versions
 
