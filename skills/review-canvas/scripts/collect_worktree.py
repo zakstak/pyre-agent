@@ -264,6 +264,13 @@ def inventory(top, fmt, config):
             entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt, modes_count)
     if len(entries) > render_review.MAX_FILES:
         raise too_many(len(entries))
+    for entry in entries.values():
+        # With core.ignoreCase on, Git hides a file whose name differs from a deleted one only in case.
+        if entry["status"] == "deleted" and os.path.isdir(top / Path(entry["path"]).parent):
+            name = Path(entry["path"]).name
+            if any(other != name and other.casefold() == name.casefold() for other in os.listdir(top / Path(entry["path"]).parent)):
+                raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
+                                   "Stage the rename with git mv, then collect again.")
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
 
 
@@ -293,10 +300,12 @@ def assumed_unchanged(top, tracked, config):
         return tracked
     changes = {change["path"]: change for change in tracked}
     head = {}
-    for entry in git(top, *config, "ls-tree", "-z", "--full-tree", "HEAD", "--", *sorted(assumed)).split(b"\0")[:-1]:
-        info, path = entry.split(b"\t", 1)
-        mode, _, blob = info.decode("ascii").split(" ")
-        head[decode_path(path)] = (mode, blob)
+    names = sorted(assumed)
+    for start in range(0, len(names), 200):  # in chunks, so many long paths never overflow one command line
+        for entry in git(top, *config, "ls-tree", "-z", "--full-tree", "HEAD", "--", *names[start:start + 200]).split(b"\0")[:-1]:
+            info, path = entry.split(b"\t", 1)
+            mode, _, blob = info.decode("ascii").split(" ")
+            head[decode_path(path)] = (mode, blob)
     index = index_entries(top)
     links_are_files = not git_bool(top, "core.symlinks")
     modes_count = git_bool(top, "core.filemode")
@@ -309,7 +318,10 @@ def assumed_unchanged(top, tracked, config):
         elif new_mode == "160000" and indexed != "160000" and repository_head(top / path) is None:
             new_mode = None  # an ordinary directory replaced the file: a deletion, with its children collected as untracked
         if path in changes and not new_mode and path not in head:
-            del changes[path]  # added to the index, then removed from disk: nothing changed between HEAD and the tree
+            source = changes.pop(path)  # added to the index, then removed from disk: nothing new in the tree
+            if source.get("old_path"):  # a rename's source is still gone from the tree, so it is a deletion
+                changes[source["old_path"]] = {"status": "D", "path": source["old_path"], "old_path": None, "old_mode": source["old_mode"],
+                                               "new_mode": None, "old_blob": source["old_blob"], "new_blob": None}
         elif path in changes:
             changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D", hidden=True)
         elif path in head:

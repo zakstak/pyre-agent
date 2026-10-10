@@ -32,7 +32,9 @@ DROPPED_ENV = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTO
 GIT_CONFIG = tuple(arg for setting in (
     "core.fsmonitor=false", "core.quotePath=false", "diff.suppressBlankEmpty=false", "diff.noprefix=false",
     "diff.mnemonicPrefix=false", "diff.relative=false", "diff.autoRefreshIndex=false",
-    "diff.renameLimit=0") for arg in ("-c", setting))  # 0 is unlimited, so renames never depend on user configuration
+    "diff.renameLimit=0",  # 0 is unlimited, so renames never depend on user configuration
+    # A stale untracked cache could hide new files; listing them directly costs little.
+    "core.untrackedCache=false") for arg in ("-c", setting))
 # Submodules compare by commit only, so Git never runs inside them to check for local edits.
 DIFF_FLAGS = ("--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=dirty", "-M")
 
