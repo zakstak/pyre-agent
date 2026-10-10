@@ -68,6 +68,10 @@ function render(name) {
     // Round 1: restore the saved feedback, then comment on an old-side line and a CRLF line.
     let status = await importFile(savedFeedback);
     assert.match(status, /3 of 10 files approved, 0 changed since approval/);
+    // The page now matches the file, so importing it again leaves nothing to export.
+    assert.equal(await page.locator("#save-state").isHidden(), true);
+    await importFile(savedFeedback);
+    assert.equal(await page.locator("#save-state").isHidden(), true);
     assert.equal(await page.locator("#progress").textContent(), "3 of 10 approved");
     for (const file of ["scripts/release.sh", "src/notes/cli.py", "src/notes/store.py"]) assert.equal(await approve(file).isChecked(), true, file);
     assert.equal(await page.locator("#file-0 .thread-row .inline-comment").count(), 1, "the saved comment attaches");

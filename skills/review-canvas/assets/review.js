@@ -448,7 +448,6 @@
       const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
       contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
         comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
-      const hadLocal = dirty || comments.length || retained.length || approvals.size;
       comments = nextComments; retained = nextRetained; approvals = nextApprovals;
       if (same) {
         for (const saved of incoming.files) {
@@ -458,7 +457,10 @@
         byId("general-notes").value = incoming.general_notes;
       }
       deleted = null; announce(""); closeComposer(); drawComments(); refresh();
-      dirty = Boolean(hadLocal || !same); exported = false; saveState(); byId("export-preview").hidden = true;
+      // The page is dirty when it holds something the imported file lacks, so importing the same file again stays clean.
+      const key = review => comparable({ general_notes: review.general_notes, files: review.files, approvals: [...review.approvals].sort((a, b) => a.path < b.path ? -1 : 1),
+        comments: review.comments.map(({ attachment: _, ...comment }) => comment).sort((a, b) => a.id < b.id ? -1 : 1), retained: [...review.retained_reviews].sort((a, b) => a.input_sha256 < b.input_sha256 ? -1 : 1) });
+      dirty = !same || key(feedback()) !== key(incoming); exported = false; saveState(); byId("export-preview").hidden = true;
       const states = metadata.files.map(approvalState), approvedCount = states.filter(state => state === "approved").length, changedCount = states.filter(state => state === "changed").length;
       byId("import-status").textContent = `Imported ${plural(incoming.comments.length, "comment")}. ${orphanCount} unattached. ${approvedCount} of ${plural(cards.length, "file")} approved, ${changedCount} changed since approval. ${same ? "Snapshot notes restored." : "Notes from the earlier snapshot are kept separately."}`;
       byId("export-status").textContent = dirty ? "Export the combined feedback to save this state." : "Saved snapshot restored from your local file.";

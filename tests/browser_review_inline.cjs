@@ -41,6 +41,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
  await page.reload();await restore(saved.target);
  // Semantically identical reordered JSON keys must be idempotent.
  const ordered=structuredClone(saved.data);ordered.comments[0]=Object.fromEntries(Object.entries(ordered.comments[0]).reverse());const reordered=path.join(tmp,'reordered.json');fs.writeFileSync(reordered,JSON.stringify(ordered));await restore(reordered);assert.equal(await page.locator('.inline-comment').count(),1);
+ // Restoring the same feedback again leaves nothing unexported, including its approvals.
+ assert.equal(await page.locator('#save-state').isHidden(),true);await restore(saved.target);assert.equal(await page.locator('#save-state').isHidden(),true);
  const conflict=structuredClone(saved.data);conflict.comments[0].body='conflicting edit';const conflictPath=path.join(tmp,'conflict.json');fs.writeFileSync(conflictPath,JSON.stringify(conflict));await restore(conflictPath,'Import rejected');assert.equal(await page.locator('.comment-body').textContent(),hostile);
  // Edit, delete, undo all survive export.
  await page.getByRole('button',{name:'Edit comment',exact:true}).click();await page.locator('#comment-body').fill('edited');await page.locator('#save-comment').click();await page.getByRole('button',{name:'Delete comment',exact:true}).click();assert.equal(await page.locator('.inline-comment').count(),0);await page.locator('#undo-delete').click();assert.equal(await page.locator('.comment-body').textContent(),'edited');

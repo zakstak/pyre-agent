@@ -211,6 +211,14 @@ class InventoryTests(Fixture):
         self.assertEqual((files["link"]["patch_note"], files["link"]["new_mode"]), ("symlink", "120000"))
         self.assertEqual(files["link"]["fingerprint"], fingerprint.file_fingerprint("link", None, target, blob(b"new-target"), "120000", "120000"))
 
+    def test_a_text_file_marked_minus_diff_still_shows_its_patch(self):
+        self.commit({".gitattributes": "*.lock -diff\n", "deps.lock": "a 1\n"})
+        self.write("deps.lock", "a 2\n")
+        files = self.collect()
+        self.assertEqual(files["deps.lock"]["patch"], "@@ -1 +1 @@\n-a 1\n+a 2\n")
+        self.assertEqual((files["deps.lock"]["additions"], files["deps.lock"]["deletions"]), (1, 1))
+        self.assertNotIn("patch_note", files["deps.lock"])
+
     def test_intent_to_add_file_matches_the_untracked_entry(self):
         self.commit({"base.txt": "b\n"})
         self.write("ita.txt", "first\nlast")
@@ -594,6 +602,18 @@ class IsolationTests(Fixture):
         self.assertFalse(marker.exists(), "a configured filter driver ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
         self.assertEqual(files["new.txt"]["old_path"], "old.txt")
+
+    def test_a_git_file_in_the_repository_never_runs_through_a_relative_path_entry(self):
+        marker = self.base / "fake-git-ran"
+        fake = self.root / "git"
+        fake.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        fake.chmod(0o755)
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        with mock.patch.dict(os.environ, {"PATH": "." + os.pathsep + os.pathsep + os.environ["PATH"]}):
+            files = self.collect()
+        self.assertFalse(marker.exists(), "the repository's git file ran")
+        self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
 
     def test_filter_driver_names_that_are_not_utf8_stop_collection(self):
         self.commit({"a.txt": "a\n"})

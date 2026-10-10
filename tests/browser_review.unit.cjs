@@ -12,6 +12,7 @@ assert.deepEqual(core.parseFeedback(JSON.stringify(fixture())),fixture());
 // A working tree target is always pinned, so its comments need no PR URL.
 const local=fixture();Object.assign(local,structuredClone(worktree));local.comments[0].anchor.snapshot=structuredClone(worktree);local.comments[0].anchor.side='old';
 assert.deepEqual(core.parseFeedback(JSON.stringify(local)),local);
+for (const root of ['C:\\work\\repo','\\\\server\\share\\repo']) {const windows=structuredClone(local);windows.target.root=root;windows.comments[0].anchor.snapshot.target.root=root;core.parseFeedback(JSON.stringify(windows));}
 assert.equal(core.sameTarget(worktree,{...worktree,input_sha256:'c'.repeat(64)}),true);
 assert.equal(core.sameTarget(worktree,{target:{...worktree.target,root:'/elsewhere'},input_sha256:worktree.input_sha256}),false);
 assert.equal(core.sameTarget(worktree,snapshot),false);
@@ -38,6 +39,7 @@ rejects(v=>v.comments[0].anchor.snapshot.target.root='/home/dev/repo');
 rejects(v=>v.target={...worktree.target,url:'https://github.com/example/repo/pull/2'});
 rejects(v=>{v.target=structuredClone(worktree.target);delete v.target.head_sha;});
 rejects(v=>v.target={...worktree.target,branch:''});
+rejects(v=>v.target={...worktree.target,root:'\\\\server'});
 rejects(v=>v.comments[0].anchor.side='both');
 rejects(v=>v.comments[0].anchor.start_line=0);
 rejects(v=>v.comments[0].anchor.end_line=0);
