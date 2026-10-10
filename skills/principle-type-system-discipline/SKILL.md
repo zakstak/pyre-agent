@@ -9,8 +9,6 @@ The type checker is a proof assistant. Use it to eliminate impossible states, mi
 
 Applies to any typed language. Skills like [typescript-best-practices](../typescript-best-practices/SKILL.md) ground it in specific syntax.
 
-Type guarantees depend on validated runtime values and preserved invariants. A mutable alias can invalidate a collection's shape. A numeric duration can still be negative or non-finite unless its construction validates it. Use validated constructors and ownership or readonly snapshots where the invariant matters.
-
 **The patterns:**
 
 - **Make illegal states unrepresentable.** Model variants as sum types: discriminated unions in TypeScript, enums with payloads in Rust/Swift, sealed classes or interfaces in Kotlin, sealed classes in Scala, ADTs in Haskell/OCaml. Don't model state as a bag of optional fields where contradictory combinations compile. A subtle anti-pattern: `{ completed: boolean; completedAt?: Date }` admits `completed: true; completedAt: undefined`, which is meaningless. Derive the boolean from a single source like `completedAt !== undefined` for the optional timestamp, or model the variants explicitly as `{ kind: 'open'; at?: never } | { kind: 'done'; at: Date }`. The `never` field rejects a conflicting timestamp even when the object arrives through a typed variable; raw runtime input still needs validation. If a bug forces the question "wait, can this combination actually happen?", the type is too loose.
@@ -26,7 +24,7 @@ Type guarantees depend on validated runtime values and preserved invariants. A m
 
 - "Do mutually exclusive states need a comment explaining which fields may coexist?" Model those variants as a sum type. Numeric and other value constraints may instead need validated constructors.
 - "Do two of my function arguments share a primitive type but mean different things?" Brand them.
-- "Where did this `any`, this type-overriding assertion, this `assertNotNull` come from?" Trace unchecked input to its boundary and validate there. Preserve non-coercive inference such as TypeScript `as const`, and a localized, audited assertion in a validating constructor when it establishes a phantom brand the compiler cannot infer.
+- "Where did this `any`, this type-overriding assertion, this `assertNotNull` come from?" Trace unchecked input to its boundary and validate there.
 - "If a new variant is added next month, will the compiler tell the next agent where to add a case?" Require that check where the toolchain supports it; otherwise make the unexpected-case error and known-variant tests explicit.
 - "Is this type duplicating a shape another file owns?" Derive instead.
 - "Does strengthening this type prevent a meaningful invalid result or unhandled case, or just add precision?" If it prevents neither, keep the plain type.

@@ -21,8 +21,8 @@ When you catch yourself writing the same instruction a second time:
 
 **Feedback loop:**
 - **Capture every correction.** When the human intervenes or tests fail, decide if it's a one-off or a pattern.
-- **Route to the right layer.** One-off -> the host's memory or the task's notes. Recurring fix -> skill or lint rule. Systemic issue -> principle skill. Use only an authorized storage location.
-- **Close the loop.** Don't just record. Apply within the authorized scope or create a concrete todo. A correction does not itself authorize changing shared instructions or unrelated code.
+- **Route to the right layer.** One-off -> the host's memory or the task's notes. Recurring fix -> skill or lint rule. Systemic issue -> principle skill.
+- **Close the loop.** Don't just record. Apply now or create a concrete todo.
 
 **Anti-patterns:**
 - Acknowledging without recording ("I'll keep that in mind" does not persist)

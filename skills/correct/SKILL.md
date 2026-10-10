@@ -8,8 +8,6 @@ description: "Find the mistakes agents keep repeating in this repo and make each
 
 The operator keeps correcting agents in this repo for the same mistakes. Change the repo so the next agent can't make them.
 
-Use this workflow when asked to address recurring repository mistakes. Agree on the classes and scope to fix. A correction or review request alone does not authorize edits, commits, or changes to shared agent instructions.
-
 Assume every contributor is an agent that sees only the files it opened, copies the nearest example, and takes the shortest path that compiles. Design the repo so a change that looks right from one file is right for the whole repo.
 
 ## Find the mistake classes
@@ -25,10 +23,10 @@ First, read recent commits, reverts, review comments, agent instruction files, a
 
 ## Fix and prove
 
-Then fix the authorized classes in separately reviewable changes. Make one commit per class when committing is authorized. Prove each new check fails on a real past mistake. Run the same command locally and in CI when those checks are available and within scope. Exceptions go on the offending line with a reason, an expiry date, and a human's approval.
+Then fix the most frequent classes now, one commit each. Prove each new check fails on a real past mistake. Run the same command locally and in CI. Exceptions go on the offending line with a reason, an expiry date, and a human's approval.
 
 ## Keep the rule table
 
-When updating agent instructions is authorized, keep a table there that pairs each rule with what enforces it. Treat each correction as evidence of a possible repeat; fix it and update the rule only within the agreed scope. If the rule was already there and nothing enforces it, propose the highest-level fix. Drop an obsolete rule when changing that instruction file is authorized.
+Last, keep a table in the agent instruction file that pairs each rule with what enforces it. When the operator corrects you, fix the mistake and add the rule. If the rule was already there and nothing enforces it, that's a repeat, so fix it at the highest level in the same change. Drop a rule once its mistake can't happen.
 
 **Reply:** each class with its evidence, the level you picked, and why a higher level didn't work.

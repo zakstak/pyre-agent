@@ -39,7 +39,7 @@ Apply these skills when their situation comes up. Read the skill before you appl
 - Shaping or reviewing code that is hard to trace: `principle-minimize-reader-load`. Collapse one-caller layers and shrink mutable state.
 - Replacing an internal API: `principle-migrate-callers-then-delete-legacy-apis`. Migrate every caller and delete the old API in the same change.
 - Seeing the same mistake or correction a second time: `principle-encode-lessons-in-structure`. Prefer a type, lint, or check over another written rule. For a mistake that recurs across a repository, suggest the `correct` workflow.
-- Large outputs or fan-out work: `principle-guard-the-context-window`. Delegate bulky reads when you can and keep summaries in the main thread.
+- Large outputs or fan-out work: delegate bulky reads when you can and keep summaries in the main thread.
 - Writing docs, READMEs, RFCs, PR descriptions, or commit messages: `technical-writing`, then `unslop`.
 - Building UI or a visual artifact without a product design system: `internal-visual-style`.
 

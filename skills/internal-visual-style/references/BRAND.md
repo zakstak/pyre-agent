@@ -19,11 +19,11 @@ Typography is confirmed. JetBrains Mono is not selected.
 
 ## Selected design direction
 
-The current reference is Zak's supplied charcoal editor screenshot: quiet purple-gray layers, thin decorative separators, lavender focus and dusty pink primary actions. Both Atkinson fonts remain confirmed. The historical selection was theme04 Margin notes (`moss`); its earlier violet–indigo palette and rail geometry are superseded by this explicit reference request. The banner remains undecided.
+The current reference is Zak's supplied charcoal editor screenshot: quiet purple-gray layers, thin decorative separators, lavender focus and dusty pink primary actions. Both Atkinson fonts remain confirmed. The historical selection was theme 04 Margin notes (`moss`); its earlier violet–indigo palette and rail geometry are superseded by this explicit reference request. The banner remains undecided.
 
-[reference-theme-contract.json](reference-theme-contract.json) preserves the complete supplied version2 contract, SHA-256 `4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`. Dark source colors are exact screenshot values. The light companion and success role are derived; they are not screenshot evidence. tokens.css implements the contract's semantic palette. Preserve this distinction when extending it.
+[reference-theme-contract.json](reference-theme-contract.json) preserves the complete supplied version 2 contract, SHA-256 `4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`. Dark source colors are exact screenshot values. The light companion and success role are derived; they are not screenshot evidence. tokens.css implements the contract's semantic palette. Preserve this distinction when extending it.
 
-Use 17px reading text at1.55 line height, 26px headings and20px section headings, expressed in rem;68ch prose and1180px work measures,8px fields/buttons and10px quiet panels. Technical text must remain at least14px and controls44px. Let content determine layout rather than requiring rails or a dashboard. Keep shrinkable tracks, intrinsic nonbreaking technical identifiers and font-relative stacking/padding when text is enlarged on narrow phones. Preserve reading order and code scrolling.
+Use 17px reading text at 1.55 line height, 26px headings and 20px section headings, expressed in rem; 68ch prose and 1180px work measures, 8px fields/buttons and 10px quiet panels. Technical text must remain at least 14px and controls 44px. Let content determine layout rather than requiring rails or a dashboard. Keep shrinkable tracks, intrinsic nonbreaking technical identifiers and font-relative stacking/padding when text is enlarged on narrow phones. Preserve reading order and code scrolling.
 
 ## Contrast restrictions
 
@@ -45,7 +45,7 @@ When copying assets, preserve their relative paths. A compiler may leave the fon
 
 ## Typography and fallback
 
-Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights400 or650 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
+Both bundled Atkinson upright fonts cover weights 200 through 800. Use weights 400 or 650 for ordinary reading and hierarchy. Code uses Atkinson Hyperlegible Mono. Avoid synthetic italics. The example reports each font's load success or fallback in the page. Verify actual rendered fonts in reading and technical text, not just font-family declarations. System fallbacks vary by device.
 
 The reading font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblenext). Its SHA-256 is `5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745`. The technical font comes from [Google Fonts](https://github.com/google/fonts/tree/51303ca9e8ac9dcea7b12d307ba568fd0e6fcfca/ofl/atkinsonhyperlegiblemono). Its SHA-256 is `5ce8b1698d1ded7dff2178c1a3ad159470085a58ea239e8b2cb88f4fb4a6f646`. Keep [../assets/fonts/OFL.txt](../assets/fonts/OFL.txt) with the reading font and [../assets/fonts/atkinson-hyperlegible-mono-OFL.txt](../assets/fonts/atkinson-hyperlegible-mono-OFL.txt) with the technical font. These are required third-party font notices; project instructions and code use the single repository root MIT license. See [Braille Institute's font information](https://www.brailleinstitute.org/freefont/) for provenance.
 
