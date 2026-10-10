@@ -735,7 +735,7 @@ def main(argv=None):
         return 2
     notes = [file.get("patch_note") for file in review["files"]]
     count = len(notes)
-    print(f"Wrote {args.output} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
+    print(f"Wrote {render_review.shown(str(args.output))} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
           f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
     for path in flagged:
         print(f"Likely secret, contents left out: {render_review.shown(path)}")

@@ -599,7 +599,7 @@ def main(argv=None):
         print(f"Error: {escaped(error)}", file=sys.stderr)
         return 2
     missing, incomplete, unverified = coverage_counts(review["files"])
-    print(f"Wrote {args.output} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "
+    print(f"Wrote {shown(str(args.output))} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "
           f"{_plural(incomplete, 'incomplete patch', 'incomplete patches')}; {_plural(unverified, 'unverified patch', 'unverified patches')})")
     if args.round is not None:
         print(f"Published round {number:04d} in {state}")
