@@ -590,8 +590,11 @@ def build(top, snapshot, fmt, include, config):
     return files, flagged
 
 
-def collect(repo, title=None, include_secret=(), output=None):
-    """Return (validated review, secret-flagged paths) for the working tree containing repo."""
+def collect(repo, title=None, include_secret=(), output=None, staged=None):
+    """Return (validated review, secret-flagged paths) for the working tree containing repo.
+
+    staged, when a list, receives the paths whose staged version differs from the review, read inside the same
+    before-and-after inventory check as the review itself, so a file that changes during that scan is caught too."""
     git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     git_executable(top)  # the working tree Git found, which core.worktree may put outside repo
@@ -639,6 +642,7 @@ def collect(repo, title=None, include_secret=(), output=None):
             if unknown:
                 raise CollectError("--include-secret-file names a path that is not a changed file: " + ", ".join(sorted(unknown)))
             files, flagged = build(top, snapshot, fmt, include, config)
+            diverging = staged_differently(top, config) if staged is not None else []
             between_reads()
             if inventory(top, fmt, config) == snapshot:
                 break
@@ -656,6 +660,8 @@ def collect(repo, title=None, include_secret=(), output=None):
         target["branch"] = branch
     target["changed_files"] = len(files)
     review = {"schema_version": 2, "target": target, "files_complete": True, "files": files}
+    if staged is not None:
+        staged[:] = diverging
     return render_review.validate_review(review), flagged
 
 
@@ -720,9 +726,8 @@ def main(argv=None):
         # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
         # symlink on the way cannot point them at different rounds.
         output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, output)
-        root = Path(review["target"]["root"])
-        staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
+        staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
+        review, flagged = collect(args.repo, args.title, args.include_secret_file, output, staged=staged)
         # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
