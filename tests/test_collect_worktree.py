@@ -595,6 +595,15 @@ class InventoryTests(Fixture):
         os.rename(self.root / "straße", self.root / "STRASSE")
         self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"STRASSE": "added", "straße": "deleted"})
 
+    def test_a_vanished_staged_file_that_replaced_a_directory_is_no_change(self):
+        self.commit({"dir/child": "c\n", "keep.txt": "k\n"})
+        self.git(self.root, "rm", "-q", "-r", "dir")
+        self.write("dir", "now a file\n")
+        self.git(self.root, "add", "dir")
+        self.git(self.root, "update-index", "--assume-unchanged", "dir")
+        (self.root / "dir").unlink()
+        self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"dir/child": "deleted"})
+
     def test_a_hidden_staged_addition_renamed_by_case_stops_collection(self):
         self.commit({"keep.txt": "k\n"})
         self.git(self.root, "config", "core.ignoreCase", "true")
@@ -960,6 +969,12 @@ class OutputTests(Fixture):
                     self.assertIn("only STATE/rounds/NNNN/input.json", err)
         self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
 
+    def test_output_works_where_ownership_cannot_be_read(self):
+        with mock.patch.object(collector.os, "getuid", None):
+            del collector.os.getuid  # as on Windows
+            code, _, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0, err)
+
     def test_a_shared_ancestor_with_rounds_is_not_a_state_directory(self):
         shared = self.base / "shared"
         (shared / "rounds" / "0001").mkdir(parents=True)
@@ -990,6 +1005,15 @@ class OutputTests(Fixture):
         self.git(self.root, "config", "core.worktree", str(other))
         with self.assertRaisesRegex(collector.CollectError, "sets core.worktree to .*another repository"):
             self.collect()
+
+    def test_errors_escape_control_characters_in_paths(self):
+        nested = self.root / "evil\nWrote trusted.json"
+        nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True)  # a nested repository with no commit
+        code, out, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("evil\\nWrote trusted.json", err)
+        self.assertEqual(err.count("\n"), 1, "the error stays one line")
 
     def test_notices_escape_control_characters_in_paths(self):
         self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")

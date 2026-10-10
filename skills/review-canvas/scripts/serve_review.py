@@ -354,7 +354,7 @@ def main(argv=None):
         write_server_file(server)
     except (review_state.StateError, OSError) as error:
         ownership.close()
-        print(f"Error: {error}", file=sys.stderr)
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     with ownership:
         for signum in (signal.SIGTERM, signal.SIGINT):
