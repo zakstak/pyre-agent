@@ -40,7 +40,7 @@ const invalidError: DiffState = conflictingError;
 `;
 const assertions = `
 function typeRejections(xs: NonEmpty<string>, pairs: Pairs<string>) {
-  // @ts-expect-error A readonly non-empty snapshot cannot be emptied.
+  // @ts-expect-error A readonly non-empty tuple cannot be emptied.
   xs.pop();
   // @ts-expect-error Pair collection cannot be structurally mutated.
   pairs.push(['x', 'y']);
@@ -49,25 +49,9 @@ function typeRejections(xs: NonEmpty<string>, pairs: Pairs<string>) {
   // @ts-expect-error Raw numbers cannot bypass the duration constructor.
   const duration: DurationMs = -1;
 }
-const source = ['x'];
-const snapshot = snapshotNonEmpty(source);
-source.pop();
-if (!snapshot || snapshot[0] !== 'x' || pickWinner(snapshot) !== 'x') throw new Error('Snapshot alias regression');
-if (snapshotNonEmpty([]) !== undefined) throw new Error('Empty snapshot accepted');
-if (snapshotNonEmpty(new Array<string>(1)) !== undefined) throw new Error('Sparse head accepted');
-const sparseTail = ['x', 'y'];
-delete sparseTail[1];
-if (snapshotNonEmpty(sparseTail) !== undefined) throw new Error('Sparse tail accepted');
-const overriddenIterator = ['x'];
-let iteratorCalled = false;
-overriddenIterator[Symbol.iterator] = function () {
-  iteratorCalled = true;
-  delete overriddenIterator[0];
-  return overriddenIterator.values();
-};
-const indexedSnapshot = snapshotNonEmpty(overriddenIterator);
-if (iteratorCalled || !indexedSnapshot || pickWinner(indexedSnapshot) !== 'x') throw new Error('Overridden iterator corrupted snapshot');
-if (snapshotNonEmpty([undefined]) !== undefined) throw new Error('Undefined element accepted');
+const input: string[] = ['x'];
+if (!isNonEmpty(input) || pickWinner(input) !== 'x') throw new Error('Guard did not narrow a non-empty array');
+if (isNonEmpty([])) throw new Error('Empty array accepted');
 const exactTheme: 'dark' = config.theme;
 const exactColumns: 3 = config.cols;
 for (const n of [-1, NaN, Infinity, -Infinity]) {
@@ -85,5 +69,5 @@ try {
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const runtime = spawnSync(process.execPath, [path.join(temp, 'out/examples.js')], { encoding: 'utf8' });
   assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
-  console.log('PASS: corrected examples compile with strict indexed-access checks; mutation and raw durations rejected; snapshots survive alias mutation; invalid durations rejected.');
+  console.log('PASS: corrected examples compile with strict indexed-access checks; mutation and raw durations rejected; the guard narrows; invalid durations rejected.');
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

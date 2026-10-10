@@ -60,25 +60,15 @@ function pickWinner(entries: NonEmpty<string>): string {
 }
 ```
 
-An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`; the known head provides a valid fallback. Where a plain array arrives, validate a private snapshot so a mutable alias cannot later empty it:
+An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`; the known head provides a valid fallback.
+
+Where a plain array arrives, narrow once with a guard. The fact then travels in the type:
 
 ```ts
 const isNonEmpty = <T>(arr: readonly T[]): arr is NonEmpty<T> => arr.length > 0;
-
-function snapshotNonEmpty<T>(values: readonly T[]): NonEmpty<T> | undefined {
-  const copy: T[] = [];
-  const length = values.length;
-  for (let index = 0; index < length; index++) {
-    if (!Object.hasOwn(values, index)) return undefined;
-    const value = values[index];
-    if (value === undefined) return undefined;
-    copy.push(value);
-  }
-  return isNonEmpty(copy) ? copy : undefined;
-}
 ```
 
-Copy checked numeric values directly instead of invoking a potentially overridden iterator. This example rejects holes and undefined elements; use the domain schema when undefined is a legal value. Validate element types with that schema first when data comes from outside the typed boundary.
+The guard checks the array once. If other code can still mutate that array, narrow a copy (`[...input]`) instead.
 
 Even length, as pairs:
 
@@ -105,7 +95,7 @@ function parseDurationMs(value: number): DurationMs {
 type TimeRange = { readonly start: Date; readonly durationMs: DurationMs };
 ```
 
-The brand records the constructor's validation; a plain number does not exclude negatives, NaN, or infinity. Validate the start date and computed end at the boundary too. This example protects the duration, not the Date's validity or mutation. Readonly types prevent ordinary mutators through that view; they do not freeze values or protect against existing mutable aliases. Snapshot external collections before relying on their shape.
+A plain `number` still admits negatives, NaN, and infinity. The brand records that the constructor rejected them. Expose the reading you need on top, such as `pairs.flat()` or a `rangeEnd()` helper.
 
 ## Simplest total type
 
