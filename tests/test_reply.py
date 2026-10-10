@@ -63,6 +63,9 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual(reply.add(self.input, self.feedback, "fixture-comment-3", "question", "Which zone?", now=later)["created_at"], "2026-10-10T12:00:00.000Z")
 
     def test_add_refuses_what_the_input_contract_refuses(self):
+        with self.assertRaisesRegex(ValueError, "Run reply.py carry from the previous round first"):
+            reply.add(self.input, self.feedback, "fixture-comment-1", "question", "?")
+        reply.carry(self.previous, self.input)
         cases = [
             (dict(comment_id="missing", disposition="question", body="?"), "no comment missing"),
             (dict(comment_id="fixture-comment-2", disposition="fixed", body="Done."), "fixed_in"),
@@ -75,7 +78,7 @@ class ReplyTests(unittest.TestCase):
         for options, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 reply.add(self.input, self.feedback, options.pop("comment_id"), options.pop("disposition"), options.pop("body"), **options)
-        self.assertEqual(self.replies(), [])
+        self.assertEqual(self.replies(), self.earlier)
 
     def test_an_answer_waiting_for_the_reviewer_is_not_answered_again(self):
         reply.carry(self.previous, self.input)
@@ -143,6 +146,7 @@ class ReplyTests(unittest.TestCase):
         self.assertTrue(done.wait(10))
 
     def test_the_last_representable_time_is_refused_cleanly(self):
+        reply.carry(self.previous, self.input)
         feedback = json.loads(self.feedback.read_text())
         comment = next(c for c in feedback["comments"] if c["id"] == "fixture-comment-3")
         comment["replies"][0]["created_at"] = "9999-12-31T23:59:59.999Z"
@@ -150,6 +154,15 @@ class ReplyTests(unittest.TestCase):
         late.write_text(json.dumps(feedback))
         with self.assertRaisesRegex(ValueError, "last representable time"):
             reply.add(self.input, late, "fixture-comment-3", "question", "Which zone?")
+
+    def test_a_reply_after_the_millisecond_float_rounding_would_repeat(self):
+        reply.carry(self.previous, self.input)
+        feedback = json.loads(self.feedback.read_text())
+        comment = next(c for c in feedback["comments"] if c["id"] == "fixture-comment-3")
+        comment["replies"][0]["created_at"] = "9999-12-31T23:59:59.998Z"
+        late = self.temp / "late.json"
+        late.write_text(json.dumps(feedback))
+        self.assertEqual(reply.add(self.input, late, "fixture-comment-3", "question", "Which zone?")["created_at"], "9999-12-31T23:59:59.999Z")
 
     def test_command_line(self):
         run = lambda *args: subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)

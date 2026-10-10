@@ -111,7 +111,7 @@ fs.mkdirSync(out, { recursive: true });
     assert.equal(await page.locator("#save-state").textContent(), "Not exported");
     const partial = page.waitForEvent("download"); await page.getByRole("button", { name: "Export feedback (.json)" }).click(); await partial;
     assert.match(await page.locator("#export-status").textContent(), /without the open comment draft/);
-    await page.keyboard.press("Escape");
+    await comment("fixture-comment-4").getByRole("button", { name: "Cancel reply" }).click();
     const replies = Object.fromEntries(saved.data.comments.map(item => [item.id, (item.replies || []).map(reply => [reply.actor, reply.action, reply.body])]));
     assert.deepEqual(replies["fixture-comment-1"], [["reviewer", "accept", ""]]);
     assert.deepEqual(replies["fixture-comment-2"], [["reviewer", "reopen", "It prints a traceback when the notes file itself is missing."]]);
@@ -136,6 +136,28 @@ fs.mkdirSync(out, { recursive: true });
     await page.getByRole("button", { name: "Expand all" }).click();
     assert.deepEqual(await Promise.all([1, 2, 3, 4].map(n => state(`fixture-comment-${n}`))), ["Resolved", "Reopened", "Replied", "Answered: deferred"]);
     assert.match(await page.locator("#review-summary").textContent(), /1 answered by the agent/);
+
+    // A round whose input lacks the earlier answers shows that, instead of calling an accepted thread resolved.
+    const bare = path.join(temp, "round1.html");
+    const rendered = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), path.join(fixtures, "worktree-review.json"), "--output", bare], { encoding: "utf8" });
+    assert.equal(rendered.status, 0, rendered.stderr);
+    await page.goto(pathToFileURL(bare).href);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    await importFile(path.join(fixtures, "worktree-feedback-round2.json"));
+    assert.equal(await state("fixture-comment-1"), "Earlier answers missing");
+    assert.equal(await state("fixture-comment-4"), "Open");
+
+    // An import never merges replies under an open reply draft.
+    await page.goto(pathToFileURL(html).href);
+    await page.waitForFunction(() => document.querySelector("#progress").textContent.includes("of 10"));
+    await importFile(path.join(fixtures, "worktree-feedback.json"));
+    await page.getByRole("button", { name: "Expand all" }).click();
+    await comment("fixture-comment-3").getByRole("button", { name: "Reply to the agent" }).click();
+    await comment("fixture-comment-3").locator("textarea").fill("draft in progress");
+    await importFile(path.join(fixtures, "worktree-feedback-round2.json"), "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /open reply draft/);
+    assert.equal(await state("fixture-comment-1"), "Answered: fixed");
+    await comment("fixture-comment-3").getByRole("button", { name: "Cancel reply" }).click();
 
     assert.deepEqual(errors, []);
     console.log(`PASS: agent dispositions with fixed_in and blocker, unmatched-reply notice, accept, reopen with a required reason, reply with Ctrl+Enter, Escape cancels, index states, feedback holds only reviewer replies, reply merge on import, conflicting reply ID, states restored from a fixture. Screenshots: ${out}`);

@@ -70,6 +70,8 @@
   function threadState(replies) {
     const last = replies[replies.length - 1];
     if (!last) return { label: "Open", yours: false };
+    // A reviewer reply always follows an agent answer. Without one, this round's input lacks the earlier answers.
+    if (replies[0].actor === "reviewer") return { label: "Earlier answers missing", yours: false };
     if (last.actor === "agent") return { label: `Answered: ${DISPOSITION[last.disposition].toLowerCase()}`, yours: true };
     return { label: last.action === "accept" ? "Resolved" : ACTION[last.action], yours: false };
   }
@@ -597,6 +599,7 @@
   function mergeFeedback(incoming) {
     if (!sameTarget(incoming) || incoming.comments.some(comment => !sameTarget(comment.anchor.snapshot) || comment.history.some(anchor => !sameTarget(anchor.snapshot))) || incoming.retained_reviews.some(review => !sameTarget(review))) throw Error("Feedback belongs to another review target or an unidentified snapshot.");
     if (!composer.hidden && byId("comment-body").value) { revealComposer(); throw Error("Finish or cancel the open comment draft before importing."); }
+    if (replyDraft?.body.trim()) { jumpTo(replyDraft.commentId); throw Error("Finish or cancel the open reply draft before importing."); }
     const same = incoming.input_sha256 === metadata.input_sha256;
     if (same && (incoming.files.length !== metadata.files.length || incoming.files.some(file => !sources.has(file.path)))) throw Error("Feedback inventory does not match this snapshot.");
     const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);

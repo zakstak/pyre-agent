@@ -317,6 +317,9 @@ def thread_state(replies):
     """Return whose turn it is, from the last reply: agent, reviewer, or None once the reviewer accepts."""
     if not replies:
         return "agent", "open"
+    if replies[0]["actor"] == "reviewer":
+        # A reviewer reply always follows an agent answer. Without one, earlier answers were not carried into this round.
+        return "agent", "earlier answers missing"
     last = replies[-1]
     if last["actor"] == "agent":
         return "reviewer", f"answered: {last['disposition']}"

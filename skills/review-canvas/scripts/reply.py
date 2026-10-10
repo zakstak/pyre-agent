@@ -63,8 +63,14 @@ def _carry(source, target):
     return len(review["replies"]) - len(known)
 
 
-def timestamp(seconds):
-    return datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+def timestamp(moment):
+    """Millisecond UTC ISO 8601, the reply time format."""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
+
+
+def after(reply):
+    """One millisecond after a reply, computed on the datetime so no float rounding can repeat its time."""
+    return datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00")) + datetime.timedelta(milliseconds=1)
 
 
 def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=None, commit=None, blocker=None, now=None):
@@ -82,17 +88,18 @@ def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, 
     feedback_contract.check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
     thread = feedback_contract.thread(comment, review.get("replies", []))
     turn, label = feedback_contract.thread_state(thread)
+    if label == "earlier answers missing":
+        raise render_review.ValidationError(f"comment {comment_id} has reviewer replies but no earlier agent answer in {input_path}. "
+                                            "Run reply.py carry from the previous round first.")
     if turn != "agent":
         raise render_review.ValidationError(f"comment {comment_id} is {label}, so it is not the agent's turn; a new answer would "
                                             "override the reviewer" if turn is None else f"comment {comment_id} is {label} and waits for the reviewer")
     if fingerprint and fingerprint not in {file.get("fingerprint") for file in review["files"]}:
         raise render_review.ValidationError(f"no file in {input_path} has fingerprint {fingerprint}; name the version in this round that fixes the comment")
-    times = [feedback_contract.reply_time(reply) for reply in thread]
-    moment = max([now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()]
-                 + [time + 0.001 for time in times if time != float("inf")])
+    current = datetime.datetime.fromtimestamp(now, datetime.timezone.utc) if now is not None else datetime.datetime.now(datetime.timezone.utc)
     try:
-        created = timestamp(moment)
-    except (ValueError, OverflowError, OSError):
+        created = timestamp(max([current] + [after(reply) for reply in thread]))
+    except (ValueError, OverflowError):
         raise render_review.ValidationError(f"comment {comment_id}'s latest reply is at the last representable time, so no later reply fits") from None
     reply = {"comment_id": comment_id, "id": f"agent-{uuid.uuid4().hex[:16]}", "actor": "agent", "created_at": created,
              "body": body, "disposition": disposition}
