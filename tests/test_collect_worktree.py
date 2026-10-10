@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -127,6 +128,14 @@ class InventoryTests(Fixture):
             self.assertEqual((file["patch_note"], file["additions"], file["deletions"]), ("binary", 0, 0))
             self.assertNotIn("patch", file)
             self.assertNotIn("patch_complete", file)
+
+    def test_rename_detection_ignores_the_configured_limit(self):
+        self.commit({f"f{i}.txt": "".join(f"f{i} line {n}\n" for n in range(50)) for i in range(3)})
+        for i in range(3):
+            self.git(self.root, "mv", f"f{i}.txt", f"g{i}.txt")
+            self.write(f"g{i}.txt", "".join(f"f{i} line {n}\n" for n in range(50)) + "extra\n")
+        self.git(self.root, "config", "diff.renameLimit", "1")
+        self.assertEqual(sorted(file["status"] for file in self.collect().values()), ["renamed"] * 3)
 
     def test_staged_rename_with_an_edit_and_a_pure_rename(self):
         lines = "".join(f"line {i}\n" for i in range(10))
@@ -356,6 +365,30 @@ class InventoryTests(Fixture):
         self.write("link", b"new")
         link = self.collect()["link"]
         self.assertEqual((link["new_mode"], link["patch_note"]), ("120000", "symlink"))
+
+    def test_hidden_files_keep_the_index_mode_when_file_modes_are_off(self):
+        self.commit({"plain.txt": "a\n"})
+        self.git(self.root, "config", "core.filemode", "false")
+        self.git(self.root, "update-index", "--assume-unchanged", "plain.txt")
+        self.write("plain.txt", "b\n")
+        (self.root / "plain.txt").chmod(0o755)
+        plain = self.collect()["plain.txt"]
+        self.assertEqual((plain["old_mode"], plain["new_mode"]), ("100644", "100644"))
+
+    def test_hidden_files_without_a_patch_keep_their_stats(self):
+        self.commit({".env": "A=1\n"})
+        self.git(self.root, "update-index", "--assume-unchanged", ".env")
+        self.write(".env", "A=2\nB=3\n")
+        secret = self.collect()[".env"]
+        self.assertEqual((secret["patch_note"], secret["additions"], secret["deletions"]), ("secret", 2, 1))
+
+    def test_a_staged_deletion_with_the_file_kept_on_disk_is_named(self):
+        self.commit({"old.txt": "".join(f"line {i}\n" for i in range(10))})
+        self.git(self.root, "mv", "old.txt", "new.txt")
+        shutil.copy(self.root / "new.txt", self.root / "old.txt")
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn("would record unreviewed content: old.txt", out)
 
     def test_a_failure_after_collecting_writes_nothing(self):
         self.commit({"a.txt": "a\n"})
