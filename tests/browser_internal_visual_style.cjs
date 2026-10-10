@@ -110,7 +110,7 @@ function contrast(a, b) {
             controls: [...document.querySelectorAll('button,summary')].map(e => ({ height: e.getBoundingClientRect().height, text: e.textContent.trim() }))
           }));
           assert.ok(state.scrollWidth <= width, `overflow ${theme} ${width} ${scale}`);
-          assert.equal(state.readingSize, `${18 * scale}px`);
+          assert.equal(state.readingSize, `${17 * scale}px`);
           assert.equal(state.colorScheme, theme);
           assert.ok(state.controls.every(control => control.height >= 44));
           report.states.push({ theme, width, textScale: scale, ...state });
@@ -125,7 +125,11 @@ function contrast(a, b) {
           ['primary/surface', '--text-primary', '--bg-surface', 4.5], ['secondary/surface', '--text-secondary', '--bg-surface', 4.5],
           ['link/page', '--link', '--bg-page', 4.5], ['link/surface', '--link', '--bg-surface', 4.5],
           ['border/page', '--border', '--bg-page', 3], ['border/surface', '--border', '--bg-surface', 3],
-          ['focus/page', '--focus', '--bg-page', 3], ['focus/surface', '--focus', '--bg-surface', 3]];
+          ['focus/page', '--focus', '--bg-page', 3], ['focus/surface', '--focus', '--bg-surface', 3],
+          ['primary/raised', '--text-primary', '--pyre-raised', 4.5], ['secondary/raised', '--text-secondary', '--pyre-raised', 4.5],
+          ['link/raised', '--link', '--pyre-raised', 4.5], ['accent text', '--pyre-accent-text', '--pyre-accent', 4.5],
+          ['secondary accent/page', '--pyre-accent-secondary', '--bg-page', 4.5], ['secondary accent/raised', '--pyre-accent-secondary', '--pyre-raised', 4.5],
+          ['border/raised', '--border', '--pyre-raised', 3], ['focus/raised', '--focus', '--pyre-raised', 3]];
         for (const name of ['neutral', 'success', 'warning', 'danger']) roles.push([name, `--status-${name}`, `--status-${name}-bg`, 4.5]);
         const probe = document.createElement('span'); document.body.append(probe);
         const pairs = roles.map(([role, fg, bg, minimum]) => {
@@ -182,7 +186,7 @@ function contrast(a, b) {
       assert.equal(await staticPage.locator('#theme-toggle').isVisible(), false);
       assert.equal(await staticPage.locator('html').evaluate(e => getComputedStyle(e).colorScheme), 'light dark');
       const bg = await staticPage.locator('html').evaluate(e => getComputedStyle(e).backgroundColor);
-      assert.equal(bg, theme === 'dark' ? 'rgb(23, 28, 32)' : 'rgb(246, 245, 241)');
+      assert.equal(bg, theme === 'dark' ? 'rgb(20, 20, 39)' : 'rgb(244, 243, 251)');
       assert.ok(await staticPage.locator('noscript').isVisible());
       await noScript.close();
     }
@@ -205,7 +209,7 @@ function contrast(a, b) {
       });
       assert.equal(actual.headingSize, '36px'); assert.equal(actual.weight, '400'); assert.equal(actual.decoration, 'underline');
       assert.equal(actual.padding, '32px'); assert.equal(actual.background, actual.page);
-      assert.equal(actual.status, 'rgb(163, 215, 182)'); assert.equal(actual.tint, 'rgb(38, 60, 48)');
+      assert.equal(actual.status, 'rgb(143, 214, 178)'); assert.equal(actual.tint, 'rgb(30, 29, 54)');
       assert.ok(actual.font.startsWith('\"Atkinson Hyperlegible Next\"'));
       assert.ok(actual.mono.startsWith('\"Atkinson Hyperlegible Mono\"'));
       report.tailwindUtilities = actual; report.checks.push('compiled semantic utilities, explicit dark variant, utility overrides of specimen defaults');

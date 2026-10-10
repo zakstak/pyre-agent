@@ -52,3 +52,7 @@ pre { white-space: pre; padding: var(--space-2); }
 summary { cursor: pointer; padding-block: var(--space-2); }
 footer { padding-block-start: var(--space-4); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+
+/* Published legacy Margin notes treatment: left rail and inset evidence. */
+.plan-section { border-inline-start: var(--section-rail-width) solid var(--pyre-line); padding-inline-start: var(--space-rail-inset); }
+.evidence { background: var(--bg-surface); padding: var(--space-evidence-block) var(--space-evidence-inline); }

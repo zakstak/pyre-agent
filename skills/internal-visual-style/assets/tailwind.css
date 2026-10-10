@@ -8,6 +8,12 @@
 @theme inline {
   --font-sans: var(--font-reading);
   --font-mono: var(--font-technical);
+  --color-raised: var(--pyre-raised);
+  --color-separator: var(--pyre-line);
+  --color-accent: var(--pyre-accent);
+  --color-accent-soft: var(--pyre-accent-soft);
+  --color-accent-text: var(--pyre-accent-text);
+  --color-accent-secondary: var(--pyre-accent-secondary);
   --color-page: var(--bg-page);
   --color-surface: var(--bg-surface);
   --color-ink: var(--text-primary);

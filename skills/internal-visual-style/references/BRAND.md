@@ -23,17 +23,19 @@ Zak selected live playground theme 04, "Margin notes", with legacy style ID `mos
 
 The supplied published baseline is themeSite source `d90c38ebb6f38efc2201c85aba031d060c4cf567`. This selection was handed into draft PR 17 on 2026-10-10. Identify the selection by this published baseline, name, and legacy ID. A newer unpublished theme 04 is not the selected baseline.
 
-## Pending implementation and choices
+## Palette handoff and remaining choices
 
-The exact violet–indigo palette values are being refined by the existing Site worker. Wait for its verified palette token handoff before aligning CSS. The selected direction does not finalize color values or all theme implementation details. The banner remains undecided.
+The verified palette handoff is `violet-indigo` in `dist/palettes.json` from theme Site project `appgprj_6ac9171661708191839eff184cb7435f`, published source `4dddf282d1b12f77c7ce08fe32abff4bb2ae5486`. The handed-off palettes.json SHA-256 is `d76fb1b976cf9209f024c865ad06fa408dd4d9416d2c0037569c9ac2af83ec98`. This is the published refinement of the earlier `8518e3cbc7f056db634140efc4b8499686bad7be` handoff, with the same selected values. Tokens.css now implements those exact light and dark values. Focus uses accent-secondary. The handoff authorizes palette implementation; it does not depend on another manual color preview or on the Site selector's separately tracked bugs.
 
-The current CSS, HTML specimen, and screenshots are the earlier provisional accessible examples. They do not implement the selected Margin notes direction or its violet–indigo palette. Keep them provisional until the verified handoff, then apply the existing validation checks. No banner is implemented. Do not invent final colors or treat the earlier example values as selected tokens.
+The specimen uses the selected legacy Margin notes geometry: 17px reading size expressed in rem, 70ch reading measure, 1030px work measure expressed in rem, 38px section spacing expressed in rem, 3px corner radius expressed in rem, a left rail, and inset evidence. The inspected legacy `moss` fixture agrees with that identity. The ordinal theme number alone must not select a replacement style.
+
+The banner remains undecided and is not implemented. The specimen is a content-driven example, not a required layout. Do not invent an approved banner or redesign the selected direction while completing the review workflow.
 
 ## Semantic tokens
 
 Use the CSS custom properties in tokens.css for page and surface backgrounds, text, secondary text, borders, links, focus, and named status pairs. Typography, spacing, reading measure, corner radius, and control size are also owned there. Do not repeat palette values in HTML, component styles, Tailwind configuration, or prompts. If a needed semantic role is missing, add it at the source and verify both modes. Avoid anonymous color utilities for status.
 
-Success means a verified successful result. Warning means a condition that needs attention. Danger means a failed result or destructive action. Pending choices and ordinary metadata use the neutral role. Status tint backgrounds are only for compact status text. They do not color whole sections.
+Success means a verified successful result. Warning means a condition that needs attention. Danger means a failed result or destructive action. Pending choices and ordinary metadata use the neutral role. Status foregrounds use the handed-off success, warning, and error colors against the shared surface background. Neutral status uses muted text on raised. No extra status palette is invented.
 
 ## Browser consumption
 
@@ -55,6 +57,6 @@ Check phone and desktop in both modes with realistic content. At 200% text size,
 
 Use keyboard alone to reach the content, switch modes, follow links, and operate disclosures. Keep focus visible and control names clear. Check mode persistence when storage works and continued operation when storage fails. Confirm that no-JavaScript content remains readable. Respect reduced motion.
 
-Measure text contrast against its actual background in both modes. Target WCAG AA ratios of at least 4.5:1 for ordinary text, 3:1 for large text, and 3:1 for necessary control boundaries and focus indicators. Check every status foreground against its paired tint. Color alone must never carry a result. Automated checks support inspection; they do not establish complete accessibility certification.
+Measure text contrast against its actual background in both modes. Target WCAG AA ratios of at least 4.5:1 for ordinary text, 3:1 for large text, and 3:1 for necessary control boundaries and focus indicators. Check every status foreground against its paired background. Color alone must never carry a result. Automated checks support inspection; they do not establish complete accessibility certification.
 
-Inspect font requests and rendered fonts. Test a missing-font case and show or disclose fallback. Verify every local reference and copy dependency, including font notices and compiled asset URLs. Report tested browsers, sizes, actual font results, and remaining limitations. Retest contrast and layout when provisional colors or theme treatment change, or when typography is revised.
+Inspect font requests and rendered fonts. Test a missing-font case and show or disclose fallback. Verify every local reference and copy dependency, including font notices and compiled asset URLs. Report tested browsers, sizes, actual font results, and remaining limitations. Retest contrast and layout when the palette, theme treatment, or typography is revised.

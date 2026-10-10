@@ -1,41 +1,62 @@
-/* Single source of semantic values. Palette/theme values are PROVISIONAL. Both Atkinson fonts are chosen. */
+/* Selected violet–indigo palette: published handoff 4dddf282d1b12f77c7ce08fe32abff4bb2ae5486.
+   Margin notes, legacy style moss. Both Atkinson fonts are chosen. */
 :root {
   --font-reading: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --font-technical: "Atkinson Hyperlegible Mono", ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
-  --size-reading: 1.125rem;
+  --size-reading: 1.0625rem;
   --size-small: 1rem;
   --size-title: 1.75rem;
   --size-heading: 1.375rem;
   --leading-reading: 1.6;
-  --measure-reading: 65ch;
-  --measure-work: 76rem;
+  --measure-reading: 70ch;
+  --measure-work: 64.375rem;
   --space-1: 0.375rem;
   --space-2: 0.75rem;
   --space-3: 1.25rem;
   --space-4: 2rem;
-  --space-5: 3rem;
-  --radius: 0.375rem;
+  --space-5: 2.375rem;
+  --space-rail-inset: 1.375rem;
+  --space-evidence-block: 0.5rem;
+  --space-evidence-inline: 1.125rem;
+  --section-rail-width: 2px;
+  --radius: 0.1875rem;
   --control-min: 2.75rem;
 }
 
 /* Each role owns both modes. No selection follows the system, including without JS. */
 :root {
   color-scheme: light dark;
-  --bg-page: light-dark(#f6f5f1, #171c20);
-  --bg-surface: light-dark(#ffffff, #20272d);
-  --text-primary: light-dark(#252b30, #e9ecef);
-  --text-secondary: light-dark(#505b64, #b8c2ca);
-  --border: light-dark(#707a82, #84939e);
-  --link: light-dark(#235c86, #9eccee);
-  --focus: light-dark(#164f9b, #b0d4ff);
-  --status-neutral: light-dark(#505b64, #c0c9d0);
-  --status-neutral-bg: light-dark(#eceeef, #303a42);
-  --status-success: light-dark(#256044, #a3d7b6);
-  --status-success-bg: light-dark(#e6f1e9, #263c30);
-  --status-warning: light-dark(#785010, #f2d18e);
-  --status-warning-bg: light-dark(#fff1d6, #423720);
-  --status-danger: light-dark(#973d3b, #f1b1ab);
-  --status-danger-bg: light-dark(#faeae8, #452e2e);
+  --pyre-canvas: light-dark(#f4f3fb, #141427);
+  --pyre-surface: light-dark(#fdfcff, #1e1d36);
+  --pyre-raised: light-dark(#e8e8f7, #2b2b4b);
+  --pyre-text: light-dark(#242438, #edeafa);
+  --pyre-muted: light-dark(#56566f, #b8b5d0);
+  --pyre-border: light-dark(#77758b, #87849d);
+  --pyre-line: light-dark(#d0cde4, #45415e);
+  --pyre-accent: light-dark(#5e448d, #c3a2f2);
+  --pyre-accent-soft: light-dark(#e8def4, #342744);
+  --pyre-accent-text: light-dark(#ffffff, #171222);
+  --pyre-accent-secondary: light-dark(#444f92, #abb8f2);
+  --pyre-success: light-dark(#236745, #8fd6b2);
+  --pyre-warning: light-dark(#775200, #f1c977);
+  --pyre-error: light-dark(#a62836, #ffabae);
+  /* Consumer aliases contain no additional palette values. */
+  --bg-page: var(--pyre-canvas);
+  --bg-surface: var(--pyre-surface);
+  --text-primary: var(--pyre-text);
+  --text-secondary: var(--pyre-muted);
+  --border: var(--pyre-border);
+  --link: var(--pyre-accent);
+  --focus: var(--pyre-accent-secondary);
+  --status-neutral: var(--pyre-muted);
+  --status-neutral-bg: var(--pyre-raised);
+  --status-success: var(--pyre-success);
+  --status-success-bg: var(--pyre-surface);
+  --status-warning: var(--pyre-warning);
+  --status-warning-bg: var(--pyre-surface);
+  --status-danger: var(--pyre-error);
+  --status-danger-bg: var(--pyre-surface);
+
 }
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
