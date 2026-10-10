@@ -549,16 +549,20 @@ def main(argv=None):
             import review_state
             state, number = review_state.round_of(args.round)
             args.input, args.output = args.round / "input.json", args.round / "review.html"
-            if args.output.exists():
-                raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")
-        elif args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):
-            raise ValidationError("input and output must be different files")
-        review = load_review(args.input)
-        page = render_review(review, args.style_dir)
-        if args.round is not None:
-            review_state.write_private(args.output, page.encode("utf-8"), replace=False)
-            review_state.publish(state, number)
+            # The publish lock spans the check, the read, the page, and current, so reply.py cannot change the input
+            # between them and the server cannot see a half-published round.
+            with review_state.lock(state, "publish"):
+                if args.output.exists():
+                    raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")
+                review = load_review(args.input)
+                page = render_review(review, args.style_dir)
+                review_state.write_private(args.output, page.encode("utf-8"), replace=False)
+                review_state.publish(state, number, held=True)
         else:
+            if args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):
+                raise ValidationError("input and output must be different files")
+            review = load_review(args.input)
+            page = render_review(review, args.style_dir)
             args.output.write_text(page, encoding="utf-8")
     except (ValidationError, OSError, ValueError, RecursionError) as error:
         print(f"Error: {error}", file=sys.stderr)

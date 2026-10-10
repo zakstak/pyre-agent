@@ -553,7 +553,13 @@ def main(argv=None):
         review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
         root = Path(review["target"]["root"])
         staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
-        write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+        # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
+        # rendering also holds from its check to publishing, makes this last check and the write one step.
+        import review_state
+        with review_state.round_lock(args.output):
+            if (Path(args.output).absolute().parent / "review.html").exists() and Path(args.output).absolute().parent.parent.name == "rounds":
+                raise CollectError(f"{Path(args.output).parent} rendered while collecting; a round never changes after it renders. Start a new round.")
+            write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
