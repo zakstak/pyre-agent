@@ -90,7 +90,7 @@
     else if (value.start !== null || value.end !== null) throw Error("Orphan range must be null.");
   }
   function validateFeedback(value) {
-    if (value && typeof value === "object" && value.feedback_schema_version !== VERSION) throw Error(`Feedback version ${JSON.stringify(value.feedback_schema_version ?? null)} is not supported; expected ${VERSION}. There is no migration.`);
+    if (value && typeof value === "object" && !Array.isArray(value) && value.feedback_schema_version !== VERSION) throw Error(`Feedback version ${JSON.stringify(value.feedback_schema_version ?? null)} is not supported; expected ${VERSION}. There is no migration.`);
     object(value, ["feedback_schema_version", "target", "input_sha256", "exported_at", "general_notes", "files", "approvals", "comments", "retained_reviews"]);
     snapshot(reviewSnapshot(value));
     text(value.exported_at, 40, true); text(value.general_notes); files(value.files); approvals(value.approvals);
@@ -123,7 +123,8 @@
     if (a.target.kind === "worktree") return a.target.root === b.target.root;
     return a.target.url && b.target.url ? a.target.url === b.target.url : a.input_sha256 === b.input_sha256;
   }
-  // JSON.parse checks syntax first. A bounded token walk additionally rejects duplicate keys.
+  // JSON.parse checks syntax first. A bounded token walk additionally rejects duplicate keys and non-integer numbers,
+  // which JSON.parse would silently turn into integers such as 7 for 7.0.
   function parseFeedback(raw) {
     if (typeof raw !== "string" || (raw.length > MAX_BYTES || new TextEncoder().encode(raw).length > MAX_BYTES)) throw Error("Feedback exceeds 8 MiB.");
     const value = JSON.parse(raw);
@@ -144,7 +145,7 @@
       } else if (token === "[") {
         if (tokens[i] === "]") { i++; return; }
         while (true) { walk(depth + 1); if (tokens[i++] === "]") break; }
-      }
+      } else if (/^-?\d/.test(token) && /[.eE]/.test(token)) throw Error("Feedback numbers must be integers.");
     }
     walk(0);
     return validateFeedback(value);
@@ -165,7 +166,14 @@
     if (!count) return orphan("Selected text or its context changed.");
     return { state: "attached", reason: "Unique quote and context in revised patch.", start: match, end: match + value.quote.length };
   }
-  const api = Object.freeze({ VERSION, MAX_BYTES, parseFeedback, validateFeedback, resolveAnchor, reviewSnapshot, sameTarget, pinned });
+  // A file's bytes, decoded as strictly as feedback_contract.py does: malformed UTF-8 fails, and a BOM stays to fail as JSON.
+  function parseFeedbackBytes(bytes) {
+    if (bytes.byteLength > MAX_BYTES) throw Error("Feedback exceeds 8 MiB.");
+    let raw;
+    try { raw = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw Error("Feedback is not valid UTF-8."); }
+    return parseFeedback(raw);
+  }
+  const api = Object.freeze({ VERSION, MAX_BYTES, parseFeedback, parseFeedbackBytes, validateFeedback, resolveAnchor, reviewSnapshot, sameTarget, pinned });
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else globalThis.PyreReviewFeedback = api;
 })();

@@ -10,7 +10,9 @@ import base64
 import hashlib
 import html
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -229,7 +231,18 @@ def load_review(path):
                             parse_constant=lambda value: (_ for _ in ()).throw(ValidationError(f"Invalid JSON constant: {value}")))
     except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise ValidationError(f"invalid UTF-8 JSON: {error}") from error
-    return validate_review(review)
+    review = validate_review(review)
+    # A rendered round records its input's digest. A later edit would make readers see other input than the page, and a
+    # rendered round without its digest cannot show it has none.
+    directory = Path(path).parent
+    if Path(path).name == "input.json" and (directory / "review.html").exists():
+        try:
+            recorded = (directory / "input.sha256").read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            raise ValidationError(f"{directory} rendered but has no readable input.sha256, so its input cannot be checked") from None
+        if recorded != input_digest(review):
+            raise ValidationError(f"{path} changed after its round rendered; a round never changes. Start a new round.")
+    return review
 
 
 def escape(value):
@@ -508,6 +521,8 @@ def render_review(review, style_dir=None):
             '<span id="save-state" class="chip" hidden></span><a class="button" href="#feedback">Finish review</a>'
             '<button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button></div></header>'
             '<div class="layout">' + _nav_html(review) + '<main id="main">'
+            '<div id="server-notice" class="notice warning server-notice" role="status" hidden><p id="server-notice-text"></p>'
+            '<button id="server-reload" class="primary" type="button" hidden>Reload</button></div>'
             f'<header class="pr-header">{origin}<h1>{escape(target["title"])}</h1>' + _paragraph(review.get("summary"), "lead")
             + '<ul class="pr-facts" aria-label="Snapshot">' + "".join(facts) + '</ul>'
             + '<ul class="pr-chips" aria-label="Coverage">' + "".join(chips) + '</ul>'
@@ -533,7 +548,8 @@ def render_review(review, style_dir=None):
             '<p id="export-status" class="finish-status" role="status" aria-live="polite"></p><p id="import-status" class="finish-status" role="status" aria-live="polite"></p>'
             '<details id="export-preview" hidden><summary>Copy exported JSON</summary><label class="sr-only" for="feedback-json">Exported feedback JSON</label><textarea id="feedback-json" rows="10" readonly spellcheck="false"></textarea></details>'
             '<details id="retained-reviews" hidden><summary>Notes from earlier snapshots</summary><pre id="retained-json" class="code-block"></pre></details>'
-            '<details class="how-saving-works"><summary>How saving works</summary><p>Comments, notes, and approvals live only in this tab until you export them. Export writes a local JSON file; confirm the download saved before you close the tab. Import that file to restore this snapshot, or to carry comments and approvals into a later round of the same review. An approval covers one exact version of a file, so a file that changed since you approved it returns to the queue. Only the theme choice is stored automatically. The feedback file contains selected code, paths, and notes, so keep it private. Nothing is uploaded. Hand the JSON to your agent when you are ready.</p></details></section>'
+            '<details class="how-saving-works"><summary>How saving works</summary><p id="saving-file">Comments, notes, and approvals live only in this tab until you export them. Export writes a local JSON file; confirm the download saved before you close the tab. Import that file to restore this snapshot, or to carry comments and approvals into a later round of the same review. An approval covers one exact version of a file, so a file that changed since you approved it returns to the queue. Only the theme choice is stored automatically. The feedback file contains selected code, paths, and notes, so keep it private. Nothing is uploaded. Hand the JSON to your agent when you are ready.</p>'
+            '<p id="saving-server" hidden>This page came from the agent\'s local review server. Comments, notes, and approvals save automatically to the agent\'s review folder on this computer. An open comment draft saves once you save the comment. When you finish, tell your agent; the page cannot reach it. When the agent renders a new round, this page offers to reload, and your approvals carry over for every file that did not change. Export still writes a copy to a file. Nothing leaves this computer.</p></details></section>'
             '<footer class="page-footer"><p>Review the actual source before relying on conclusions. This file may contain private code; share it only with approved recipients.</p>'
             + f'<details class="font-notices"><summary>Font licenses</summary><pre>{escape(notices)}</pre></details></footer></main></div>'
             '<div id="composer-home" hidden><section id="comment-composer" class="composer" hidden aria-labelledby="composer-heading">'
@@ -552,22 +568,53 @@ def render_review(review, style_dir=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("input", type=Path, help="Normalized UTF-8 JSON review input")
-    parser.add_argument("-o", "--output", required=True, type=Path, help="Standalone HTML output file")
+    parser.add_argument("input", nargs="?", type=Path, help="Normalized UTF-8 JSON review input")
+    parser.add_argument("-o", "--output", type=Path, help="Standalone HTML output file")
+    parser.add_argument("--round", type=Path, metavar="STATE/rounds/NNNN",
+                        help="Render ROUND/input.json to ROUND/review.html once, then publish the round as current for serve_review.py")
     parser.add_argument("--style-dir", type=Path, help="Complete internal-visual-style companion folder (defaults to sibling)")
     args = parser.parse_args(argv)
+    if args.round is not None and (args.input or args.output):
+        parser.error("--round replaces INPUT and --output")
+    if args.round is None and not (args.input and args.output):
+        parser.error("give INPUT and --output, or --round")
     try:
-        if args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):
-            raise ValidationError("input and output must be different files")
-        review = load_review(args.input)
-        page = render_review(review, args.style_dir)
-        args.output.write_text(page, encoding="utf-8")
+        if args.round is not None:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import review_state
+            state, number = review_state.round_of(args.round)
+            # Build the paths from the checked state, not the path as given, which could pass through a symlink.
+            round_dir = state / "rounds" / f"{number:04d}"
+            args.input, args.output = round_dir / "input.json", round_dir / "review.html"
+            # The publish lock spans the check, the read, the page, and current, so the collector cannot change the input
+            # between them and the server cannot see a half-published round.
+            with review_state.lock(state, "publish"):
+                if args.output.exists():
+                    raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")
+                # A link's target, or a hard link's other name, could change after the page renders, and later readers
+                # would see other input.
+                info = os.lstat(args.input)
+                if stat.S_ISLNK(info.st_mode) or info.st_nlink > 1:
+                    raise ValidationError(f"{args.input} is a symbolic or hard link. Put a private copy of the input in the round, so it cannot change after rendering.")
+                review = load_review(args.input)
+                page = render_review(review, args.style_dir)
+                review_state.write_private(args.output, page.encode("utf-8"), replace=False)
+                review_state.write_private(round_dir / "input.sha256", (input_digest(review) + "\n").encode("ascii"), replace=False)
+                review_state.publish(state, number, held=True)
+        else:
+            if args.input.resolve() == args.output.resolve() or (args.output.exists() and args.input.samefile(args.output)):
+                raise ValidationError("input and output must be different files")
+            review = load_review(args.input)
+            page = render_review(review, args.style_dir)
+            args.output.write_text(page, encoding="utf-8")
     except (ValidationError, OSError, ValueError, RecursionError) as error:
         print(f"Error: {escaped(error)}", file=sys.stderr)
         return 2
     missing, incomplete, unverified = coverage_counts(review["files"])
     print(f"Wrote {shown(str(args.output))} ({_plural(len(review['files']), 'file')}; {_plural(missing, 'missing patch', 'missing patches')}; "
           f"{_plural(incomplete, 'incomplete patch', 'incomplete patches')}; {_plural(unverified, 'unverified patch', 'unverified patches')})")
+    if args.round is not None:
+        print(f"Published round {number:04d} in {shown(str(state))}")
     return 0
 
 

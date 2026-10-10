@@ -21,7 +21,7 @@
   const nav = new Map(Array.from(document.querySelectorAll(".file-nav li[data-file]"), item => [item.dataset.file, item]));
   // IDs of comments deleted in this tab. An import holding one would bring it back, so the import is refused instead.
   const removed = new Set();
-  let dirty = false, exported = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
+  let dirty = false, comments = [], retained = [], approvals = new Map(), selection = null, composerAnchor = null, editing = null, reattaching = null, deleted = null, importSequence = 0;
   let composerRow = null, composerReturn = null, composerFallback = null, toastTimer = 0, orphanCount = 0, lastFocus = null;
   const editedNotes = new Set(), editedApprovals = new Set(); let editedGeneral = false;
   const pinned = contract.pinned(metadata.target);
@@ -61,10 +61,135 @@
     byId("review-summary").textContent = [`${approved} of ${plural(cards.length, "file")} approved`,
       plural(comments.length, "comment") + (orphanCount ? `, ${orphanCount} unattached` : ""), plural(notes, "file note")].join(" · ");
   }
-  function saveState() {
-    const chip = byId("save-state");
-    chip.hidden = !dirty; chip.className = exported ? "chip" : "chip warning"; chip.textContent = exported ? "Exported" : "Not exported";
+  // Feedback persistence sits behind one boundary with two implementations: a file the reviewer exports and imports,
+  // or the local review server, which saves automatically. Only a page the server served carries its session token.
+  function fileStore() {
+    let exported = false;
+    // An open draft is in no export yet, so it shows as unexported even before any other change.
+    const show = () => {
+      const chip = byId("save-state");
+      chip.hidden = !dirty && !draftOpen(); chip.className = exported ? "chip" : "chip warning"; chip.textContent = exported ? "Exported" : "Not exported";
+    };
+    return {
+      start: show,
+      refresh: show,
+      changed() { exported = false; byId("export-status").textContent = "Changes are in this tab only. Export to save them."; show(); },
+      draftChanged() { exported = false; show(); },
+      exported(draft) { exported = !draft; show(); },
+      merged() { exported = false; show(); byId("export-status").textContent = dirty ? "Export the combined feedback to save this state." : "Saved snapshot restored from your local file."; },
+      // A requested download does not prove a durable save, so any change keeps the unload warning.
+      unsaved: () => dirty,
+    };
   }
+  function serverStore(token, round, interval) {
+    const chip = byId("save-state");
+    let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "", failed = false;
+    // Revisions of saves that failed or whose reply never arrived. The server may have written them anyway, for example
+    // when syncing the directory failed after the file was replaced, so a conflict naming one is this tab's own save.
+    const unconfirmed = new Set();
+    const digest = async text => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
+    // A reply cut short is no reply: callers see status 0, as for a dropped connection, never an empty success.
+    const call = (path, options = {}) => fetch(path, { ...options, cache: "no-store", credentials: "same-origin", headers: { "X-Review-Token": token, ...options.headers } })
+      .then(async response => {
+        try { return { status: response.status, reply: await response.json() }; } catch { return { status: 0, reply: { error: "The review server's reply was incomplete." } }; }
+      });
+    function notify(message, reload) {
+      byId("server-notice-text").textContent = message; byId("server-reload").hidden = !reload; byId("server-notice").hidden = false;
+    }
+    function pause(message) { paused = message; show("Not saved", true); notify(message, true); }
+    function save() {
+      clearTimeout(timer); timer = 0;
+      if (paused || !ready) return Promise.resolve();
+      if (saving) { again = true; return saving; }
+      let body;
+      try {
+        body = JSON.stringify(feedback());
+        if (new Blob([body]).size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB, so it was not saved. Shorten notes or comments to save it again.");
+      } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
+      show("Saving");
+      saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(async ({ status, reply }) => {
+        if (status === 409 && unconfirmed.has(reply.revision)) {
+          revision = reply.revision; unconfirmed.clear(); again = true; return;  // save again on top of this tab's own write
+        }
+        if (status === 200 && !/^[0-9a-f]{64}$/.test(reply.revision ?? "")) {
+          // The server saved, but its reply arrived broken, so the new revision is unknown. Treat it as a lost reply.
+          failed = true; show("Not saved", true); byId("export-status").textContent = "The review server's reply was incomplete. Export your feedback to keep it.";
+          unconfirmed.add(await digest(body)); return;
+        }
+        failed = status !== 200;
+        if (status === 200) {
+          unconfirmed.clear();
+          // A change made while this request ran is not in it yet, so the page says Saved only when none is waiting.
+          revision = reply.revision; show(timer || again ? "Saving" : draftOpen() ? "Saved, except the open draft" : "Saved");
+          byId("export-status").textContent = "Saved to the agent's review folder. When you finish, tell your agent.";
+        } else if (status === 409) pause(`${reply.error} Changes made in this tab since its last save are not saved; export them first to keep them.`);
+        else {
+          show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`;
+          unconfirmed.add(await digest(body));
+        }
+      }, async () => {
+        failed = true; show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it.";
+        unconfirmed.add(await digest(body));
+      })
+        .finally(() => { saving = null; if (again) { again = false; save(); } });
+      return saving;
+    }
+    // A newer round is offered, never loaded on its own, so an open draft or unsaved change is not lost.
+    function poll() {
+      call("/round").then(({ status, reply }) => {
+        // Polling continues after the offer: it is also what keeps the server running while this page stays open.
+        if (status === 200 && reply.round !== round) notify(`Round ${reply.round} is ready. Reload to review it; your saved feedback carries over.`, true);
+        if (status === 200 || status === 0) setTimeout(poll, interval);  // a reply cut short is retried
+        else notify(`The review server refused to answer: ${reply.error || `HTTP ${status}`}`, false);
+      }, () => notify("The review server stopped. Export your feedback to keep changes you make from now on.", false));
+    }
+    byId("server-reload").addEventListener("click", async () => {
+      // A change made during the last save waits in the debounce timer or the queue; save it too before leaving. A save
+      // that failed before is tried again, and one that still fails keeps the page, so the reload loses nothing.
+      if (failed && !paused) await save();
+      while (ready && !paused && (timer || saving || again)) { if (saving) await saving; else await save(); }
+      if (failed && !paused) { notify("The last save failed, so the page did not reload. Export your feedback, or choose Reload to try again.", true); return; }
+      location.reload();
+    });
+    return {
+      async start() {
+        byId("saving-file").hidden = true; byId("saving-server").hidden = false; show("Loading");
+        const { status, reply } = await call("/feedback").catch(() => ({ status: 0, reply: {} }));
+        if (status !== 200 || !/^([0-9a-f]{64}|none)$/.test(reply.revision ?? "")) { show("Not saved", true); paused = reply.error || "The review server did not return the saved feedback."; notify(`${paused} Saving is paused so nothing is overwritten.`, false); return; }
+        revision = reply.revision;
+        let carried = false;
+        if (reply.feedback) {
+          try {
+            const result = mergeFeedback(contract.validateFeedback(reply.feedback));
+            byId("import-status").textContent = `Loaded saved feedback: ${result.summary}`;
+            carried = !result.same;
+          } catch (error) { show("Not saved", true); paused = error.message; notify(`The saved feedback could not be loaded: ${error.message} Saving is paused so nothing is overwritten.`, false); return; }
+        }
+        ready = true; show(draftOpen() ? "Saved, except the open draft" : "Saved");  // a draft may have opened while loading
+        byId("export-status").textContent = "Feedback saves automatically to the agent's review folder. When you finish, tell your agent.";
+        // Feedback from an earlier round is saved again against this snapshot, with its notes kept separately.
+        if (carried || again) { again = false; save(); }
+        poll();
+      },
+      changed() {
+        if (!ready) { again = true; return; }
+        if (!paused) show("Saving");
+        clearTimeout(timer); timer = setTimeout(save, 500);
+      },
+      // A draft never saves until the reviewer saves it, so the status says so while one is open.
+      refresh() { if (ready && !paused && !failed && !timer && !saving) show(draftOpen() ? "Saved, except the open draft" : "Saved"); },
+      draftChanged() { this.refresh(); },
+      // A requested download does not prove a saved file, so a failed save keeps its unload warning until a save succeeds.
+      exported() {},
+      merged() { this.changed(); },
+      unsaved: () => Boolean(timer || saving || again || failed || (paused && dirty)),
+    };
+  }
+  const session = document.querySelector('meta[name="review-canvas-token"]');
+  const persistence = location.protocol === "http:" && session
+    ? serverStore(session.content, Number(document.querySelector('meta[name="review-canvas-round"]').content),
+      Number(document.querySelector('meta[name="review-canvas-poll"]')?.content) || 3000) : fileStore();
   function refresh() {
     const query = search.value.trim().toLocaleLowerCase();
     let shown = 0, approved = 0;
@@ -88,9 +213,7 @@
     summarize();
   }
   function changed() {
-    dirty = true; exported = false;
-    byId("export-status").textContent = "Changes are in this tab only. Export to save them.";
-    byId("export-preview").hidden = true; saveState(); summarize();
+    dirty = true; byId("export-preview").hidden = true; persistence.changed(); summarize();
   }
   function currentFiles() {
     return metadata.files.map(file => {
@@ -218,6 +341,7 @@
   function closeComposer(restoreFocus = false) {
     const fallback = composerFallback;
     parkComposer(); editing = null; reattaching = null; selection = null; composerAnchor = null; composerFallback = null; hideFloating();
+    persistence.refresh();
     byId("selection-status").textContent = pinned ? "No code text selected." : "Inline comments are off.";
     if (restoreFocus) (composerReturn?.isConnected && composerReturn.checkVisibility() ? composerReturn : fallback?.())?.focus();
     composerReturn = null;
@@ -352,7 +476,7 @@
     document.querySelector(`.inline-comment[data-comment-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: true });
   });
   byId("cancel-comment").addEventListener("click", () => closeComposer(true));
-  byId("comment-body").addEventListener("input", () => { if (exported) { exported = false; saveState(); } });
+  byId("comment-body").addEventListener("input", () => persistence.draftChanged());
   composer.addEventListener("keydown", event => {
     if (event.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); closeComposer(true); }
@@ -415,81 +539,104 @@
       byId("export-status").textContent = draft
         ? "Download requested, without the open comment draft. Save or cancel the draft, then export again."
         : "Download requested. Confirm it saved, then hand the JSON to your agent. It can be imported here later. A copy is available below.";
-      exported = !draft; saveState();
+      persistence.exported(draft);
     } catch (_) { preview.open = true; byId("export-status").textContent = "Download unavailable. Copy the JSON below to save your feedback."; }
     // A requested download does not prove a successful durable save; keep the unload guard.
   });
+  // Merge validated feedback into the page: an imported file, or what the server saved earlier. Every check runs before
+  // anything changes, so a conflict or another review's file leaves the open review as it was.
+  function mergeFeedback(incoming) {
+    if (!sameTarget(incoming) || incoming.comments.some(comment => !sameTarget(comment.anchor.snapshot) || comment.history.some(anchor => !sameTarget(anchor.snapshot))) || incoming.retained_reviews.some(review => !sameTarget(review))) throw Error("Feedback belongs to another review target or an unidentified snapshot.");
+    if (!composer.hidden && byId("comment-body").value) { revealComposer(); throw Error("Finish or cancel the open comment draft before importing."); }
+    const same = incoming.input_sha256 === metadata.input_sha256;
+    if (same && (incoming.files.length !== metadata.files.length || incoming.files.some(file => !sources.has(file.path)))) throw Error("Feedback inventory does not match this snapshot.");
+    const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);
+    const normalized = value => Array.isArray(value) ? value.map(normalized) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalized(value[key])])) : value;
+    const comparable = value => JSON.stringify(normalized(value));
+    for (const comment of incomingComments) {
+      const local = comments.find(item => item.id === comment.id);
+      if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
+      if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
+    }
+    const localFiles = currentFiles();
+    if (same && (localFiles.some(local => {
+      const saved = incoming.files.find(file => file.path === local.path);
+      return (editedNotes.has(sources.get(local.path).id) || local.notes) && local.notes !== saved.notes;
+    }) || ((editedGeneral || byId("general-notes").value) && byId("general-notes").value !== incoming.general_notes))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
+    // Approvals merge by path. Keep the one for the current version, or else the newer one. An approval made in this
+    // tab stays; one cleared in this tab is never restored silently.
+    const nextApprovals = new Map(approvals);
+    for (const record of incoming.approvals) {
+      const local = approvals.get(record.path), current = sources.get(record.path)?.fingerprint;
+      if (editedApprovals.has(record.path)) {
+        if (!local) throw Error("Conflicting approval. Open review preserved; export it before restoring into a fresh page.");
+      } else if (!local || ((record.fingerprint === current) !== (local.fingerprint === current) ? record.fingerprint === current : record.approved_at > local.approved_at)) {
+        nextApprovals.set(record.path, record);
+      }
+    }
+    const nextRetained = retained.slice();
+    const earlier = incoming.retained_reviews.slice();
+    // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes. One with no
+    // notes at all has nothing to keep, and would only use up the retained limit.
+    const noted = incoming.files.filter(file => file.notes);
+    if (!same && (incoming.general_notes || noted.length)) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: noted });
+    for (const review of earlier) {
+      const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
+      if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
+      if (!local) nextRetained.push(review);
+    }
+    // A snapshot that is current again, as when the code returns to an earlier version, leaves the retained list, and its
+    // notes come back beside this tab's. A note this tab wrote, a deliberate blank included, that differs from one coming
+    // back conflicts instead of replacing it.
+    const returning = nextRetained.findIndex(item => item.input_sha256 === metadata.input_sha256);
+    const restored = !same && returning >= 0 ? nextRetained.splice(returning, 1)[0] : null;
+    if (restored && restored.files.some(file => !sources.has(file.path))) throw Error("Feedback holds notes for this snapshot that list other files.");
+    const restoredNotes = new Map((restored?.files || []).map(file => [file.path, file.notes]));
+    const clash = (local, edited, saved) => Boolean(saved) && (edited || Boolean(local)) && local !== saved;
+    if (restored && (clash(byId("general-notes").value, editedGeneral, restored.general_notes)
+      || localFiles.some(file => clash(file.notes, editedNotes.has(sources.get(file.path).id), restoredNotes.get(file.path))))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
+    // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round. Only the
+    // incoming history, oldest first, says which are older; with earlier snapshots only this tab holds, refuse instead.
+    if (nextRetained.length > 50) {
+      const order = new Map(earlier.map((review, index) => [review.input_sha256, index]));
+      if (nextRetained.some(item => !order.has(item.input_sha256))) throw Error("Together, the open review and this file hold more than 50 earlier snapshots. Open review preserved.");
+      nextRetained.sort((a, b) => order.get(a.input_sha256) - order.get(b.input_sha256)).splice(0, nextRetained.length - 50);
+    }
+    const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
+    // A retained snapshot lists only its noted files; every other file's note is empty.
+    const nextFiles = localFiles.map(file => ({ ...file, notes: same ? incoming.files.find(saved => saved.path === file.path).notes : file.notes || restoredNotes.get(file.path) || "" }));
+    const nextGeneral = same ? incoming.general_notes : byId("general-notes").value || restored?.general_notes || "";
+    const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
+      comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
+    contract.validateFeedback(merged);
+    if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
+    comments = nextComments; retained = nextRetained; approvals = nextApprovals;
+    if (same || restored) {
+      for (const saved of nextFiles) {
+        const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
+        card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
+      }
+      byId("general-notes").value = nextGeneral;
+    }
+    deleted = null; announce(""); closeComposer(); drawComments(); refresh();
+    // The page is dirty when it holds something the incoming feedback lacks, so loading the same file again stays clean.
+    const key = review => comparable({ general_notes: review.general_notes, files: review.files, approvals: [...review.approvals].sort((a, b) => a.path < b.path ? -1 : 1),
+      comments: review.comments.map(({ attachment: _, ...comment }) => comment).sort((a, b) => a.id < b.id ? -1 : 1), retained: [...review.retained_reviews].sort((a, b) => a.input_sha256 < b.input_sha256 ? -1 : 1) });
+    dirty = !same || key(feedback()) !== key(incoming); byId("export-preview").hidden = true;
+    const states = metadata.files.map(approvalState), approvedCount = states.filter(state => state === "approved").length, changedCount = states.filter(state => state === "changed").length;
+    return { same, summary: `${plural(incoming.comments.length, "comment")}. ${orphanCount} unattached. ${approvedCount} of ${plural(cards.length, "file")} approved, ${changedCount} changed since approval. ${same ? "Snapshot notes restored." : "Notes from the earlier snapshot are kept separately."}` };
+  }
   byId("import-feedback").addEventListener("change", async event => {
     const token = ++importSequence, file = event.target.files?.[0]; event.target.value = "";
     if (!file) return;
     try {
       if (file.size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB.");
-      const incoming = contract.parseFeedback(await file.text()); if (token !== importSequence) return;
-      if (!sameTarget(incoming) || incoming.comments.some(comment => !sameTarget(comment.anchor.snapshot) || comment.history.some(anchor => !sameTarget(anchor.snapshot))) || incoming.retained_reviews.some(review => !sameTarget(review))) throw Error("Feedback belongs to another review target or an unidentified snapshot.");
-      if (!composer.hidden && byId("comment-body").value) { revealComposer(); throw Error("Finish or cancel the open comment draft before importing."); }
-      const same = incoming.input_sha256 === metadata.input_sha256;
-      if (same && (incoming.files.length !== metadata.files.length || incoming.files.some(file => !sources.has(file.path)))) throw Error("Feedback inventory does not match this snapshot.");
-      const incomingComments = incoming.comments.map(({ attachment: _, ...comment }) => comment);
-      const normalized = value => Array.isArray(value) ? value.map(normalized) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, normalized(value[key])])) : value;
-      const comparable = value => JSON.stringify(normalized(value));
-      for (const comment of incomingComments) {
-        const local = comments.find(item => item.id === comment.id);
-        if (local && comparable(local) !== comparable(comment)) throw Error("Conflicting comment ID. Open review preserved; export it before restoring into a fresh page.");
-        if (removed.has(comment.id)) throw Error("This file holds a comment deleted in this tab. Open review preserved; export it before restoring into a fresh page.");
-      }
-      const localFiles = currentFiles();
-      if (same && (localFiles.some(local => {
-        const saved = incoming.files.find(file => file.path === local.path);
-        return (editedNotes.has(sources.get(local.path).id) || local.notes) && local.notes !== saved.notes;
-      }) || ((editedGeneral || byId("general-notes").value) && byId("general-notes").value !== incoming.general_notes))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
-      // Approvals merge by path. Keep the one for the current version, or else the newer one. An approval made in this
-      // tab stays; one cleared in this tab is never restored silently.
-      const nextApprovals = new Map(approvals);
-      for (const record of incoming.approvals) {
-        const local = approvals.get(record.path), current = sources.get(record.path)?.fingerprint;
-        if (editedApprovals.has(record.path)) {
-          if (!local) throw Error("Conflicting approval. Open review preserved; export it before restoring into a fresh page.");
-        } else if (!local || ((record.fingerprint === current) !== (local.fingerprint === current) ? record.fingerprint === current : record.approved_at > local.approved_at)) {
-          nextApprovals.set(record.path, record);
-        }
-      }
-      const nextRetained = retained.slice();
-      const earlier = incoming.retained_reviews.slice();
-      // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes. One with no
-      // notes at all has nothing to keep, and would only use up the retained limit.
-      const noted = incoming.files.filter(file => file.notes);
-      if (!same && (incoming.general_notes || noted.length)) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: noted });
-      for (const review of earlier) {
-        const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
-        if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
-        if (!local) nextRetained.push(review);
-      }
-      const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
-      const nextFiles = same ? incoming.files : localFiles;
-      const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
-      const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
-        comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
-      contract.validateFeedback(merged);
-      if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
-      comments = nextComments; retained = nextRetained; approvals = nextApprovals;
-      if (same) {
-        for (const saved of incoming.files) {
-          const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
-          card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
-        }
-        byId("general-notes").value = incoming.general_notes;
-      }
-      deleted = null; announce(""); closeComposer(); drawComments(); refresh();
-      // The page is dirty when it holds something the imported file lacks, so importing the same file again stays clean.
-      const key = review => comparable({ general_notes: review.general_notes, files: review.files, approvals: [...review.approvals].sort((a, b) => a.path < b.path ? -1 : 1),
-        comments: review.comments.map(({ attachment: _, ...comment }) => comment).sort((a, b) => a.id < b.id ? -1 : 1), retained: [...review.retained_reviews].sort((a, b) => a.input_sha256 < b.input_sha256 ? -1 : 1) });
-      dirty = !same || key(feedback()) !== key(incoming); exported = false; saveState(); byId("export-preview").hidden = true;
-      const states = metadata.files.map(approvalState), approvedCount = states.filter(state => state === "approved").length, changedCount = states.filter(state => state === "changed").length;
-      byId("import-status").textContent = `Imported ${plural(incoming.comments.length, "comment")}. ${orphanCount} unattached. ${approvedCount} of ${plural(cards.length, "file")} approved, ${changedCount} changed since approval. ${same ? "Snapshot notes restored." : "Notes from the earlier snapshot are kept separately."}`;
-      byId("export-status").textContent = dirty ? "Export the combined feedback to save this state." : "Saved snapshot restored from your local file.";
+      const incoming = contract.parseFeedbackBytes(new Uint8Array(await file.arrayBuffer())); if (token !== importSequence) return;
+      byId("import-status").textContent = `Imported ${mergeFeedback(incoming).summary}`;
+      persistence.merged();
     } catch (error) { if (token === importSequence) byId("import-status").textContent = `Import rejected: ${error.message} Existing feedback was not changed.`; }
   });
-  window.addEventListener("beforeunload", event => { if (dirty || (!composer.hidden && byId("comment-body").value)) { event.preventDefault(); event.returnValue = ""; } });
+  window.addEventListener("beforeunload", event => { if (persistence.unsaved() || (!composer.hidden && byId("comment-body").value)) { event.preventDefault(); event.returnValue = ""; } });
 
   // Keep sticky offsets in step with the app bar, which wraps at large text sizes.
   const topbar = document.querySelector(".topbar");
@@ -507,5 +654,5 @@
     for (const card of cards) observer.observe(card);
   }
   byId("selection-status").textContent = pinned ? "No code text selected." : "Inline comments are off.";
-  closeComposer(); drawComments(); refresh(); saveState();
+  closeComposer(); drawComments(); refresh(); persistence.start();
 })();

@@ -160,6 +160,42 @@ def link_blob(path, fmt):
     return read_blob(path, fmt)["blob"]
 
 
+def round_input(path):
+    """Whether path names a round's input: STATE/rounds/NNNN/input.json."""
+    return path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name) is not None
+
+
+def in_state_directory(path):
+    """Whether path is a file of a review state directory, STATE/NAME or STATE/rounds/NNNN/NAME. A state directory is
+    private to this user and holds a numbered round, so a shared ancestor such as /tmp never counts as one."""
+    if not hasattr(os, "getuid"):
+        return False  # no ownership to check, as on Windows, where server mode and its state directories are refused
+    def is_state(directory):
+        try:
+            info = os.stat(directory)
+            return (info.st_uid == os.getuid() and not info.st_mode & 0o077
+                    and any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(directory / "rounds")))
+        except OSError:
+            return False
+    return is_state(path.parent) or (path.parent.parent.name == "rounds" and is_state(path.parent.parent.parent))
+
+
+def rendered_round_input(output):
+    """Whether output is a STATE/rounds/NNNN/input.json whose round is closed: it rendered, or a newer round has
+    published, so it never can. Other paths, as in the file workflow, are never frozen."""
+    path = Path(output).resolve()
+    if not round_input(path):
+        return False
+    if (path.parent / "review.html").exists():
+        return True
+    import review_state
+    try:
+        current = review_state.read_current(path.parent.parent.parent)
+    except review_state.StateError:
+        return False
+    return current is not None and int(path.parent.name) <= current
+
+
 def disk_mode(path):
     """The Git mode of a working tree path, or None when it is absent."""
     try:
@@ -604,6 +640,8 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
         raise CollectError(f"{repo} sets core.worktree to {top}, which Git there resolves to another repository or none. "
                            f"Collect from the repository that {top} belongs to.")
     if output is not None:
+        if rendered_round_input(output):
+            raise CollectError(f"{Path(output).parent} has rendered, or a newer round has; a round never changes after it renders. Start a new round.")
         common_dir = (Path(repo) / decode_path(git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n"))).resolve()
         states = git_dir / "review-canvas"
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
@@ -617,6 +655,10 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
         if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(states):
             raise CollectError(f"--output {output} is inside the working tree, where the snapshot would become an untracked "
                                f"change of its own. Write it outside {top} or inside {states}.")
+        # In a review state directory, only a round's input is the collector's: pages, feedback, and locks are not.
+        if (destination.is_relative_to(states) or in_state_directory(destination)) and not round_input(destination):
+            raise CollectError(f"--output {output} is inside a review state directory, where only STATE/rounds/NNNN/input.json "
+                               "is the collector's to write. Create a round with review_state.py new-round and write its input.json.")
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     config = filter_overrides(top)
     if Path(tempfile.gettempdir()).resolve().is_relative_to(top.resolve()):
@@ -706,15 +748,30 @@ def write_atomic(path, text):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=Path("."), help="Directory inside the working tree (default: current directory)")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write, outside the repository or in the review-canvas folder of its Git directory")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write: outside the repository, or STATE/rounds/NNNN/input.json in a review state directory")
     parser.add_argument("--title", help="Review title (default: Uncommitted changes on BRANCH)")
     parser.add_argument("--include-secret-file", action="append", default=[], metavar="PATH",
                         help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")
     args = parser.parse_args(argv)
     try:
+        # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
+        # symlink on the way cannot point them at different rounds.
+        output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
+        # A round's state could be archived and a new one made at the same path while collecting; its identity tells them apart.
+        state = output.parent.parent.parent if round_input(output) else None
+        identity = lambda: (lambda info: (info.st_dev, info.st_ino))(os.stat(state)) if state and state.exists() else None
+        before = identity()
         staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output, staged=staged)
-        write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+        review, flagged = collect(args.repo, args.title, args.include_secret_file, output, staged=staged)
+        # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
+        # rendering also holds from its check to publishing, makes this last check and the write one step.
+        import review_state
+        with review_state.round_lock(output):
+            if identity() != before:
+                raise CollectError(f"{state} was archived or replaced while collecting; nothing was written. Create a round and collect again.")
+            if rendered_round_input(output):
+                raise CollectError(f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round.")
+            write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks
         return 2

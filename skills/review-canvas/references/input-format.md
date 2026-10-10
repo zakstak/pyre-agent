@@ -17,7 +17,7 @@ Use [example-review.json](../assets/example-review.json) as a working starting p
 
 - `url`, when present, must identify a PR at `https://github.com/OWNER/REPO/pull/NUMBER`.
 - `head_sha` and `base_sha` are full commit hashes. For a working tree, `head_sha` is the `HEAD` commit that the uncommitted changes are compared with.
-- `root` is the absolute path of the working tree. `branch` is the checked-out branch; omit it for a detached `HEAD`.
+- `root` is the absolute path of the working tree: a POSIX path, a Windows drive path, or a Windows UNC path such as `\\server\share\repo`. `branch` is the checked-out branch; omit it for a detached `HEAD`.
 - `changed_files` records the expected file count.
 
 Inline comments need a pinned target. A `github_pr` target is pinned only when it has both `url` and `head_sha`. A `worktree` target is always pinned.

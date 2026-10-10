@@ -1008,6 +1008,37 @@ class OutputTests(Fixture):
         self.assertRegex(err, r"^Error: --output .* is inside the working tree")
         self.assertFalse((self.root / "review.json").exists())
 
+    def test_only_a_round_input_is_written_in_a_state_directory(self):
+        import review_state
+        for state in (self.root / ".git" / "review-canvas", self.base / "state"):
+            round_dir = review_state.new_round(state)
+            (round_dir / "input.json").write_text("{}")
+            for target in (round_dir / "review.html", state / "server.lock", state / "feedback.json", state / "notes.json"):
+                with self.subTest(target=target):
+                    code, _, err = self.main("--output", str(target))
+                    self.assertEqual(code, 2)
+                    self.assertIn("only STATE/rounds/NNNN/input.json", err)
+        self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
+
+    def test_output_works_where_ownership_cannot_be_read(self):
+        with mock.patch.object(collector.os, "getuid", None):
+            del collector.os.getuid  # as on Windows
+            code, _, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0, err)
+
+    def test_a_shared_ancestor_with_rounds_is_not_a_state_directory(self):
+        shared = self.base / "shared"
+        (shared / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(shared, 0o755)  # not private, as /tmp is not
+        code, _, err = self.main("--output", str(shared / "review.json"))
+        self.assertEqual(code, 0, err)
+        nested = self.base / "deep"
+        (nested / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(nested, 0o700)
+        (nested / "a" / "b").mkdir(parents=True)
+        code, _, err = self.main("--output", str(nested / "a" / "b" / "review.json"))
+        self.assertEqual(code, 0, err)  # only the directory that holds the output, or its round's state, counts
+
     def test_refuses_git_files_as_output(self):
         head = (self.root / ".git" / "HEAD").read_bytes()
         for name in ("HEAD", "config", "review.json"):
@@ -1087,8 +1118,8 @@ class OutputTests(Fixture):
         self.assertFalse(outside.exists())
 
     def test_writes_private_valid_output_inside_the_git_directory(self):
-        (self.root / ".git" / "review-canvas").mkdir()
-        output = self.root / ".git" / "review-canvas" / "review.json"
+        import review_state
+        output = review_state.new_round(self.root / ".git" / "review-canvas") / "input.json"
         code, out, _ = self.main("--output", str(output))
         self.assertEqual(code, 0)
         self.assertEqual(out, f"Wrote {output} (1 file; 0 binary; 0 too large; 0 likely secret)\n")
@@ -1183,6 +1214,42 @@ class IsolationTests(Fixture):
             files = self.collect()
         self.assertFalse(marker.exists(), "the repository's git file ran")
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
+
+    def test_a_state_replaced_while_collecting_is_not_written(self):
+        import review_state
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        state = self.base / "state"
+        round_dir = review_state.new_round(state)
+        real = collector.collect
+        def archiving(*args, **options):
+            result = real(*args, **options)
+            review_state.archive(state)  # the review is archived, and an unrelated one starts at the same path
+            (review_state.new_round(state) / "input.json").write_text("{}")
+            return result
+        with mock.patch.object(collector, "collect", archiving):
+            code, _, err = self.main("--output", str(round_dir / "input.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("was archived or replaced while collecting", err)
+        self.assertEqual((state / "rounds/0001/input.json").read_text(), "{}")
+
+    def test_the_lock_the_final_check_and_the_write_use_one_resolved_path(self):
+        import review_state
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        round_dir = review_state.new_round(self.base / "state")
+        alias = self.base / "alias"
+        os.symlink(round_dir, alias)
+        seen = []
+        def record(real):
+            return lambda path, *rest: (seen.append(Path(path)), real(path, *rest))[1]
+        with mock.patch.object(review_state, "round_lock", record(review_state.round_lock)), \
+                mock.patch.object(collector, "rendered_round_input", record(collector.rendered_round_input)), \
+                mock.patch.object(collector, "write_atomic", record(collector.write_atomic)):
+            code, _, err = self.main("--output", str(alias / "input.json"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(seen), 4)  # the check in collect, the lock, the final check, and the write
+        self.assertEqual(set(seen), {round_dir.resolve() / "input.json"})
 
     def test_a_git_executable_inside_the_repository_never_runs(self):
         marker = self.base / "repo-git-ran"

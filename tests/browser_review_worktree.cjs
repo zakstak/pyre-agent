@@ -140,6 +140,70 @@ function render(name) {
     await importFile(otherPath, "Import rejected");
     assert.match(await page.locator("#import-status").textContent(), /another review target/);
 
+    // Carrying feedback into a new round keeps only the newest 50 earlier snapshots, so the merge stays valid.
+    await load(round2);
+    const long = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
+    long.retained_reviews = Array.from({ length: 50 }, (_, i) => ({ target: long.target, input_sha256: i.toString(16).padStart(64, "0"), general_notes: `round ${i}`, files: [] }));
+    long.general_notes = "round one notes";  // a snapshot with notes is retained; one without would not be
+    const longPath = path.join(temp, "fifty-retained.json"); fs.writeFileSync(longPath, JSON.stringify(long));
+    await importFile(longPath);
+    const carried = await exportFeedback();
+    assert.equal(carried.retained_reviews.length, 50);
+    assert.equal(carried.retained_reviews.some(review => review.general_notes === "round 0"), false, "the oldest snapshot is dropped");
+    assert.equal(carried.retained_reviews.at(-1).input_sha256, long.input_sha256, "round 1 is kept as the newest");
+
+    // When the code returns to round 1, round 1's notes come back from the retained list instead of staying there.
+    const digest = name => spawnSync(process.env.PYTHON || "python3", ["-c", "import json,sys;sys.path.insert(0,sys.argv[1]);import render_review as r;print(r.input_digest(r.load_review(sys.argv[2])))",
+      path.join(root, "skills/review-canvas/scripts"), path.join(fixtures, name)], { encoding: "utf8" }).stdout.trim();
+    const back = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
+    const round1Snapshot = { target: back.target, input_sha256: back.input_sha256, general_notes: "round one overall",
+      files: back.files.filter(file => file.path === "src/notes/cli.py").map(file => ({ ...file, notes: "round one note" })) };  // only noted files are retained
+    back.input_sha256 = digest("worktree-review-round2.json");
+    back.retained_reviews = [round1Snapshot];
+    const backPath = path.join(temp, "returning.json"); fs.writeFileSync(backPath, JSON.stringify(back));
+    await load(round1);
+    await importFile(backPath);
+    assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
+    const returned = await exportFeedback();
+    assert.equal(returned.files.length, 10, "every file of the snapshot is listed again");
+    assert.deepEqual(returned.retained_reviews, [], "round 1 is current again, and round 2 had no notes to keep");
+    // A note already typed in this tab stays beside the returning notes; one that differs from a returning note conflicts.
+    await load(round1);
+    await card("src/notes/store.py").locator(".notes-details > summary").click();
+    await card("src/notes/store.py").locator(".file-notes").fill("typed before the import");
+    await importFile(backPath);
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
+    assert.equal(await card("src/notes/store.py").locator(".file-notes").inputValue(), "typed before the import");
+    assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
+    await load(round1);
+    await card("src/notes/cli.py").locator(".notes-details > summary").click();
+    await card("src/notes/cli.py").locator(".file-notes").fill("a different note");
+    await importFile(backPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /Conflicting notes/);
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "a different note");
+    // Two histories that together pass 50 earlier snapshots cannot be ordered, so the import is refused rather than
+    // dropping this tab's earlier notes.
+    const historyOf = (count, from) => Array.from({ length: count }, (_, i) => ({ target: back.target, input_sha256: (from + i).toString(16).padStart(64, "e"),
+      general_notes: `earlier ${from + i}`, files: [] }));
+    const withHistory = retainedReviews => Object.assign(structuredClone(back), { input_sha256: digest("worktree-review.json"), retained_reviews: retainedReviews, general_notes: "" });
+    const ownPath = path.join(temp, "own-history.json"), theirPath = path.join(temp, "their-history.json");
+    fs.writeFileSync(ownPath, JSON.stringify(withHistory(historyOf(1, 0))));
+    fs.writeFileSync(theirPath, JSON.stringify(withHistory(historyOf(50, 1))));
+    await load(round1);
+    await importFile(ownPath);
+    await importFile(theirPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /more than 50 earlier snapshots/);
+    // A retained entry for this snapshot that lists other files is refused before anything changes.
+    const broken = structuredClone(back);
+    broken.retained_reviews[0].files[0] = { ...broken.retained_reviews[0].files[0], path: "not/in/this/round.py" };
+    const brokenPath = path.join(temp, "broken-retained.json"); fs.writeFileSync(brokenPath, JSON.stringify(broken));
+    await load(round1);
+    await importFile(brokenPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /list other files/);
+    assert.equal(await page.locator("#general-notes").inputValue(), "");
+    assert.equal(await page.locator("#progress").textContent(), "0 of 10 approved");
+
     // A PR file without a fingerprint cannot be approved.
     const pr = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));
     delete pr.files[1].fingerprint;
