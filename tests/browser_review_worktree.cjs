@@ -181,6 +181,18 @@ function render(name) {
     await importFile(backPath, "Import rejected");
     assert.match(await page.locator("#import-status").textContent(), /Conflicting notes/);
     assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "a different note");
+    // Two histories that together pass 50 earlier snapshots cannot be ordered, so the import is refused rather than
+    // dropping this tab's earlier notes.
+    const historyOf = (count, from) => Array.from({ length: count }, (_, i) => ({ target: back.target, input_sha256: (from + i).toString(16).padStart(64, "e"),
+      general_notes: `earlier ${from + i}`, files: [] }));
+    const withHistory = retainedReviews => Object.assign(structuredClone(back), { input_sha256: digest("worktree-review.json"), retained_reviews: retainedReviews, general_notes: "" });
+    const ownPath = path.join(temp, "own-history.json"), theirPath = path.join(temp, "their-history.json");
+    fs.writeFileSync(ownPath, JSON.stringify(withHistory(historyOf(1, 0))));
+    fs.writeFileSync(theirPath, JSON.stringify(withHistory(historyOf(50, 1))));
+    await load(round1);
+    await importFile(ownPath);
+    await importFile(theirPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /more than 50 earlier snapshots/);
     // A retained entry for this snapshot that lists other files is refused before anything changes.
     const broken = structuredClone(back);
     broken.retained_reviews[0].files[0] = { ...broken.retained_reviews[0].files[0], path: "not/in/this/round.py" };

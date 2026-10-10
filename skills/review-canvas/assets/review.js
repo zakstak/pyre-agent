@@ -81,8 +81,8 @@
   function serverStore(token, round, interval) {
     const chip = byId("save-state");
     let revision = "none", ready = false, timer = 0, saving = null, again = false, paused = "", failed = false;
-    // Revisions of saves whose reply never arrived. The server may have written them, so a conflict naming one is this
-    // tab's own save, not another writer's.
+    // Revisions of saves that failed or whose reply never arrived. The server may have written them anyway, for example
+    // when syncing the directory failed after the file was replaced, so a conflict naming one is this tab's own save.
     const unconfirmed = new Set();
     const digest = async text => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, "0")).join("");
     const show = (text, warning = false) => { chip.hidden = false; chip.className = warning ? "chip warning" : "chip"; chip.textContent = text; };
@@ -102,7 +102,7 @@
         if (new Blob([body]).size > contract.MAX_BYTES) throw Error("Feedback exceeds 8 MiB, so it was not saved. Shorten notes or comments to save it again.");
       } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       show("Saving");
-      saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
+      saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(async ({ status, reply }) => {
         if (status === 409 && unconfirmed.has(reply.revision)) {
           revision = reply.revision; unconfirmed.clear(); again = true; return;  // save again on top of this tab's own write
         }
@@ -113,7 +113,10 @@
           revision = reply.revision; show(timer || again ? "Saving" : draftOpen() ? "Saved, except the open draft" : "Saved");
           byId("export-status").textContent = "Saved to the agent's review folder. When you finish, tell your agent.";
         } else if (status === 409) pause(`${reply.error} Changes made in this tab since its last save are not saved; export them first to keep them.`);
-        else { show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`; }
+        else {
+          show("Not saved", true); byId("export-status").textContent = `Save rejected: ${reply.error || `HTTP ${status}`}. Export your feedback to keep it.`;
+          unconfirmed.add(await digest(body));
+        }
       }, async () => {
         failed = true; show("Not saved", true); byId("export-status").textContent = "The review server is unreachable. Export your feedback to keep it.";
         unconfirmed.add(await digest(body));
@@ -575,8 +578,13 @@
     const clash = (local, edited, saved) => Boolean(saved) && (edited || Boolean(local)) && local !== saved;
     if (restored && (clash(byId("general-notes").value, editedGeneral, restored.general_notes)
       || localFiles.some(file => clash(file.notes, editedNotes.has(sources.get(file.path).id), restoredNotes.get(file.path))))) throw Error("Conflicting notes. Open review preserved; export it before restoring into a fresh page.");
-    // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
-    nextRetained.splice(0, Math.max(0, nextRetained.length - 50));
+    // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round. Only the
+    // incoming history, oldest first, says which are older; with earlier snapshots only this tab holds, refuse instead.
+    if (nextRetained.length > 50) {
+      const order = new Map(earlier.map((review, index) => [review.input_sha256, index]));
+      if (nextRetained.some(item => !order.has(item.input_sha256))) throw Error("Together, the open review and this file hold more than 50 earlier snapshots. Open review preserved.");
+      nextRetained.sort((a, b) => order.get(a.input_sha256) - order.get(b.input_sha256)).splice(0, nextRetained.length - 50);
+    }
     const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
     // A retained snapshot lists only its noted files; every other file's note is empty.
     const nextFiles = localFiles.map(file => ({ ...file, notes: same ? incoming.files.find(saved => saved.path === file.path).notes : file.notes || restoredNotes.get(file.path) || "" }));
