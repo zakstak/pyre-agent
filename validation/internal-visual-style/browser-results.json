@@ -9,16 +9,32 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -30,16 +46,32 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: off"
+          "text": "Dark mode"
         },
         {
-          "height": 100.6875,
+          "height": 88,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 88,
           "text": "Acceptance checks"
         }
       ]
@@ -51,16 +83,32 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -72,16 +120,32 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: off"
+          "text": "Dark mode"
         },
         {
-          "height": 153.375,
+          "height": 117.1875,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 105.375,
           "text": "Acceptance checks"
         }
       ]
@@ -93,16 +157,32 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: off"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -114,16 +194,32 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: off",
+      "modeLabel": "Dark mode",
       "modePressed": "false",
       "colorScheme": "light",
       "controls": [
         {
-          "height": 88,
-          "text": "Dark mode: off"
+          "height": 117.1875,
+          "text": "Dark mode"
         },
         {
-          "height": 153.375,
+          "height": 88,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 105.375,
           "text": "Acceptance checks"
         }
       ]
@@ -135,16 +231,32 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: on"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -156,16 +268,32 @@
       "pageWidth": 1440,
       "scrollWidth": 1440,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: on"
+          "text": "Dark mode"
         },
         {
-          "height": 100.6875,
+          "height": 88,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 88,
           "text": "Acceptance checks"
         }
       ]
@@ -177,16 +305,32 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: on"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -198,16 +342,32 @@
       "pageWidth": 390,
       "scrollWidth": 390,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 88,
-          "text": "Dark mode: on"
+          "text": "Dark mode"
         },
         {
-          "height": 153.375,
+          "height": 117.1875,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 105.375,
           "text": "Acceptance checks"
         }
       ]
@@ -219,16 +379,32 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "17px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
           "height": 44,
-          "text": "Dark mode: on"
+          "text": "Dark mode"
         },
         {
-          "height": 50.34375,
+          "height": 44,
+          "text": "Export report"
+        },
+        {
+          "height": 44,
+          "text": "Preview"
+        },
+        {
+          "height": 44,
+          "text": "Collapse all"
+        },
+        {
+          "height": 44,
+          "text": "Unavailable"
+        },
+        {
+          "height": 44,
           "text": "Acceptance checks"
         }
       ]
@@ -240,16 +416,32 @@
       "pageWidth": 320,
       "scrollWidth": 320,
       "readingSize": "34px",
-      "modeLabel": "Dark mode: on",
+      "modeLabel": "Dark mode",
       "modePressed": "true",
       "colorScheme": "dark",
       "controls": [
         {
-          "height": 88,
-          "text": "Dark mode: on"
+          "height": 117.1875,
+          "text": "Dark mode"
         },
         {
-          "height": 153.375,
+          "height": 88,
+          "text": "Export report"
+        },
+        {
+          "height": 88,
+          "text": "Preview"
+        },
+        {
+          "height": 88,
+          "text": "Collapse all"
+        },
+        {
+          "height": 88,
+          "text": "Unavailable"
+        },
+        {
+          "height": 105.375,
           "text": "Acceptance checks"
         }
       ]
@@ -633,7 +825,7 @@
       "familyName": "Atkinson Hyperlegible Next",
       "postScriptName": "AtkinsonHyperlegibleNext-Regular",
       "isCustomFont": true,
-      "glyphCount": 178
+      "glyphCount": 261
     }
   ],
   "renderedTechnicalFonts": [

@@ -1,0 +1,174 @@
+{
+  "result": "PASS",
+  "browser": "152.0.7977.82",
+  "screenshots": [
+    "overview-dark.png",
+    "1-select-dark.png",
+    "2-compose-dark.png",
+    "3-thread-dark.png",
+    "4-finish-dark.png",
+    "5-thread-light.png",
+    "6-finish-light.png",
+    "7-orphan-dark.png",
+    "8-phone-dark.png",
+    "9-phone-thread-dark.png"
+  ],
+  "states": [
+    {
+      "scheme": "light",
+      "width": 1440,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "light",
+      "width": 1440,
+      "textScale": 2,
+      "overflow": 0
+    },
+    {
+      "scheme": "light",
+      "width": 390,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "light",
+      "width": 390,
+      "textScale": 2,
+      "overflow": 0
+    },
+    {
+      "scheme": "light",
+      "width": 320,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "light",
+      "width": 320,
+      "textScale": 2,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 1440,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 1440,
+      "textScale": 2,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 390,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 390,
+      "textScale": 2,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 320,
+      "textScale": 1,
+      "overflow": 0
+    },
+    {
+      "scheme": "dark",
+      "width": 320,
+      "textScale": 2,
+      "overflow": 0
+    }
+  ],
+  "contrast": [
+    {
+      "scheme": "dark",
+      "checked": 79,
+      "lowest": [
+        {
+          "element": "span.path-dir",
+          "text": "src/ratelimit/",
+          "ratio": 4.73,
+          "minimum": 4.5
+        },
+        {
+          "element": "span.comment-location",
+          "text": "Line 32",
+          "ratio": 4.73,
+          "minimum": 4.5
+        },
+        {
+          "element": "code.",
+          "text": "@@ -0,0 +1,38 @@",
+          "ratio": 5.06,
+          "minimum": 4.5
+        },
+        {
+          "element": "h4.",
+          "text": "Pseudocode",
+          "ratio": 5.2,
+          "minimum": 4.5
+        },
+        {
+          "element": "span.summary-meta",
+          "text": "39 lines",
+          "ratio": 5.2,
+          "minimum": 4.5
+        }
+      ],
+      "failures": []
+    },
+    {
+      "scheme": "light",
+      "checked": 79,
+      "lowest": [
+        {
+          "element": "span.deletions",
+          "text": "−3",
+          "ratio": 4.68,
+          "minimum": 4.5
+        },
+        {
+          "element": "span.additions",
+          "text": "+212",
+          "ratio": 4.81,
+          "minimum": 4.5
+        },
+        {
+          "element": "span.deletions",
+          "text": "−0",
+          "ratio": 5.76,
+          "minimum": 4.5
+        },
+        {
+          "element": "code.",
+          "text": "@@ -0,0 +1,38 @@",
+          "ratio": 5.81,
+          "minimum": 4.5
+        },
+        {
+          "element": "span.additions",
+          "text": "+38",
+          "ratio": 5.92,
+          "minimum": 4.5
+        }
+      ],
+      "failures": []
+    }
+  ],
+  "checks": [
+    "pointer selection opens an inline composer and saves an inline, highlighted thread",
+    "keyboard + button and Ctrl+Enter save a second inline thread",
+    "comment index lists comments in file order; export contains both attached comments",
+    "every visible text element meets WCAG AA contrast in both modes",
+    "changed code turns a comment into an orphan; selecting new code reattaches it inline",
+    "no page overflow at 1440, 390, and 320 pixels, 100% and 200% text, both modes"
+  ]
+}

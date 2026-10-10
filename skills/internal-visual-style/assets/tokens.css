@@ -3,24 +3,28 @@
 :root {
   --font-reading: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --font-technical: "Atkinson Hyperlegible Mono", ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
-  --size-reading: 1.0625rem;
-  --size-small: 1rem;
   --size-title: 1.625rem;
   --size-heading: 1.25rem;
+  --size-subheading: 1.0625rem;
+  --size-reading: 1.0625rem;
+  --size-small: 0.9375rem;
+  --size-technical: 0.875rem;
   --leading-reading: 1.55;
+  --leading-tight: 1.3;
   --measure-reading: 68ch;
   --measure-work: 73.75rem;
-  --space-1: 0.375rem;
-  --space-2: 0.75rem;
-  --space-3: 1.25rem;
-  --space-4: 2rem;
-  --space-5: 1.25rem;
-  --space-rail-inset: 1.375rem;
-  --space-evidence-block: 0.5rem;
-  --space-evidence-inline: 1.125rem;
-  --section-rail-width: 2px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --radius-chip: 0.375rem;
   --radius: 0.5rem;
+  --radius-panel: 0.625rem;
   --control-min: 2.75rem;
+  --target-dense: 1.5rem;
 }
 
 /* Roles keep the system mode when no explicit choice is saved, including without JS. */
@@ -58,12 +62,21 @@
   --pyre-line: light-dark(#7e708a, #55525f);
   --pyre-functional-border: light-dark(#7e708a, #a99acb);
   --pyre-control-border: light-dark(#7e708a, #918d9a);
+  /* Derived roles mix contract colors and add no source color. Text on them uses primary ink. */
+  --pyre-separator: light-dark(color-mix(in oklab, var(--pyre-line) 40%, var(--pyre-surface)), var(--pyre-line));
+  /* Light diff tints start from raised white; mixing into the lavender code fill turns them gray. */
+  --pyre-diff-addition: light-dark(color-mix(in oklab, var(--pyre-success) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-success) 18%, var(--pyre-code)));
+  --pyre-diff-deletion: light-dark(color-mix(in oklab, var(--pyre-error) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-error) 18%, var(--pyre-code)));
+  --pyre-selection: color-mix(in oklab, var(--pyre-accent) 45%, var(--pyre-code));
   /* Consumer aliases use verified functional boundaries rather than decorative lines. */
   --bg-page: var(--pyre-canvas);
   --bg-surface: var(--pyre-surface);
+  --bg-raised: var(--pyre-raised);
+  --bg-code: var(--pyre-code);
   --text-primary: var(--pyre-text);
   --text-secondary: var(--pyre-muted);
   --border: var(--pyre-control-border);
+  --separator: var(--pyre-separator);
   --link: var(--pyre-accent);
   --focus: var(--pyre-focus);
   --status-neutral: var(--pyre-text);

@@ -9,7 +9,10 @@
   --font-sans: var(--font-reading);
   --font-mono: var(--font-technical);
   --color-raised: var(--pyre-raised);
-  --color-separator: var(--pyre-line);
+  --color-separator: var(--separator);
+  --color-code: var(--bg-code);
+  --color-diff-addition: var(--pyre-diff-addition);
+  --color-diff-deletion: var(--pyre-diff-deletion);
   --color-accent: var(--pyre-accent);
   --color-accent-soft: var(--pyre-accent-soft);
   --color-accent-text: var(--pyre-accent-text);

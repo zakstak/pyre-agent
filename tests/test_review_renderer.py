@@ -59,8 +59,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(headers, ["group-core", "group-wiring", "group-mechanical"])
         cards = [a["id"] for t, a in parsed.tags if t == "article"]
         self.assertEqual(cards, ["file-1", "file-2", "file-0"])
+        text = "".join(parsed.texts)
         for file in review["files"]:
-            self.assertIn(file["path"], parsed.texts)
+            self.assertIn(file["path"], text)
             for line in (file.get("patch") or "").splitlines():
                 self.assertIn(line, parsed.texts)
 
@@ -113,7 +114,7 @@ class RenderTests(unittest.TestCase):
                 file["patch"] = patch
             page = renderer.render_review(review)
             self.assertIn("Patch unavailable.", page)
-            self.assertIn("1 missing patches", page)
+            self.assertIn("1 missing patch<", page)
 
     def test_incomplete_patch_retained_and_warns(self):
         self.review["files"][0]["patch_complete"] = False
@@ -125,7 +126,7 @@ class RenderTests(unittest.TestCase):
         self.review["files"][0]["patch"] = "+possibly just one excerpt"
         page = renderer.render_review(self.review)
         self.assertIn("Patch completeness unverified", page)
-        self.assertIn("1 unverified patches", page)
+        self.assertIn("1 unverified patch<", page)
 
     def test_line_numbers_multiple_hunks_and_markers(self):
         output = renderer._patch_html("@@ -2,2 +5,2 @@\n-old\n+new\n same\n\\ No newline at end of file\n@@ -20 +30 @@\n-a\n+b\n")

@@ -93,7 +93,8 @@ function contrast(a, b) {
     report.checks.push('chosen reading and technical fonts render custom glyphs');
     for (const theme of ['light', 'dark']) {
       if (await page.locator('html').getAttribute('data-theme') !== theme) await page.locator('#theme-toggle').click();
-      assert.equal(await page.locator('#theme-toggle').textContent(), theme === 'dark' ? 'Dark mode: on' : 'Dark mode: off');
+      // The label stays constant; the pressed state and switch track carry the mode.
+      assert.equal(await page.locator('#theme-toggle').textContent(), 'Dark mode');
       assert.equal(await page.locator('#theme-toggle').getAttribute('aria-pressed'), String(theme === 'dark'));
       for (const width of [1440, 390, 320]) {
         for (const scale of [1, 2]) {
