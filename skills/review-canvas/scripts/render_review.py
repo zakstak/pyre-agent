@@ -64,6 +64,14 @@ def _object(value, where, required, optional=()):
         raise ValidationError(f"{where}: unknown fields: {', '.join(sorted(unknown))}")
 
 
+def shown(path):
+    """A path for terminal output. Git allows control characters in names, so a name with one is quoted and escaped,
+    and cannot forge or overwrite a line."""
+    if not any(ord(character) < 0x20 or 0x7F <= ord(character) < 0xA0 or character in "\u2028\u2029" for character in path):
+        return path
+    return json.dumps(path, ensure_ascii=False).translate({code: f"\\u{code:04x}" for code in [*range(0x7F, 0xA0), 0x2028, 0x2029]})
+
+
 def units(value):
     """Length in UTF-16 code units, the unit the page's JavaScript uses, so both sides apply the same limits."""
     return len(value.encode("utf-16-le", "surrogatepass")) // 2

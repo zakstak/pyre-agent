@@ -188,7 +188,7 @@ class InventoryTests(Fixture):
         self.assertEqual(files["link"]["fingerprint"],
                          collector.file_fingerprint("link", None, blob(b"target-a"), blob(b"target-b"), "120000", "120000"))
         self.assertEqual(files["new-link"]["new_mode"], "120000")
-        # Git counts a link target or a submodule commit as one line, staged or not.
+        # Git counts a one-line link target or a submodule commit as one line, staged or not.
         self.assertEqual({path: (files[path]["additions"], files[path]["deletions"]) for path in files},
                          {"link": (1, 1), "new-link": (1, 0), "sub": (1, 1), "nested": (1, 0)})
         sub = files["sub"]
@@ -196,6 +196,14 @@ class InventoryTests(Fixture):
         self.assertEqual(sub["fingerprint"], collector.file_fingerprint("sub", None, old_commit, self.head(self.root / "sub"), "160000", "160000"))
         self.assertEqual((files["nested"]["status"], files["nested"]["new_mode"]), ("added", "160000"))
         self.assertEqual(files["nested"]["fingerprint"], collector.file_fingerprint("nested", None, None, self.head(nested), None, "160000"))
+
+    def test_an_untracked_link_target_with_line_breaks_counts_each_line(self):
+        self.commit({"keep.txt": "k\n"})
+        os.symlink("a\nb", self.root / "link")
+        link = self.collect()["link"]
+        self.assertEqual((link["additions"], link["deletions"]), (2, 0))
+        self.git(self.root, "add", "link")
+        self.assertEqual(self.git(self.root, "diff", "--cached", "--numstat", "HEAD").split("\t")[:2], ["2", "0"], "as Git counts it")
 
     def test_type_changes_follow_the_current_file(self):
         os.symlink("target", self.root / "link")
