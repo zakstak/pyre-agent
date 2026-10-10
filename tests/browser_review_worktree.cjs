@@ -166,6 +166,15 @@ function render(name) {
     assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
     const returned = await exportFeedback();
     assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
+    // A retained entry for this snapshot that lists other files is refused before anything changes.
+    const broken = structuredClone(back);
+    broken.retained_reviews[0].files[0] = { ...broken.retained_reviews[0].files[0], path: "not/in/this/round.py" };
+    const brokenPath = path.join(temp, "broken-retained.json"); fs.writeFileSync(brokenPath, JSON.stringify(broken));
+    await load(round1);
+    await importFile(brokenPath, "Import rejected");
+    assert.match(await page.locator("#import-status").textContent(), /list other files/);
+    assert.equal(await page.locator("#general-notes").inputValue(), "");
+    assert.equal(await page.locator("#progress").textContent(), "0 of 10 approved");
 
     // A PR file without a fingerprint cannot be approved.
     const pr = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));

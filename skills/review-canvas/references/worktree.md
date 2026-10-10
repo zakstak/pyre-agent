@@ -68,7 +68,7 @@ Every entry keeps its path, status, and stats, even when it has no patch. A file
 
 ## Fingerprints
 
-A fingerprint identifies one exact version of one changed file. It is a SHA-256 digest over the path, the original path for a rename, the old blob ID and mode from `HEAD`, and the new blob ID and mode from the file on disk. The new blob ID is the Git blob ID of the bytes on disk, with no filters. A symbolic link uses its target. A submodule uses its checked-out commit.
+A fingerprint identifies one exact version of one changed file. It is a SHA-256 digest over the path, the original path for a rename, the old blob ID and mode from `HEAD`, the new blob ID of the file on disk, and the mode Git would record for it. With `core.filemode` off, Git ignores the executable bit on disk, so a `chmod` alone changes neither the commit nor the fingerprint. The new blob ID is the Git blob ID of the bytes on disk, with no filters. A symbolic link uses its target. A submodule uses its checked-out commit.
 
 A file stays approved while its fingerprint matches. Any change to its content, mode, or path makes it a new version.
 

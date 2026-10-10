@@ -300,6 +300,40 @@ class InventoryTests(Fixture):
         with self.assertRaisesRegex(collector.CollectError, "unresolved merge conflicts"):
             self.collect()
 
+    def test_an_assume_unchanged_addition_missing_from_disk_is_no_change(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("new.txt", "n\n")
+        self.git(self.root, "add", "new.txt")
+        self.git(self.root, "update-index", "--assume-unchanged", "new.txt")
+        (self.root / "new.txt").unlink()
+        self.assertEqual(self.collect(), {})
+
+    def test_a_temporary_directory_inside_the_tree_is_refused(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        (self.root / "tmp").mkdir()
+        with mock.patch.object(collector.tempfile, "tempdir", str(self.root / "tmp")), \
+                self.assertRaisesRegex(collector.CollectError, "is inside the working tree. Set TMPDIR elsewhere"):
+            self.collect()
+
+    def test_a_staged_mode_change_reverted_on_disk_is_named(self):
+        self.commit({"run.sh": "echo\n"})
+        (self.root / "run.sh").chmod(0o755)
+        self.git(self.root, "add", "run.sh")
+        (self.root / "run.sh").chmod(0o644)
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn("would record unreviewed content: run.sh", out)
+
+    def test_a_failure_after_collecting_writes_nothing(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        output = self.base / "review.json"
+        with mock.patch.object(collector, "staged_differently", side_effect=collector.GitError("late failure")):
+            code, _, err = self.main("--output", str(output))
+        self.assertEqual(code, 2)
+        self.assertFalse(output.exists())
+
     def test_a_staged_version_that_differs_from_the_working_tree_is_named(self):
         self.commit({"a.txt": "a\n"})
         self.write("a.txt", "b\n")
