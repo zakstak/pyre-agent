@@ -147,22 +147,36 @@ def too_many(count):
                         "Commit, stash, or ignore part of the work, then collect again.")
 
 
-def link_target(path):
-    """A symlink's target bytes. With core.symlinks=false, Git checks a link out as a regular file holding its target."""
+def link_blob(path, fmt):
+    """A symlink's blob ID, which covers its target. With core.symlinks=false, Git checks a link out as a regular file
+    holding the target, so that whole file is hashed instead."""
     try:
-        return os.readlink(os.fsencode(path))
+        return blob_id(fmt, os.readlink(os.fsencode(path)))
     except OSError:
         if not stat.S_ISREG(os.lstat(path).st_mode):
             raise
-    with open(path, "rb") as handle:
-        return handle.read(1 << 20)
+    return read_blob(path, fmt)["blob"]
+
+
+def disk_mode(path):
+    """The Git mode of a working tree path, or None when it is absent."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    return "120000" if stat.S_ISLNK(info.st_mode) else "100755" if info.st_mode & stat.S_IXUSR else "100644"
+
+
+def unfingerprintable(path):
+    return CollectError(f"{path} is a nested repository or submodule with no commit checked out, so no fingerprint can cover "
+                        "its contents. Commit in it, or ignore it, then collect again.")
 
 
 def kind(mode):
     return {"160000": "submodule", "120000": "symlink"}.get(mode, "file")
 
 
-def tracked_entry(top, change, fmt):
+def tracked_entry(top, change, fmt, config):
     path, old_mode, new_mode = representable(change["path"]), change["old_mode"], change["new_mode"]
     if change["status"] not in STATUSES:
         raise CollectError(f"unexpected Git status {change['status']} for {path}")
@@ -173,8 +187,13 @@ def tracked_entry(top, change, fmt):
     full = top / path
     if new_mode == "160000":
         entry["new_blob"] = change["new_blob"] or repository_head(full)
+        if entry["new_blob"] is None:
+            raise unfingerprintable(path)
     elif new_mode == "120000":
-        entry["new_blob"] = blob_id(fmt, link_target(full))
+        entry["new_blob"] = link_blob(full, fmt)
+    elif new_mode and change["new_blob"] and not os.path.lexists(full):
+        # A skip-worktree entry in a sparse checkout is staged but absent from disk; its content is the index blob.
+        entry.update(new_blob=change["new_blob"], size=int(git(top, *config, "cat-file", "-s", change["new_blob"])), from_index=True)
     elif new_mode:
         blob = read_blob(full, fmt)
         entry.update(new_blob=blob["blob"], size=blob["size"], binary=blob["binary"])
@@ -194,6 +213,8 @@ def untracked_entry(top, path, nested, fmt):
         if not stat.S_ISDIR(info.st_mode):
             raise Changed(f"{path} is no longer a directory")
         entry.update(kind="submodule", new_mode="160000", new_blob=repository_head(full))
+        if entry["new_blob"] is None:
+            raise unfingerprintable(path)
     elif stat.S_ISLNK(info.st_mode):
         entry.update(kind="symlink", new_mode="120000", new_blob=blob_id(fmt, os.readlink(os.fsencode(full))))
     else:
@@ -215,24 +236,52 @@ def inventory(top, fmt, config):
     except GitError:
         branch = None  # detached HEAD
     tracked = raw_changes(git(top, *config, "diff", "--raw", "-z", "--no-abbrev", *DIFF_FLAGS, "HEAD", "--"))
+    tracked = assumed_unchanged(top, tracked, config)
     others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
     if len(others) > render_review.MAX_FILES:
         raise too_many(len(others))
     entries = {}
     for change in tracked:
         with reading(change["path"]):
-            entry = tracked_entry(top, change, fmt)
+            entry = tracked_entry(top, change, fmt, config)
         if entry:
             entries[entry["path"]] = entry
     for raw in others:
         # Git lists a nested repository as one directory entry ending in a slash.
         path = representable(decode_path(raw.removesuffix(b"/")))
-        if path not in entries:  # a path removed from the index but kept on disk stays a deletion
-            with reading(path):
-                entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt)
+        if path in entries:
+            # git rm --cached deletes the path from Git but leaves the file: one path, two contradictory changes.
+            raise CollectError(f"{path} is removed from Git's index but still on disk, as after git rm --cached. Restore it with "
+                               "git restore --staged, or move or ignore the file, then collect again.")
+        with reading(path):
+            entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt)
     if len(entries) > render_review.MAX_FILES:
         raise too_many(len(entries))
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
+
+
+def assumed_unchanged(top, tracked, config):
+    """Compare files marked assume-unchanged by their bytes on disk. Git trusts the mark and hides their edits."""
+    listing = git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]
+    # A lowercase tag marks assume-unchanged; s is skip-worktree, whose content is the index blob.
+    assumed = {decode_path(entry[2:]) for entry in listing if entry[:1].islower() and entry[:1] != b"s"}
+    if not assumed:
+        return tracked
+    changes = {change["path"]: change for change in tracked}
+    head = {}
+    for entry in git(top, *config, "ls-tree", "-z", "--full-tree", "HEAD", "--", *sorted(assumed)).split(b"\0")[:-1]:
+        info, path = entry.split(b"\t", 1)
+        mode, _, blob = info.decode("ascii").split(" ")
+        head[decode_path(path)] = (mode, blob)
+    for path in sorted(assumed):
+        new_mode = disk_mode(top / path)
+        if path in changes:
+            changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D")
+        elif path in head:
+            old_mode, old_blob = head[path]
+            changes[path] = {"status": "M" if new_mode else "D", "path": path, "old_path": None, "old_mode": old_mode,
+                             "new_mode": new_mode, "old_blob": old_blob, "new_blob": None}
+    return list(changes.values())
 
 
 def numstat(top, config):
@@ -313,7 +362,9 @@ def content(top, entry, fmt, binary, allow_secret, oversized, config):
         return "too_large", None
     old = git(top, *config, "cat-file", "blob", old_blob) if old_blob else None
     new = None
-    if entry["new_blob"] is not None:
+    if entry.get("from_index"):
+        new = git(top, *config, "cat-file", "blob", entry["new_blob"])
+    elif entry["new_blob"] is not None:
         with reading(path):
             blob = read_blob(top / path, fmt, keep=entry["size"])
         if blob["blob"] != entry["new_blob"] or blob["data"] is None:

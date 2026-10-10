@@ -57,6 +57,11 @@ Each patch comes from the exact bytes its fingerprint covers: the old blob from 
 | Non-UTF-8 bytes or control characters | The patch, with `patch_note: "replaced_characters"` |
 | CRLF line endings | The patch, with `\r` kept at the end of each line |
 
+| File marked `assume-unchanged` | Compared by its bytes on disk, because Git hides its edits |
+| Staged entry marked `skip-worktree` in a sparse checkout | The staged blob from the index |
+
+The collector stops with an error, instead of guessing, for a path removed from the index but still on disk, as after `git rm --cached`, and for a nested repository or submodule with no commit checked out, whose contents no fingerprint could cover.
+
 Every entry keeps its path, status, and stats, even when it has no patch. A file whose timestamps changed but whose content and mode match `HEAD` is not a change.
 
 ## Fingerprints
