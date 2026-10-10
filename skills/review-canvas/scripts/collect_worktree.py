@@ -158,6 +158,14 @@ def link_blob(path, fmt):
     return read_blob(path, fmt)["blob"]
 
 
+def rendered_round_input(output):
+    """Whether output is a STATE/rounds/NNNN/input.json whose round has rendered. Other paths, as in the file workflow,
+    are never frozen."""
+    path = Path(output).resolve()
+    return (path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name)
+            and (path.parent / "review.html").exists())
+
+
 def disk_mode(path):
     """The Git mode of a working tree path, or None when it is absent."""
     try:
@@ -488,8 +496,7 @@ def collect(repo, title=None, include_secret=(), output=None):
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     if output is not None:
         git_dir = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")))
-        round_dir = Path(output).absolute().parent
-        if round_dir.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", round_dir.name) and (round_dir / "review.html").exists():
+        if rendered_round_input(output):
             raise CollectError(f"{Path(output).parent} has rendered; a round never changes after it renders. Start a new round.")
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
         if os.path.islink(output):
@@ -592,8 +599,7 @@ def main(argv=None):
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
         with review_state.round_lock(args.output):
-            parent = Path(args.output).resolve().parent  # resolved, as round_lock does, so an alias cannot dodge the check
-            if (parent / "review.html").exists() and parent.parent.name == "rounds":
+            if rendered_round_input(args.output):  # resolved, as round_lock is, so an alias cannot dodge the check
                 raise CollectError(f"{Path(args.output).parent} rendered while collecting; a round never changes after it renders. Start a new round.")
             write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:

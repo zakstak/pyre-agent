@@ -399,11 +399,17 @@ class StateTests(unittest.TestCase):
         collector = load("collect_worktree")
         with self.assertRaisesRegex(collector.CollectError, "has rendered; a round never changes"):
             collector.collect(ROOT, output=directory / "input.json")
-        # The file workflow keeps review.json beside review.html outside any round; that stays allowed.
-        loose = self.temp / "loose"
-        loose.mkdir()
-        (loose / "review.html").write_text("rendered")
-        collector.collect(ROOT, output=loose / "review.json")
+        # The file workflow keeps review.json beside review.html outside any round; that stays allowed, even in a folder
+        # that happens to be called rounds.
+        repo = self.temp / "repo"
+        for command in (["git", "-c", "init.defaultBranch=main", "init", "-q", str(repo)],
+                        ["git", "-C", str(repo), "-c", "user.name=T", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "-m", "init"]):
+            subprocess.run(command, check=True, env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull})
+        for loose in (self.temp / "loose", self.temp / "rounds" / "not-a-round"):
+            loose.mkdir(parents=True)
+            (loose / "review.html").write_text("rendered")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(collector.main(["--repo", str(repo), "--output", str(loose / "review.json")]), 0, loose)
 
     def test_the_collector_final_check_sees_through_a_symlinked_round(self):
         directory = render_round(self.state, "worktree-review.json")
