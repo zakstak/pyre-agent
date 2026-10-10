@@ -226,7 +226,9 @@ def untracked_entry(top, path, nested, fmt, modes_count=True):
         if entry["new_blob"] is None:
             raise unfingerprintable(path)
     elif stat.S_ISLNK(info.st_mode):
-        entry.update(kind="symlink", new_mode="120000", new_blob=blob_id(fmt, os.readlink(os.fsencode(full))))
+        target = os.readlink(os.fsencode(full))
+        # Git counts a link's target as its content, so a target with line breaks is several lines.
+        entry.update(kind="symlink", new_mode="120000", new_blob=blob_id(fmt, target), lines=target.count(b"\n") + (not target.endswith(b"\n")))
     else:
         blob = read_blob(full, fmt)
         # With core.filemode off, Git adds a file as 100644 whatever its executable bit.
@@ -328,14 +330,6 @@ def ancestor_replaced(top, path):
         if not stat.S_ISDIR(info.st_mode):
             return True
     return False
-
-
-def shown(path):
-    """A path for terminal output. Git allows control characters in names, so a name with one is quoted and escaped,
-    and cannot forge or overwrite a line."""
-    if not any(ord(character) < 0x20 or 0x7F <= ord(character) < 0xA0 or character in "\u2028\u2029" for character in path):
-        return path
-    return json.dumps(path, ensure_ascii=False).translate({code: f"\\u{code:04x}" for code in [*range(0x7F, 0xA0), 0x2028, 0x2029]})
 
 
 def assumed_unchanged(top, tracked, config):
@@ -519,8 +513,8 @@ def build(top, snapshot, fmt, include, config):
         path = entry["path"]
         binary = entry.get("binary", False)
         if entry["untracked"]:
-            # Git counts a link's target, or a submodule's commit, as one added line.
-            additions, deletions = (0 if binary else entry["lines"] if entry["kind"] == "file" else 1), 0
+            # Git counts a link's target as its lines, and a submodule's commit as one line.
+            additions, deletions = (0 if binary else 1 if entry["kind"] == "submodule" else entry["lines"]), 0
         elif path in stats and (binary or not stats[path][2]):
             additions, deletions, _ = stats[path]
         elif entry.get("hidden") or path in stats:
@@ -707,9 +701,9 @@ def main(argv=None):
     print(f"Wrote {args.output} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
           f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
     for path in flagged:
-        print(f"Likely secret, contents left out: {shown(path)}")
+        print(f"Likely secret, contents left out: {render_review.shown(path)}")
     for path in staged:
-        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {shown(path)}")
+        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {render_review.shown(path)}")
     return 0
 
 

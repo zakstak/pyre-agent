@@ -280,7 +280,7 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     try {
       const lost = await context.newPage();
       lost.on("dialog", dialog => dialog.accept());
-      lost.on("console", message => { if (message.type() === "error" && !/ERR_FAILED|409 \(Conflict\)/.test(message.text())) errors.push(message.text()); });
+      lost.on("console", message => { if (message.type() === "error" && !/ERR_FAILED|409 \(Conflict\)|500 \(Internal Server Error\)/.test(message.text())) errors.push(message.text()); });
       let releaseLoad;
       const loading = new Promise(resolve => { releaseLoad = resolve; });
       await lost.route("**/feedback", async route => { if (route.request().method() === "GET") await loading; await route.continue(); });
@@ -304,8 +304,18 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
       await approveHere("src/notes/format.py");
       await waitSaved(lost);
       assert.equal(await lost.locator("#server-notice").isHidden(), true, "the lost reply paused saving as a conflict");
+      // A save the server wrote but then answered with an error, as when syncing the directory fails, is reconciled the same way.
+      await lost.route("**/feedback", async route => {
+        if (route.request().method() !== "PUT") return route.continue();
+        await route.fetch(); await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "The review state is unreadable: EIO" }) });
+      }, { times: 1 });
+      await approveHere("docs/logo.png");
+      await lost.locator("#save-state", { hasText: "Not saved" }).waitFor();
+      await approveHere("src/notes/legacy.py");
+      await waitSaved(lost);
+      assert.equal(await lost.locator("#server-notice").isHidden(), true, "the failed reply paused saving as a conflict");
       const kept = JSON.parse(fs.readFileSync(path.join(lostState, "feedback.json"), "utf8"));
-      assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["src/notes/cli.py", "src/notes/format.py", "src/notes/store.py"]);
+      assert.deepEqual(kept.approvals.map(record => record.path).sort(), ["docs/logo.png", "src/notes/cli.py", "src/notes/format.py", "src/notes/legacy.py", "src/notes/store.py"]);
       await lost.close();
     } finally { lostServer.kill("SIGTERM"); }
 

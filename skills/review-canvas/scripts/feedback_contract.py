@@ -335,6 +335,12 @@ def thread_state(replies):
     return (None, "resolved") if last["action"] == "accept" else ("agent", {"reopen": "reopened", "reply": "replied"}[last["action"]])
 
 
+def check_inventory(feedback, review, digest):
+    """Feedback that names this exact snapshot must list its files: the same paths, each once."""
+    if feedback["input_sha256"] == digest and sorted(file["path"] for file in feedback["files"]) != sorted(file["path"] for file in review["files"]):
+        raise FeedbackError("Feedback names this snapshot but lists other files.")
+
+
 def read_feedback(path):
     """Read and validate a feedback file. Reading stops one byte past the limit, so a huge file is refused unread."""
     with Path(path).open("rb") as handle:
@@ -354,11 +360,13 @@ def main(argv=None):
         review = render_review.load_review(args.input) if args.input else None
         if review:
             check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
+            check_inventory(feedback, review, render_review.input_digest(review))
     except (FeedbackError, render_review.ValidationError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
     orphans = sum(comment["attachment"]["state"] == "orphan" for comment in feedback["comments"])
-    print(f"Valid feedback for {feedback['target']['title']}: {len(feedback['comments'])} comments ({orphans} unattached when saved), "
+    # Titles and paths are reviewed data and may hold line breaks or terminal controls, so they print escaped.
+    print(f"Valid feedback for {render_review.shown(feedback['target']['title'])}: {len(feedback['comments'])} comments ({orphans} unattached when saved), "
           f"{len(feedback['approvals'])} approvals.")
     if review:
         approvals = {record["path"]: record["fingerprint"] for record in feedback["approvals"]}
@@ -369,7 +377,7 @@ def main(argv=None):
         same = feedback["input_sha256"] == render_review.input_digest(review)
         print(f"Against {args.input}: {'same snapshot' if same else 'an earlier snapshot of the same review'}.")
         for state, paths in states.items():
-            print(f"  {len(paths)} {state}" + (": " + ", ".join(paths) if paths and state != "approved" else ""))
+            print(f"  {len(paths)} {state}" + (": " + ", ".join(map(render_review.shown, paths)) if paths and state != "approved" else ""))
         turns = {"agent": [], "reviewer": [], None: []}
         for comment in feedback["comments"]:
             turn, label = thread_state(thread(comment, review.get("replies", [])))

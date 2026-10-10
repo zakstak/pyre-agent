@@ -13,6 +13,7 @@ import html
 import json
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -68,6 +69,14 @@ def _object(value, where, required, optional=()):
         raise ValidationError(f"{where}: missing fields: {', '.join(sorted(missing))}")
     if unknown:
         raise ValidationError(f"{where}: unknown fields: {', '.join(sorted(unknown))}")
+
+
+def shown(path):
+    """A path for terminal output. Git allows control characters in names, so a name with one is quoted and escaped,
+    and cannot forge or overwrite a line."""
+    if not any(ord(character) < 0x20 or 0x7F <= ord(character) < 0xA0 or character in "\u2028\u2029" for character in path):
+        return path
+    return json.dumps(path, ensure_ascii=False).translate({code: f"\\u{code:04x}" for code in [*range(0x7F, 0xA0), 0x2028, 0x2029]})
 
 
 def units(value):
@@ -617,9 +626,11 @@ def main(argv=None):
             with review_state.lock(state, "publish"):
                 if args.output.exists():
                     raise ValidationError(f"{args.output} exists. A round never changes after it renders; start a new round with review_state.py new-round")
-                # A link's target could change after the page renders, and later readers would see other input.
-                if os.path.islink(args.input):
-                    raise ValidationError(f"{args.input} is a symbolic link. Put the input itself in the round, so it cannot change after rendering.")
+                # A link's target, or a hard link's other name, could change after the page renders, and later readers
+                # would see other input.
+                info = os.lstat(args.input)
+                if stat.S_ISLNK(info.st_mode) or info.st_nlink > 1:
+                    raise ValidationError(f"{args.input} is a symbolic or hard link. Put a private copy of the input in the round, so it cannot change after rendering.")
                 review = load_review(args.input)
                 page = render_review(review, args.style_dir)
                 review_state.write_private(args.output, page.encode("utf-8"), replace=False)
