@@ -26,7 +26,7 @@ python3 /path/to/review-canvas/scripts/collect_worktree.py --repo /path/to/repo 
 | Option | Meaning |
 | --- | --- |
 | `--repo DIR` | Any path inside the working tree. Defaults to the current directory. |
-| `-o`, `--output FILE` | Where to write the snapshot. It must be outside the working tree, or inside its Git directory. |
+| `-o`, `--output FILE` | Where to write the snapshot. It must be outside the repository, or inside the `review-canvas` folder of its Git directory, `$(git rev-parse --absolute-git-dir)/review-canvas`. |
 | `--title TEXT` | The review title. Defaults to `Uncommitted changes on BRANCH`. |
 | `--include-secret-file PATH` | Show the contents of one likely secret file. Repeat for each file. |
 

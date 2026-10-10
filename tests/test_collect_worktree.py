@@ -188,6 +188,9 @@ class InventoryTests(Fixture):
         self.assertEqual(files["link"]["fingerprint"],
                          collector.file_fingerprint("link", None, blob(b"target-a"), blob(b"target-b"), "120000", "120000"))
         self.assertEqual(files["new-link"]["new_mode"], "120000")
+        # Git counts a link target or a submodule commit as one line, staged or not.
+        self.assertEqual({path: (files[path]["additions"], files[path]["deletions"]) for path in files},
+                         {"link": (1, 1), "new-link": (1, 0), "sub": (1, 1), "nested": (1, 0)})
         sub = files["sub"]
         self.assertEqual((sub["status"], sub["old_mode"], sub["new_mode"]), ("modified", "160000", "160000"))
         self.assertEqual(sub["fingerprint"], collector.file_fingerprint("sub", None, old_commit, self.head(self.root / "sub"), "160000", "160000"))
@@ -476,6 +479,20 @@ class InventoryTests(Fixture):
         self.git(self.root, "config", "core.ignoreCase", "false")
         os.rename(self.root / "foo.txt", self.root / "FOO.txt")
         self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"FOO.txt": "added", "foo.txt": "deleted"})
+
+    def test_hidden_entries_behind_a_file_are_deletions(self):
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag):
+                if (self.root / "dir").is_file():
+                    (self.root / "dir").unlink()
+                    self.git(self.root, "checkout", "--", "dir")
+                self.commit({"dir/child": "c\n", "keep.txt": "k\n"})
+                self.git(self.root, "update-index", flag, "dir/child")
+                shutil.rmtree(self.root / "dir")
+                self.write("dir", "now a file\n")
+                files = self.collect()
+                self.assertEqual((files["dir/child"]["status"], files["dir"]["status"]), ("deleted", "added"))
+                self.git(self.root, "update-index", "--no-assume-unchanged", "--no-skip-worktree", "dir/child")
 
     def test_hidden_entries_behind_a_symlinked_directory_are_deletions(self):
         outside = self.base / "outside"
@@ -840,6 +857,31 @@ class OutputTests(Fixture):
         self.assertRegex(err, r"^Error: --output .* is inside the working tree")
         self.assertFalse((self.root / "review.json").exists())
 
+    def test_refuses_git_files_as_output(self):
+        head = (self.root / ".git" / "HEAD").read_bytes()
+        for name in ("HEAD", "config", "review.json"):
+            with self.subTest(name=name):
+                code, _, err = self.main("--output", str(self.root / ".git" / name))
+                self.assertEqual(code, 2)
+                self.assertIn("is inside the Git directory, where it could replace Git's own files", err)
+        self.assertEqual((self.root / ".git" / "HEAD").read_bytes(), head)
+        self.assertFalse((self.root / ".git" / "review.json").exists())
+
+    def test_a_worktree_setting_that_leads_to_another_repository_is_refused(self):
+        other = self.init(self.base / "other")
+        self.commit({"theirs.txt": "t\n"}, root=other)
+        self.write("theirs.txt", "changed\n", root=other)
+        self.git(self.root, "config", "core.worktree", str(other))
+        with self.assertRaisesRegex(collector.CollectError, "sets core.worktree to .*another repository"):
+            self.collect()
+
+    def test_notices_escape_control_characters_in_paths(self):
+        self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn('Likely secret, contents left out: "a\\nLikely secret, contents left out: forged/.env"\n', out)
+        self.assertNotIn("\nLikely secret, contents left out: forged/.env\n", out)
+
     def test_refuses_a_symlinked_output(self):
         outside = self.base / "outside.json"
         os.symlink(outside, self.root / "review.json")
@@ -850,12 +892,13 @@ class OutputTests(Fixture):
         self.assertFalse(outside.exists())
 
     def test_writes_private_valid_output_inside_the_git_directory(self):
-        output = self.root / ".git" / "review.json"
+        (self.root / ".git" / "review-canvas").mkdir()
+        output = self.root / ".git" / "review-canvas" / "review.json"
         code, out, _ = self.main("--output", str(output))
         self.assertEqual(code, 0)
         self.assertEqual(out, f"Wrote {output} (1 file; 0 binary; 0 too large; 0 likely secret)\n")
         self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
-        self.assertEqual(list((self.root / ".git").glob(".review.json.*")), [])
+        self.assertEqual(list(output.parent.glob(".review.json.*")), [])
         review = renderer.load_review(output)
         self.assertEqual([file["path"] for file in self.collect().values()], ["a.txt"])  # the snapshot is not a change itself
         self.assertIn("<!doctype html>", renderer.render_review(review))
