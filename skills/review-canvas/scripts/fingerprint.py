@@ -36,17 +36,18 @@ class GitError(RuntimeError):
     """A Git command failed or could not start."""
 
 
-def git(cwd, *args):
-    """Run Git in cwd and return stdout bytes."""
-    env = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV}
-    env.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1")
+def git(cwd, *args, ok=(0,), env=None):
+    """Run Git in cwd and return stdout bytes. Exit codes outside ok raise GitError."""
+    environment = {key: value for key, value in os.environ.items() if key not in DROPPED_ENV}
+    # GIT_NO_LAZY_FETCH keeps a partial clone from fetching missing objects over the network.
+    environment.update(GIT_LITERAL_PATHSPECS="1", GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1", **(env or {}))
     try:
-        result = subprocess.run(["git", *GIT_CONFIG, *args], cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True)
+        result = subprocess.run(["git", *GIT_CONFIG, *args], cwd=cwd, env=environment, stdin=subprocess.DEVNULL, capture_output=True)
     except OSError as error:
         raise GitError(f"cannot run git in {cwd}: {error.strerror}") from error
-    if result.returncode:
+    if result.returncode not in ok:
         message = result.stderr.decode("utf-8", "replace").strip().removeprefix("fatal: ")
-        raise GitError(message or f"git {args[0]} exited with status {result.returncode}")
+        raise GitError(message or f"git exited with status {result.returncode}")
     return result.stdout
 
 

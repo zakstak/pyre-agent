@@ -61,11 +61,16 @@ def _object(value, where, required, optional=()):
         raise ValidationError(f"{where}: unknown fields: {', '.join(sorted(unknown))}")
 
 
+def units(value):
+    """Length in UTF-16 code units, the unit the page's JavaScript uses, so both sides apply the same limits."""
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def _text(value, where, *, nonempty=False, limit=20000):
     if not isinstance(value, str):
         raise ValidationError(f"{where}: expected a string")
-    if len(value) > limit:
-        raise ValidationError(f"{where}: exceeds {limit} characters")
+    if units(value) > limit:
+        raise ValidationError(f"{where}: exceeds {limit} UTF-16 code units")
     if nonempty and not value.strip():
         raise ValidationError(f"{where}: must not be empty")
     if any((ord(c) < 32 and c not in "\t\n\r") or 0xD800 <= ord(c) <= 0xDFFF for c in value):

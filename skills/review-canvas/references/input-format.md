@@ -73,10 +73,12 @@ The generator rejects oversized input before producing an artifact. It never sil
 
 - UTF-8 JSON file: at most 32 MiB
 - File inventory: at most 2,000 entries, with unique paths
-- One patch: at most 4,194,304 characters and 10,000 LF-delimited lines
+- One patch: at most 4,194,304 UTF-16 code units and 10,000 LF-delimited lines
 - All patches combined: at most 50,000 lines
-- Paths and `root`: at most 4,096 characters
-- Other text fields: at most 20,000 characters, except callout tags, which allow 100, and `branch`, which allows 1,024
+- Paths and `root`: at most 4,096 UTF-16 code units
+- Other text fields: at most 20,000 UTF-16 code units, except callout tags, which allow 100, and `branch`, which allows 1,024
+
+Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji counts as 2. Input the renderer accepts always fits the feedback the page saves.
 - Callouts: at most 100 per file
 - Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
 - Commit SHAs: full hexadecimal hashes with 40 or 64 characters
