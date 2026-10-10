@@ -87,12 +87,13 @@ Codex reads a non-empty `AGENTS.override.md` instead of `AGENTS.md`, and the ins
 
 ## Skill versions
 
-Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version, including a deleted or renamed file. Whether a change is major, minor, or a patch is a judgment call, with one exception: a skill whose folder name changes must raise its major version, because `/old-name` stops working.
+Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version, including a deleted or renamed file. Whether a change is major, minor, or a patch is a judgment call, with two exceptions that must raise the major version: a skill whose folder name changes, because `/old-name` stops working, and a skill that moves into `host-skills/`, because the other hosts lose it.
 
 `tests/check_skill_versions.py` compares every skill with the merge base of your branch and `origin/main`. It fails when:
 
 - A changed skill does not raise its version, or any skill lacks a version in the form `"MAJOR.MINOR.PATCH"`. A new skill needs only a valid version.
-- A renamed skill does not raise its major version. The check pairs a removed skill with a new skill when at least half of their `SKILL.md` lines match. A rename that also rewrites most of `SKILL.md` counts as a new skill.
+- A skill's frontmatter `name` differs from its folder name.
+- A moved or renamed skill does not raise its version as required above. The check pairs a removed skill with a new skill of the same name, or else with one whose `SKILL.md` body shares at least half of its non-blank lines. A rename that also rewrites most of `SKILL.md` counts as a new skill.
 - A file in `skills/`, `host-skills/`, or `global/` still names a skill that was removed or renamed. A hyphenated name counts anywhere. A one-word name counts only as `/name`, `$name`, or `` `name` ``.
 
 Turn on the pre-commit hook once per clone. It checks the files you staged:
@@ -100,6 +101,8 @@ Turn on the pre-commit hook once per clone. It checks the files you staged:
 ```sh
 git config core.hooksPath .githooks
 ```
+
+The setting applies to every worktree of the clone and replaces `.git/hooks`, so hooks you keep there stop running.
 
 To run the check by hand, including uncommitted and untracked files:
 

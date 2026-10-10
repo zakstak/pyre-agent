@@ -19,6 +19,7 @@ def skill(name, version='"1.0.0"', body=''):
     return f'---\nname: {name}\ndescription: Test skill.\n{metadata}---\n\n# {name}\n{body}'
 
 
+GUIDE = 'Read the diff.\nList each risk.\nSuggest one fix per risk.\n'
 UNRELATED = ''.join(f'Step {number}: do a separate thing.\n' for number in range(20))
 
 
@@ -27,7 +28,7 @@ class SkillVersionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.git('init', '-q', '-b', 'main')
-        self.write('skills/alpha/SKILL.md', skill('alpha'))
+        self.write('skills/alpha/SKILL.md', skill('alpha', body=GUIDE))
         self.write('skills/alpha/references/notes.md', 'Notes.\n')
         self.write('host-skills/claude-code/beta/SKILL.md', skill('beta'))
         self.write('README.md', 'Readme.\n')
@@ -94,20 +95,32 @@ class SkillVersionTests(unittest.TestCase):
 
     def test_renamed_skill_must_raise_its_major_version(self):
         self.move('skills/alpha', 'skills/omega')
-        self.write('skills/omega/SKILL.md', skill('omega', '"1.1.0"'))
+        self.write('skills/omega/SKILL.md', skill('omega', '"1.1.0"', GUIDE))
         self.assertFails('skills/omega/SKILL.md: renames skills/alpha/ at 1.0.0, so raise metadata.version to 2.0.0 or above')
-        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"'))
+        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"', GUIDE))
         self.assertPasses()
 
-    def test_moved_skill_must_raise_its_version(self):
+    def test_renamed_skill_must_rename_its_frontmatter(self):
+        self.move('skills/alpha', 'skills/omega')
+        self.write('skills/omega/SKILL.md', skill('alpha', '"2.0.0"', GUIDE))
+        self.assertFails('skills/omega/SKILL.md: frontmatter name is alpha; use the folder name, omega')
+
+    def test_move_into_host_skills_must_raise_its_major_version_even_when_rewritten(self):
         self.move('skills/alpha', 'host-skills/claude-code/alpha')
-        self.assertFails('moves skills/alpha/ at 1.0.0, so raise metadata.version above 1.0.0')
-        self.write('host-skills/claude-code/alpha/SKILL.md', skill('alpha', '"1.0.1"'))
+        self.write('host-skills/claude-code/alpha/SKILL.md', skill('alpha', '"0.1.0"', UNRELATED))
+        self.assertFails('moves skills/alpha/ at 1.0.0, which drops it from other hosts, so raise metadata.version to 2.0.0 or above')
+        self.write('host-skills/claude-code/alpha/SKILL.md', skill('alpha', '"2.0.0"', UNRELATED))
         self.assertPasses()
 
-    def test_dissimilar_new_skill_is_not_a_rename(self):
+    def test_move_out_of_host_skills_needs_any_raise(self):
+        self.move('host-skills/claude-code/beta', 'skills/beta')
+        self.assertFails('moves host-skills/claude-code/beta/ at 1.0.0, so raise metadata.version above 1.0.0')
+        self.write('skills/beta/SKILL.md', skill('beta', '"1.0.1"'))
+        self.assertPasses()
+
+    def test_new_skill_with_the_same_boilerplate_is_not_a_rename(self):
         shutil.rmtree(self.root / 'skills/alpha')
-        self.write('skills/omega/SKILL.md', skill('omega', '"0.1.0"', UNRELATED))
+        self.write('skills/omega/SKILL.md', skill('omega', '"0.1.0"', 'Do one unrelated thing.\n'))
         self.assertPasses()
 
     def test_files_agents_load_must_not_name_a_removed_skill(self):
@@ -126,13 +139,39 @@ class SkillVersionTests(unittest.TestCase):
         shutil.rmtree(self.root / 'skills/alpha')
         self.write('global/AGENTS.md', 'Ship the alpha release.\n')
         self.assertPasses()
-        for text in ('Run /alpha first.\n', 'Run $alpha first.\n', 'Load `alpha` first.\n'):
+        for text in ('Run /alpha first.\n', 'Run $alpha first.\n', 'Load `alpha` first.\n', 'Load skills/alpha/SKILL.md.\n'):
             self.write('global/AGENTS.md', text)
             self.assertFails('global/AGENTS.md:1: names alpha')
 
+    def test_reference_search_ignores_color_and_odd_bytes(self):
+        self.git('config', 'color.ui', 'always')
+        shutil.rmtree(self.root / 'skills/alpha')
+        self.write('global/AGENTS.md', 'Form\x0cfeed, then run /alpha.\n')
+        (self.root / 'global/notes.txt').write_bytes(b'Caf\xe9 notes for `alpha`.\n')
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('global/AGENTS.md:1: names alpha', result.stderr)
+        self.assertIn('global/notes.txt:1: names alpha', result.stderr)
+
+    def test_merge_in_progress_compares_with_the_merged_base(self):
+        self.git('switch', '-q', 'main')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Main.\n'))
+        self.commit()
+        self.git('switch', '-q', 'change')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Branch.\n'))
+        self.commit()
+        merge = subprocess.run(('git', 'merge', '-q', 'main'), cwd=self.root, env=ENV, capture_output=True, text=True)
+        self.assertEqual(merge.returncode, 1, merge.stdout)
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Main.\nBranch.\n'))
+        self.git('add', '-A')
+        self.assertFails('raise metadata.version above 1.1.0', staged=True)
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.2.0"', GUIDE + 'Main.\nBranch.\n'))
+        self.git('add', '-A')
+        self.assertPasses(staged=True)
+
     def test_reference_to_a_renamed_skill_names_the_new_one(self):
         self.move('skills/alpha', 'skills/omega')
-        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"'))
+        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"', GUIDE))
         self.write('host-skills/claude-code/beta/SKILL.md', skill('beta', '"1.0.1"', 'Then run /alpha.\n'))
         self.assertFails('host-skills/claude-code/beta/SKILL.md:9: names alpha, which is now omega; update the reference')
         self.git('add', '-A')
