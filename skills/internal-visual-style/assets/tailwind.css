@@ -1,0 +1,32 @@
+/* Compile in the consumer's existing Tailwind v4 build. No browser CDN. */
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./fonts.css";
+@import "./components.css" layer(components);
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@theme inline {
+  --font-sans: var(--font-reading);
+  --font-mono: var(--font-technical);
+  --color-raised: var(--pyre-raised);
+  --color-separator: var(--pyre-line);
+  --color-accent: var(--pyre-accent);
+  --color-accent-soft: var(--pyre-accent-soft);
+  --color-accent-text: var(--pyre-accent-text);
+  --color-accent-secondary: var(--pyre-accent-secondary);
+  --color-page: var(--bg-page);
+  --color-surface: var(--bg-surface);
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-secondary);
+  --color-line: var(--border);
+  --color-link: var(--link);
+  --color-focus: var(--focus);
+  --color-neutral: var(--status-neutral);
+  --color-neutral-tint: var(--status-neutral-bg);
+  --color-success: var(--status-success);
+  --color-success-tint: var(--status-success-bg);
+  --color-warning: var(--status-warning);
+  --color-warning-tint: var(--status-warning-bg);
+  --color-danger: var(--status-danger);
+  --color-danger-tint: var(--status-danger-bg);
+}

@@ -6,6 +6,10 @@ Zak's plain global instruction file is provided separately at [`global/AGENTS.md
 
 Each skill is proposed in its own draft pull request. Review the wording, companion dependencies, and checks before merging. No skill is approved merely because its PR exists. The initial main branch intentionally contains only this README.
 
+## Shared internal visual reference
+
+[BRAND.md](BRAND.md) points to the self-contained [internal-visual-style skill](skills/internal-visual-style/SKILL.md). Use it for all UI and theming work without a specific product design system, including plans, review pages, reports, and ad hoc visual artifacts. Product-specific branding takes precedence. Install the complete skill folder for its maintained reference, shared semantic tokens, plain HTML, Tailwind v4 build entry, theme control, and bundled Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono fonts. The selected direction and remaining decisions are recorded in the maintained reference. The example implements the selected direction and verified palette; the banner remains undecided. No global installation is performed by this proposal.
+
 ## Install only what you approve
 
 When a skill is merged, its complete folder lives at `skills/<skill-name>/`, with `SKILL.md` and any required scripts/references/assets. The project MIT license is in root LICENSE; upstream copyright notices and source credits are in this README; individual skill folders contain no README or LICENSE files. Review existing names before copying; do not overwrite another skill blindly. Keep referenced companion folders as siblings. Copy the whole skill folder, not just SKILL.md, and keep root LICENSE and this README once alongside the installed skill folders. Preserve the copyright notices and shared permission text when copying or distributing the material.
