@@ -98,6 +98,22 @@ const saved = () => JSON.parse(fs.readFileSync(path.join(state, "feedback.json")
     await page.getByRole("button", { name: "Cancel" }).click();
     await waitSaved(page);
 
+    // A change made while a save is in flight keeps the status at Saving until that change is saved too.
+    await page.route("**/feedback", async route => {
+      if (route.request().method() === "PUT") await new Promise(resolve => setTimeout(resolve, 1500));
+      await route.continue();
+    });
+    await approve("src/notes/format.py").check();
+    await page.locator("#save-state", { hasText: /^Saving$/ }).waitFor();
+    await page.waitForTimeout(800);
+    await approve("src/notes/legacy.py").check();
+    // The first moment the page says Saved, the file must already hold the change queued behind the slow save.
+    await waitSaved(page);
+    assert.ok(saved().approvals.some(record => record.path === "src/notes/legacy.py"), "Saved was shown before the queued change was saved");
+    await page.unroute("**/feedback");
+    await approve("src/notes/format.py").uncheck(); await approve("src/notes/legacy.py").uncheck();
+    await waitSaved(page);
+
     // A reload restores everything from the server, with no import.
     await page.reload();
     await waitSaved(page);
