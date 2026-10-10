@@ -325,6 +325,38 @@ class InventoryTests(Fixture):
         self.assertEqual(code, 0)
         self.assertIn("would record unreviewed content: run.sh", out)
 
+    def test_staged_symlinks_that_differ_from_the_working_tree_are_named(self):
+        os.symlink("a", self.root / "link")
+        self.commit({"keep.txt": "k\n"})
+        (self.root / "link").unlink(); os.symlink("b", self.root / "link")
+        self.git(self.root, "add", "link")
+        (self.root / "link").unlink(); os.symlink("c", self.root / "link")
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn("would record unreviewed content: link", out)
+
+    def test_a_sparse_entry_shown_from_the_index_is_not_named(self):
+        self.commit({"sparse.txt": "a\n"})
+        self.write("sparse.txt", "b\n")
+        self.git(self.root, "add", "sparse.txt")
+        self.git(self.root, "update-index", "--skip-worktree", "sparse.txt")
+        (self.root / "sparse.txt").unlink()
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("unreviewed content", out)
+
+    def test_a_hidden_symlink_placeholder_stays_a_symlink(self):
+        self.commit({"keep.txt": "k\n"})
+        self.git(self.root, "config", "core.symlinks", "false")
+        target = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.root, input=b"old", capture_output=True, check=True).stdout.decode().strip()
+        self.git(self.root, "update-index", "--add", "--cacheinfo", f"120000,{target},link")
+        self.git(self.root, "commit", "-q", "-m", "link")
+        self.git(self.root, "checkout", "--", "link")
+        self.git(self.root, "update-index", "--assume-unchanged", "link")
+        self.write("link", b"new")
+        link = self.collect()["link"]
+        self.assertEqual((link["new_mode"], link["patch_note"]), ("120000", "symlink"))
+
     def test_a_failure_after_collecting_writes_nothing(self):
         self.commit({"a.txt": "a\n"})
         self.write("a.txt", "b\n")
