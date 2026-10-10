@@ -226,10 +226,25 @@
     }
     return list;
   }
+  // Approvals for files outside this snapshot only spare re-approving a file that returns unchanged. Past the 8 MiB limit,
+  // measured as exported, the oldest of those go first, so carried approvals never make feedback impossible to keep.
+  function fitted(value) {
+    const encoder = new TextEncoder(), measure = item => encoder.encode(JSON.stringify(item, null, 2) + "\n").length;
+    const outside = value.approvals.filter(record => !sources.has(record.path)).sort((a, b) => a.approved_at < b.approved_at ? -1 : 1);
+    let size = measure(value), next = 0;
+    while (size > contract.MAX_BYTES && next < outside.length) {
+      const drop = new Set();
+      for (let excess = size - contract.MAX_BYTES; excess > 0 && next < outside.length; next++) {
+        drop.add(outside[next].path); excess -= encoder.encode(JSON.stringify(outside[next])).length;
+      }
+      value = { ...value, approvals: value.approvals.filter(record => !drop.has(record.path)) }; size = measure(value);
+    }
+    return value;
+  }
   function feedback() {
-    return contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(),
+    return contract.validateFeedback(fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(),
       general_notes: byId("general-notes").value, files: currentFiles(), approvals: approvalList(),
-      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained });
+      comments: comments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: retained }));
   }
   const sameTarget = other => contract.sameTarget(snapshot, other);
   function makeAnchor(file, start, end) {
@@ -640,7 +655,8 @@
     }
     const nextRetained = retained.slice();
     const earlier = incoming.retained_reviews.slice();
-    if (!same) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files });
+    // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes.
+    if (!same) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files.filter(file => file.notes) });
     for (const review of earlier) {
       const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
@@ -650,7 +666,7 @@
     // notes come back when this tab has none of its own.
     const returning = nextRetained.findIndex(item => item.input_sha256 === metadata.input_sha256);
     const restored = !same && returning >= 0 ? nextRetained.splice(returning, 1)[0] : null;
-    if (restored && (restored.files.length !== metadata.files.length || restored.files.some(file => !sources.has(file.path)))) throw Error("Feedback holds notes for this snapshot that list other files.");
+    if (restored && restored.files.some(file => !sources.has(file.path))) throw Error("Feedback holds notes for this snapshot that list other files.");
     const notesFrom = same ? incoming : restored && !editedNotes.size && !editedGeneral && !byId("general-notes").value && !localFiles.some(file => file.notes) ? restored : null;
     // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
     nextRetained.splice(0, Math.max(0, nextRetained.length - 50));
@@ -659,13 +675,16 @@
       const added = incomingReplies.filter(reply => !local.replies?.some(item => item.id === reply.id));
       return added.length ? { ...local, replies: [...(local.replies || []), ...added] } : local;
     }).concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
-    const nextFiles = notesFrom ? notesFrom.files : localFiles;
+    // A retained snapshot lists only its noted files; every other file's note is empty.
+    const nextFiles = notesFrom ? localFiles.map(file => ({ ...file, notes: notesFrom.files.find(saved => saved.path === file.path)?.notes ?? "" })) : localFiles;
     const nextGeneral = notesFrom ? notesFrom.general_notes : byId("general-notes").value;
-    contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
+    const merged = fitted({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
       comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
+    contract.validateFeedback(merged);
+    if (new Blob([JSON.stringify(merged, null, 2) + "\n"]).size > contract.MAX_BYTES) throw Error("Together, the open review and this file exceed 8 MiB, so they cannot be saved as one.");
     comments = nextComments; retained = nextRetained; approvals = nextApprovals;
     if (notesFrom) {
-      for (const saved of notesFrom.files) {
+      for (const saved of nextFiles) {
         const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
         card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
       }

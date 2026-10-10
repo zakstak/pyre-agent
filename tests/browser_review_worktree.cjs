@@ -156,7 +156,7 @@ function render(name) {
       path.join(root, "skills/review-canvas/scripts"), path.join(fixtures, name)], { encoding: "utf8" }).stdout.trim();
     const back = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
     const round1Snapshot = { target: back.target, input_sha256: back.input_sha256, general_notes: "round one overall",
-      files: back.files.map(file => ({ ...file, notes: file.path === "src/notes/cli.py" ? "round one note" : "" })) };
+      files: back.files.filter(file => file.path === "src/notes/cli.py").map(file => ({ ...file, notes: "round one note" })) };  // only noted files are retained
     back.input_sha256 = digest("worktree-review-round2.json");
     back.retained_reviews = [round1Snapshot];
     const backPath = path.join(temp, "returning.json"); fs.writeFileSync(backPath, JSON.stringify(back));
@@ -165,6 +165,7 @@ function render(name) {
     assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
     assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
     const returned = await exportFeedback();
+    assert.equal(returned.files.length, 10, "every file of the snapshot is listed again");
     assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
     // A retained entry for this snapshot that lists other files is refused before anything changes.
     const broken = structuredClone(back);
@@ -187,7 +188,38 @@ function render(name) {
     assert.equal(await approve("src/retry.py").isDisabled(), true);
     assert.equal(await page.getByText("Approval off for 1 file").isVisible(), true);
 
+    // Two rounds with long, disjoint paths, every file approved in both: carried feedback still exports within 8 MiB. The
+    // earlier round keeps only its noted file, and the oldest approvals for files no longer in the snapshot go first.
+    const longRound = (prefix, digit) => {
+      const files = Array.from({ length: 950 }, (_, i) => ({ path: `${prefix}/${i}/${"x".repeat(3000)}`, status: "added", group: "core", additions: 0, deletions: 0,
+        fingerprint: `${digit}${i.toString(16).padStart(63, "0")}`, new_mode: "100644", patch_note: "empty" }));
+      const input = path.join(temp, `${prefix}.json`), output = path.join(temp, `${prefix}.html`);
+      fs.writeFileSync(input, JSON.stringify({ schema_version: 2, target: { kind: "worktree", title: "Long paths", root: "/home/dev/long", head_sha: "5".repeat(40), changed_files: 950 },
+        files_complete: true, files }));
+      const result = spawnSync(process.env.PYTHON || "python3", [path.join(root, "skills/review-canvas/scripts/render_review.py"), input, "--output", output], { encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return pathToFileURL(output).href;
+    };
+    const approveAll = () => page.evaluate(() => { for (const box of document.querySelectorAll('input[type="checkbox"][aria-label^="Approve "]')) if (!box.checked) box.click(); });
+    await page.goto(longRound("a", "a"));
+    await approveAll();
+    await page.evaluate(() => { const notes = document.querySelector(".file-notes"); notes.value = "Only this file has a note."; notes.dispatchEvent(new Event("input", { bubbles: true })); });
+    const first = await exportFeedback();
+    assert.equal(first.approvals.length, 950);
+    const firstPath = path.join(temp, "long-a-feedback.json"); fs.writeFileSync(firstPath, JSON.stringify(first, null, 2) + "\n");
+    await page.goto(longRound("b", "b"));
+    await importFile(firstPath);
+    await approveAll();
+    const second = await exportFeedback();
+    assert.ok(Buffer.byteLength(JSON.stringify(second, null, 2) + "\n") <= 8 * 1024 * 1024);
+    assert.deepEqual(second.retained_reviews[0].files.map(file => file.notes), ["Only this file has a note."]);
+    const kept = second.approvals.filter(record => record.path.startsWith("a/"));
+    assert.equal(second.approvals.filter(record => record.path.startsWith("b/")).length, 950, "every approval in this snapshot stays");
+    assert.ok(kept.length > 0 && kept.length < 950, `kept ${kept.length} earlier approvals`);
+    const newestDropped = Math.max(...first.approvals.filter(record => !kept.some(item => item.path === record.path)).map(record => Date.parse(record.approved_at)));
+    assert.ok(kept.every(record => Date.parse(record.approved_at) >= newestDropped), "the oldest earlier approvals go first");
+
     assert.deepEqual(external, []); assert.deepEqual(errors, []);
-    console.log(`PASS: working tree header, patch notes, mode and rename labels, CRLF rows, approval carry-over and changed-since-approval, re-approval, approval conflict, version and target rejection, old-side and CRLF anchors, PR file without fingerprint. Artifacts: ${temp}`);
+    console.log(`PASS: working tree header, patch notes, mode and rename labels, CRLF rows, approval carry-over and changed-since-approval, re-approval, approval conflict, version and target rejection, carried feedback within 8 MiB, old-side and CRLF anchors, PR file without fingerprint. Artifacts: ${temp}`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
