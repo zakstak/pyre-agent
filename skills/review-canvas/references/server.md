@@ -26,7 +26,9 @@ Each file has exactly one writer, so the only coordination is one revision check
 | `server.lock` | Held by the running server for its whole life, so a second server cannot start |
 | `publish.lock` | Held while `render_review.py --round` compares and replaces `current` |
 
-A round directory never changes after it renders: `render_review.py --round` refuses a round that already has a page, and never publishes a round older than `current`. Directories are mode 0700, and files are mode 0600. The server refuses a state directory that other users can read.
+A round directory never changes after it renders: `render_review.py --round` refuses a round that already has a page, and never publishes a round older than `current`. Directories are mode 0700, and files are mode 0600. The state directory must belong to you, and no other user may be able to rename or replace entries in any of its ancestors. A sticky directory such as `/tmp` is safe; a shared writable directory is not. Otherwise another user could swap in a directory of their own after the server checks it. The scripts refuse a state directory that fails these checks.
+
+Server mode needs POSIX permissions to prove that privacy, so on Windows the scripts refuse state directories. Render with `render_review.py INPUT --output FILE` there, and use export and import.
 
 ## Run a round
 

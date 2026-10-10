@@ -114,7 +114,7 @@
       if (paused || !ready) return Promise.resolve();
       if (saving) { again = true; return saving; }
       let body;
-      try { body = JSON.stringify(feedback()); } catch (error) { show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
+      try { body = JSON.stringify(feedback()); } catch (error) { failed = true; show("Not saved", true); byId("export-status").textContent = error.message; return Promise.resolve(); }
       saving = call("/feedback", { method: "PUT", body, headers: { "Content-Type": "application/json", "X-Review-Revision": revision } }).then(({ status, reply }) => {
         failed = status !== 200;
         if (status === 200) {
@@ -164,8 +164,8 @@
         clearTimeout(timer); timer = setTimeout(save, 500);
       },
       draftChanged() {},
-      // An exported file holds what a failed save could not, so the unload warning can stop.
-      exported(draft) { if (!draft) failed = false; },
+      // A requested download does not prove a saved file, so a failed save keeps its unload warning until a save succeeds.
+      exported() {},
       merged() { this.changed(); },
       unsaved: () => Boolean(timer || saving || again || failed || (paused && dirty)),
     };

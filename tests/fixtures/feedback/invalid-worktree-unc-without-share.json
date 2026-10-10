@@ -36,7 +36,7 @@
      "target": {
       "kind": "worktree",
       "title": "Uncommitted changes on main",
-      "root": "\\\\server",
+      "root": "/home/dev/repo",
       "head_sha": "2222222222222222222222222222222222222222",
       "branch": "main"
      },

@@ -27,9 +27,9 @@
    "anchor": {
     "snapshot": {
      "target": {
-      "kind": "branch",
+      "kind": "github_pr",
       "title": "Synthetic",
-      "url": "https://github.com/example/repo/pull/2\n",
+      "url": "https://github.com/example/repo/pull/2",
       "head_sha": "1111111111111111111111111111111111111111"
      },
      "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -58,9 +58,9 @@
  ],
  "retained_reviews": [],
  "pr": {
-  "kind": "branch",
+  "kind": "github_pr",
   "title": "Synthetic",
-  "url": "https://github.com/example/repo/pull/2\n",
+  "url": "https://github.com/example/repo/pull/2",
   "head_sha": "1111111111111111111111111111111111111111"
  }
 }
