@@ -30,7 +30,8 @@ The installer records what it installed in `${XDG_STATE_HOME:-~/.local/state}/py
 
 - If a skill folder with the same name already exists and the installer did not create it, the installer reports a conflict and leaves the folder alone.
 - If you edited an installed copy, the installer keeps your copy. `--force` replaces it.
-- If a skill leaves the repository, the installer removes its copy.
+- An update replaces the whole skill folder, so a file deleted from a skill also leaves the installed copy.
+- If a skill leaves the repository or changes its name, the installer removes the old copy.
 - If the earlier README steps left a symlink into this checkout, the installer replaces the symlink with a copy.
 
 The installer exits with code 1 after it skips a conflict or an edited copy, and with code 2 when it cannot run.
@@ -86,15 +87,27 @@ Codex reads a non-empty `AGENTS.override.md` instead of `AGENTS.md`, and the ins
 
 ## Skill versions
 
-Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version. Whether a change is major, minor, or a patch is a judgment call.
+Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version, including a deleted or renamed file. Whether a change is major, minor, or a patch is a judgment call, with one exception: a skill whose folder name changes must raise its major version, because `/old-name` stops working.
 
-A pull request check compares every changed skill with the base branch. To run it before you push:
+`tests/check_skill_versions.py` compares every skill with the merge base of your branch and `origin/main`. It fails when:
+
+- A changed skill does not raise its version, or any skill lacks a version in the form `"MAJOR.MINOR.PATCH"`. A new skill needs only a valid version.
+- A renamed skill does not raise its major version. The check pairs a removed skill with a new skill when at least half of their `SKILL.md` lines match. A rename that also rewrites most of `SKILL.md` counts as a new skill.
+- A file in `skills/`, `host-skills/`, or `global/` still names a skill that was removed or renamed. A hyphenated name counts anywhere. A one-word name counts only as `/name`, `$name`, or `` `name` ``.
+
+Turn on the pre-commit hook once per clone. It checks the files you staged:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+To run the check by hand, including uncommitted and untracked files:
 
 ```sh
 python3 tests/check_skill_versions.py --base origin/main
 ```
 
-The check counts uncommitted and untracked files. A new skill needs only a valid version in the form `"MAJOR.MINOR.PATCH"`.
+Pull requests run the same check in GitHub Actions. The check is advisory, because GitHub Free cannot require checks on a private repository.
 
 ## License and credits
 
