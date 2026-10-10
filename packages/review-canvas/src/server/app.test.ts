@@ -8,7 +8,7 @@ import { createServer, request } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { App } from "./app.ts"
+import { App, loopbackHosts } from "./app.ts"
 import { Assets, layerFromBuild } from "./assets.ts"
 import { html } from "./html.ts"
 
@@ -35,6 +35,8 @@ const clientBuild = () => {
   const clientDir = mkdtempSync(join(tmpdir(), "review-canvas-"))
   mkdirSync(join(clientDir, "assets"))
   writeFileSync(join(clientDir, "assets", "main.css"), "body{}")
+  // Exists just outside the served folder, so a 404 for it shows containment, not a missing file.
+  writeFileSync(join(clientDir, "secret.txt"), "secret")
   return clientDir
 }
 
@@ -69,16 +71,32 @@ test("a request addressed to another host is refused", () =>
     const page = await get(port, "/", `evil.example:${port}`)
     assert.equal(page.status, 403)
     assert.equal(page.header("x-content-type-options"), "nosniff")
+    assert.equal((await get(port, "/assets/main.css", `evil.example:${port}`)).status, 403)
+    assert.equal((await get(port, "/", "127.0.0.1")).status, 403)
     assert.equal((await get(port, "/", `localhost:${port}`)).status, 200)
   }))
+
+test("the default HTTP port also accepts the bare loopback names browsers send", () => {
+  assert.deepEqual([...loopbackHosts(80)].sort(), ["127.0.0.1", "127.0.0.1:80", "localhost", "localhost:80"])
+  assert.deepEqual([...loopbackHosts(8080)].sort(), ["127.0.0.1:8080", "localhost:8080"])
+})
 
 test("built assets are served immutably, and nothing outside them", () =>
   withServer(async (port) => {
     const css = await get(port, "/assets/main.css")
     assert.equal(css.status, 200)
     assert.match(css.header("cache-control"), /immutable/)
-    assert.equal((await get(port, "/assets/../package.json")).status, 404)
-    assert.equal((await get(port, "/nope")).status, 404)
+    for (const path of ["/assets/../secret.txt", "/assets/%2e%2e/secret.txt", "/assets/..%2fsecret.txt"]) {
+      assert.equal((await get(port, path)).status, 404, path)
+    }
+  }))
+
+test("a missing page gets the security headers too", () =>
+  withServer(async (port) => {
+    const missing = await get(port, "/nope")
+    assert.equal(missing.status, 404)
+    assert.equal(missing.header("x-content-type-options"), "nosniff")
+    assert.match(missing.header("content-security-policy"), /default-src 'self'/)
   }))
 
 test("html escapes interpolations unless they are markup", () => {

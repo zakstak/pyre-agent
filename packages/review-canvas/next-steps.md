@@ -28,8 +28,8 @@ done, what is decided, and the order of the remaining work.
 | Server | Effect v4. It renders pages as HTML and serves the API. |
 | Browser | No UI framework. Server-rendered HTML with small TypeScript modules, built by Vite with Tailwind and the internal visual style. |
 | Type check | `tsc-rs` with Effect's diagnostics. |
-| Runtime | Node 26 with pnpm. Node runs the server's TypeScript directly. |
-| Platforms | Linux and macOS. CI runs on both from step 2. |
+| Runtime | Node 26 with pnpm. Node runs the server's TypeScript directly from a checkout or a linked install. Node refuses to strip types from files under `node_modules`, so an installed package needs emitted JavaScript. |
+| Platforms | Linux, and macOS on Apple Silicon. The target Macs are M3 or newer; Intel Macs are not supported. CI runs on Linux and an arm64 macOS runner from step 2. |
 | State authority | The server owns state. Each action (approve, comment, reply, accept, reopen) is one request that carries the revision it saw. Open pages get short change events over server-sent events and fetch the server-rendered HTML for the changed item. A hidden page closes its stream and catches up by revision when shown, so open tabs stay under the browser's six connections per host. |
 | Approvals | Shared by every thread of a review and tied to file fingerprints. Each approval records the round it was made in. |
 | Answers from several threads | Today's turn rules stay: any thread may answer on the agent's turn, and each answer names its thread. |
@@ -41,7 +41,7 @@ done, what is decided, and the order of the remaining work.
 | Privacy | Plain modes only: 0700 folders and 0600 files. No ACL, ancestor, or filesystem checks, because the server already serves the data to anything on loopback. |
 | File fallback | Drop the standalone `file://` page. Keep feedback JSON export. Import replays comments and replies as actions through the normal checks and reports what it skipped. |
 | Format versions | Greenfield. Each format starts at version 1 under a new key, such as `"format": "review-canvas.feedback/1"`, so no Python file can be read as a new one. Unknown formats and versions fail with a message that names them. No conversion of Python reviews: finish them in the Python version. |
-| Installation | npm in the long term. Nothing is published for now. The package has a `bin`; local testing installs it from a `pnpm pack` tarball or with `pnpm link --global`. `install.py` changes, if any, need approval first. |
+| Installation | npm in the long term. Nothing is published for now. The package has a `bin`, and local testing installs it with `pnpm link --global`, which runs the source. A `pnpm pack` tarball does not work until the build emits JavaScript for the server and the command-line tool; that build, and a test that installs the packed tarball and starts its `bin` on Node 26, come before any npm release. `install.py` changes, if any, need approval first. |
 
 ## Later, not now
 
@@ -118,8 +118,10 @@ The collector must keep every protection it gained in review:
 - Starting a review looks up the open PR with `gh` and imports its comments. With no open PR, or when `gh` fails, the
   review starts without them and the command says why.
 - Rewrite `skills/review-canvas/SKILL.md` and its references for the server.
-- Give the package a `bin`. Install it locally from a `pnpm pack` tarball or with `pnpm link --global`. Do not
-  publish. Any `install.py` change needs approval first.
+- Give the package a `bin`. Install it locally with `pnpm link --global`. Do not publish. Any `install.py` change
+  needs approval first.
+- Before an npm release: emit JavaScript for the server and the command-line tool, and add a test that installs the
+  `pnpm pack` tarball and starts its `bin` on Node 26.
 
 ### 7. Parity, then removal
 
