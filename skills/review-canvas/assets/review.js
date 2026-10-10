@@ -527,20 +527,25 @@
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");
       if (!local) nextRetained.push(review);
     }
+    // A snapshot that is current again, as when the code returns to an earlier version, leaves the retained list. Its
+    // notes come back when this tab has none of its own.
+    const returning = nextRetained.findIndex(item => item.input_sha256 === metadata.input_sha256);
+    const restored = !same && returning >= 0 ? nextRetained.splice(returning, 1)[0] : null;
+    const notesFrom = same ? incoming : restored && !editedNotes.size && !editedGeneral && !byId("general-notes").value && !localFiles.some(file => file.notes) ? restored : null;
     // Keep the newest 50 earlier snapshots, so a long review can still carry its feedback into the next round.
     nextRetained.splice(0, Math.max(0, nextRetained.length - 50));
     const nextComments = comments.concat(incomingComments.filter(comment => !comments.some(local => local.id === comment.id)));
-    const nextFiles = same ? incoming.files : localFiles;
-    const nextGeneral = same ? incoming.general_notes : byId("general-notes").value;
+    const nextFiles = notesFrom ? notesFrom.files : localFiles;
+    const nextGeneral = notesFrom ? notesFrom.general_notes : byId("general-notes").value;
     contract.validateFeedback({ feedback_schema_version: contract.VERSION, ...snapshot, exported_at: new Date().toISOString(), general_notes: nextGeneral, files: nextFiles, approvals: approvalList(nextApprovals),
       comments: nextComments.map(comment => ({ ...comment, attachment: contract.resolveAnchor(comment.anchor, sources.get(comment.anchor.path)) })), retained_reviews: nextRetained });
     comments = nextComments; retained = nextRetained; approvals = nextApprovals;
-    if (same) {
-      for (const saved of incoming.files) {
+    if (notesFrom) {
+      for (const saved of notesFrom.files) {
         const card = sources.get(saved.path).card; card.querySelector(".file-notes").value = saved.notes;
         card.querySelector(".note-indicator").textContent = saved.notes ? " · has notes" : "";
       }
-      byId("general-notes").value = incoming.general_notes;
+      byId("general-notes").value = notesFrom.general_notes;
     }
     deleted = null; announce(""); closeComposer(); drawComments(); refresh();
     // The page is dirty when it holds something the incoming feedback lacks, so loading the same file again stays clean.

@@ -151,6 +151,22 @@ function render(name) {
     assert.equal(carried.retained_reviews.some(review => review.general_notes === "round 0"), false, "the oldest snapshot is dropped");
     assert.equal(carried.retained_reviews.at(-1).input_sha256, long.input_sha256, "round 1 is kept as the newest");
 
+    // When the code returns to round 1, round 1's notes come back from the retained list instead of staying there.
+    const digest = name => spawnSync(process.env.PYTHON || "python3", ["-c", "import json,sys;sys.path.insert(0,sys.argv[1]);import render_review as r;print(r.input_digest(r.load_review(sys.argv[2])))",
+      path.join(root, "skills/review-canvas/scripts"), path.join(fixtures, name)], { encoding: "utf8" }).stdout.trim();
+    const back = JSON.parse(fs.readFileSync(savedFeedback, "utf8"));
+    const round1Snapshot = { target: back.target, input_sha256: back.input_sha256, general_notes: "round one overall",
+      files: back.files.map(file => ({ ...file, notes: file.path === "src/notes/cli.py" ? "round one note" : "" })) };
+    back.input_sha256 = digest("worktree-review-round2.json");
+    back.retained_reviews = [round1Snapshot];
+    const backPath = path.join(temp, "returning.json"); fs.writeFileSync(backPath, JSON.stringify(back));
+    await load(round1);
+    await importFile(backPath);
+    assert.equal(await page.locator("#general-notes").inputValue(), "round one overall");
+    assert.equal(await card("src/notes/cli.py").locator(".file-notes").inputValue(), "round one note");
+    const returned = await exportFeedback();
+    assert.deepEqual(returned.retained_reviews.map(review => review.input_sha256), [back.input_sha256]);
+
     // A PR file without a fingerprint cannot be approved.
     const pr = JSON.parse(fs.readFileSync(path.join(root, "skills/review-canvas/assets/example-review.json"), "utf8"));
     delete pr.files[1].fingerprint;
