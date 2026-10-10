@@ -562,8 +562,11 @@ def build(top, snapshot, fmt, include, config):
     return files, flagged
 
 
-def collect(repo, title=None, include_secret=(), output=None):
-    """Return (validated review, secret-flagged paths) for the working tree containing repo."""
+def collect(repo, title=None, include_secret=(), output=None, staged=None):
+    """Return (validated review, secret-flagged paths) for the working tree containing repo.
+
+    staged, when a list, receives the paths whose staged version differs from the review, read inside the same
+    before-and-after inventory check as the review itself, so a file that changes during that scan is caught too."""
     git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     git_executable(top)  # the working tree Git found, which core.worktree may put outside repo
@@ -605,6 +608,7 @@ def collect(repo, title=None, include_secret=(), output=None):
             if unknown:
                 raise CollectError("--include-secret-file names a path that is not a changed file: " + ", ".join(sorted(unknown)))
             files, flagged = build(top, snapshot, fmt, include, config)
+            diverging = staged_differently(top, config) if staged is not None else []
             between_reads()
             if inventory(top, fmt, config) == snapshot:
                 break
@@ -622,6 +626,8 @@ def collect(repo, title=None, include_secret=(), output=None):
         target["branch"] = branch
     target["changed_files"] = len(files)
     review = {"schema_version": 2, "target": target, "files_complete": True, "files": files}
+    if staged is not None:
+        staged[:] = diverging
     return render_review.validate_review(review), flagged
 
 
@@ -683,9 +689,8 @@ def main(argv=None):
                         help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")
     args = parser.parse_args(argv)
     try:
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
-        root = Path(review["target"]["root"])
-        staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
+        staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
+        review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output, staged=staged)
         write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks

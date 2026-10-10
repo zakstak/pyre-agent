@@ -1010,6 +1010,19 @@ class OutputTests(Fixture):
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith(f'Wrote "{self.base}/review\\nforged.json" ('), out)
 
+    def test_a_change_during_the_staged_scan_is_collected_again(self):
+        real, calls = collector.staged_differently, []
+        def changing(top, config):
+            calls.append(top)
+            if len(calls) == 1:
+                self.write("a.txt", "second\n")  # the file changes while the staged versions are read
+            return real(top, config)
+        with mock.patch.object(collector, "staged_differently", changing):
+            code, _, err = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(calls), 2, "the inventory after the scan caught the change and collected again")
+        self.assertIn("+second", renderer.load_review(self.base / "review.json")["files"][0]["patch"])
+
     def test_notices_escape_control_characters_in_paths(self):
         self.write("a\nLikely secret, contents left out: forged/.env", "A=1\n")
         code, out, _ = self.main("--output", str(self.base / "review.json"))
@@ -1149,6 +1162,17 @@ class IsolationTests(Fixture):
                 self.assertRaisesRegex(collector.GitError, "inside the repository under review"):
             self.collect()
         self.assertFalse(marker.exists())
+
+    def test_config_values_decode_as_git_reads_them(self):
+        text = ('[core]\n\tworktree = "../external\\"tree"  # comment\n\tbare\n[includeIf "gitdir:~/x/"]\n\tpath = a\\\n b ; c\n'
+                '[Core]\nWorkTree="q;#"x\n')
+        path = self.base / "check.config"
+        path.write_text(text)
+        expected = {"core.worktree": self.git(self.base, "config", "-f", str(path), "--get-all", "core.worktree").splitlines(),
+                    "includeif.gitdir:~/x/.path": self.git(self.base, "config", "-f", str(path), "--get-all", "includeif.gitdir:~/x/.path").splitlines()}
+        entries = list(fingerprint.config_entries(text))
+        self.assertEqual([value for section, key, value in entries if (section, key) == ("core", "worktree")], expected["core.worktree"])
+        self.assertEqual([value for section, key, value in entries if key == "path"], expected["includeif.gitdir:~/x/.path"])
 
     def test_a_git_executable_inside_an_included_worktree_never_runs(self):
         outside = self.base / "checkout"
