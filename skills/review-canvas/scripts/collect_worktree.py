@@ -184,7 +184,7 @@ def tracked_entry(top, change, fmt, config):
         raise CollectError(f"unexpected Git status {change['status']} for {path}")
     # The current file decides what the reviewer sees: a symlink replaced by a file shows the file's contents.
     entry = {"path": path, "old_path": change["old_path"] and representable(change["old_path"]),
-             "status": STATUSES[change["status"]], "untracked": False, "kind": kind(new_mode or old_mode),
+             "status": STATUSES[change["status"]], "untracked": False, "kind": kind(new_mode or old_mode), "hidden": change.get("hidden", False),
              "old_blob": change["old_blob"], "old_mode": old_mode, "new_blob": None, "new_mode": new_mode, "size": 0}
     full = top / path
     if new_mode == "160000":
@@ -297,19 +297,42 @@ def assumed_unchanged(top, tracked, config):
         head[decode_path(path)] = (mode, blob)
     index = index_entries(top)
     links_are_files = not git_bool(top, "core.symlinks")
+    modes_count = git_bool(top, "core.filemode")
     for path in sorted(assumed):
-        new_mode = disk_mode(top / path)
-        if links_are_files and index.get(path, ("",))[0] == "120000" and new_mode in ("100644", "100755"):
+        new_mode, indexed = disk_mode(top / path), index.get(path, ("",))[0]
+        if links_are_files and indexed == "120000" and new_mode in ("100644", "100755"):
             new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
+        elif not modes_count and indexed in ("100644", "100755") and new_mode in ("100644", "100755"):
+            new_mode = indexed  # with core.filemode off, Git records the index mode, not the executable bit on disk
         if path in changes and not new_mode and path not in head:
             del changes[path]  # added to the index, then removed from disk: nothing changed between HEAD and the tree
         elif path in changes:
-            changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D")
+            changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D", hidden=True)
         elif path in head:
             old_mode, old_blob = head[path]
             changes[path] = {"status": "M" if new_mode else "D", "path": path, "old_path": None, "old_mode": old_mode,
-                             "new_mode": new_mode, "old_blob": old_blob, "new_blob": None}
+                             "new_mode": new_mode, "old_blob": old_blob, "new_blob": None, "hidden": True}
     return list(changes.values())
+
+
+def hidden_stats(top, entry, config):
+    """Line counts for a file Git's own diff skips, such as one marked assume-unchanged: diff its exact bytes."""
+    if entry["kind"] != "file":
+        return 0, 0, False
+    with tempfile.TemporaryDirectory(prefix="review-canvas-") as temp:
+        old = os.devnull
+        if entry["old_blob"]:
+            old = str(Path(temp, "old"))
+            Path(old).write_bytes(git(top, *config, "cat-file", "blob", entry["old_blob"]))
+        new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
+        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--numstat", "--no-ext-diff",
+                     "--no-textconv", "--", old, new, ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"})
+    fields = output.split(b"\t")
+    if len(fields) < 3:
+        return 0, 0, False  # no difference in the bytes
+    if fields[0] == b"-":
+        return 0, 0, True  # binary
+    return int(fields[0]), int(fields[1]), False
 
 
 def numstat(top, config):
@@ -414,8 +437,11 @@ def build(top, snapshot, fmt, include, config):
         binary = entry.get("binary", False)
         if entry["untracked"]:
             additions, deletions = (entry["lines"] if entry["kind"] == "file" and not binary else 0), 0
+        elif path in stats:
+            additions, deletions, _ = stats[path]
         else:
-            additions, deletions, _ = stats.get(path, (0, 0, False))
+            # Git's numstat skips files it trusts without reading; count their exact bytes instead.
+            additions, deletions, _ = hidden_stats(top, entry, config) if entry.get("hidden") else (0, 0, False)
         file = {"path": path, "status": entry["status"], "group": "core", "additions": additions, "deletions": deletions,
                 "fingerprint": entry["fingerprint"]}
         if entry["old_path"]:
@@ -507,7 +533,10 @@ def staged_differently(top, config):
     # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
     modes_count = git_bool(top, "core.filemode")
     found = []
-    for path, (mode, blob, tag) in index_entries(top).items():
+    index = index_entries(top)
+    # A staged deletion has no index entry; a file kept on disk at that path means the commit removes what was reviewed.
+    found += [path for path in staged - index.keys() if os.path.lexists(top / path)]
+    for path, (mode, blob, tag) in index.items():
         full = top / path
         if path not in staged or (tag in "Ss" and not os.path.lexists(full)):
             continue  # unstaged, or a sparse entry whose staged blob is what the review showed
