@@ -152,6 +152,13 @@ fs.mkdirSync(out, { recursive: true });
     await page.getByRole("button", { name: "Expand all" }).click();
     assert.deepEqual(await Promise.all([1, 2, 3, 4].map(n => state(`fixture-comment-${n}`))), ["Resolved", "Reopened", "Replied", "Answered: deferred"]);
     assert.match(await page.locator("#review-summary").textContent(), /1 answered by the agent/);
+    // A reply draft blocks a new comment, and the page takes the reviewer to that draft, not the empty comment box.
+    await comment("fixture-comment-3").getByRole("button", { name: "Reply to the agent" }).click();
+    await comment("fixture-comment-3").getByLabel("Reply to the agent").fill("Half a reply.");
+    await page.locator(".comment-line").first().click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "reply-fixture-comment-3");
+    assert.match(await page.locator("#comment-status").textContent(), /Finish or cancel the open reply first/);
+    await comment("fixture-comment-3").getByRole("button", { name: "Cancel reply" }).click();
 
     // A round whose input lacks the earlier answers shows that, instead of calling an accepted thread resolved.
     const bare = path.join(temp, "round1.html");

@@ -2,7 +2,7 @@
 """Write the agent's answers to review comments into a round's input, before the round renders.
 
     python3 reply.py carry --from STATE/rounds/0001/input.json --to STATE/rounds/0002/input.json
-    python3 reply.py add --input STATE/rounds/0002/input.json --feedback STATE/feedback.json \\
+    python3 reply.py add --input STATE/rounds/0002/input.json --feedback STATE/feedback.json --revision REVISION \\
         --comment COMMENT_ID --disposition fixed --body "What changed" --fixed-in-fingerprint FINGERPRINT
 
 carry copies every agent reply from an earlier round, so earlier answers stay visible. add appends one reply with a
@@ -58,6 +58,13 @@ def _carry(source, target):
     conflicts = sorted(reply["id"] for reply in earlier if reply["id"] in current and current[reply["id"]] != reply)
     if conflicts:
         raise render_review.ValidationError(f"{target} already has different replies with these IDs: {', '.join(conflicts)}; nothing was copied")
+    # An answer added before carry ran was written without the earlier answers in its thread; carrying them in now
+    # would put two agent answers in a row, the newer one answering nothing the reviewer said.
+    answered = {reply["comment_id"] for reply in current.values()}
+    stranded = sorted({reply["comment_id"] for reply in earlier if reply["id"] not in current and reply["comment_id"] in answered})
+    if stranded:
+        raise render_review.ValidationError(f"{target} already answers {', '.join(stranded)} without the earlier answers carry would add. "
+                                            "Remove those answers, carry, then add them again; nothing was copied")
     known = set(current)
     review["replies"] = [reply for reply in earlier if reply["id"] not in known] + review.get("replies", [])
     save_round_input(target, review)

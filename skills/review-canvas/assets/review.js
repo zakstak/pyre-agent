@@ -370,7 +370,12 @@
   }
   function compose(anchor, comment = null, reattach = false) {
     // Never discard a draft silently, even one hidden by a collapsed file or a filter.
-    if (draftOpen()) { revealComposer(); announce("Finish or cancel the open comment first."); return; }
+    if (draftOpen()) {
+      // The text may be in the comment composer or in a thread's reply box; reveal whichever holds it.
+      if (!composer.hidden && byId("comment-body").value.trim()) { revealComposer(); announce("Finish or cancel the open comment first."); }
+      else { jumpTo(replyDraft.commentId); byId(`reply-${replyDraft.commentId}`)?.focus(); announce("Finish or cancel the open reply first."); }
+      return;
+    }
     const trigger = document.activeElement;
     parkComposer();
     composerAnchor = anchor; editing = comment && !reattach ? comment.id : null; reattaching = reattach ? comment.id : null;

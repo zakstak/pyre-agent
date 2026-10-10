@@ -121,6 +121,12 @@ class ReplyTests(unittest.TestCase):
             reply.carry(self.input, self.input)
         self.assertEqual(self.replies(), [])
 
+    def test_carry_refuses_to_slip_earlier_answers_under_a_newer_one(self):
+        self.answer(self.feedback, "fixture-comment-4", "question", "Any news?")  # added before carry, by mistake
+        with self.assertRaisesRegex(ValueError, "already answers fixture-comment-4 without the earlier answers"):
+            reply.carry(self.previous, self.input)
+        self.assertEqual(len(self.replies()), 1)
+
     def test_carry_refuses_another_review(self):
         other = json.loads(self.previous.read_text())
         other["target"]["root"] = "/home/dev/elsewhere"
