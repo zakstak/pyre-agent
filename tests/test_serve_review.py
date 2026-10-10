@@ -158,6 +158,20 @@ class ShutdownTests(ServerCase):
         self.server.server_close()
         self.assertLess(time.monotonic() - started, 3)
 
+    def test_a_client_that_leaves_gets_no_second_reply(self):
+        statuses = []
+        def respond(handler, status, *rest, **options):
+            statuses.append(status)
+            raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+        errors = io.StringIO()
+        with unittest.mock.patch.object(serve.Handler, "respond", respond), contextlib.redirect_stderr(errors):
+            with socket.create_connection(("127.0.0.1", self.port), timeout=5) as client:
+                client.sendall(f"GET /round HTTP/1.1\r\nHost: {self.host}\r\n\r\n".encode())
+                client.recv(100)
+            time.sleep(0.2)
+        self.assertEqual(statuses, [403], "a failed write was answered again as a state error")
+        self.assertEqual(errors.getvalue(), "")
+
     def test_saves_after_shutdown_begins_are_refused(self):
         self.assertTrue(self.server.finish_saves(1))
         status, reply = self.api("PUT", "/feedback", self.body)

@@ -595,6 +595,27 @@ class InventoryTests(Fixture):
         os.rename(self.root / "straße", self.root / "STRASSE")
         self.assertEqual({path: file["status"] for path, file in self.collect().items()}, {"STRASSE": "added", "straße": "deleted"})
 
+    def test_a_hidden_staged_addition_renamed_by_case_stops_collection(self):
+        self.commit({"keep.txt": "k\n"})
+        self.git(self.root, "config", "core.ignoreCase", "true")
+        self.write("foo", "f\n")
+        self.git(self.root, "add", "foo")
+        self.git(self.root, "update-index", "--assume-unchanged", "foo")
+        os.rename(self.root / "foo", self.root / "FOO")
+        with self.assertRaisesRegex(collector.CollectError, "foo was renamed by case only"):
+            self.collect()
+
+    def test_too_many_tracked_changes_stop_before_reading_the_rest(self):
+        self.commit({f"f{i}.txt": "a\n" for i in range(6)})
+        for i in range(6):
+            self.write(f"f{i}.txt", "b\n")
+        reads, real = [], collector.read_blob
+        with mock.patch.object(collector.render_review, "MAX_FILES", 2), \
+                mock.patch.object(collector, "read_blob", lambda path, fmt: (reads.append(path), real(path, fmt))[1]), \
+                self.assertRaisesRegex(collector.CollectError, "^3 changed files exceed the review limit of 2"):
+            self.collect()
+        self.assertEqual(len(reads), 3)
+
     def test_many_long_hidden_paths_fit(self):
         names = [f"{'d' * 200}/{i:04d}-{'n' * 150}.txt" for i in range(300)]
         self.commit({name: "x\n" for name in names})
@@ -893,6 +914,18 @@ class FingerprintTests(Fixture):
         self.assertIn("inside the repository under review", result.stderr)
         self.assertFalse(marker.exists())
 
+    def test_grafts_from_the_environment_do_not_change_the_merge_base(self):
+        self.commit({"a.txt": "a\n"})
+        self.git(self.root, "checkout", "-q", "-b", "feature")
+        self.commit({"feature.txt": "f\n"})
+        self.git(self.root, "checkout", "-q", "main")
+        self.commit({"main.txt": "m\n"})
+        expected = fingerprint.pr_fingerprints(self.root, "main", "feature")
+        graft = self.base / "grafts"
+        graft.write_text(f"{self.git(self.root, 'rev-parse', 'feature').strip()} {self.git(self.root, 'rev-parse', 'main').strip()}\n")
+        with mock.patch.dict(os.environ, {"GIT_GRAFT_FILE": str(graft)}):
+            self.assertEqual(fingerprint.pr_fingerprints(self.root, "main", "feature"), expected)
+
     def test_cli_errors(self):
         self.commit({"a.txt": "a\n"})
         plain = self.base / "plain"
@@ -926,6 +959,19 @@ class OutputTests(Fixture):
                     self.assertEqual(code, 2)
                     self.assertIn("only STATE/rounds/NNNN/input.json", err)
         self.assertFalse((self.root / ".git" / "review-canvas" / "feedback.json").exists())
+
+    def test_a_shared_ancestor_with_rounds_is_not_a_state_directory(self):
+        shared = self.base / "shared"
+        (shared / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(shared, 0o755)  # not private, as /tmp is not
+        code, _, err = self.main("--output", str(shared / "review.json"))
+        self.assertEqual(code, 0, err)
+        nested = self.base / "deep"
+        (nested / "rounds" / "0001").mkdir(parents=True)
+        os.chmod(nested, 0o700)
+        (nested / "a" / "b").mkdir(parents=True)
+        code, _, err = self.main("--output", str(nested / "a" / "b" / "review.json"))
+        self.assertEqual(code, 0, err)  # only the directory that holds the output, or its round's state, counts
 
     def test_refuses_git_files_as_output(self):
         head = (self.root / ".git" / "HEAD").read_bytes()

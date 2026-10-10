@@ -164,13 +164,16 @@ def round_input(path):
 
 
 def in_state_directory(path):
-    """Whether path lies in a review state directory: one whose rounds folder holds a numbered round."""
-    def rounds(parent):
+    """Whether path is a file of a review state directory, STATE/NAME or STATE/rounds/NNNN/NAME. A state directory is
+    private to this user and holds a numbered round, so a shared ancestor such as /tmp never counts as one."""
+    def is_state(directory):
         try:
-            return any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(parent / "rounds"))
+            info = os.stat(directory)
+            return (info.st_uid == os.getuid() and not info.st_mode & 0o077
+                    and any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(directory / "rounds")))
         except OSError:
             return False
-    return any(rounds(parent) for parent in path.parents)
+    return is_state(path.parent) or (path.parent.parent.name == "rounds" and is_state(path.parent.parent.parent))
 
 
 def rendered_round_input(output):
@@ -278,6 +281,8 @@ def inventory(top, fmt, config):
             entry = tracked_entry(top, change, fmt, config)
         if entry:
             entries[entry["path"]] = entry
+            if len(entries) > render_review.MAX_FILES:
+                raise too_many(len(entries))  # before reading the rest
     for raw in others:
         # Git lists a nested repository as one directory entry ending in a slash.
         path = representable(decode_path(raw.removesuffix(b"/")))
@@ -370,6 +375,7 @@ def assumed_unchanged(top, tracked, config):
     index = index_entries(top, assumed)
     links_are_files = not git_bool(top, "core.symlinks")
     modes_count = git_bool(top, "core.filemode")
+    folds_case = git_bool(top, "core.ignoreCase", default=False)
     for path in sorted(assumed):
         new_mode, indexed = None if ancestor_replaced(top, path) else disk_mode(top / path), index.get(path, ("",))[0]
         if links_are_files and indexed == "120000" and new_mode in ("100644", "100755"):
@@ -379,6 +385,10 @@ def assumed_unchanged(top, tracked, config):
         elif new_mode == "160000" and indexed != "160000" and repository_head(top / path) is None:
             new_mode = None  # an ordinary directory replaced the file: a deletion, with its children collected as untracked
         if path in changes and not new_mode and path not in head:
+            if folds_case and case_renamed(top, path):
+                # Git hides the new spelling from the untracked list, and no HEAD deletion is left for the later guard.
+                raise CollectError(f"{path} was renamed by case only, which Git hides with core.ignoreCase on. "
+                                   "Stage the rename with git mv, then collect again.")
             source = changes.pop(path)  # added to the index, then removed from disk: nothing new in the tree
             if source.get("old_path"):  # a rename's source is still gone from the tree, so it is a deletion
                 changes[source["old_path"]] = {"status": "D", "path": source["old_path"], "old_path": None, "old_mode": source["old_mode"],

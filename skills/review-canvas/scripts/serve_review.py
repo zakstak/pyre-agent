@@ -160,9 +160,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def guarded(self):
         try:
-            self.route()
-        except (review_state.StateError, render_review.ValidationError, OSError) as error:
-            self.reply(500, error=f"The review state is unreadable: {error}")
+            try:
+                self.route()
+            except ConnectionError:
+                raise
+            except (review_state.StateError, render_review.ValidationError, OSError) as error:
+                self.reply(500, error=f"The review state is unreadable: {error}")
+        except ConnectionError:
+            self.close_connection = True  # the client left; there is no one to answer, and nothing to log
 
     def route(self):
         self.close_connection = True
