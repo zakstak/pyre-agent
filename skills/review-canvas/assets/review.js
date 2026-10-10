@@ -514,7 +514,7 @@
   });
   byId("export-feedback").addEventListener("click", () => {
     let output;
-    try { output = JSON.stringify(feedback(), null, 2) + "\n"; if (new Blob([output]).size > contract.MAX_BYTES) throw Error("Feedback exceeds the 8 MiB save/import limit."); }
+    try { output = JSON.stringify(feedback(), null, 2) + "\n"; if (new Blob([output]).size > contract.MAX_BYTES) throw Error("Feedback exceeds the 8 MiB save/import limit. Shorten notes or comments to export it."); }
     catch (error) { byId("export-status").textContent = error.message; return; }
     byId("feedback-json").value = output; const preview = byId("export-preview"); preview.hidden = false;
     try {
@@ -561,8 +561,10 @@
     }
     const nextRetained = retained.slice();
     const earlier = incoming.retained_reviews.slice();
-    // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes.
-    if (!same) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: incoming.files.filter(file => file.notes) });
+    // An earlier snapshot keeps only what the reviewer wrote: its general notes and the files with notes. One with no
+    // notes at all has nothing to keep, and would only use up the retained limit.
+    const noted = incoming.files.filter(file => file.notes);
+    if (!same && (incoming.general_notes || noted.length)) earlier.push({ target: incoming.target, input_sha256: incoming.input_sha256, general_notes: incoming.general_notes, files: noted });
     for (const review of earlier) {
       const local = nextRetained.find(item => item.input_sha256 === review.input_sha256);
       if (local && comparable(local) !== comparable(review)) throw Error("Conflicting retained snapshot. Open review preserved.");

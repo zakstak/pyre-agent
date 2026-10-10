@@ -285,17 +285,18 @@ def inventory(top, fmt, config):
 
 
 def case_renamed(top, path):
-    """Whether a deleted path still exists under a name, its own or a directory's on the way, that differs only in case."""
-    parent = top
-    for part in Path(path).parts:
+    """Whether a deleted path still exists under a spelling, of its name or a directory's on the way, that differs only
+    in case. Git folds only ASCII letters, so this does too; the old spelling of a directory may remain beside the new."""
+    fold = lambda name: os.fsencode(name).lower()  # bytes.lower changes ASCII letters only
+    def found(parent, parts, exact):
+        if not parts:
+            return not exact
         try:
             names = os.listdir(parent)
         except OSError:
             return False
-        if part not in names:
-            return any(name.casefold() == part.casefold() for name in names)
-        parent = parent / part
-    return False
+        return any(found(parent / name, parts[1:], exact and name == parts[0]) for name in names if fold(name) == fold(parts[0]))
+    return found(top, Path(path).parts, True)
 
 
 def index_entries(top, paths):
