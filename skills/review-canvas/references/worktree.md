@@ -31,7 +31,7 @@ It needs a commit at `HEAD`. In a repository with no commits, it fails with a me
 
 ## What the collector records
 
-The collector runs Git with argument lists and literal pathspecs. It turns off external diff programs, text conversion, color, file system monitors, index refreshes, and every configured filter driver, and it never writes to the repository. It ignores `GIT_DIR` and other variables that would point Git at another repository. It runs no command from the repository or its configuration.
+The collector runs Git with argument lists and literal pathspecs. It turns off external diff programs, text conversion, color, file system monitors, index refreshes, and every configured filter driver, and it never writes to the repository. It ignores `GIT_DIR` and other variables that would point Git at another repository, and Git tracing variables that would write files. It runs no command from the repository or its configuration: it stops if the first `git` on `PATH` is inside the repository under review.
 
 Each patch comes from the exact bytes its fingerprint covers: the old blob from the object store, and the file read again and checked against its fingerprint. Git diffs that one pair of files outside the repository, so a patch never includes a neighboring file. Before it reads an old blob, the collector checks its size.
 
