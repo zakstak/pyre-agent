@@ -235,6 +235,9 @@ def inventory(top, fmt, config):
         branch = git(top, "symbolic-ref", "--quiet", "HEAD").decode("utf-8", "replace").strip().removeprefix("refs/heads/")
     except GitError:
         branch = None  # detached HEAD
+    if git(top, "ls-files", "-z", "--unmerged"):
+        # git diff HEAD hides a conflict whose working tree bytes match HEAD, so the snapshot would look clean.
+        raise CollectError("the index has unresolved merge conflicts. Resolve and stage them, then collect again.")
     tracked = raw_changes(git(top, *config, "diff", "--raw", "-z", "--no-abbrev", *DIFF_FLAGS, "HEAD", "--"))
     tracked = assumed_unchanged(top, tracked, config)
     others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
@@ -261,10 +264,12 @@ def inventory(top, fmt, config):
 
 
 def assumed_unchanged(top, tracked, config):
-    """Compare files marked assume-unchanged by their bytes on disk. Git trusts the mark and hides their edits."""
+    """Compare files that Git trusts without reading by their bytes on disk: assume-unchanged files, and skip-worktree
+    files that are present anyway. Git hides edits to both."""
     listing = git(top, "ls-files", "-v", "-z").split(b"\0")[:-1]
-    # A lowercase tag marks assume-unchanged; s is skip-worktree, whose content is the index blob.
-    assumed = {decode_path(entry[2:]) for entry in listing if entry[:1].islower() and entry[:1] != b"s"}
+    # A lowercase tag marks assume-unchanged; S or s marks skip-worktree, read from the index only when absent.
+    assumed = {decode_path(entry[2:]) for entry in listing
+               if (entry[:1].islower() and entry[:1] != b"s") or (entry[:1] in b"Ss" and os.path.lexists(top / decode_path(entry[2:])))}
     if not assumed:
         return tracked
     changes = {change["path"]: change for change in tracked}
@@ -327,8 +332,9 @@ def text_patch(old, new, config):
                 Path(temp, name).write_bytes(data)
                 names.append(name)
         # The ceiling keeps Git from finding a repository, and its attributes, above the temporary directory.
-        output = git(temp, *config, "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "--", *names,
-                     ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": str(Path(temp).parent)})
+        # No attributes apply: a global core.attributesFile with * -diff would otherwise call text binary.
+        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "--", *names,
+                     ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": str(Path(temp).parent), "GIT_ATTR_NOSYSTEM": "1"})
     at = output.find(b"\n@@")
     header = output if at < 0 else output[:at]
     if any(line.startswith(b"Binary files ") and line.endswith(b" differ") for line in header.split(b"\n")):
@@ -466,6 +472,24 @@ def collect(repo, title=None, include_secret=(), output=None):
     return render_review.validate_review(review), flagged
 
 
+def staged_differently(top, config):
+    """Paths whose staged version differs from both HEAD and the working tree. The review shows the working tree, but a
+    commit records the staged version."""
+    fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
+    staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
+    found = []
+    for entry in git(top, "ls-files", "-s", "-z").split(b"\0")[:-1]:
+        info, raw = entry.split(b"\t", 1)
+        path, blob = decode_path(raw), info.decode("ascii").split(" ")[1]
+        if path in staged and info.startswith((b"100644", b"100755")):
+            try:
+                if read_blob(top / path, fmt)["blob"] != blob:
+                    found.append(path)
+            except (OSError, Changed):
+                found.append(path)
+    return sorted(found)
+
+
 def write_atomic(path, text):
     """Replace path in one step with a private file, so no reader sees a partial snapshot."""
     path = Path(path)
@@ -490,6 +514,8 @@ def main(argv=None):
     try:
         review, flagged = collect(args.repo, args.title, args.include_secret_file, args.output)
         write_atomic(args.output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+        root = Path(review["target"]["root"])
+        staged = staged_differently(root, filter_overrides(root))
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -499,6 +525,8 @@ def main(argv=None):
           f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
     for path in flagged:
         print(f"Likely secret, contents left out: {path}")
+    for path in staged:
+        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {path}")
     return 0
 
 

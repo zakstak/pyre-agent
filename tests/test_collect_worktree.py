@@ -275,6 +275,32 @@ class InventoryTests(Fixture):
         self.assertEqual(files["hidden.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
         self.assertEqual(files["gone.txt"]["status"], "deleted")
 
+    def test_present_skip_worktree_files_are_compared_by_their_bytes(self):
+        self.commit({"pinned.txt": "a\n"})
+        self.git(self.root, "update-index", "--skip-worktree", "pinned.txt")
+        self.write("pinned.txt", "b\n")
+        self.assertEqual(self.collect()["pinned.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
+
+    def test_unresolved_merge_conflicts_stop_collection(self):
+        self.commit({"f.txt": "base\n"})
+        self.git(self.root, "checkout", "-q", "-b", "other")
+        self.commit({"f.txt": "other\n"})
+        self.git(self.root, "checkout", "-q", "main")
+        self.commit({"f.txt": "mine\n"})
+        subprocess.run(["git", "merge", "other"], cwd=self.root, capture_output=True)
+        self.write("f.txt", "mine\n")  # resolved to HEAD's bytes, but not staged
+        with self.assertRaisesRegex(collector.CollectError, "unresolved merge conflicts"):
+            self.collect()
+
+    def test_a_staged_version_that_differs_from_the_working_tree_is_named(self):
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        self.git(self.root, "add", "a.txt")
+        self.write("a.txt", "a\n")
+        code, out, _ = self.main("--output", str(self.base / "review.json"))
+        self.assertEqual(code, 0)
+        self.assertIn("Staged version differs from the reviewed file, so a commit would record unreviewed content: a.txt", out)
+
     def test_staged_skip_worktree_entry_reads_the_index(self):
         self.commit({"sparse.txt": "a\n"})
         self.write("sparse.txt", "b\n")
@@ -613,6 +639,17 @@ class IsolationTests(Fixture):
         self.assertEqual(files["code.txt"]["patch"], "@@ -1,3 +1,3 @@\n a\n \n-b\n+B\n")
         self.assertFalse(marker.exists())
         self.assertEqual({path: path.read_bytes() for path in git_dir.rglob("*") if path.is_file()}, before)
+
+    def test_global_attributes_cannot_hide_a_text_patch(self):
+        attributes = self.base / "attributes"
+        attributes.write_text("* -diff\n")
+        config = self.base / "global-config"
+        config.write_text(f"[core]\n\tattributesFile = {attributes}\n")
+        self.commit({"a.txt": "a\n"})
+        self.write("a.txt", "b\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config)}):
+            files = self.collect()
+        self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
 
     def test_configured_filter_drivers_never_run(self):
         marker = self.base / "filter-ran"
