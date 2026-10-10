@@ -603,7 +603,9 @@ def main(argv=None):
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import review_state
             state, number = review_state.round_of(args.round)
-            args.input, args.output = args.round / "input.json", args.round / "review.html"
+            # Build the paths from the checked state, not the path as given, which could pass through a symlink.
+            round_dir = state / "rounds" / f"{number:04d}"
+            args.input, args.output = round_dir / "input.json", round_dir / "review.html"
             # The publish lock spans the check, the read, the page, and current, so reply.py cannot change the input
             # between them and the server cannot see a half-published round.
             with review_state.lock(state, "publish"):

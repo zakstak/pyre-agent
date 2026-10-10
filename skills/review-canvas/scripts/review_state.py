@@ -215,10 +215,14 @@ def round_lock(input_path):
     Rendering and reply.py hold it from checking that a round has not rendered to writing, so neither can change a
     round under the other."""
     # Resolve aliases first, so a symlinked rounds directory still names the lock that rendering takes.
-    directory = Path(input_path).resolve().parent
-    if directory.parent.name == "rounds" and ROUND_NAME.fullmatch(directory.name):
-        return lock(directory.parent.parent, "publish")
-    return contextlib.nullcontext()
+    path = Path(input_path).resolve()
+    if path.name != "input.json" or path.parent.parent.name != "rounds" or not ROUND_NAME.fullmatch(path.parent.name):
+        return contextlib.nullcontext()
+    try:
+        state = private_dir(path.parent.parent.parent)
+    except StateError:
+        return contextlib.nullcontext()  # not a review state directory, so no round to protect
+    return lock(state, "publish")
 
 
 def archive(state):
