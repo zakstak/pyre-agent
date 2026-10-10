@@ -36,13 +36,16 @@ It needs a commit at `HEAD`. In a repository with no commits, it fails with a me
 
 ## What the collector records
 
-The collector runs Git with argument lists and literal pathspecs. It turns off external diff programs, text conversion, color, file system monitors, and index refreshes, and it never writes to the repository. It ignores `GIT_DIR` and other variables that would point Git at another repository. It does not run code from the repository.
+The collector runs Git with argument lists and literal pathspecs. It turns off external diff programs, text conversion, color, file system monitors, index refreshes, and every configured filter driver, and it never writes to the repository. It ignores `GIT_DIR` and other variables that would point Git at another repository. It runs no command from the repository or its configuration.
+
+Each patch comes from the exact bytes its fingerprint covers: the old blob from the object store, and the file read again and checked against its fingerprint. Git diffs that one pair of files outside the repository, so a patch never includes a neighboring file. Before it reads an old blob, the collector checks its size.
 
 | Change | Entry |
 | --- | --- |
 | Staged and unstaged edits | The patch from `HEAD` to the file on disk |
 | Untracked file that is not ignored | Status `added`, with every line as an addition |
 | File marked with `git add -N` | Status `added` |
+| Symlink or submodule replaced by a regular file | Status `changed`, with the file's contents as added lines |
 | Staged rename | Status `renamed`, with `old_path`. An untracked new name and a deleted old name stay two entries. |
 | Deletion | Status `deleted` |
 | Mode-only change | Status `changed`, `old_mode` and `new_mode`, and `patch_note: "no_content_change"` |
@@ -62,7 +65,7 @@ A fingerprint identifies one exact version of one changed file. It is a SHA-256 
 
 A file stays approved while its fingerprint matches. Any change to its content, mode, or path makes it a new version.
 
-The collector hashes bytes with no filters, so in a repository that uses clean filters or line-ending conversion, such as Git LFS or `core.autocrlf`, its fingerprints differ from the committed blob IDs. They still stay stable between rounds. Git itself still runs a configured clean filter while it compares the working tree, because it needs the filtered content to build the patch.
+The collector compares and hashes the bytes on disk with every filter driver off, so a configured clean filter never runs. In a repository that uses one, such as Git LFS, a file you changed is compared with its committed form, for example an LFS pointer, and usually shows as a binary change. Fingerprints then differ from the committed blob IDs, but they stay stable between rounds.
 
 ## Files that change during collection
 

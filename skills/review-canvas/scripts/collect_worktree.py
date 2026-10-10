@@ -5,8 +5,8 @@ Compares HEAD with the working tree: staged, unstaged, and untracked (not ignore
 core group with no analysis; the agent adds both before rendering. Likely secret files keep their entry and stats,
 but their contents are left out unless named with --include-secret-file.
 
-Python 3.10+; standard library only. Git runs without a shell and never writes to the repository, and nothing
-from the repository is executed.
+Python 3.10+; standard library only. Git runs without a shell and never writes to the repository. Configured
+filter drivers are switched off for every Git call, so nothing from the repository or its configuration is executed.
 """
 
 import argparse
@@ -69,9 +69,33 @@ def blob_id(fmt, data):
     return hashlib.new(fmt, b"blob %d\0" % len(data) + data).hexdigest()
 
 
+# O_NOFOLLOW and O_NONBLOCK exist only on POSIX; the file type check after opening covers every platform.
+OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+
+
+def filter_overrides(top):
+    """Return -c options that switch off every configured filter driver.
+
+    A clean or process filter is a command from Git configuration, and git diff runs it to compare working tree
+    files, including during rename detection. With the drivers off, Git compares the bytes on disk, which are also
+    what fingerprints hash."""
+    try:
+        listing = git(top, "config", "-z", "--get-regexp", r"^filter\.")
+    except GitError:
+        return ()  # no filter configured
+    options = []
+    for name in sorted({entry.split(b"\n", 1)[0].decode("utf-8", "replace")[len("filter."):].rpartition(".")[0]
+                        for entry in listing.split(b"\0") if entry}):
+        if "=" in name or not name:
+            raise CollectError(f"cannot switch off the filter driver {name!r}; its name contains '=' or is empty")
+        for setting in ("clean=", "smudge=", "process=", "required=false"):
+            options += ["-c", f"filter.{name}.{setting}"]
+    return tuple(options)
+
+
 def read_blob(path, fmt, keep=0):
     """Stream a regular file into a Git blob ID with no filters. Keep its bytes only when it has at most keep bytes."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = os.open(path, OPEN_FLAGS)
     with open(fd, "rb") as handle:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
@@ -114,13 +138,17 @@ def too_many(count):
                         "Commit, stash, or ignore part of the work, then collect again.")
 
 
+def kind(mode):
+    return {"160000": "submodule", "120000": "symlink"}.get(mode, "file")
+
+
 def tracked_entry(top, change, fmt):
     path, old_mode, new_mode = representable(change["path"]), change["old_mode"], change["new_mode"]
     if change["status"] not in STATUSES:
         raise CollectError(f"unexpected Git status {change['status']} for {path}")
+    # The current file decides what the reviewer sees: a symlink replaced by a file shows the file's contents.
     entry = {"path": path, "old_path": change["old_path"] and representable(change["old_path"]),
-             "status": STATUSES[change["status"]], "untracked": False,
-             "kind": "submodule" if "160000" in (old_mode, new_mode) else "symlink" if "120000" in (old_mode, new_mode) else "file",
+             "status": STATUSES[change["status"]], "untracked": False, "kind": kind(new_mode or old_mode),
              "old_blob": change["old_blob"], "old_mode": old_mode, "new_blob": None, "new_mode": new_mode, "size": 0}
     full = top / path
     if new_mode == "160000":
@@ -156,7 +184,7 @@ def untracked_entry(top, path, nested, fmt):
     return entry
 
 
-def inventory(top, fmt):
+def inventory(top, fmt, config):
     """Read HEAD and every changed path with its fingerprint. Equal reads before and after bracket a consistent snapshot."""
     try:
         head = git(top, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").decode().strip()
@@ -166,7 +194,7 @@ def inventory(top, fmt):
         branch = git(top, "symbolic-ref", "--quiet", "HEAD").decode("utf-8", "replace").strip().removeprefix("refs/heads/")
     except GitError:
         branch = None  # detached HEAD
-    tracked = raw_changes(git(top, "diff", "--raw", "-z", "--no-abbrev", *DIFF_FLAGS, "HEAD", "--"))
+    tracked = raw_changes(git(top, *config, "diff", "--raw", "-z", "--no-abbrev", *DIFF_FLAGS, "HEAD", "--"))
     others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
     if len(others) > render_review.MAX_FILES:
         raise too_many(len(others))
@@ -187,9 +215,9 @@ def inventory(top, fmt):
     return {"head": head, "branch": branch, "entries": [entries[path] for path in sorted(entries)]}
 
 
-def numstat(top):
+def numstat(top, config):
     """Map each tracked path to (additions, deletions, binary)."""
-    fields = git(top, "diff", "--numstat", "-z", *DIFF_FLAGS, "HEAD", "--").split(b"\0")
+    fields = git(top, *config, "diff", "--numstat", "-z", *DIFF_FLAGS, "HEAD", "--").split(b"\0")
     stats, i = {}, 0
     while i < len(fields) and fields[i]:
         additions, deletions, path = fields[i].split(b"\t", 2)
@@ -219,17 +247,33 @@ def clean_text(data):
     return cleaned, replaced or cleaned != text
 
 
-def new_file_patch(data):
-    """The hunk Git writes for a new file, built from bytes on disk without touching the index."""
-    lines = data.split(b"\n")
-    if data.endswith(b"\n"):
-        lines.pop()
-    header = b"@@ -0,0 +1 @@\n" if len(lines) == 1 else b"@@ -0,0 +1,%d @@\n" % len(lines)
-    return header + b"".join(b"+" + line + b"\n" for line in lines) + (b"" if data.endswith(b"\n") else b"\\ No newline at end of file\n")
+def text_patch(old, new, config):
+    """Diff two byte strings with Git's own algorithm, outside any repository. Return (patch_note, hunks)."""
+    with tempfile.TemporaryDirectory(prefix="review-canvas-") as temp:
+        names = []
+        for name, data in (("old", old), ("new", new)):
+            if data is None:
+                names.append(os.devnull)
+            else:
+                Path(temp, name).write_bytes(data)
+                names.append(name)
+        # The ceiling keeps Git from finding a repository, and its attributes, above the temporary directory.
+        output = git(temp, *config, "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3", "--", *names,
+                     ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": str(Path(temp).parent)})
+    at = output.find(b"\n@@")
+    header = output if at < 0 else output[:at]
+    if any(line.startswith(b"Binary files ") and line.endswith(b" differ") for line in header.split(b"\n")):
+        return "binary", None
+    if at < 0:
+        return "no_content_change", None
+    return None, output[at + 1:]
 
 
-def content(top, entry, fmt, binary, allow_secret, oversized):
-    """Return (patch_note, patch bytes): bytes for a text diff, otherwise a note saying why there is none."""
+def content(top, entry, fmt, binary, allow_secret, oversized, config):
+    """Return (patch_note, patch bytes): bytes for a text diff, otherwise a note saying why there is none.
+
+    The patch is built from the exact bytes the fingerprint covers: the old blob read from the object store, and the
+    file read again and checked against its fingerprint. Diffing one pair of files never picks up a neighbor."""
     path = entry["path"]
     if entry["kind"] != "file":
         return entry["kind"], None
@@ -239,31 +283,29 @@ def content(top, entry, fmt, binary, allow_secret, oversized):
         return "secret", None
     if binary:
         return "binary", None
-    if entry["untracked"] and not entry["size"]:
+    # A symlink or submodule replaced by a file has no text on its old side, so the file reads as new.
+    old_blob = entry["old_blob"] if kind(entry["old_mode"]) == "file" else None
+    old_size = int(git(top, *config, "cat-file", "-s", old_blob)) if old_blob else 0
+    if not old_size and not entry["size"]:
         return "empty", None
-    if oversized or entry["size"] > 4 * render_review.MAX_PATCH_CHARS:
+    if oversized or max(old_size, entry["size"]) > 4 * render_review.MAX_PATCH_CHARS:
         return "too_large", None
-    if entry["untracked"]:
+    old = git(top, *config, "cat-file", "blob", old_blob) if old_blob else None
+    new = None
+    if entry["new_blob"] is not None:
         with reading(path):
             blob = read_blob(top / path, fmt, keep=entry["size"])
         if blob["blob"] != entry["new_blob"] or blob["data"] is None:
             raise Changed(f"{path} changed while it was read")
-        return None, new_file_patch(blob["data"])
-    # Name both sides of a rename so Git pairs them; keep only the hunks, as GitHub's files API does.
-    paths = [path, entry["old_path"]] if entry["old_path"] else [path]
-    output = git(top, "diff", "-p", "--full-index", "--unified=3", *DIFF_FLAGS, "HEAD", "--", *paths)
-    at = output.find(b"\n@@")
-    header = output if at < 0 else output[:at]
-    if any(line.startswith(b"Binary files ") and line.endswith(b" differ") for line in header.split(b"\n")):
+        new = blob["data"]
+    if any(b"\0" in data[:8000] for data in (old, new) if data):
         return "binary", None
-    if at < 0:
-        return ("empty" if entry["status"] in ("added", "deleted") else "no_content_change"), None
-    return None, output[at + 1:]
+    return text_patch(old, new, config)
 
 
-def build(top, snapshot, fmt, include):
+def build(top, snapshot, fmt, include, config):
     """Turn an inventory into review file entries. Return (files, secret-flagged paths)."""
-    stats = numstat(top)
+    stats = numstat(top, config)
     files, flagged = [], []
     total_lines = total_bytes = 0
     for entry in snapshot["entries"]:
@@ -281,15 +323,18 @@ def build(top, snapshot, fmt, include):
             if entry[side]:
                 file[side] = entry[side]
         budget = min(render_review.MAX_PATCH_LINES, render_review.MAX_TOTAL_PATCH_LINES - total_lines)
-        note, data = content(top, entry, fmt, binary, path in include, additions + deletions > budget)
+        note, data = content(top, entry, fmt, binary, path in include, additions + deletions > budget, config)
         if data is not None:
             patch, replaced = clean_text(data)
+            hunk_lines = patch.split("\n")
+            file["additions"] = sum(line.startswith("+") for line in hunk_lines)
+            file["deletions"] = sum(line.startswith("-") for line in hunk_lines)
             lines = patch.count("\n") + (not patch.endswith("\n"))
             size = len(json.dumps(patch, ensure_ascii=False).encode())
             if path not in include and SECRET_TEXT.search(patch):
                 note = "secret"
             # Patches may fill half of the renderer's input limit, leaving room for paths and the agent's analysis.
-            elif len(patch) > render_review.MAX_PATCH_CHARS or lines > budget or total_bytes + size > render_review.MAX_INPUT_BYTES // 2:
+            elif render_review.units(patch) > render_review.MAX_PATCH_CHARS or lines > budget or total_bytes + size > render_review.MAX_INPUT_BYTES // 2:
                 note = "too_large"
             else:
                 total_lines += lines
@@ -311,22 +356,26 @@ def collect(repo, title=None, include_secret=(), output=None):
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     if output is not None:
         git_dir = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")))
-        destination = Path(output).resolve()
+        # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
+        if os.path.islink(output):
+            raise CollectError(f"--output {output} is a symbolic link; name the real file instead")
+        destination = Path(output).absolute().parent.resolve() / Path(output).name
         if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(git_dir.resolve()):
             raise CollectError(f"--output {output} is inside the working tree, where the snapshot would become an untracked "
                                f"change of its own. Write it outside {top} or inside {git_dir}.")
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
+    config = filter_overrides(top)
     include = set(include_secret)
     reason = "HEAD or a changed file differed between two reads"
     for _ in range(ATTEMPTS):
         try:
-            snapshot = inventory(top, fmt)
+            snapshot = inventory(top, fmt, config)
             unknown = include - {entry["path"] for entry in snapshot["entries"]}
             if unknown:
                 raise CollectError("--include-secret-file names a path that is not a changed file: " + ", ".join(sorted(unknown)))
-            files, flagged = build(top, snapshot, fmt, include)
+            files, flagged = build(top, snapshot, fmt, include, config)
             between_reads()
-            if inventory(top, fmt) == snapshot:
+            if inventory(top, fmt, config) == snapshot:
                 break
             reason = "HEAD or a changed file differed between two reads"
         except Changed as change:

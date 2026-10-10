@@ -305,6 +305,21 @@ class ValidationTests(unittest.TestCase):
         review["target"]["root"] = "C:\\work\\project"
         renderer.validate_review(review)
 
+    def test_text_limits_count_utf16_units_like_the_page(self):
+        review = worktree_review()
+        review["target"]["branch"] = "🙂" * 512
+        review["files"][0]["path"] = "🙂" * 2048
+        renderer.validate_review(review)
+        for name, value in (("branch", "🙂" * 513), ("root", "/" + "🙂" * 2048)):
+            review = worktree_review()
+            review["target"][name] = value
+            with self.subTest(field=name), self.assertRaisesRegex(renderer.ValidationError, "UTF-16 code units"):
+                renderer.validate_review(review)
+        review = worktree_review()
+        review["files"][0]["path"] = "🙂" * 2049
+        with self.assertRaisesRegex(renderer.ValidationError, "exceeds 4096 UTF-16 code units"):
+            renderer.validate_review(review)
+
     def test_missing_fields_and_duplicate_files(self):
         for key in ("path", "status", "group", "additions", "deletions"):
             review = simple_review()

@@ -184,6 +184,20 @@ class InventoryTests(Fixture):
         self.assertEqual((files["nested"]["status"], files["nested"]["new_mode"]), ("added", "160000"))
         self.assertEqual(files["nested"]["fingerprint"], collector.file_fingerprint("nested", None, None, self.head(nested), None, "160000"))
 
+    def test_type_changes_follow_the_current_file(self):
+        os.symlink("target", self.root / "link")
+        self.commit({"plain.txt": "was a file\n"})
+        (self.root / "link").unlink()
+        self.write("link", "now a regular file\n")
+        (self.root / "plain.txt").unlink()
+        os.symlink("elsewhere", self.root / "plain.txt")
+        files = self.collect()
+        link = files["link"]
+        self.assertEqual((link["status"], link["old_mode"], link["new_mode"], link["patch"]),
+                         ("changed", "120000", "100644", "@@ -0,0 +1 @@\n+now a regular file\n"))
+        self.assertNotIn("patch_note", link)
+        self.assertEqual((files["plain.txt"]["patch_note"], files["plain.txt"]["new_mode"]), ("symlink", "120000"))
+
     def test_intent_to_add_file_matches_the_untracked_entry(self):
         self.commit({"base.txt": "b\n"})
         self.write("ita.txt", "first\nlast")
@@ -259,6 +273,24 @@ class LimitTests(Fixture):
             self.assertEqual((files[path]["patch_note"], files[path]["patch_complete"]), ("too_large", False))
         self.assertEqual(files["huge.txt"]["additions"], 100)
 
+    def test_old_side_size_is_checked_before_reading_it(self):
+        self.commit({"long.txt": "x" * 200 + "\n", "shrink.txt": "y" * 200 + "\n"})
+        (self.root / "long.txt").unlink()
+        self.write("shrink.txt", "z\n")
+        outputs = []
+        real = collector.git
+
+        def record(cwd, *args, **options):
+            outputs.append(real(cwd, *args, **options))
+            return outputs[-1]
+
+        with mock.patch.object(renderer, "MAX_PATCH_CHARS", 16), mock.patch.object(collector, "git", record):
+            files = self.collect()
+        for path in ("long.txt", "shrink.txt"):
+            self.assertEqual((files[path]["patch_note"], files[path]["patch_complete"]), ("too_large", False))
+        # Neither 200-byte old side was read or diffed into memory; only its size was asked for.
+        self.assertFalse([output for output in outputs if b"x" * 100 in output or b"y" * 100 in output])
+
     def test_too_many_files_is_an_error(self):
         for name in ("a", "b", "c"):
             self.write(name, "x\n")
@@ -293,6 +325,20 @@ class SecretTests(Fixture):
         self.assertIn("patch", files["deploy/id_ed25519.pub"])
         self.assertEqual(out.splitlines(), [f"Wrote {output} (6 files; 0 binary; 0 too large; 4 likely secret)"]
                          + [f"Likely secret, contents left out: {path}" for path in flagged])
+
+    def test_a_secret_under_a_directory_that_replaced_a_file_stays_out(self):
+        self.commit({"settings": "plain\n"})
+        self.git(self.root, "rm", "-q", "settings")
+        self.write("settings/.env", "DB_PASSWORD=super-secret-value\n")
+        self.git(self.root, "add", "settings/.env")
+        output = self.base / "review.json"
+        code, out, _ = self.main("--output", str(output))
+        self.assertEqual(code, 0)
+        files = {file["path"]: file for file in json.loads(output.read_text())["files"]}
+        self.assertEqual(files["settings"]["patch"], "@@ -1 +0,0 @@\n-plain\n")
+        self.assertEqual(files["settings/.env"]["patch_note"], "secret")
+        self.assertNotIn(b"super-secret-value", output.read_bytes())
+        self.assertIn("Likely secret, contents left out: settings/.env", out)
 
     def test_include_secret_file_restores_one_file(self):
         files = self.collect(include_secret=[".env.local"])
@@ -339,6 +385,24 @@ class ConsistencyTests(Fixture):
             files = self.collect()
         self.assertEqual(len(calls), 2)
         self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+second\n")
+
+    def test_an_edit_restored_before_the_second_read_cannot_mix_versions(self):
+        real, calls = collector.content, []
+
+        def edit_and_restore(*args, **options):
+            calls.append(None)
+            if len(calls) > 1:
+                return real(*args, **options)
+            self.write("a.txt", "intruder\n")
+            try:
+                return real(*args, **options)
+            finally:
+                self.write("a.txt", "first\n")
+
+        with mock.patch.object(collector, "content", edit_and_restore):
+            files = self.collect()
+        self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+first\n")
+        self.assertNotIn("intruder", json.dumps(self.review))
 
     def test_change_on_every_attempt_fails(self):
         calls = []
@@ -435,6 +499,15 @@ class OutputTests(Fixture):
         self.assertRegex(err, r"^Error: --output .* is inside the working tree")
         self.assertFalse((self.root / "review.json").exists())
 
+    def test_refuses_a_symlinked_output(self):
+        outside = self.base / "outside.json"
+        os.symlink(outside, self.root / "review.json")
+        code, _, err = self.main("--output", str(self.root / "review.json"))
+        self.assertEqual(code, 2)
+        self.assertIn("is a symbolic link", err)
+        self.assertTrue((self.root / "review.json").is_symlink())
+        self.assertFalse(outside.exists())
+
     def test_writes_private_valid_output_inside_the_git_directory(self):
         output = self.root / ".git" / "review.json"
         code, out, _ = self.main("--output", str(output))
@@ -487,6 +560,27 @@ class IsolationTests(Fixture):
         self.assertEqual(files["code.txt"]["patch"], "@@ -1,3 +1,3 @@\n a\n \n-b\n+B\n")
         self.assertFalse(marker.exists())
         self.assertEqual({path: path.read_bytes() for path in git_dir.rglob("*") if path.is_file()}, before)
+
+    def test_configured_filter_drivers_never_run(self):
+        marker = self.base / "filter-ran"
+        tool = self.base / "filter.sh"
+        tool.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat\n")
+        tool.chmod(0o755)
+        lines = "".join(f"line {i}\n" for i in range(10))
+        self.commit({".gitattributes": "*.txt filter=mark\n", "a.txt": "a\n", "old.txt": lines})
+        self.write("a.txt", "b\n")
+        self.write("new.txt", lines + "more\n")
+        self.git(self.root, "rm", "-q", "--cached", "old.txt")
+        (self.root / "old.txt").unlink()
+        self.git(self.root, "add", "-N", "new.txt")
+        # Configure the driver last: from here on, any git diff that compares these files would run it.
+        for key in ("clean", "smudge", "process"):
+            self.git(self.root, "config", f"filter.mark.{key}", str(tool))
+        self.git(self.root, "config", "filter.mark.required", "true")
+        files = self.collect()
+        self.assertFalse(marker.exists(), "a configured filter driver ran")
+        self.assertEqual(files["a.txt"]["patch"], "@@ -1 +1 @@\n-a\n+b\n")
+        self.assertEqual(files["new.txt"]["old_path"], "old.txt")
 
 
 if __name__ == "__main__":
