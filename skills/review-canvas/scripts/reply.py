@@ -87,14 +87,20 @@ def after(reply):
     return datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00")) + datetime.timedelta(milliseconds=1)
 
 
-def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=None, commit=None, blocker=None, now=None):
-    """Append one agent reply to a comment in the feedback. Return the reply."""
+def add(input_path, feedback_path, comment_id, disposition, body, fingerprint=None, commit=None, blocker=None, now=None, *, revision):
+    """Append one agent reply to a comment in the feedback. Return the reply.
+
+    revision is the feedback revision the answer was written from, as feedback_contract.py prints it. A reviewer could
+    rewrite the comment meanwhile, so the answer is refused unless the feedback is still that revision."""
     with review_state.round_lock(input_path):
-        return _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now)
+        return _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now, revision)
 
 
-def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now):
-    feedback = feedback_contract.read_feedback(feedback_path)
+def _add(input_path, feedback_path, comment_id, disposition, body, fingerprint, commit, blocker, now, revision):
+    feedback, current = feedback_contract.load_feedback(feedback_path)
+    if current != revision:
+        raise render_review.ValidationError(f"{feedback_path} changed since revision {revision[:12]} was read; it is now {current[:12]}. "
+                                            "Run feedback_contract.py again and re-read the comments before answering.")
     comment = next((item for item in feedback["comments"] if item["id"] == comment_id), None)
     if comment is None:
         raise render_review.ValidationError(f"the feedback has no comment {comment_id}")
@@ -142,16 +148,17 @@ def main(argv=None):
     fixed.add_argument("--fixed-in-fingerprint", help="For fixed: the fingerprint of the file version that fixes the comment")
     fixed.add_argument("--fixed-in-commit", help="For fixed: the full hash of the commit that fixes the comment")
     answer.add_argument("--blocker", help="For deferred: what blocks the change")
+    answer.add_argument("--revision", required=True, help="The feedback revision you read, as feedback_contract.py prints it")
     args = parser.parse_args(argv)
     try:
         if args.command == "carry":
             print(f"Carried {carry(args.source, args.target)} agent replies into {args.target}")
         else:
             reply = add(args.input, args.feedback, args.comment, args.disposition, args.body,
-                        args.fixed_in_fingerprint, args.fixed_in_commit, args.blocker)
+                        args.fixed_in_fingerprint, args.fixed_in_commit, args.blocker, revision=args.revision)
             print(f"Added {reply['disposition']} reply {reply['id']} to comment {args.comment} at {reply['created_at']}")
     except (render_review.ValidationError, feedback_contract.FeedbackError, review_state.StateError, OSError) as error:
-        print(f"Error: {error}", file=sys.stderr)
+        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     return 0
 

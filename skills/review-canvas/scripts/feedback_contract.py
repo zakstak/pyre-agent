@@ -12,6 +12,7 @@ Python 3.10+; standard library only.
 
 import argparse
 import datetime
+import hashlib
 import json
 import re
 import sys
@@ -341,10 +342,17 @@ def check_inventory(feedback, review, digest):
         raise FeedbackError("Feedback names this snapshot but lists other files.")
 
 
-def read_feedback(path):
-    """Read and validate a feedback file. Reading stops one byte past the limit, so a huge file is refused unread."""
+def load_feedback(path):
+    """Read and validate a feedback file, and return it with its revision: the SHA-256 of its bytes, as the server
+    reports it. Reading stops one byte past the limit, so a huge file is refused unread."""
     with Path(path).open("rb") as handle:
-        return parse_feedback(handle.read(MAX_BYTES + 1))
+        raw = handle.read(MAX_BYTES + 1)
+    return parse_feedback(raw), hashlib.sha256(raw).hexdigest()
+
+
+def read_feedback(path):
+    """Read and validate a feedback file, as load_feedback does, without its revision."""
+    return load_feedback(path)[0]
 
 
 def main(argv=None):
@@ -356,7 +364,7 @@ def main(argv=None):
     parser.add_argument("--input", type=Path, help="Review input of the round to compare with: target identity and approvals")
     args = parser.parse_args(argv)
     try:
-        feedback = read_feedback(args.feedback)
+        feedback, current = load_feedback(args.feedback)
         review = render_review.load_review(args.input) if args.input else None
         if review:
             check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
@@ -368,6 +376,7 @@ def main(argv=None):
     # Titles and paths are reviewed data and may hold line breaks or terminal controls, so they print escaped.
     print(f"Valid feedback for {render_review.shown(feedback['target']['title'])}: {len(feedback['comments'])} comments ({orphans} unattached when saved), "
           f"{len(feedback['approvals'])} approvals.")
+    print(f"Revision: {current}. Pass it to reply.py add --revision, which refuses feedback that changed since.")
     if review:
         approvals = {record["path"]: record["fingerprint"] for record in feedback["approvals"]}
         states = {"approved": [], "changed since approval": [], "not approved": []}

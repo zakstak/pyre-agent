@@ -411,6 +411,19 @@ class RoutingTests(ServerCase):
         self.assertEqual(status, 409)
         self.assertIn("The agent answered a comment this page replies to", refused["error"])
 
+    def test_answers_an_unpublished_round_only_carries_do_not_block_replies(self):
+        render_round(self.state, "worktree-review-round2.json")
+        page = json.loads(self.body)
+        page["input_sha256"] = renderer.input_digest(renderer.load_review(self.state / "rounds/0002/input.json"))
+        status, reply = self.api("PUT", "/feedback", json.dumps(page).encode())
+        self.assertEqual(status, 200)
+        pending = state_module.new_round(self.state)
+        (pending / "input.json").write_bytes((FIXTURES / "worktree-review-round2.json").read_bytes())  # carries, adds nothing
+        accepted = json.loads(json.dumps(page))
+        accepted["comments"][0]["replies"] = [{"id": "r1", "actor": "reviewer", "created_at": "2026-10-10T22:00:00.000Z", "body": "", "action": "accept"}]
+        status, reply = self.api("PUT", "/feedback", json.dumps(accepted).encode(), **{"X-Review-Revision": reply["revision"]})
+        self.assertEqual(status, 200, reply)
+
     def test_answers_written_for_an_unpublished_round_protect_their_comments(self):
         status, reply = self.api("PUT", "/feedback", self.body)
         self.assertEqual(status, 200)

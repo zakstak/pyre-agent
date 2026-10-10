@@ -2,6 +2,7 @@
 
 import contextlib
 import datetime
+import hashlib
 import importlib.util
 import io
 import json
@@ -40,6 +41,10 @@ class ReplyTests(unittest.TestCase):
         self.previous.write_text((FIXTURES / "worktree-review-round2.json").read_text())
         self.feedback = FIXTURES / "worktree-feedback-round2.json"
 
+    def answer(self, feedback, *args, **options):
+        """reply.add with the feedback's revision as read now, as an agent passes it after validating."""
+        return reply.add(self.input, feedback, *args, revision=hashlib.sha256(Path(feedback).read_bytes()).hexdigest(), **options)
+
     def replies(self):
         return json.loads(self.input.read_text()).get("replies", [])
 
@@ -53,18 +58,18 @@ class ReplyTests(unittest.TestCase):
         reply.carry(self.previous, self.input)
         # The reviewer's reply to comment 2 is stamped 11:00; this machine's clock says 08:00.
         early = datetime.datetime(2026, 10, 10, 8, tzinfo=datetime.timezone.utc).timestamp()
-        added = reply.add(self.input, self.feedback, "fixture-comment-2", "fixed", "The CLI now reports a missing file.",
+        added = self.answer(self.feedback, "fixture-comment-2", "fixed", "The CLI now reports a missing file.",
                           fingerprint=self.store, now=early)
         self.assertEqual(added["created_at"], "2026-10-10T11:00:00.001Z")
         self.assertEqual(self.replies()[-1], added)
         thread = reply.feedback_contract.thread(next(c for c in json.loads(self.feedback.read_text())["comments"] if c["id"] == "fixture-comment-2"), self.replies())
         self.assertEqual(reply.feedback_contract.thread_state(thread), ("reviewer", "answered: fixed"))
         later = datetime.datetime(2026, 10, 10, 12, tzinfo=datetime.timezone.utc).timestamp()
-        self.assertEqual(reply.add(self.input, self.feedback, "fixture-comment-3", "question", "Which zone?", now=later)["created_at"], "2026-10-10T12:00:00.000Z")
+        self.assertEqual(self.answer(self.feedback, "fixture-comment-3", "question", "Which zone?", now=later)["created_at"], "2026-10-10T12:00:00.000Z")
 
     def test_add_refuses_what_the_input_contract_refuses(self):
         with self.assertRaisesRegex(ValueError, "Run reply.py carry from the previous round first"):
-            reply.add(self.input, self.feedback, "fixture-comment-1", "question", "?")
+            self.answer(self.feedback, "fixture-comment-1", "question", "?")
         reply.carry(self.previous, self.input)
         cases = [
             (dict(comment_id="missing", disposition="question", body="?"), "no comment missing"),
@@ -77,13 +82,25 @@ class ReplyTests(unittest.TestCase):
         ]
         for options, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
-                reply.add(self.input, self.feedback, options.pop("comment_id"), options.pop("disposition"), options.pop("body"), **options)
+                self.answer(self.feedback, options.pop("comment_id"), options.pop("disposition"), options.pop("body"), **options)
+        self.assertEqual(self.replies(), self.earlier)
+
+    def test_an_answer_is_refused_when_the_feedback_changed_since_it_was_read(self):
+        reply.carry(self.previous, self.input)
+        feedback = self.temp / "feedback.json"
+        feedback.write_bytes(self.feedback.read_bytes())
+        read = hashlib.sha256(feedback.read_bytes()).hexdigest()
+        rewritten = json.loads(feedback.read_text())
+        next(c for c in rewritten["comments"] if c["id"] == "fixture-comment-3")["body"] = "A different question."
+        feedback.write_text(json.dumps(rewritten))
+        with self.assertRaisesRegex(ValueError, "changed since revision"):
+            reply.add(self.input, feedback, "fixture-comment-3", "question", "Which zone?", revision=read)
         self.assertEqual(self.replies(), self.earlier)
 
     def test_an_answer_waiting_for_the_reviewer_is_not_answered_again(self):
         reply.carry(self.previous, self.input)
         with self.assertRaisesRegex(ValueError, "answered: deferred and waits for the reviewer"):
-            reply.add(self.input, self.feedback, "fixture-comment-4", "question", "Any news?")
+            self.answer(self.feedback, "fixture-comment-4", "question", "Any news?")
 
     def test_carry_refuses_a_different_reply_under_the_same_id(self):
         different = dict(self.earlier[0], body="A rewritten answer.")
@@ -119,9 +136,9 @@ class ReplyTests(unittest.TestCase):
         other["comments"][0]["id"] = "fixture-comment-1"
         other_path.write_text(json.dumps(other))
         with self.assertRaisesRegex(ValueError, "another review"):
-            reply.add(self.input, other_path, "fixture-comment-1", "question", "?")
+            self.answer(other_path, "fixture-comment-1", "question", "?")
         (self.round / "review.html").write_text("rendered")
-        for call in (lambda: reply.carry(self.previous, self.input), lambda: reply.add(self.input, self.feedback, "fixture-comment-3", "question", "?")):
+        for call in (lambda: reply.carry(self.previous, self.input), lambda: self.answer(self.feedback, "fixture-comment-3", "question", "?")):
             with self.assertRaisesRegex(ValueError, "never changes after it renders"):
                 call()
 
@@ -136,8 +153,8 @@ class ReplyTests(unittest.TestCase):
 
     def test_add_reads_the_feedback_only_up_to_its_limit(self):
         reply.carry(self.previous, self.input)
-        with unittest.mock.patch.object(reply.feedback_contract, "read_feedback", wraps=reply.feedback_contract.read_feedback) as reader:
-            reply.add(self.input, self.feedback, "fixture-comment-3", "question", "Which zone?")
+        with unittest.mock.patch.object(reply.feedback_contract, "load_feedback", wraps=reply.feedback_contract.load_feedback) as reader:
+            self.answer(self.feedback, "fixture-comment-3", "question", "Which zone?")
         reader.assert_called_once_with(self.feedback)
 
     def test_an_input_past_the_size_limit_is_not_written(self):
@@ -168,7 +185,7 @@ class ReplyTests(unittest.TestCase):
         late = self.temp / "late.json"
         late.write_text(json.dumps(feedback))
         with self.assertRaisesRegex(ValueError, "last representable time"):
-            reply.add(self.input, late, "fixture-comment-3", "question", "Which zone?")
+            self.answer(late, "fixture-comment-3", "question", "Which zone?")
 
     def test_a_reply_after_the_millisecond_float_rounding_would_repeat(self):
         reply.carry(self.previous, self.input)
@@ -177,7 +194,7 @@ class ReplyTests(unittest.TestCase):
         comment["replies"][0]["created_at"] = "9999-12-31T23:59:59.998Z"
         late = self.temp / "late.json"
         late.write_text(json.dumps(feedback))
-        self.assertEqual(reply.add(self.input, late, "fixture-comment-3", "question", "Which zone?")["created_at"], "9999-12-31T23:59:59.999Z")
+        self.assertEqual(self.answer(late, "fixture-comment-3", "question", "Which zone?")["created_at"], "9999-12-31T23:59:59.999Z")
 
     def test_command_line(self):
         run = lambda *args: subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -185,13 +202,15 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Carried 4 agent replies", result.stdout)
         result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-3",
-                     "--disposition", "deferred", "--body", "Waiting on the date decision.", "--blocker", "Which zone notes use.")
+                     "--disposition", "deferred", "--body", "Waiting on the date decision.", "--blocker", "Which zone notes use.",
+                     "--revision", hashlib.sha256(self.feedback.read_bytes()).hexdigest())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"^Added deferred reply agent-[0-9a-f]{16} to comment fixture-comment-3 at ")
         result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "fixture-comment-2",
-                     "--disposition", "fixed", "--body", "x", "--fixed-in-fingerprint", "c" * 64, "--fixed-in-commit", "e" * 40)
+                     "--disposition", "fixed", "--body", "x", "--fixed-in-fingerprint", "c" * 64, "--fixed-in-commit", "e" * 40,
+                     "--revision", hashlib.sha256(self.feedback.read_bytes()).hexdigest())
         self.assertEqual(result.returncode, 2)
-        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "nope", "--disposition", "question", "--body", "?")
+        result = run("add", "--input", str(self.input), "--feedback", str(self.feedback), "--comment", "nope", "--disposition", "question", "--body", "?", "--revision", hashlib.sha256(self.feedback.read_bytes()).hexdigest())
         self.assertEqual(result.returncode, 2)
         self.assertIn("no comment nope", result.stderr)
 
