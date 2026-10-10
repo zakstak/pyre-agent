@@ -502,6 +502,35 @@ class StateTests(unittest.TestCase):
         self.assertTrue(done.wait(30))
         self.assertEqual(state_module.read_current(self.state), 1)
 
+    def test_a_rendered_round_input_cannot_change_unnoticed(self):
+        directory = render_round(self.state, "worktree-review.json")
+        self.assertTrue((directory / "input.sha256").exists())
+        review = json.loads((directory / "input.json").read_text())
+        review["summary"] = "Edited after the page rendered."
+        (directory / "input.json").write_text(json.dumps(review))
+        with self.assertRaisesRegex(renderer.ValidationError, "changed after its round rendered"):
+            renderer.load_review(directory / "input.json")
+        self.assertEqual(renderer.load_review(FIXTURES / "worktree-review.json")["target"]["kind"], "worktree")  # loose inputs are not checked
+
+    def test_the_collector_never_writes_into_a_superseded_round(self):
+        older = state_module.new_round(self.state)
+        render_round(self.state, "worktree-review.json")  # round 2 publishes; round 1 can never publish now
+        collector = load("collect_worktree")
+        with self.assertRaisesRegex(collector.CollectError, "or a newer round has"):
+            collector.collect(ROOT, output=older / "input.json")
+
+    def test_acl_read_errors_refuse_the_directory(self):
+        def failing(code):
+            def getxattr(path, name):
+                raise OSError(code, os.strerror(code))
+            return unittest.mock.patch.object(state_module.os, "getxattr", getxattr, create=True)
+        for code in (errno.ENODATA, errno.ENOTSUP):
+            with self.subTest(code=code), failing(code):
+                self.assertIsNone(state_module._acl_writers("/x", 1000))
+        for code in (errno.EACCES, errno.EIO):
+            with self.subTest(code=code), failing(code), self.assertRaisesRegex(state_module.StateError, "cannot read the access control list"):
+                state_module._acl_writers("/x", 1000)
+
     def test_a_symlinked_round_input_is_refused(self):
         directory = state_module.new_round(self.state)
         outside = self.temp / "outside.json"
@@ -664,7 +693,7 @@ class StateTests(unittest.TestCase):
     def test_the_collector_never_writes_into_a_rendered_round(self):
         directory = render_round(self.state, "worktree-review.json")
         collector = load("collect_worktree")
-        with self.assertRaisesRegex(collector.CollectError, "has rendered; a round never changes"):
+        with self.assertRaisesRegex(collector.CollectError, "has rendered, or a newer round has; a round never changes"):
             collector.collect(ROOT, output=directory / "input.json")
         # The file workflow keeps review.json beside review.html outside any round; that stays allowed, even in a folder
         # that happens to be called rounds.

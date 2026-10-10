@@ -179,11 +179,19 @@ def in_state_directory(path):
 
 
 def rendered_round_input(output):
-    """Whether output is a STATE/rounds/NNNN/input.json whose round has rendered. Other paths, as in the file workflow,
-    are never frozen."""
+    """Whether output is a STATE/rounds/NNNN/input.json whose round is closed: it rendered, or a newer round has
+    published, so it never can. Other paths, as in the file workflow, are never frozen."""
     path = Path(output).resolve()
-    return (path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name)
-            and (path.parent / "review.html").exists())
+    if not round_input(path):
+        return False
+    if (path.parent / "review.html").exists():
+        return True
+    import review_state
+    try:
+        current = review_state.read_current(path.parent.parent.parent)
+    except review_state.StateError:
+        return False
+    return current is not None and int(path.parent.name) <= current
 
 
 def disk_mode(path):
@@ -590,8 +598,11 @@ def build(top, snapshot, fmt, include, config):
     return files, flagged
 
 
-def collect(repo, title=None, include_secret=(), output=None):
-    """Return (validated review, secret-flagged paths) for the working tree containing repo."""
+def collect(repo, title=None, include_secret=(), output=None, staged=None):
+    """Return (validated review, secret-flagged paths) for the working tree containing repo.
+
+    staged, when a list, receives the paths whose staged version differs from the review, read inside the same
+    before-and-after inventory check as the review itself, so a file that changes during that scan is caught too."""
     git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
     top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
     git_executable(top)  # the working tree Git found, which core.worktree may put outside repo
@@ -607,7 +618,7 @@ def collect(repo, title=None, include_secret=(), output=None):
                            f"Collect from the repository that {top} belongs to.")
     if output is not None:
         if rendered_round_input(output):
-            raise CollectError(f"{Path(output).parent} has rendered; a round never changes after it renders. Start a new round.")
+            raise CollectError(f"{Path(output).parent} has rendered, or a newer round has; a round never changes after it renders. Start a new round.")
         common_dir = (Path(repo) / decode_path(git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n"))).resolve()
         states = git_dir / "review-canvas"
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
@@ -639,6 +650,7 @@ def collect(repo, title=None, include_secret=(), output=None):
             if unknown:
                 raise CollectError("--include-secret-file names a path that is not a changed file: " + ", ".join(sorted(unknown)))
             files, flagged = build(top, snapshot, fmt, include, config)
+            diverging = staged_differently(top, config) if staged is not None else []
             between_reads()
             if inventory(top, fmt, config) == snapshot:
                 break
@@ -656,6 +668,8 @@ def collect(repo, title=None, include_secret=(), output=None):
         target["branch"] = branch
     target["changed_files"] = len(files)
     review = {"schema_version": 2, "target": target, "files_complete": True, "files": files}
+    if staged is not None:
+        staged[:] = diverging
     return render_review.validate_review(review), flagged
 
 
@@ -720,15 +734,14 @@ def main(argv=None):
         # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
         # symlink on the way cannot point them at different rounds.
         output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, output)
-        root = Path(review["target"]["root"])
-        staged = staged_differently(root, filter_overrides(root))  # before writing, so a failure writes nothing
+        staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
+        review, flagged = collect(args.repo, args.title, args.include_secret_file, output, staged=staged)
         # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
         with review_state.round_lock(output):
             if rendered_round_input(output):
-                raise CollectError(f"{output.parent} rendered while collecting; a round never changes after it renders. Start a new round.")
+                raise CollectError(f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round.")
             write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
     except (ValueError, GitError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks

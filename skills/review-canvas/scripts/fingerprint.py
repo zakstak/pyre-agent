@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -75,27 +76,88 @@ def configured_worktrees(repo):
             return
         seen.add(path)
         try:
-            lines = path.read_text(errors="replace").splitlines()
+            text = path.read_text(errors="surrogateescape")
         except OSError:
             return
-        section = ""
-        for line in lines:
-            line = line.strip()
-            if line.startswith("["):
-                section = line[1:line.find("]")].strip().lower()
-                continue
-            key, separator, value = line.partition("=")
-            key, value = key.strip().lower(), value.split(" #", 1)[0].split(" ;", 1)[0].strip().strip('"')
-            if not separator:
+        for section, key, value in config_entries(text):
+            if value is None:
                 continue
             if section == "core" and key == "worktree":
                 found.append((git_dir / value).resolve())  # relative to the Git directory, as Git reads it
-            elif (section == "include" or section.startswith("includeif")) and key == "path":
+            elif (section == "include" or section.startswith("includeif.")) and key == "path":
                 read((path.parent / Path(value).expanduser()).resolve(), depth + 1)
 
     for name in ("config", "config.worktree"):
         read(git_dir / name, 0)
     return found
+
+
+CONFIG_ESCAPES = {"n": "\n", "t": "\t", "b": "\b", '"': '"', "\\": "\\"}
+
+
+def config_entries(text):
+    """Yield (section, key, value) from Git config text, decoded as Git's parser does: quotes removed, the escapes
+    \\n \\t \\b \\" \\\\ decoded, a backslash before a line break continuing the line, comments after an unquoted
+    # or ; dropped, and unquoted spaces trimmed at the ends. section is lowercase, with ".subsection" appended. A key with
+    no = has the value None. Parsing stops at a line Git would reject, since Git then refuses the whole file."""
+    i, n, section = 0, len(text), ""
+    while i < n:
+        character = text[i]
+        if character in " \t\r\n":
+            i += 1
+        elif character in "#;":
+            i = text.find("\n", i) + 1 or n
+        elif character == "[":
+            end = text.find("]", i)
+            if end < 0:
+                return
+            name, _, subsection = text[i + 1:end].strip().partition(" ")
+            subsection = subsection.strip()
+            if subsection.startswith('"') and subsection.endswith('"'):
+                subsection = re.sub(r'\\(.)', r'\1', subsection[1:-1])
+            section = name.lower() + (f".{subsection}" if subsection else "")
+            i = end + 1
+        else:
+            match = re.match(r"[A-Za-z][A-Za-z0-9-]*", text[i:])
+            if not match:
+                return
+            key, i = match.group(0).lower(), i + len(match.group(0))
+            while i < n and text[i] in " \t":
+                i += 1
+            if i >= n or text[i] != "=":
+                yield section, key, None
+                continue
+            value, spaces, quoted, i = [], 0, False, i + 1
+            while i < n and text[i] in " \t":
+                i += 1
+            while i < n:
+                character = text[i]
+                i += 1
+                if character == "\n":
+                    if quoted:
+                        return
+                    break
+                if not quoted and character in " \t":
+                    spaces += 1 if value else 0
+                    continue
+                if not quoted and character in "#;":
+                    i = text.find("\n", i) + 1 or n
+                    break
+                value.append(" " * spaces)
+                spaces = 0
+                if character == "\\":
+                    escaped = text[i] if i < n else ""
+                    i += 1
+                    if escaped == "\n":
+                        continue  # the value continues on the next line
+                    if escaped not in CONFIG_ESCAPES:
+                        return
+                    value.append(CONFIG_ESCAPES[escaped])
+                elif character == '"':
+                    quoted = not quoted
+                else:
+                    value.append(character)
+            yield section, key, "".join(value)
 
 
 def git_executable(repo=None):
