@@ -1,7 +1,8 @@
 # Pyre Agent helper context
 
-Use these preferences when they apply to the current task. Loading this reference
-does not require invoking a skill, running extra checks, or changing project files.
+Use these preferences when they apply to the current task. Loading this
+reference does not require invoking a skill, running extra checks, or changing
+project files.
 
 # Working with Zak
 
@@ -23,32 +24,44 @@ I like trying new technology and finding ways to improve developer experience.
 
 ## Scope and existing work
 
-- Preserve existing branches and dirty files. Use an isolated worktree when needed.
-- Keep changes within the requested scope. A review or a correction does not itself authorize unrelated refactors, commits, publication, or changes to shared instructions.
-- Do not use paid hosting, services, or integrations unless I approve them first.
+- Preserve existing branches and dirty files. Use an isolated worktree when
+  needed.
+- Keep changes within the requested scope. A review or a correction does not
+  itself authorize unrelated refactors, commits, publication, or changes to
+  shared instructions.
+- Do not use paid hosting, services, or integrations unless I approve them
+  first.
 
 ## Architecture
 
-Architecture matters most to me. Prefer designs that make the right thing easy and the wrong thing hard, especially for client code and APIs.
+Architecture matters most to me. Prefer designs that make the right thing easy
+and the wrong thing hard, especially for client code and APIs.
 
-Explain the tradeoffs. Tell me what each option makes easier, what it makes harder, and how difficult it will be to change later.
+Explain the tradeoffs. Tell me what each option makes easier, what it makes
+harder, and how difficult it will be to change later.
 
 ## Engineering defaults
 
-- When the same mistake recurs across a repository, suggest the `correct` workflow.
-- For large outputs or fan-out work, delegate bulky reads when you can and keep summaries in the main thread.
+- When the same mistake recurs across a repository, suggest the `correct`
+  workflow.
+- For large outputs or fan-out work, delegate bulky reads when you can and keep
+  summaries in the main thread.
 
 ## Plans
 
 For substantial plans that need review, decisions, or ongoing collaboration:
 
 - Prefer the harness's native plan and decision tools when available.
-- Keep a complete, standalone Markdown file as the durable source of truth when the plan needs to persist outside the conversation.
-- Create a separate hosted UI only when native tools cannot support the required interaction and it would materially improve review.
+- Keep a complete, standalone Markdown file as the durable source of truth when
+  the plan needs to persist outside the conversation.
+- Create a separate hosted UI only when native tools cannot support the required
+  interaction and it would materially improve review.
 - Keep every presentation of the plan complete and synchronized.
 
 If a plan has multiple viable choices or boils down to an unresolved decision:
 
-- Clearly call out what each choice makes easier, what it makes harder, its risks, and how difficult it would be to change later.
-- Present the choices with a native picker when available. Otherwise, ask in the conversation.
+- Clearly call out what each choice makes easier, what it makes harder, its
+  risks, and how difficult it would be to change later.
+- Present the choices with a native picker when available. Otherwise, ask in the
+  conversation.
 - Let me select, review, and revise my choice.

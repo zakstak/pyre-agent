@@ -1,204 +1,557 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Internal visual reference</title>
-  <script src="./theme.js"></script>
-  <link rel="stylesheet" href="./style.css">
-  <style>
-    /* Specimen layout only. Shared styles live in style.css. */
-    .specimen > * + * { margin-block-start: var(--space-7); }
-    .specimen section > * + * { margin-block-start: var(--space-4); }
-    .lead { max-width: var(--measure-reading); }
-    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); gap: var(--space-3); padding: 0; list-style: none; }
-    .swatches li { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0 var(--space-3); align-items: center; margin: 0; }
-    .swatch-chip { grid-row: span 2; block-size: 2.5rem; border: 1px solid var(--separator); border-radius: var(--radius); }
-    .swatch-name { font-size: var(--size-small); font-weight: 600; }
-    .swatches code { font-size: var(--size-technical); color: var(--text-secondary); overflow-wrap: anywhere; }
-    .type-scale { display: grid; gap: var(--space-4); }
-    .type-row { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); gap: var(--space-1) var(--space-4); align-items: baseline; }
-    .type-row > span:first-child { font-size: var(--size-small); color: var(--text-secondary); }
-    .controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-4); align-items: end; }
-    .check { display: inline-flex; align-items: center; gap: var(--space-2); min-block-size: var(--control-min); }
-    .statuses { padding: 0; list-style: none; }
-    .statuses li { margin: 0; }
-    .diff-sample { overflow: clip; }
-    .diff-sample .diff-scroll { border-radius: 0 0 var(--radius-panel) var(--radius-panel); }
-    .diff-sample > p { padding: var(--space-3) var(--space-4); font-family: var(--font-technical); font-size: var(--size-technical); font-weight: 600; background: var(--bg-raised); border-block-end: 1px solid var(--separator); }
-    .specimen-footer { padding-block-start: 0; }
-    .specimen-footer > * + * { margin-block-start: var(--space-1); }
-    @media (max-width: 30rem) { .type-row { grid-template-columns: minmax(0, 1fr); } }
-  </style>
-</head>
-<body>
-  <a class="skip-link" href="#content">Skip to content</a>
-  <header class="topbar">
-    <p class="topbar-title">Internal visual reference</p>
-    <div class="topbar-actions">
-      <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button>
-    </div>
-  </header>
-  <main id="content" class="page specimen" tabindex="-1">
-    <header class="stack">
-      <h1>Internal visual reference</h1>
-      <p class="lead">Tokens and components for internal tools, review pages, and reports. A product's own design system takes precedence.</p>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Internal visual reference</title>
+    <script src="./theme.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+    <style>
+      /* Specimen layout only. Shared styles live in style.css. */
+      .specimen > * + * {
+        margin-block-start: var(--space-7);
+      }
+      .specimen section > * + * {
+        margin-block-start: var(--space-4);
+      }
+      .lead {
+        max-width: var(--measure-reading);
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+        gap: var(--space-3);
+        padding: 0;
+        list-style: none;
+      }
+      .swatches li {
+        display: grid;
+        grid-template-columns: 2.5rem minmax(0, 1fr);
+        gap: 0 var(--space-3);
+        align-items: center;
+        margin: 0;
+      }
+      .swatch-chip {
+        grid-row: span 2;
+        block-size: 2.5rem;
+        border: 1px solid var(--separator);
+        border-radius: var(--radius);
+      }
+      .swatch-name {
+        font-size: var(--size-small);
+        font-weight: 600;
+      }
+      .swatches code {
+        font-size: var(--size-technical);
+        color: var(--text-secondary);
+        overflow-wrap: anywhere;
+      }
+      .type-scale {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .type-row {
+        display: grid;
+        grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+        gap: var(--space-1) var(--space-4);
+        align-items: baseline;
+      }
+      .type-row > span:first-child {
+        font-size: var(--size-small);
+        color: var(--text-secondary);
+      }
+      .controls-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+        gap: var(--space-4);
+        align-items: end;
+      }
+      .check {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-block-size: var(--control-min);
+      }
+      .statuses {
+        padding: 0;
+        list-style: none;
+      }
+      .statuses li {
+        margin: 0;
+      }
+      .diff-sample {
+        overflow: clip;
+      }
+      .diff-sample .diff-scroll {
+        border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+      }
+      .diff-sample > p {
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-technical);
+        font-size: var(--size-technical);
+        font-weight: 600;
+        background: var(--bg-raised);
+        border-block-end: 1px solid var(--separator);
+      }
+      .specimen-footer {
+        padding-block-start: 0;
+      }
+      .specimen-footer > * + * {
+        margin-block-start: var(--space-1);
+      }
+      @media (max-width: 30rem) {
+        .type-row {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <header class="topbar">
+      <p class="topbar-title">Internal visual reference</p>
+      <div class="topbar-actions">
+        <button
+          id="theme-toggle"
+          class="theme-toggle"
+          type="button"
+          aria-pressed="false"
+          hidden
+        >
+          <span class="theme-label">Dark mode</span>
+        </button>
+      </div>
     </header>
+    <main id="content" class="page specimen" tabindex="-1">
+      <header class="stack">
+        <h1>Internal visual reference</h1>
+        <p class="lead">
+          Tokens and components for internal tools, review pages, and reports. A
+          product's own design system takes precedence.
+        </p>
+      </header>
 
-    <section aria-labelledby="decisions">
-      <h2 id="decisions">Decisions</h2>
-      <p class="reading">Atkinson Hyperlegible Next is the reading font. Atkinson Hyperlegible Mono is the technical font. The palette is calm charcoal and violet layers with lavender focus and dusty pink primary actions. Light and dark modes follow the system until the reader picks one.</p>
-      <ul class="reading">
-        <li>Content sets the layout. Use a sidebar or columns only when the content has that shape.</li>
-        <li>One primary action per view. Everything else is a default or quiet button.</li>
-        <li>Status color always comes with words.</li>
-      </ul>
-    </section>
+      <section aria-labelledby="decisions">
+        <h2 id="decisions">Decisions</h2>
+        <p class="reading">
+          Atkinson Hyperlegible Next is the reading font. Atkinson Hyperlegible
+          Mono is the technical font. The palette is calm charcoal and violet
+          layers with lavender focus and dusty pink primary actions. Light and
+          dark modes follow the system until the reader picks one.
+        </p>
+        <ul class="reading">
+          <li>
+            Content sets the layout. Use a sidebar or columns only when the
+            content has that shape.
+          </li>
+          <li>
+            One primary action per view. Everything else is a default or quiet
+            button.
+          </li>
+          <li>Status color always comes with words.</li>
+        </ul>
+      </section>
 
-    <section aria-labelledby="color">
-      <h2 id="color">Color roles</h2>
-      <p class="reading">Use roles, not hex values. Each role switches with the mode.</p>
-      <ul class="swatches">
-        <li><span class="swatch-chip" style="background: var(--bg-page)"></span><span class="swatch-name">Page</span><code>--bg-page</code></li>
-        <li><span class="swatch-chip" style="background: var(--bg-surface)"></span><span class="swatch-name">Surface</span><code>--bg-surface</code></li>
-        <li><span class="swatch-chip" style="background: var(--bg-raised)"></span><span class="swatch-name">Raised</span><code>--bg-raised</code></li>
-        <li><span class="swatch-chip" style="background: var(--bg-code)"></span><span class="swatch-name">Code and inputs</span><code>--bg-code</code></li>
-        <li><span class="swatch-chip" style="background: var(--text-primary)"></span><span class="swatch-name">Primary text</span><code>--text-primary</code></li>
-        <li><span class="swatch-chip" style="background: var(--text-secondary)"></span><span class="swatch-name">Secondary text</span><code>--text-secondary</code></li>
-        <li><span class="swatch-chip" style="background: var(--link)"></span><span class="swatch-name">Accent, links, focus</span><code>--pyre-accent</code></li>
-        <li><span class="swatch-chip" style="background: var(--pyre-action)"></span><span class="swatch-name">Primary action</span><code>--pyre-action</code></li>
-        <li><span class="swatch-chip" style="background: var(--status-success)"></span><span class="swatch-name">Success</span><code>--status-success</code></li>
-        <li><span class="swatch-chip" style="background: var(--status-warning)"></span><span class="swatch-name">Warning</span><code>--status-warning</code></li>
-        <li><span class="swatch-chip" style="background: var(--status-danger)"></span><span class="swatch-name">Danger</span><code>--status-danger</code></li>
-        <li><span class="swatch-chip" style="background: var(--separator)"></span><span class="swatch-name">Separator</span><code>--separator</code></li>
-      </ul>
-    </section>
+      <section aria-labelledby="color">
+        <h2 id="color">Color roles</h2>
+        <p class="reading">
+          Use roles, not hex values. Each role switches with the mode.
+        </p>
+        <ul class="swatches">
+          <li>
+            <span class="swatch-chip" style="background: var(--bg-page)"></span
+            ><span class="swatch-name">Page</span><code>--bg-page</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--bg-surface)"
+            ></span
+            ><span class="swatch-name">Surface</span><code>--bg-surface</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--bg-raised)"
+            ></span
+            ><span class="swatch-name">Raised</span><code>--bg-raised</code>
+          </li>
+          <li>
+            <span class="swatch-chip" style="background: var(--bg-code)"></span
+            ><span class="swatch-name">Code and inputs</span
+            ><code>--bg-code</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--text-primary)"
+            ></span
+            ><span class="swatch-name">Primary text</span
+            ><code>--text-primary</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--text-secondary)"
+            ></span
+            ><span class="swatch-name">Secondary text</span
+            ><code>--text-secondary</code>
+          </li>
+          <li>
+            <span class="swatch-chip" style="background: var(--link)"></span
+            ><span class="swatch-name">Accent, links, focus</span
+            ><code>--pyre-accent</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--pyre-action)"
+            ></span
+            ><span class="swatch-name">Primary action</span
+            ><code>--pyre-action</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--status-success)"
+            ></span
+            ><span class="swatch-name">Success</span
+            ><code>--status-success</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--status-warning)"
+            ></span
+            ><span class="swatch-name">Warning</span
+            ><code>--status-warning</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--status-danger)"
+            ></span
+            ><span class="swatch-name">Danger</span><code>--status-danger</code>
+          </li>
+          <li>
+            <span
+              class="swatch-chip"
+              style="background: var(--separator)"
+            ></span
+            ><span class="swatch-name">Separator</span><code>--separator</code>
+          </li>
+        </ul>
+      </section>
 
-    <section aria-labelledby="type">
-      <h2 id="type">Type scale</h2>
-      <div class="panel panel-body type-scale">
-        <p class="type-row"><span>Title · 26/650</span><span style="font-size: var(--size-title); font-weight: 650; line-height: var(--leading-tight)">Review the export path</span></p>
-        <p class="type-row"><span>Heading · 20/650</span><span style="font-size: var(--size-heading); font-weight: 650; line-height: var(--leading-tight)">Core logic</span></p>
-        <p class="type-row"><span>Body · 17/1.55</span><span>A reader needs room to tell each line apart. Character check: I l 1, O 0, rn m.</span></p>
-        <p class="type-row"><span>Small · 15</span><span class="small">Labels, metadata, and secondary notes.</span></p>
-        <p class="type-row"><span>Technical · 14</span><code style="font-size: var(--size-technical)">report export --format html</code></p>
-      </div>
-    </section>
-
-    <section aria-labelledby="controls">
-      <h2 id="controls">Controls</h2>
-      <div class="panel panel-body stack">
-        <div class="cluster">
-          <button class="primary" type="button">Export report</button>
-          <button type="button">Preview</button>
-          <button class="quiet" type="button">Collapse all</button>
-          <button type="button" disabled>Unavailable</button>
+      <section aria-labelledby="type">
+        <h2 id="type">Type scale</h2>
+        <div class="panel panel-body type-scale">
+          <p class="type-row">
+            <span>Title · 26/650</span
+            ><span
+              style="
+                font-size: var(--size-title);
+                font-weight: 650;
+                line-height: var(--leading-tight);
+              "
+              >Review the export path</span
+            >
+          </p>
+          <p class="type-row">
+            <span>Heading · 20/650</span
+            ><span
+              style="
+                font-size: var(--size-heading);
+                font-weight: 650;
+                line-height: var(--leading-tight);
+              "
+              >Core logic</span
+            >
+          </p>
+          <p class="type-row">
+            <span>Body · 17/1.55</span
+            ><span
+              >A reader needs room to tell each line apart. Character check: I l
+              1, O 0, rn m.</span
+            >
+          </p>
+          <p class="type-row">
+            <span>Small · 15</span
+            ><span class="small">Labels, metadata, and secondary notes.</span>
+          </p>
+          <p class="type-row">
+            <span>Technical · 14</span
+            ><code style="font-size: var(--size-technical)"
+              >report export --format html</code
+            >
+          </p>
         </div>
-        <div class="controls-grid">
-          <label class="field">Find rows <input type="search" placeholder="Filter by name or status"></label>
-          <label class="field">Show <select><option>All rows</option><option>Failed only</option></select></label>
-          <label class="check"><input type="checkbox" checked> Include archived rows</label>
+      </section>
+
+      <section aria-labelledby="controls">
+        <h2 id="controls">Controls</h2>
+        <div class="panel panel-body stack">
+          <div class="cluster">
+            <button class="primary" type="button">Export report</button>
+            <button type="button">Preview</button>
+            <button class="quiet" type="button">Collapse all</button>
+            <button type="button" disabled>Unavailable</button>
+          </div>
+          <div class="controls-grid">
+            <label class="field"
+              >Find rows
+              <input type="search" placeholder="Filter by name or status"
+            /></label>
+            <label class="field"
+              >Show
+              <select>
+                <option>All rows</option>
+                <option>Failed only</option>
+              </select></label
+            >
+            <label class="check"
+              ><input type="checkbox" checked /> Include archived rows</label
+            >
+          </div>
+          <label class="field"
+            >Notes
+            <textarea rows="3" placeholder="Questions or follow-up"></textarea>
+          </label>
         </div>
-        <label class="field">Notes <textarea rows="3" placeholder="Questions or follow-up"></textarea></label>
-      </div>
-    </section>
+      </section>
 
-    <section aria-labelledby="status">
-      <h2 id="status">Status</h2>
-      <ul class="cluster statuses" aria-label="Example statuses">
-        <li class="chip success">Passed: row export</li>
-        <li class="chip warning">Warning: phone check pending</li>
-        <li class="chip danger">Failed: filename check</li>
-        <li class="chip">Pending: design sign-off</li>
-      </ul>
-      <p class="notice warning reading"><strong>Phone check pending.</strong> The export has not been opened at 320 pixels wide. Check it before release.</p>
-    </section>
+      <section aria-labelledby="status">
+        <h2 id="status">Status</h2>
+        <ul class="cluster statuses" aria-label="Example statuses">
+          <li class="chip success">Passed: row export</li>
+          <li class="chip warning">Warning: phone check pending</li>
+          <li class="chip danger">Failed: filename check</li>
+          <li class="chip">Pending: design sign-off</li>
+        </ul>
+        <p class="notice warning reading">
+          <strong>Phone check pending.</strong> The export has not been opened
+          at 320 pixels wide. Check it before release.
+        </p>
+      </section>
 
-    <section aria-labelledby="technical">
-      <h2 id="technical">Technical text</h2>
-      <p class="reading">Wide code scrolls inside its own keyboard-focusable region, so the page never scrolls sideways.</p>
-      <div class="code-region" role="region" aria-label="Example report command" tabindex="0"><pre><code>report export --format html --include selected-rows --output ./artifacts/release-review.html
-result: 42 selected rows exported; filename check failed</code></pre></div>
-      <div class="panel diff-sample">
-        <p>src/export.ts</p>
-        <div class="diff-scroll" role="region" aria-label="Example diff" tabindex="0">
-          <table class="diff">
-            <thead><tr><th scope="col">Old line</th><th scope="col">New line</th><th scope="col">Code</th></tr></thead>
+      <section aria-labelledby="technical">
+        <h2 id="technical">Technical text</h2>
+        <p class="reading">
+          Wide code scrolls inside its own keyboard-focusable region, so the
+          page never scrolls sideways.
+        </p>
+        <div
+          class="code-region"
+          role="region"
+          aria-label="Example report command"
+          tabindex="0"
+        >
+          <pre><code>report export --format html --include selected-rows --output ./artifacts/release-review.html
+result: 42 selected rows exported; filename check failed</code></pre>
+        </div>
+        <div class="panel diff-sample">
+          <p>src/export.ts</p>
+          <div
+            class="diff-scroll"
+            role="region"
+            aria-label="Example diff"
+            tabindex="0"
+          >
+            <table class="diff">
+              <thead>
+                <tr>
+                  <th scope="col">Old line</th>
+                  <th scope="col">New line</th>
+                  <th scope="col">Code</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="hunk">
+                  <td class="line-number"></td>
+                  <td class="line-number"></td>
+                  <td class="source">
+                    <code
+                      >@@ -12,3 +12,3 @@ export function exportRows(rows)
+                      {</code
+                    >
+                  </td>
+                </tr>
+                <tr class="context">
+                  <td class="line-number">12</td>
+                  <td class="line-number">12</td>
+                  <td class="source">
+                    <code> const selected = rows.filter(isSelected);</code>
+                  </td>
+                </tr>
+                <tr class="deletion">
+                  <td class="line-number">13</td>
+                  <td class="line-number"></td>
+                  <td class="source">
+                    <code>- return write(selected, "report.html");</code>
+                  </td>
+                </tr>
+                <tr class="addition">
+                  <td class="line-number"></td>
+                  <td class="line-number">13</td>
+                  <td class="source">
+                    <code
+                      >+ return write(selected, reportName(new Date()));</code
+                    >
+                  </td>
+                </tr>
+                <tr class="context">
+                  <td class="line-number">14</td>
+                  <td class="line-number">14</td>
+                  <td class="source"><code> }</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="tables">
+        <h2 id="tables">Tables</h2>
+        <p class="reading">
+          Columns size to their content. On a narrow screen the table scrolls
+          inside its region, and no label or link splits mid-word.
+        </p>
+        <div
+          class="table-region"
+          role="region"
+          aria-label="Example decision summary"
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Decision</th>
+                <th scope="col">Status</th>
+                <th scope="col">Choice</th>
+                <th scope="col">Needed by</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr class="hunk"><td class="line-number"></td><td class="line-number"></td><td class="source"><code>@@ -12,3 +12,3 @@ export function exportRows(rows) {</code></td></tr>
-              <tr class="context"><td class="line-number">12</td><td class="line-number">12</td><td class="source"><code>   const selected = rows.filter(isSelected);</code></td></tr>
-              <tr class="deletion"><td class="line-number">13</td><td class="line-number"></td><td class="source"><code>-  return write(selected, "report.html");</code></td></tr>
-              <tr class="addition"><td class="line-number"></td><td class="line-number">13</td><td class="source"><code>+  return write(selected, reportName(new Date()));</code></td></tr>
-              <tr class="context"><td class="line-number">14</td><td class="line-number">14</td><td class="source"><code> }</code></td></tr>
+              <tr>
+                <th scope="row">
+                  <a href="#export-format">1. Export format</a>
+                </th>
+                <td><span class="chip success">Decided</span></td>
+                <td>One HTML file with embedded fonts</td>
+                <td>Step 2</td>
+              </tr>
+              <tr>
+                <th scope="row">2. Filename authority</th>
+                <td><span class="chip warning">Open</span></td>
+                <td>Waiting on the storage review</td>
+                <td>Step 3</td>
+              </tr>
+              <tr>
+                <th scope="row">3. Retention</th>
+                <td><span class="chip">Deferred</span></td>
+                <td>Keep exports in <code>./artifacts</code> until release</td>
+                <td>Step 5</td>
+              </tr>
             </tbody>
           </table>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section aria-labelledby="tables">
-      <h2 id="tables">Tables</h2>
-      <p class="reading">Columns size to their content. On a narrow screen the table scrolls inside its region, and no label or link splits mid-word.</p>
-      <div class="table-region" role="region" aria-label="Example decision summary" tabindex="0">
-        <table>
-          <thead><tr><th scope="col">Decision</th><th scope="col">Status</th><th scope="col">Choice</th><th scope="col">Needed by</th></tr></thead>
-          <tbody>
-            <tr><th scope="row"><a href="#export-format">1. Export format</a></th><td><span class="chip success">Decided</span></td><td>One HTML file with embedded fonts</td><td>Step 2</td></tr>
-            <tr><th scope="row">2. Filename authority</th><td><span class="chip warning">Open</span></td><td>Waiting on the storage review</td><td>Step 3</td></tr>
-            <tr><th scope="row">3. Retention</th><td><span class="chip">Deferred</span></td><td>Keep exports in <code>./artifacts</code> until release</td><td>Step 5</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section aria-labelledby="decision-record">
-      <h2 id="decision-record">Decision record</h2>
-      <article class="decision" aria-labelledby="export-format">
-        <div class="cluster">
-          <h3 id="export-format">1. Export format</h3>
-          <span class="chip success">Decided</span>
-          <span class="chip">Needed by step 2</span>
-        </div>
-        <p>This decides whether a report opens offline from one file or needs a folder beside it.</p>
-        <div class="panel panel-body option chosen">
+      <section aria-labelledby="decision-record">
+        <h2 id="decision-record">Decision record</h2>
+        <article class="decision" aria-labelledby="export-format">
           <div class="cluster">
-            <h4>A. One HTML file with embedded fonts</h4>
-            <span class="chip">Chosen</span>
-            <span class="chip">Recommended</span>
+            <h3 id="export-format">1. Export format</h3>
+            <span class="chip success">Decided</span>
+            <span class="chip">Needed by step 2</span>
           </div>
-          <p>The export inlines styles and fonts, so the reader can open or attach a single file.</p>
-          <div class="tradeoffs">
-            <div><p><strong>Pros</strong></p><ul><li>Opens offline from one file.</li><li>Nothing to lose when the file moves.</li></ul></div>
-            <div><p><strong>Cons</strong></p><ul><li>Each file carries about 225 KB of fonts.</li></ul></div>
+          <p>
+            This decides whether a report opens offline from one file or needs a
+            folder beside it.
+          </p>
+          <div class="panel panel-body option chosen">
+            <div class="cluster">
+              <h4>A. One HTML file with embedded fonts</h4>
+              <span class="chip">Chosen</span>
+              <span class="chip">Recommended</span>
+            </div>
+            <p>
+              The export inlines styles and fonts, so the reader can open or
+              attach a single file.
+            </p>
+            <div class="tradeoffs">
+              <div>
+                <p><strong>Pros</strong></p>
+                <ul>
+                  <li>Opens offline from one file.</li>
+                  <li>Nothing to lose when the file moves.</li>
+                </ul>
+              </div>
+              <div>
+                <p><strong>Cons</strong></p>
+                <ul>
+                  <li>Each file carries about 225 KB of fonts.</li>
+                </ul>
+              </div>
+            </div>
+            <p>
+              <strong>Long term.</strong> Easy to change later, because only the
+              writer knows the layout.
+            </p>
           </div>
-          <p><strong>Long term.</strong> Easy to change later, because only the writer knows the layout.</p>
-        </div>
-        <details class="panel panel-body option">
-          <summary>B. HTML with a sibling assets folder</summary>
-          <p>Smaller files, but the report breaks when someone moves the HTML without its folder.</p>
+          <details class="panel panel-body option">
+            <summary>B. HTML with a sibling assets folder</summary>
+            <p>
+              Smaller files, but the report breaks when someone moves the HTML
+              without its folder.
+            </p>
+          </details>
+          <p>
+            <strong>Decided: A.</strong> Attached reports must open without
+            their folder.
+          </p>
+        </article>
+      </section>
+
+      <section aria-labelledby="disclosure">
+        <h2 id="disclosure">Disclosure</h2>
+        <details class="panel panel-body">
+          <summary>Acceptance checks</summary>
+          <p class="reading">
+            Readers can identify the current result, reach every control by
+            keyboard, and read the exported content without clipped text.
+          </p>
         </details>
-        <p><strong>Decided: A.</strong> Attached reports must open without their folder.</p>
-      </article>
-    </section>
+      </section>
 
-    <section aria-labelledby="disclosure">
-      <h2 id="disclosure">Disclosure</h2>
-      <details class="panel panel-body">
-        <summary>Acceptance checks</summary>
-        <p class="reading">Readers can identify the current result, reach every control by keyboard, and read the exported content without clipped text.</p>
-      </details>
-    </section>
-
-    <section aria-labelledby="reading">
-      <h2 id="reading">Reading</h2>
-      <p class="reading">Short paragraphs keep the current idea visible. Prose stays near 68 characters wide; code and comparison areas may run wider. A font choice does not guarantee a reading outcome, so keep zoom, text spacing, and system accessibility settings available.</p>
-      <p><a href="../references/BRAND.md">Read the maintained visual reference</a></p>
-    </section>
-  </main>
-  <footer class="page specimen-footer small muted">
-    <p id="font-status" role="status">Reading font: checking. The system fallback is available.</p>
-    <p id="technical-font-status" role="status">Technical font: checking. The system fallback is available.</p>
-    <noscript><p>JavaScript is off. The theme follows the system preference, and font loading is unchecked.</p></noscript>
-  </footer>
-</body>
+      <section aria-labelledby="reading">
+        <h2 id="reading">Reading</h2>
+        <p class="reading">
+          Short paragraphs keep the current idea visible. Prose stays near 68
+          characters wide; code and comparison areas may run wider. A font
+          choice does not guarantee a reading outcome, so keep zoom, text
+          spacing, and system accessibility settings available.
+        </p>
+        <p>
+          <a href="../references/BRAND.md"
+            >Read the maintained visual reference</a
+          >
+        </p>
+      </section>
+    </main>
+    <footer class="page specimen-footer small muted">
+      <p id="font-status" role="status">
+        Reading font: checking. The system fallback is available.
+      </p>
+      <p id="technical-font-status" role="status">
+        Technical font: checking. The system fallback is available.
+      </p>
+      <noscript
+        ><p>
+          JavaScript is off. The theme follows the system preference, and font
+          loading is unchecked.
+        </p></noscript
+      >
+    </footer>
+  </body>
 </html>

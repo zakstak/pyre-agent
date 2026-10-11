@@ -1,0 +1,10 @@
+extends: default
+rules:
+  document-start: disable
+  truthy:
+    check-keys: false
+  line-length: disable
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  quoted-strings: disable
