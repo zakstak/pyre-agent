@@ -1,4 +1,5 @@
 """Verify the native plugin boundary without credentials or model inference."""
+
 import json
 import os
 import queue
@@ -24,21 +25,25 @@ class PackageTests(unittest.TestCase):
         claude = read_json(ROOT / ".claude-plugin/marketplace.json")
         self.assertEqual(codex["name"], claude["name"])
         self.assertEqual(codex["plugins"][0]["name"], claude["plugins"][0]["name"])
-        self.assertEqual(ROOT / codex["plugins"][0]["source"]["path"],
-                         ROOT / claude["plugins"][0]["source"])
-        manifests = [read_json(ROOT / f".{host}-plugin/plugin.json")
-                     for host in ("codex", "claude")]
+        self.assertEqual(
+            ROOT / codex["plugins"][0]["source"]["path"],
+            ROOT / claude["plugins"][0]["source"],
+        )
+        manifests = [
+            read_json(ROOT / f".{host}-plugin/plugin.json")
+            for host in ("codex", "claude")
+        ]
         self.assertEqual(manifests[0]["name"], manifests[1]["name"])
         self.assertEqual(manifests[0]["version"], manifests[1]["version"])
 
     def test_hook_runs_only_on_startup_and_reads_the_relocated_package(self):
         hooks = read_json(ROOT / "hooks/hooks.json")["hooks"]
         self.assertEqual(set(hooks), {"SessionStart"})
-        group, = hooks["SessionStart"]
+        (group,) = hooks["SessionStart"]
         self.assertIsNotNone(re.search(group["matcher"], "startup"))
         for source in ("resume", "clear", "compact", "fork"):
             self.assertIsNone(re.search(group["matcher"], source), source)
-        handler, = group["hooks"]
+        (handler,) = group["hooks"]
         with tempfile.TemporaryDirectory(prefix="pyre-plugin-context-") as temp:
             installed = Path(temp) / "installed plugin with spaces"
             (installed / "context").mkdir(parents=True)
@@ -49,44 +54,66 @@ class PackageTests(unittest.TestCase):
             (unrelated / "context/working-with-zak.md").write_text("Wrong project")
             before = context.read_bytes()
             result = subprocess.run(
-                handler["command"], shell=True, cwd=unrelated,
+                handler["command"],
+                shell=True,
+                cwd=unrelated,
                 env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(installed)),
-                capture_output=True, timeout=handler["timeout"], check=True,
+                capture_output=True,
+                timeout=handler["timeout"],
+                check=True,
             )
             self.assertEqual(result.stdout, before)
             self.assertEqual(context.read_bytes(), before)
             self.assertLessEqual(len(result.stdout.decode("utf-8")), 10000)
 
 
-@unittest.skipUnless(shutil.which("codex") and shutil.which("claude"),
-                     "Native integration requires Codex and Claude Code CLIs")
+@unittest.skipUnless(
+    shutil.which("codex") and shutil.which("claude"),
+    "Native integration requires Codex and Claude Code CLIs",
+)
 class NativePluginTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="pyre-plugin-native-")
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
         self.repo = self.base / "marketplace with spaces"
-        shutil.copytree(ROOT, self.repo,
-                        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+        shutil.copytree(
+            ROOT,
+            self.repo,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+        )
         self.codex = self.base / "codex"
         self.claude = self.base / "claude"
         self.codex.mkdir()
         self.claude.mkdir()
-        self.env = dict(os.environ, CODEX_HOME=str(self.codex),
-                        CLAUDE_CONFIG_DIR=str(self.claude))
+        self.env = dict(
+            os.environ, CODEX_HOME=str(self.codex), CLAUDE_CONFIG_DIR=str(self.claude)
+        )
 
     def run_cli(self, *command):
-        result = subprocess.run(command, cwd=self.base, env=self.env,
-                                capture_output=True, text=True, timeout=45)
+        result = subprocess.run(
+            command,
+            check=False,
+            cwd=self.base,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
     def inspect_codex_components(self):
         """Ask the installed harness for its skills and hooks, never start a turn."""
         process = subprocess.Popen(
-            ["codex", "app-server", "--stdio"], cwd=self.base, env=self.env,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            ["codex", "app-server", "--stdio"],
+            cwd=self.base,
+            env=self.env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
         )
         events = queue.Queue()
 
@@ -99,8 +126,9 @@ class NativePluginTests(unittest.TestCase):
         reader.start()
 
         def request(number, method, params):
-            process.stdin.write(json.dumps({"id": number, "method": method,
-                                            "params": params}) + "\n")
+            process.stdin.write(
+                json.dumps({"id": number, "method": method, "params": params}) + "\n"
+            )
             process.stdin.flush()
             while True:
                 event = events.get(timeout=20)
@@ -110,14 +138,19 @@ class NativePluginTests(unittest.TestCase):
                     return event["result"]
 
         try:
-            request(1, "initialize", {
-                "clientInfo": {"name": "pyre-plugin-test", "version": "1"},
-                "capabilities": {"experimentalApi": True},
-            })
+            request(
+                1,
+                "initialize",
+                {
+                    "clientInfo": {"name": "pyre-plugin-test", "version": "1"},
+                    "capabilities": {"experimentalApi": True},
+                },
+            )
             process.stdin.write('{"method":"initialized"}\n')
             process.stdin.flush()
-            skills = request(2, "skills/list", {"cwds": [str(self.base)],
-                                               "forceReload": True})
+            skills = request(
+                2, "skills/list", {"cwds": [str(self.base)], "forceReload": True}
+            )
             hooks = request(3, "hooks/list", {"cwds": [str(self.base)]})
             return skills, hooks
         finally:
@@ -129,26 +162,43 @@ class NativePluginTests(unittest.TestCase):
 
     def test_hosts_install_discover_refresh_and_remove_the_plugin(self):
         self.run_cli("codex", "plugin", "marketplace", "add", str(self.repo), "--json")
-        installed = json.loads(self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json"))
+        installed = json.loads(
+            self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json")
+        )
         installed_path = Path(installed["installedPath"])
         self.assertTrue(installed_path.is_relative_to(self.codex))
         self.assertNotEqual(installed_path, self.repo)
-        inventory = json.loads(self.run_cli("codex", "plugin", "list", "--marketplace",
-                                            "pyre-agent-local", "--json"))
+        inventory = json.loads(
+            self.run_cli(
+                "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
+            )
+        )
         self.assertTrue(inventory["installed"][0]["enabled"])
         skills, hooks = self.inspect_codex_components()
         self.assertFalse(skills["data"][0]["errors"])
-        actual = {skill["name"] for entry in skills["data"] for skill in entry["skills"]
-                  if Path(skill["path"]).is_relative_to(installed_path)}
-        shared = {f"pyre-agent:{path.parent.name}"
-                  for path in self.repo.glob("skills/*/SKILL.md")}
+        actual = {
+            skill["name"]
+            for entry in skills["data"]
+            for skill in entry["skills"]
+            if Path(skill["path"]).is_relative_to(installed_path)
+        }
+        shared = {
+            f"pyre-agent:{path.parent.name}"
+            for path in self.repo.glob("skills/*/SKILL.md")
+        }
         self.assertEqual(actual, shared)
-        hook, = [hook for entry in hooks["data"] for hook in entry["hooks"]
-                 if hook.get("pluginId") == PLUGIN_ID]
+        (hook,) = [
+            hook
+            for entry in hooks["data"]
+            for hook in entry["hooks"]
+            if hook.get("pluginId") == PLUGIN_ID
+        ]
         self.assertEqual(hook["matcher"], "^startup$")
         self.assertEqual(hook["trustStatus"], "untrusted")
         self.assertEqual(hook["source"], "plugin")
-        self.assertIn(str(installed_path / "context/working-with-zak.md"), hook["command"])
+        self.assertIn(
+            str(installed_path / "context/working-with-zak.md"), hook["command"]
+        )
 
         self.run_cli("claude", "plugin", "marketplace", "add", str(self.repo))
         self.run_cli("claude", "plugin", "install", PLUGIN_ID, "--json")
@@ -162,21 +212,36 @@ class NativePluginTests(unittest.TestCase):
         context = self.repo / "context/working-with-zak.md"
         updated = context.read_text() + "\nUpdated local context.\n"
         context.write_text(updated)
-        self.assertNotEqual((installed_path / "context/working-with-zak.md").read_text(), updated)
+        self.assertNotEqual(
+            (installed_path / "context/working-with-zak.md").read_text(), updated
+        )
         self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json")
-        self.assertEqual((installed_path / "context/working-with-zak.md").read_text(), updated)
-        self.assertIn("nothing to update", self.run_cli("claude", "plugin", "update", PLUGIN_ID))
+        self.assertEqual(
+            (installed_path / "context/working-with-zak.md").read_text(), updated
+        )
+        self.assertIn(
+            "nothing to update", self.run_cli("claude", "plugin", "update", PLUGIN_ID)
+        )
 
-        for config, instructions in ((self.codex, "AGENTS.md"), (self.claude, "CLAUDE.md")):
+        for config, instructions in (
+            (self.codex, "AGENTS.md"),
+            (self.claude, "CLAUDE.md"),
+        ):
             self.assertFalse((config / instructions).exists())
             for name in actual | {"pyre-agent:codex-branch-review"}:
                 self.assertFalse((config / "skills" / name.split(":", 1)[1]).exists())
         self.run_cli("codex", "plugin", "remove", PLUGIN_ID, "--json")
         self.run_cli("claude", "plugin", "uninstall", PLUGIN_ID)
-        inventory = json.loads(self.run_cli("codex", "plugin", "list", "--marketplace",
-                                            "pyre-agent-local", "--json"))
+        inventory = json.loads(
+            self.run_cli(
+                "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
+            )
+        )
         self.assertFalse(inventory["installed"])
-        self.assertNotIn(PLUGIN_ID, read_json(self.claude / "plugins/installed_plugins.json")["plugins"])
+        self.assertNotIn(
+            PLUGIN_ID,
+            read_json(self.claude / "plugins/installed_plugins.json")["plugins"],
+        )
 
 
 if __name__ == "__main__":
