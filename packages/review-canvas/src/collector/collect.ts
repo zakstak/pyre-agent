@@ -585,13 +585,19 @@ const inventory = (worktree: Worktree, limits: Limits): Snapshot => {
     if (error instanceof GitError) throw new CollectError({ message: "HEAD has no commit yet. Make a first commit, then collect again." })
     throw error
   }
-  let branch: string | null
+  let ref: Buffer | null
   try {
-    branch = git.run(top, ["symbolic-ref", "--quiet", "HEAD"]).toString("utf8").trim().replace(/^refs\/heads\//, "")
+    ref = line(git.run(top, ["symbolic-ref", "--quiet", "HEAD"]))
   } catch (error) {
     if (!(error instanceof GitError)) throw error
-    branch = null // detached HEAD
+    ref = null // detached HEAD
   }
+  if (ref !== null && !isDecodable(ref)) {
+    // A replacement character would name a different branch in the review's title and target.
+    const name = backslashReplace(ref).replace(/^refs\/heads\//, "")
+    throw new CollectError({ message: `the branch ${name} is not valid UTF-8, so review input cannot name it. Rename it with git branch -m, then collect again.` })
+  }
+  const branch = ref === null ? null : ref.toString("utf8").replace(/^refs\/heads\//, "")
   const indexPath = decodePath(line(git.run(top, ["rev-parse", "--git-path", "index"])))
   const indexInfo = statSync(fsEncode(isAbsolute(indexPath) ? indexPath : `${top}/${indexPath}`), { bigint: true, throwIfNoEntry: false })
   const index = indexInfo === undefined ? null : { dev: indexInfo.dev, ino: indexInfo.ino, size: indexInfo.size, mtimeNs: indexInfo.mtimeNs }

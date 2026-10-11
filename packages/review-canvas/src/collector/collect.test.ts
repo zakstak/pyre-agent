@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import * as Schema from "effect/Schema"
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, unlinkSync } from "node:fs"
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, test, type TestContext } from "node:test"
 import { ATTEMPTS } from "./collect.ts"
@@ -232,6 +232,19 @@ describe("ConsistencyTests", () => {
 })
 
 describe("HeadTests", () => {
+  // Not in the Python suite, which decoded the branch with replacement characters.
+  test("a branch name that is not valid UTF-8 stops collection with the escaped name", (t) => {
+    const f = new Fixture(t)
+    f.commit({ "a.txt": "a\n" })
+    f.write("a.txt", "b\n")
+    if (f.git(f.root, "rev-parse", "--show-ref-format").trim() !== "files") return t.skip("needs the files ref backend")
+    // Written as file contents, since a loose ref would need a file name that APFS refuses.
+    const branch = Buffer.concat([Buffer.from("refs/heads/topic-"), Buffer.from([0xff])])
+    writeFileSync(join(f.root, ".git", "packed-refs"), Buffer.concat([Buffer.from(`${f.head()} `), branch, Buffer.from("\n")]))
+    writeFileSync(join(f.root, ".git", "HEAD"), Buffer.concat([Buffer.from("ref: "), branch, Buffer.from("\n")]))
+    assert.throws(() => f.collect(), { _tag: "CollectError", message: /^the branch topic-\\xff is not valid UTF-8/ })
+  })
+
   test("test_unborn_head_needs_a_first_commit", (t) => {
     const f = new Fixture(t)
     f.write("a.txt", "a\n")
