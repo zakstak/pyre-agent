@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { GitError } from "./errors.ts"
 import { DIFF_FLAGS, trustedGit } from "./git.ts"
 import { decodePath, line, records } from "./paths.ts"
+import { Fingerprint } from "../schema/primitives.ts"
 
 /*
  * A fingerprint is the SHA-256 of canonical JSON naming one exact version of one changed file: its path, its old path
@@ -99,7 +100,7 @@ export interface FileVersion {
 }
 
 /** The SHA-256 hex digest of one file version. */
-export const fileFingerprint = (version: FileVersion): string => {
+export const fileFingerprint = (version: FileVersion): Fingerprint => {
   // Keys in sorted order, so the JSON matches Python's json.dumps(sort_keys=True) byte for byte.
   const canonical = JSON.stringify({
     new_blob: version.newBlob,
@@ -109,7 +110,7 @@ export const fileFingerprint = (version: FileVersion): string => {
     old_path: version.oldPath,
     path: version.path
   })
-  return createHash("sha256").update(canonical, "utf8").digest("hex")
+  return Fingerprint.make(createHash("sha256").update(canonical, "utf8").digest("hex"))
 }
 
 /**
@@ -118,7 +119,7 @@ export const fileFingerprint = (version: FileVersion): string => {
  * UTF-8.
  */
 export const prFingerprints = ({ repo, base, head }: { readonly repo: string; readonly base: string; readonly head: string }):
-  ReadonlyMap<string, string> => {
+  ReadonlyMap<string, Fingerprint> => {
   const git = trustedGit({ repo })
   git.run(repo, ["rev-parse", "--git-dir"])
   const commit = (ref: string) => {

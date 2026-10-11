@@ -4,7 +4,8 @@ import { basename, dirname, join } from "node:path"
 import type { Collected, Worktree } from "./collect.ts"
 import { CollectError, type GitError } from "./errors.ts"
 import { absolute, isSystemError, isWithin, resolveLoose } from "./paths.ts"
-import type { WorktreeReview } from "./review.ts"
+import * as Schema from "effect/Schema"
+import { WorktreeInput } from "../schema/input.ts"
 
 /** An output path that passed checkOutput, with its folders resolved once so the check and the write agree. */
 export type Output = string & { readonly __brand: "Output" }
@@ -29,12 +30,12 @@ export const checkOutput = (worktree: Worktree, output: string): Output => {
 }
 
 /** Replaces output in one step with a private 0600 file, so no reader sees a partial snapshot. */
-export const writeOutput = (output: Output, review: WorktreeReview) => {
+export const writeOutput = (output: Output, review: WorktreeInput) => {
   const temp = join(dirname(output), `.${basename(output)}.${randomBytes(6).toString("hex")}.tmp`)
   try {
     const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
     try {
-      writeFileSync(fd, `${JSON.stringify(review, null, 2)}\n`)
+      writeFileSync(fd, `${JSON.stringify(Schema.encodeSync(WorktreeInput)(review), null, 2)}\n`)
     } finally {
       closeSync(fd)
     }

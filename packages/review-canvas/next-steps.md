@@ -91,6 +91,12 @@ The collector must keep every protection it gained in review:
   `core.ignoreCase`, submodules, symlinks, and undecodable names.
 - It replaces hidden and reordering characters in patches, and escapes paths in everything it prints.
 
+Done: `src/collector` collects a working tree into a `WorktreeInput` checked by `WorktreeInputDocument`, and every
+Python case has a test of the same name. 104 run, in CI on Linux and macOS, and 5 that guarded the Python state
+directory or Windows are skipped with their reason. For step 6, the collect command runs `openWorktree`, `checkOutput`
+(which now refuses the whole Git directory), `collect`, `writeOutput`, and `report`, and `prFingerprints` replaces
+`fingerprint.py`; step 7 deletes `parity.test.ts` with the Python tests it reads.
+
 ### 3. Store and thread registry
 
 - Reviews are keyed by target identity. Threads register with an ID, a token, a label, and host metadata.

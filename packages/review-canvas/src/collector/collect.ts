@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 import { devNull, tmpdir } from "node:os"
 import { dirname, isAbsolute } from "node:path"
 import { isDeepStrictEqual } from "node:util"
+import * as Result from "effect/Result"
 import { CollectError, GitError } from "./errors.ts"
 import { blobId, fileFingerprint, type FileMode, fileMode, isRegular, type ObjectFormat, objectFormat, type ObjectId,
   objectId, type RawChange, rawChanges } from "./fingerprint.ts"
@@ -11,7 +12,10 @@ import { assertOutside, DIFF_FLAGS, type Git, type GitEvent, trustedGit } from "
 import { asciiLower, backslashReplace, byCodePoint, decodePath, fsDecode, fsEncode, isDecodable, isSystemError, isWithin,
   lexists, line, onDisk, records, resolveFrom, resolveLoose, systemMessage } from "./paths.ts"
 import { cleanText, SECRET_TEXT, secretName } from "./patch.ts"
-import type { CollectedFile, PatchNote, Status, WorktreeReview } from "./review.ts"
+import { decodeValue, WorktreeInputDocument } from "../schema/document.ts"
+import { type FileStatus, INPUT_FORMAT, type PatchNote, type WorktreeFile, type WorktreeInput } from "../schema/input.ts"
+import { MAX_FILES, MAX_INPUT_BYTES, MAX_PATCH_LINES, MAX_PATCH_UNITS, MAX_TOTAL_PATCH_LINES } from "../schema/limits.ts"
+import type { Fingerprint } from "../schema/primitives.ts"
 
 /*
  * Collects the uncommitted changes in a local Git working tree as review input: staged, unstaged, and untracked (not
@@ -24,22 +28,22 @@ import type { CollectedFile, PatchNote, Status, WorktreeReview } from "./review.
 
 export const ATTEMPTS = 3
 
-/** The review input limits the collector keeps to. Step 1's schema owns them once it lands. */
+/** The review input limits the collector keeps to, from the schema. Tests lower them. */
 export interface Limits {
   readonly files: number
   /** UTF-16 code units in one patch, the unit the page's JavaScript counts. */
-  readonly patchChars: number
+  readonly patchUnits: number
   readonly patchLines: number
   readonly totalPatchLines: number
   readonly inputBytes: number
 }
 
 export const LIMITS: Limits = {
-  files: 2000,
-  patchChars: 4 * 1024 * 1024,
-  patchLines: 10_000,
-  totalPatchLines: 50_000,
-  inputBytes: 32 * 1024 * 1024
+  files: MAX_FILES,
+  patchUnits: MAX_PATCH_UNITS,
+  patchLines: MAX_PATCH_LINES,
+  totalPatchLines: MAX_TOTAL_PATCH_LINES,
+  inputBytes: MAX_INPUT_BYTES
 }
 
 /** Steps a caller can observe. The callback runs synchronously; tests use it to change files at exact moments. */
@@ -83,12 +87,15 @@ export interface CollectOptions {
 }
 
 export interface Collected {
-  readonly review: WorktreeReview
+  readonly review: WorktreeInput
   /** Likely secret files whose contents were left out. */
   readonly flagged: ReadonlyArray<string>
   /** Paths whose staged version differs from both HEAD and the working tree, so a commit records unreviewed content. */
   readonly staged: ReadonlyArray<string>
 }
+
+/** The statuses a working tree change can have. */
+type Status = Extract<FileStatus, "added" | "modified" | "deleted" | "renamed" | "copied" | "changed">
 
 type Kind = "file" | "symlink" | "submodule"
 
@@ -104,7 +111,7 @@ interface EntryBase {
   readonly size: number
   /** NUL bytes in the file's first 8000 bytes. */
   readonly binary: boolean
-  readonly fingerprint: string
+  readonly fingerprint: Fingerprint
 }
 
 export interface TrackedEntry extends EntryBase {
@@ -738,7 +745,7 @@ const content = (worktree: Worktree, entry: Entry, options: { readonly allowSecr
   const oldBlob = kindOf(entry.oldMode) === "file" ? entry.oldBlob : null
   const oldSize = oldBlob === null ? 0 : blobSize(worktree, oldBlob)
   if (oldSize === 0 && entry.size === 0) return { kind: "note", note: "empty" }
-  if (options.oversized || Math.max(oldSize, entry.size) > 4 * options.limits.patchChars) return { kind: "note", note: "too_large" }
+  if (options.oversized || Math.max(oldSize, entry.size) > 4 * options.limits.patchUnits) return { kind: "note", note: "too_large" }
   const old = oldBlob === null ? null : git.run(top, [...config, "cat-file", "blob", oldBlob])
   let next: Buffer | null = null
   if (!entry.untracked && entry.fromIndex && entry.newBlob !== null) {
@@ -752,12 +759,12 @@ const content = (worktree: Worktree, entry: Entry, options: { readonly allowSecr
   return textPatch(worktree, old, next)
 }
 
-type Draft = { -readonly [K in keyof CollectedFile]: CollectedFile[K] }
+type Draft = { -readonly [K in keyof typeof WorktreeFile.Encoded]: (typeof WorktreeFile.Encoded)[K] }
 
 /** Turns an inventory into review files, and the likely secret files left out. */
 const build = (worktree: Worktree, snapshot: Snapshot, include: ReadonlySet<string>, limits: Limits) => {
   const stats = numstat(worktree)
-  const files: Array<CollectedFile> = []
+  const files: Array<typeof WorktreeFile.Encoded> = []
   const flagged: Array<string> = []
   let totalLines = 0
   let totalBytes = 0
@@ -792,7 +799,7 @@ const build = (worktree: Worktree, snapshot: Snapshot, include: ReadonlySet<stri
       const size = Buffer.byteLength(JSON.stringify(patch))
       if (!include.has(path) && SECRET_TEXT.test(patch)) {
         note = "secret"
-      } else if (patch.length > limits.patchChars || lineCount > budget || totalBytes + size > Math.floor(limits.inputBytes / 2)) {
+      } else if (patch.length > limits.patchUnits || lineCount > budget || totalBytes + size > Math.floor(limits.inputBytes / 2)) {
         // Patches may fill half of the input limit, leaving room for paths and the agent's analysis.
         note = "too_large"
       } else {
@@ -875,23 +882,22 @@ export const collect = (worktree: Worktree, options: CollectOptions = {}): Colle
       worktree.trace({ kind: "between-reads" })
       if (isDeepStrictEqual(inventory(worktree, limits), snapshot)) {
         const { head, branch } = snapshot
-        return {
-          review: {
-            schema_version: 2,
-            target: {
-              kind: "worktree",
-              title: options.title ?? (branch === null ? `Uncommitted changes at ${head.slice(0, 7)}` : `Uncommitted changes on ${branch}`),
-              root: worktree.top,
-              head_sha: head,
-              ...(branch === null ? {} : { branch }),
-              changed_files: files.length
-            },
-            files_complete: true,
-            files
+        const review = decodeValue(WorktreeInputDocument, {
+          format: INPUT_FORMAT,
+          target: {
+            kind: "worktree",
+            title: options.title ?? (branch === null ? `Uncommitted changes at ${head.slice(0, 7)}` : `Uncommitted changes on ${branch}`),
+            root: worktree.top,
+            head_sha: head,
+            ...(branch === null ? {} : { branch }),
+            changed_files: files.length
           },
-          flagged,
-          staged
-        }
+          files_complete: true,
+          files
+        } satisfies typeof WorktreeInput.Encoded)
+        // The schema's limits on paths, titles, and branch names apply here; the collector already kept the rest.
+        if (Result.isFailure(review)) throw new CollectError({ message: review.failure.message })
+        return { review: review.success, flagged, staged }
       }
       reason = "HEAD or a changed file differed between two reads"
     } catch (error) {

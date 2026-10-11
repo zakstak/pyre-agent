@@ -526,7 +526,7 @@ describe("InventoryTests", () => {
     f.write("big.txt", "y\n")
     const captured: Array<number> = []
     const big = f.collect({
-      limits: { patchChars: 16 },
+      limits: { patchUnits: 16 },
       trace: (event) => {
         if (event.kind === "git" && event.args.includes("blob")) captured.push(event.stdout.length)
       }

@@ -3,17 +3,20 @@
 // same steps through the library: check the output, collect, write, and report.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, unlinkSync } from "node:fs"
+import * as Schema from "effect/Schema"
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, unlinkSync } from "node:fs"
 import { join } from "node:path"
 import { describe, test, type TestContext } from "node:test"
 import { ATTEMPTS } from "./collect.ts"
 import { SECRET_TEXT, secretName } from "./patch.ts"
-import type { CollectedFile, WorktreeReview } from "./review.ts"
 import { Fixture, GITHUB_TOKEN, PRIVATE_KEY } from "./testing.ts"
+import { decodeBytes, decodeValue, WorktreeInputDocument } from "../schema/document.ts"
+import { WorktreeInput } from "../schema/input.ts"
+import { accepted } from "../schema/testing.ts"
 
-const readReview = (path: string): WorktreeReview => JSON.parse(readFileSync(path, "utf8"))
-const byPath = (review: WorktreeReview): Readonly<Record<string, CollectedFile>> =>
-  Object.fromEntries(review.files.map((file) => [file.path, file]))
+/** Reads written input back through the strict decoder, as the server will. */
+const readReview = (path: string): WorktreeInput => accepted(decodeBytes(WorktreeInputDocument, readFileSync(path)))
+const byPath = (review: WorktreeInput) => Object.fromEntries(review.files.map((file) => [file.path, file]))
 
 const stateDirectoryNote = "Not applicable: review state moves from STATE/rounds/NNNN directories to the server's SQLite " +
   "store (Decisions: Storage), so the collector never writes into a state directory and has no round to guard."
@@ -51,7 +54,7 @@ describe("LimitTests", () => {
     const f = fixture(t)
     f.write("base.txt", `b\n${"x".repeat(40)}\n`)
     f.write("huge.txt", "123456789\n".repeat(100))
-    const files = f.collect({ limits: { patchChars: 16 } })
+    const files = f.collect({ limits: { patchUnits: 16 } })
     for (const path of ["base.txt", "huge.txt"]) {
       assert.deepEqual([files[path]?.patch_note, files[path]?.patch_complete], ["too_large", false], path)
     }
@@ -65,7 +68,7 @@ describe("LimitTests", () => {
     f.write("shrink.txt", "z\n")
     const outputs: Array<Buffer> = []
     const files = f.collect({
-      limits: { patchChars: 16 },
+      limits: { patchUnits: 16 },
       trace: (event) => {
         if (event.kind === "git") outputs.push(event.stdout)
       }
@@ -397,5 +400,43 @@ describe("OutputTests", () => {
     const failed = f.main({ output, repo: plain })
     assert.equal(failed.code, 2)
     assert.ok(failed.err.startsWith("Error: not a git repository"), failed.err)
+  })
+})
+
+// Not in the Python suite, which validated with render_review.py: the step 1 schema is the contract now.
+describe("Schema", () => {
+  test("the collector's output round-trips through WorktreeInputDocument", (t) => {
+    const f = new Fixture(t)
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i}\n`).join("")
+    symlinkSync("target", join(f.root, "link"))
+    f.commit({ "edit.txt": "a\n", "old.txt": lines, "gone.txt": "g\n", "run.sh": "r\n", "big.txt": "b\n" })
+    f.write("edit.txt", "a\n\x0cb\n")
+    f.git(f.root, "mv", "old.txt", "new.txt")
+    f.write("new.txt", `${lines}more\n`)
+    unlinkSync(join(f.root, "gone.txt"))
+    chmodSync(join(f.root, "run.sh"), 0o755)
+    unlinkSync(join(f.root, "link"))
+    symlinkSync("elsewhere", join(f.root, "link"))
+    f.write("image.bin", Buffer.from([0, 1, 2]))
+    f.write(".env", "A=1\n")
+    f.write("big.txt", "x\n".repeat(40))
+    f.write("empty.txt", "")
+    const nested = f.init(join(f.root, "nested"))
+    f.commit({ "n.txt": "n\n" }, { root: nested })
+    const files = f.collect({ limits: { patchLines: 10 } })
+    const review = f.review
+    assert.ok(review)
+    assert.deepEqual(new Set(Object.values(files).map((file) => file.patch_note ?? "none")), new Set(["replaced_characters",
+      "none", "no_content_change", "symlink", "binary", "secret", "too_large", "empty", "submodule"]))
+    assert.deepEqual(accepted(decodeValue(WorktreeInputDocument, review)), review)
+    const bytes = Buffer.from(JSON.stringify(Schema.encodeSync(WorktreeInput)(review)))
+    assert.deepEqual(accepted(decodeBytes(WorktreeInputDocument, bytes)), review)
+  })
+
+  test("input the schema refuses stops collection with its reason", (t) => {
+    const f = new Fixture(t)
+    f.commit({ "a.txt": "a\n" })
+    f.write("a.txt", "b\n")
+    assert.throws(() => f.collect({ title: " " }), { _tag: "CollectError", message: /target\.title: must not be empty/ })
   })
 })

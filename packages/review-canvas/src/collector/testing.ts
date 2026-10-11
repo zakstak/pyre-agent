@@ -10,7 +10,7 @@ import { collect, type CollectEvent, type CollectOptions, openWorktree } from ".
 import { CollectError, GitError } from "./errors.ts"
 import { type ObjectId, objectId } from "./fingerprint.ts"
 import { checkOutput, errorLine, report, writeOutput } from "./output.ts"
-import type { WorktreeReview } from "./review.ts"
+import type { WorktreeInput } from "../schema/input.ts"
 
 // Assembled from pieces so no source file matches the collector's secret patterns.
 export const PRIVATE_KEY = "-".repeat(5) + "BEGIN RSA " + "PRIVATE KEY" + "-".repeat(5) + "\nMIIBsecretbody\n"
@@ -90,7 +90,7 @@ export interface MainResult {
 export class Fixture {
   readonly base: string
   readonly root: string
-  review: WorktreeReview | undefined
+  review: WorktreeInput | undefined
   flagged: ReadonlyArray<string> = []
   staged: ReadonlyArray<string> = []
 
