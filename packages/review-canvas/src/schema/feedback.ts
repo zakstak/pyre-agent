@@ -89,7 +89,8 @@ const AttachedFields = Schema.Struct({ state: Schema.Literal("attached"), reason
 
 /**
  * Where a comment's anchor lands in the current round: attached at offsets, or an orphan when its code changed,
- * moved ambiguously, or is gone. The server derives it; an import never trusts it.
+ * moved ambiguously, or is gone. Attached offsets span the anchor's quote, found again at the anchor's own offsets or
+ * by its context. The server derives it; an import never trusts it.
  */
 export const Attachment = Schema.Union([
   AttachedFields.check(Schema.makeFilter((attached: typeof AttachedFields.Type) =>
@@ -237,12 +238,48 @@ const CommentFields = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("general"), ...commentFields })
 ])
 
-/** A comment the agents must answer: inline on a patch selection, or general. */
+/** Whether a GitHub comment URL names a review discussion: an inline comment, in a thread that can be resolved. */
+const isDiscussion = (url: GitHubCommentUrl) => url.slice(url.indexOf("#")).startsWith("#discussion_r")
+
+/**
+ * A comment the agents must answer: inline on a patch selection, or general. Of GitHub's comments, only review
+ * comments are inline, threaded, and resolvable; conversation comments and review summaries are general, and have no
+ * GitHub replies and no resolved state.
+ */
 export const Comment = CommentFields.check(Schema.makeFilter((comment: typeof CommentFields.Type) => {
   if (comment.source.kind === "reviewer") {
     if (comment.body.trim() === "") return { path: ["body"], issue: "must not be empty" }
     if (comment.body.length > Limits.MAX_TEXT_UNITS) {
       return { path: ["body"], issue: `exceeds ${Limits.MAX_TEXT_UNITS} UTF-16 code units` }
+    }
+  } else if (comment.kind === "inline" && !isDiscussion(comment.source.url)) {
+    return { path: ["source", "url"], issue: "an inline GitHub comment is a review comment, with a #discussion_r URL" }
+  } else if (comment.kind === "general" && isDiscussion(comment.source.url)) {
+    return {
+      path: ["source", "url"],
+      issue: "a general GitHub comment is a conversation comment or review summary, not a #discussion_r URL"
+    }
+  } else if (comment.kind === "general" && comment.source.resolved) {
+    return { path: ["source", "resolved"], issue: "only a review thread can be resolved on GitHub" }
+  }
+  // An attachment is where the anchor's quote was found again, exactly or by its context, so it spans the quote.
+  if (comment.kind === "inline" && comment.attachment.state === "attached") {
+    const { start, end } = comment.attachment
+    if (end - start !== comment.anchor.quote.length) {
+      return { path: ["attachment", "end"], issue: "must exceed start by the anchor quote's length in UTF-16 code units" }
+    }
+  }
+  const thread = comment.kind === "inline" && comment.source.kind === "github" ? comment.source : undefined
+  for (const [index, reply] of comment.replies.entries()) {
+    if (reply.actor !== "github") continue
+    if (thread === undefined) {
+      return { path: ["replies", index], issue: "a GitHub reply belongs only under an inline comment from GitHub" }
+    }
+    if (!isDiscussion(reply.github.url) || pullRequestKey(reply.github.url) !== pullRequestKey(thread.url)) {
+      return {
+        path: ["replies", index, "github", "url"],
+        issue: "expected a #discussion_r URL on the comment's pull request"
+      }
     }
   }
   const count = (actor: Reply["actor"]) => comment.replies.filter((reply) => reply.actor === actor).length

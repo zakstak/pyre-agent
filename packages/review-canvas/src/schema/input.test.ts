@@ -3,7 +3,7 @@
 import * as Schema from "effect/Schema"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { decodeBytes, decodeValue, InputDocument, WorktreeInputDocument } from "./document.ts"
+import { decodeBytes, decodeValue, encodeDocument, InputDocument, WorktreeInputDocument } from "./document.ts"
 import { ReviewInput, WorktreeInput } from "./input.ts"
 import * as Limits from "./limits.ts"
 import { accepted, copy, fixture, fixtureBytes, get, type Json, type JsonPath, refused, set } from "./testing.ts"
@@ -138,6 +138,10 @@ test("input: a replaced-characters note needs its patch, and an old path differs
   accepted(decode(set(simpleReview(), file("patch_note"), "replaced_characters")))
   const renamed = set(simpleReview(), file("status"), "renamed")
   accepted(decode(set(copy(renamed), file("old_path"), "b.py")))
+  // A moved file names where it came from; the Python version allowed a rename without one.
+  refused(decode(copy(renamed)), /files\[0\]\.old_path: required for a renamed file: the path it came from/)
+  refused(decode(set(simpleReview(), file("status"), "copied")), /files\[0\]\.old_path: required for a copied file/)
+  accepted(decode(set(set(simpleReview(), file("status"), "copied"), file("old_path"), "b.py")))
   refused(
     decode(set(renamed, file("old_path"), "a.py")),
     /old_path: allowed only for a renamed or copied file, and must differ from path/
@@ -331,6 +335,70 @@ test("input: resource limits", () => {
     decodeBytes(InputDocument, new Uint8Array(Limits.MAX_INPUT_BYTES + 1).fill(0x20)),
     /^Review input exceeds 32 MiB\.$/, "too_large"
   )
+})
+
+test("input: every accepted input fits 32 MiB written in its one spelling", () => {
+  // Minified, 2,000 files of 100 minimal callouts and a 10,200-character summary take about 25 MiB; indented, about
+  // 34 MiB. The supplied bytes pass the limit, so only the schema's check of the written document refuses them.
+  const callouts = Array.from({ length: Limits.MAX_CALLOUTS }, (): Json => ({ tag: "t", text: "x" }))
+  const withCallouts = (count: number) =>
+    withFiles(count, (index) =>
+      set(set(fileAt(`f${index}`, undefined), ["summary"], "s".repeat(10_200)), ["callouts"], callouts))
+  const minified = new TextEncoder().encode(JSON.stringify(withCallouts(2000)))
+  assert.ok(minified.byteLength < Limits.MAX_INPUT_BYTES, String(minified.byteLength))
+  refused(
+    decodeBytes(InputDocument, minified),
+    /^Review input is invalid: takes \d+ bytes as written JSON, more than 32 MiB$/
+  )
+  const fits = accepted(decode(withCallouts(1500)))
+  const written = accepted(encodeDocument(InputDocument, fits))
+  assert.ok(written.byteLength > 24 * 1024 * 1024, String(written.byteLength))
+  assert.ok(written.byteLength <= Limits.MAX_INPUT_BYTES, String(written.byteLength))
+  assert.deepEqual(accepted(decodeBytes(InputDocument, written)), fits)
+})
+
+test("input: a patch marked complete is whole hunks whose lines add up", () => {
+  // The Python renderer only warned about an unverified patch. A complete one now has to be what it claims.
+  const complete = (changes: { readonly [key: string]: Json | undefined }) => {
+    const review = set(simpleReview(), file("patch_complete"), true)
+    for (const [key, value] of Object.entries(changes)) set(review, file(key), value)
+    return decode(review)
+  }
+  accepted(complete({}))
+  refused(complete({ patch: undefined }), /files\[0\]\.patch_complete: true needs a patch/)
+  refused(complete({ additions: 2 }), /files\[0\]\.additions: is 2, but the complete patch adds 1/)
+  refused(complete({ deletions: 0 }), /files\[0\]\.deletions: is 0, but the complete patch deletes 1/)
+  const malformed = (patch: string, problem: RegExp) =>
+    refused(complete({ patch }), new RegExp(`files\\[0\\]\\.patch: is marked complete, but ${problem.source}`))
+  malformed("-old\n+new\n", /it does not start with a hunk header/)
+  malformed("@@ -a +b @@\n-old\n+new\n", /line 1 is not a hunk header/)
+  malformed(
+    "@@ -1,3 +1,2 @@\n-old\n+new\n context\n",
+    /the hunk at line 1 declares 3 old and 2 new lines, but holds 2 and 2/
+  )
+  malformed("@@ -1 +1 @@\n-old\n+new\ngarbage\n", /line 4 is not context, an addition, or a deletion/)
+  malformed("@@ -1 +1 @@\n-old\n+new\n@@ -9 +9 @@\n", /the hunk at line 4 declares 1 old and 1 new lines, but holds 0/)
+  // Omitted counts are 1, no-newline markers and CR count as nothing, and several hunks add up together.
+  accepted(complete({ patch: "@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n" }))
+  accepted(complete({ patch: "@@ -1 +1 @@\n-old\r\n+new\r\n" }))
+  accepted(complete({ patch: "@@ -1,2 +1,2 @@ def save():\n-a\n+b\n c\n@@ -9 +9,2 @@\n x\n+y\n", additions: 2 }))
+  // A link or submodule replaced by a file shows only the file; deletions keep Git's count of the old side.
+  const replaced = {
+    status: "changed",
+    patch: "@@ -0,0 +1,2 @@\n+a\n+b\n",
+    additions: 2,
+    deletions: 1,
+    new_mode: "100644"
+  }
+  accepted(complete({ ...replaced, old_mode: "120000" }))
+  accepted(complete({ ...replaced, old_mode: "160000" }))
+  refused(
+    complete({ ...replaced, old_mode: "100644" }),
+    /files\[0\]\.deletions: is 1, but the complete patch deletes 0/
+  )
+  // A patch not marked complete is shown as it is, as before.
+  accepted(decode(set(set(simpleReview(), file("patch"), "not a diff\n"), file("additions"), 7)))
+  accepted(decode(set(set(simpleReview(), file("patch_complete"), false), file("deletions"), 9)))
 })
 
 test("input: line limits refuse a patch instead of truncating it", () => {
