@@ -383,7 +383,12 @@ def invoke(binary, profile, schema, launch_dir, request, scope, deadline, name, 
         if "model" in diagnostic and any(token in diagnostic for token in ("not supported", "not available", "not found", "does not exist", "access to")):
             reject("model_unavailable", f"Codex rejected the exact model {MODEL} for this account. No fallback was attempted.")
         reject("codex_failed", f"Codex {name} exited {code}. Exact model {MODEL}, account access, network or sandbox may be unavailable. No fallback or partial success was returned; diagnose with Codex directly.")
-    for line in events.splitlines():
+    # Split only LF: splitlines() also breaks at raw U+2028 or U+0085, which
+    # JSON allows inside strings. A CR before LF is JSON whitespace.
+    lines = events.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    for line in lines:
         try:
             event = json.loads(line)
         except ValueError:
@@ -394,7 +399,7 @@ def invoke(binary, profile, schema, launch_dir, request, scope, deadline, name, 
             reject("codex_failed", f"Codex {name} reported a failed turn; no successful review was returned.")
         if "model" in event and event["model"] != MODEL:
             reject("model_mismatch", f"Codex reported a model other than {MODEL}; result rejected.")
-    if not any(json.loads(line).get("type") == "turn.completed" for line in events.splitlines()):
+    if not any(json.loads(line).get("type") == "turn.completed" for line in lines):
         reject("invalid_review", "Codex did not report a completed turn.")
     if not output.is_file() or output.stat().st_size > MAX_RESULT:
         reject("invalid_review", "Codex produced no bounded final review result.")
