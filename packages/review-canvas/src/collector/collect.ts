@@ -570,6 +570,40 @@ const isTracked = (listing: ReadonlyArray<Buffer>, path: string) => {
   })
 }
 
+/** The tracked path, a file or a folder holding one, that differs from path only in ASCII case, or null when none does. */
+const trackedSpelling = (listing: ReadonlyArray<Buffer>, path: string): string | null => {
+  const own = fsEncode(path)
+  const folded = asciiLower(own)
+  for (const record of listing) {
+    const name = record.subarray(record.indexOf(0x09) + 1)
+    const spelled = name.subarray(0, own.length)
+    if ((name.length === own.length || name[own.length] === 0x2f) && !spelled.equals(own) && asciiLower(spelled).equals(folded)) {
+      return fsDecode(spelled)
+    }
+  }
+  return null
+}
+
+/**
+ * Whether path exists only through an entry spelled in another case, as on a file system that folds case: it exists,
+ * but some part of it is missing, spelled exactly, from its folder's listing.
+ */
+const reachedByFolding = (top: string, path: string) => {
+  if (!lexists(onDisk(top, path))) return false
+  const parts = path.split("/")
+  return parts.some((part, depth) => {
+    let names: Array<Buffer>
+    try {
+      names = readdirSync(onDisk(top, parts.slice(0, depth).join("/")), { encoding: "buffer" })
+    } catch (error) {
+      if (isSystemError(error)) return false
+      throw error
+    }
+    const own = fsEncode(part)
+    return !names.some((name) => name.equals(own))
+  })
+}
+
 /** Reads HEAD and every changed path with its fingerprint. Equal reads before and after bracket a consistent snapshot. */
 const inventory = (worktree: Worktree, limits: Limits): Snapshot => {
   const { git, top, config } = worktree
@@ -650,6 +684,11 @@ const inventory = (worktree: Worktree, limits: Limits): Snapshot => {
           throw new CollectError({ message: `${path} differs from tracked ${twin} only in case, which Git hides with core.ignoreCase on. Rename one of them, then collect again.` })
         }
       }
+      // On a file system that folds case, renaming tracked foo to FOO leaves the one entry FOO, and Git still finds foo
+      // through it, so no deletion appears above and a commit would keep the old name. The index tracks the name Git
+      // listed in another case, and that spelling exists only through the new entry.
+      const renamed = trackedSpelling(listing, path)
+      if (renamed !== null && reachedByFolding(top, renamed)) throw caseRenamedError(renamed)
     }
   }
   return { head, branch, index, entries: [...entries.values()].sort((a, b) => byCodePoint(a.path, b.path)) }

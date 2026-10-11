@@ -624,9 +624,9 @@ describe("InventoryTests", () => {
     f.commit({ foo: "f\n" })
     f.git(f.root, "config", "core.ignoreCase", "true")
     renameSync(join(f.root, "foo"), join(f.root, "FOO"))
-    // A file system that folds case finds foo under its new spelling, so Git hides nothing and a commit records no change.
-    if (foldsCase) return assert.deepEqual(f.collect(), {})
-    assert.throws(() => f.collect(), { _tag: "CollectError", message: /renamed by case only/ })
+    // A file system that folds case still finds foo through FOO, so Git reports no deletion, and a commit would keep
+    // the old name. Only the exact-case listing shows FOO.
+    assert.throws(() => f.collect(), { _tag: "CollectError", message: /^foo was renamed by case only/ })
   })
 
   test("test_a_case_only_directory_rename_hidden_by_ignore_case_stops_collection", (t) => {
@@ -634,8 +634,7 @@ describe("InventoryTests", () => {
     f.commit({ "dir/file": "f\n" })
     f.git(f.root, "config", "core.ignoreCase", "true")
     renameSync(join(f.root, "dir"), join(f.root, "DIR"))
-    if (foldsCase) return assert.deepEqual(f.collect(), {})
-    assert.throws(() => f.collect(), { _tag: "CollectError", message: /dir\/file was renamed by case only/ })
+    assert.throws(() => f.collect(), { _tag: "CollectError", message: /^dir\/file was renamed by case only/ })
   })
 
   test("test_a_case_renamed_directory_is_found_beside_its_old_spelling", { skip: foldsCase && caseFoldingNote }, (t) => {
@@ -676,9 +675,8 @@ describe("InventoryTests", () => {
     f.git(f.root, "add", "foo")
     f.git(f.root, "update-index", "--assume-unchanged", "foo")
     renameSync(join(f.root, "foo"), join(f.root, "FOO"))
-    // A file system that folds case still finds foo, and its bytes are what a commit records.
-    if (foldsCase) return assert.deepEqual(statuses(f.collect()), { foo: "added" })
-    assert.throws(() => f.collect(), { _tag: "CollectError", message: /foo was renamed by case only/ })
+    // A file system that folds case still finds foo, but a commit would record the staged name, not FOO.
+    assert.throws(() => f.collect(), { _tag: "CollectError", message: /^foo was renamed by case only/ })
   })
 
   test("test_too_many_tracked_changes_stop_before_reading_the_rest", (t) => {
