@@ -138,6 +138,10 @@ test("input: a replaced-characters note needs its patch, and an old path differs
   accepted(decode(set(simpleReview(), file("patch_note"), "replaced_characters")))
   const renamed = set(simpleReview(), file("status"), "renamed")
   accepted(decode(set(copy(renamed), file("old_path"), "b.py")))
+  // A moved file names where it came from; the Python version allowed a rename without one.
+  refused(decode(copy(renamed)), /files\[0\]\.old_path: required for a renamed file: the path it came from/)
+  refused(decode(set(simpleReview(), file("status"), "copied")), /files\[0\]\.old_path: required for a copied file/)
+  accepted(decode(set(set(simpleReview(), file("status"), "copied"), file("old_path"), "b.py")))
   refused(
     decode(set(renamed, file("old_path"), "a.py")),
     /old_path: allowed only for a renamed or copied file, and must differ from path/

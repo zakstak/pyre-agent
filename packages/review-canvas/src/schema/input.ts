@@ -75,7 +75,7 @@ const fileFields = {
   group: FileGroup,
   additions: Count,
   deletions: Count,
-  /** The original path of a renamed or copied file. */
+  /** The original path of a renamed or copied file, which such a file must have. */
   old_path: Schema.optionalKey(RepoPath),
   old_mode: Schema.optionalKey(GitMode),
   new_mode: Schema.optionalKey(GitMode),
@@ -93,6 +93,9 @@ const ReviewFileFields = Schema.Struct({ ...fileFields, fingerprint: Schema.opti
 
 const fileRules = Schema.makeFilter((file: typeof ReviewFileFields.Type) => {
   const moved = file.status === "renamed" || file.status === "copied"
+  if (moved && file.old_path === undefined) {
+    return { path: ["old_path"], issue: `required for a ${file.status} file: the path it came from` }
+  }
   if (file.old_path !== undefined && (!moved || file.old_path === file.path)) {
     return { path: ["old_path"], issue: "allowed only for a renamed or copied file, and must differ from path" }
   }
