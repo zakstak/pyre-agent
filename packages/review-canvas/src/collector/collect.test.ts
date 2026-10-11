@@ -3,15 +3,14 @@
 // same steps through the library: check the output, collect, write, and report.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import * as Schema from "effect/Schema"
 import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, test, type TestContext } from "node:test"
 import { ATTEMPTS } from "./collect.ts"
 import { SECRET_TEXT, secretName } from "./patch.ts"
 import { Fixture, GITHUB_TOKEN, PRIVATE_KEY } from "./testing.ts"
-import { decodeBytes, decodeValue, WorktreeInputDocument } from "../schema/document.ts"
-import { WorktreeInput } from "../schema/input.ts"
+import { decodeBytes, decodeValue, encodeDocument, WorktreeInputDocument } from "../schema/document.ts"
+import type { WorktreeInput } from "../schema/input.ts"
 import { accepted } from "../schema/testing.ts"
 
 /** Reads written input back through the strict decoder, as the server will. */
@@ -442,8 +441,7 @@ describe("Schema", () => {
     assert.deepEqual(new Set(Object.values(files).map((file) => file.patch_note ?? "none")), new Set(["replaced_characters",
       "none", "no_content_change", "symlink", "binary", "secret", "too_large", "empty", "submodule"]))
     assert.deepEqual(accepted(decodeValue(WorktreeInputDocument, review)), review)
-    const bytes = Buffer.from(JSON.stringify(Schema.encodeSync(WorktreeInput)(review)))
-    assert.deepEqual(accepted(decodeBytes(WorktreeInputDocument, bytes)), review)
+    assert.deepEqual(accepted(decodeBytes(WorktreeInputDocument, accepted(encodeDocument(WorktreeInputDocument, review)))), review)
   })
 
   test("input the schema refuses stops collection with its reason", (t) => {

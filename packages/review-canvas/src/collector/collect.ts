@@ -193,9 +193,9 @@ const decodeRepoPath = Schema.decodeUnknownResult(RepoPath)
 const describeIssue = SchemaIssue.makeFormatterDefault()
 
 /**
- * A valid UTF-8 path as review input carries it. Git allows names RepoPath refuses, such as one of only spaces, one
- * holding a control character, or one longer than the limit; those stop collection here, named, rather than failing
- * the whole input with a schema error.
+ * A valid UTF-8 path as review input carries it. Git allows names RepoPath refuses, such as one holding a control
+ * character or one longer than the limit; those stop collection here, named, rather than failing the whole input with
+ * a schema error.
  */
 const representable = (path: string): RepoPath => {
   const decoded = decodeRepoPath(path)

@@ -818,12 +818,15 @@ test("a stat-only change is no change and leaves the index alone", (t) => {
 })
 
 // Not in the Python suite: names Git allows that review input cannot carry stop collection with the name, before the
-// schema sees them. The tracked ones live in the index alone, so no file system has to hold them.
+// schema sees them, and a name that is only unusual is collected. The tracked ones live in the index alone, so no file
+// system has to hold them.
 test("a path review input cannot represent stops collection and names the path", (t) => {
   const f = new Fixture(t)
   f.commit({ "keep.txt": "k\n" })
+  // A name of only spaces is plain text like any other, so it is collected as Git names it.
   f.write(" ", "only a space in the name\n")
-  assert.throws(() => f.collect(), { _tag: "CollectError", message: /^review input cannot represent the path " ": must not be empty$/ })
+  assert.deepEqual(Object.keys(f.collect()), [" "])
+  assert.equal(f.review?.files[0]?.patch, "@@ -0,0 +1 @@\n+only a space in the name\n")
   for (const [name, reason] of [["a\x01b", /"a\\u0001bx": contains a control character/], ["d/".repeat(2100), /exceeds 4096 UTF-16 code units/]] as const) {
     const repo = f.init(join(f.base, `tracked-${reason.source.length}`))
     f.commit({ "keep.txt": "k\n" }, { root: repo })
