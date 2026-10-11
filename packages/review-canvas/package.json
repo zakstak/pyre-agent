@@ -2,7 +2,7 @@
   "name": "@pyre-agent/review-canvas",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.3.0",
+  "packageManager": "pnpm@12.11.2",
   "engines": {
     "node": ">=26"
   },
