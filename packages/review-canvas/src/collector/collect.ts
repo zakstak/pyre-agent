@@ -5,6 +5,8 @@ import { devNull, tmpdir } from "node:os"
 import { dirname, isAbsolute } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
+import * as SchemaIssue from "effect/SchemaIssue"
 import { CollectError, GitError } from "./errors.ts"
 import { blobId, fileFingerprint, type FileMode, fileMode, isRegular, type ObjectFormat, objectFormat, type ObjectId,
   objectId, type RawChange, rawChanges } from "./fingerprint.ts"
@@ -15,7 +17,7 @@ import { cleanText, SECRET_TEXT, secretName } from "./patch.ts"
 import { decodeValue, WorktreeInputDocument } from "../schema/document.ts"
 import { type FileStatus, INPUT_FORMAT, type PatchNote, type WorktreeFile, type WorktreeInput } from "../schema/input.ts"
 import { MAX_FILES, MAX_INPUT_BYTES, MAX_PATCH_LINES, MAX_PATCH_UNITS, MAX_TOTAL_PATCH_LINES } from "../schema/limits.ts"
-import type { Fingerprint } from "../schema/primitives.ts"
+import { type Fingerprint, RepoPath } from "../schema/primitives.ts"
 
 /*
  * Collects the uncommitted changes in a local Git working tree as review input: staged, unstaged, and untracked (not
@@ -187,11 +189,19 @@ const parseCount = (data: Buffer | string) => {
   return Number(text)
 }
 
-const representable = (path: string) => {
-  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(path)) {
-    throw new CollectError({ message: `path contains a control character, so review input cannot represent it: ${JSON.stringify(path)}` })
-  }
-  return path
+const decodeRepoPath = Schema.decodeUnknownResult(RepoPath)
+const describeIssue = SchemaIssue.makeFormatterDefault()
+
+/**
+ * A valid UTF-8 path as review input carries it. Git allows names RepoPath refuses, such as one of only spaces, one
+ * holding a control character, or one longer than the limit; those stop collection here, named, rather than failing
+ * the whole input with a schema error.
+ */
+const representable = (path: string): RepoPath => {
+  const decoded = decodeRepoPath(path)
+  if (Result.isSuccess(decoded)) return decoded.success
+  const named = JSON.stringify(path.length > 200 ? `${path.slice(0, 200)}...` : path)
+  throw new CollectError({ message: `review input cannot represent the path ${named}: ${describeIssue(decoded.failure.issue)}` })
 }
 
 const tooMany = (count: number, limits: Limits) =>
@@ -490,27 +500,26 @@ const assumedUnchanged = (worktree: Worktree, tracked: ReadonlyArray<RawChange>,
 }
 
 const trackedEntry = (worktree: Worktree, change: Change): TrackedEntry | null => {
-  const path = representable(change.path)
   const listed = STATUSES.get(change.status)
-  if (listed === undefined) throw new CollectError({ message: `unexpected Git status ${change.status} for ${path}` })
-  const oldPath = change.oldPath === null ? null : representable(change.oldPath)
+  if (listed === undefined) throw new CollectError({ message: `unexpected Git status ${change.status} for ${change.path}` })
   const { oldMode, newMode, oldBlob } = change
+  const name = change.path // may hold undecodable bytes until the change proves real
   let newBlob: ObjectId | null = null
   let size = 0
   let binary = false
   let fromIndex = false
   if (newMode === "160000") {
-    newBlob = change.newBlob ?? repositoryHead(worktree, path)
-    if (newBlob === null) throw unfingerprintable(path)
-  } else if (newMode !== null && change.newBlob !== null && !lexists(onDisk(worktree.top, path))) {
+    newBlob = change.newBlob ?? repositoryHead(worktree, name)
+    if (newBlob === null) throw unfingerprintable(name)
+  } else if (newMode !== null && change.newBlob !== null && !lexists(onDisk(worktree.top, name))) {
     // A skip-worktree entry in a sparse checkout, file or link, is staged but absent from disk; its content is the index blob.
     newBlob = change.newBlob
     size = blobSize(worktree, newBlob)
     fromIndex = true
   } else if (newMode === "120000") {
-    newBlob = linkBlob(worktree, path)
+    newBlob = linkBlob(worktree, name)
   } else if (newMode !== null) {
-    const read = readBlob(worktree, path)
+    const read = readBlob(worktree, name)
     newBlob = read.blob
     size = read.size
     binary = read.binary
@@ -520,7 +529,9 @@ const trackedEntry = (worktree: Worktree, change: Change): TrackedEntry | null =
     if (oldMode === newMode) return null // only the stat data changed; Git lists it because the index is never refreshed
     status = "changed"
   }
-  decodePath(fsEncode(path)) // a hidden change with an undecodable name cannot be represented
+  // Only a change reaches review input, so an unchanged entry with a name it cannot carry never stops collection.
+  const path = representable(decodePath(fsEncode(name)))
+  const oldPath = change.oldPath === null ? null : representable(change.oldPath)
   return {
     untracked: false, path, oldPath, status, kind: kindOf(newMode ?? oldMode), hidden: change.hidden, fromIndex, oldBlob,
     oldMode, newBlob, newMode, size, binary,
