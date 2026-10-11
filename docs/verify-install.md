@@ -20,8 +20,7 @@ changed definitions require another review. Do not change trust or global
 instruction files during a read-only verification.
 
 The plugin provides every skill under `skills/`, each with a `pyre-agent:` prefix.
-It must not provide `codex-branch-review`. Existing unnamespaced copies from the
-old installer are a migration finding.
+It must not provide `codex-branch-review`.
 
 ## Claude Code
 

@@ -41,7 +41,7 @@ done, what is decided, and the order of the remaining work.
 | Privacy | Plain modes only: 0700 folders and 0600 files. No ACL, ancestor, or filesystem checks, because the server already serves the data to anything on loopback. |
 | File fallback | Drop the standalone `file://` page. Keep feedback JSON export. Import replays comments and replies as actions through the normal checks and reports what it skipped. |
 | Format versions | Greenfield. Each format starts at version 1 under a new key, such as `"format": "review-canvas.feedback/1"`, so no Python file can be read as a new one. Unknown formats and versions fail with a message that names them. No conversion of Python reviews: finish them in the Python version. |
-| Installation | npm in the long term. Nothing is published for now. The package has a `bin`, and local testing installs it with `pnpm link --global`, which runs the source. A `pnpm pack` tarball does not work until the build emits JavaScript for the server and the command-line tool; that build, and a test that installs the packed tarball and starts its `bin` on Node 26, come before any npm release. `install.py` changes, if any, need approval first. |
+| Installation | npm in the long term. Nothing is published for now. The package has a `bin`, and local testing installs it with `pnpm link --global`, which runs the source. A `pnpm pack` tarball does not work until the build emits JavaScript for the server and the command-line tool; that build, and a test that installs the packed tarball and starts its `bin` on Node 26, come before any npm release. |
 
 ## Later, not now
 
@@ -118,8 +118,7 @@ The collector must keep every protection it gained in review:
 - Starting a review looks up the open PR with `gh` and imports its comments. With no open PR, or when `gh` fails, the
   review starts without them and the command says why.
 - Rewrite `skills/review-canvas/SKILL.md` and its references for the server.
-- Give the package a `bin`. Install it locally with `pnpm link --global`. Do not publish. Any `install.py` change
-  needs approval first.
+- Give the package a `bin`. Install it locally with `pnpm link --global`. Do not publish.
 - Before an npm release: emit JavaScript for the server and the command-line tool, and add a test that installs the
   `pnpm pack` tarball and starts its `bin` on Node 26.
 
