@@ -9,6 +9,7 @@ import { describe, test } from "node:test"
 import { type CollectEvent, hiddenStats, openWorktree, stagedDifferently } from "./collect.ts"
 import { GitError } from "./errors.ts"
 import { fileFingerprint, objectId } from "./fingerprint.ts"
+import { cleanText } from "./patch.ts"
 import { blob, Fixture, foldsCase, keepsUndecodableNames, withEnv } from "./testing.ts"
 
 const statuses = (files: Readonly<Record<string, { readonly status: string }>>) =>
@@ -803,6 +804,23 @@ describe("InventoryTests", () => {
     f.write("nested/file.txt", "x\n")
     assert.throws(() => f.collect(), { _tag: "CollectError", message: /nested is a nested repository or submodule with no commit/ })
   })
+})
+
+// Not in the Python suite, whose sanitizer passes U+061C through: every character with Unicode's Bidi_Control property
+// can reorder the text around it, so each is replaced.
+test("every bidirectional control character is shown replaced, the Arabic letter mark included", (t) => {
+  const controls = Array.from({ length: 0x110000 }, (_, code) => code)
+    .filter((code) => (code < 0xd800 || code > 0xdfff) && /\p{Bidi_Control}/u.test(String.fromCodePoint(code)))
+  assert.ok(controls.includes(0x061c) && controls.length >= 12, controls.map((code) => code.toString(16)).join(" "))
+  for (const code of controls) {
+    assert.deepEqual(cleanText(Buffer.from(`a${String.fromCodePoint(code)}b`)), { text: "a�b", replaced: true }, code.toString(16))
+  }
+  const f = new Fixture(t)
+  f.commit({ "text.txt": "plain\n" })
+  f.write("text.txt", "left ؜ right\n")
+  const text = f.collect()["text.txt"]
+  assert.equal(text?.patch_note, "replaced_characters")
+  assert.equal(text?.patch, "@@ -1 +1 @@\n-plain\n+left � right\n")
 })
 
 // Not in the Python suite: an untouched file whose timestamps changed is not a change, and the index is never rewritten.
