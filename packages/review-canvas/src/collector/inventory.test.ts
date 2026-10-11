@@ -414,8 +414,11 @@ describe("InventoryTests", () => {
     lines[0] = "first\n"
     lines[199] = "last\n"
     f.write("long.txt", lines.join(""))
-    const patch = withEnv({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "diff.interHunkContext", GIT_CONFIG_VALUE_0: "20000" },
-      () => f.collect()["long.txt"]?.patch)
+    // GIT_CONFIG_COUNT no longer reaches Git at all; a global config file still does, so the option has to win over it.
+    const global = join(f.base, "global-config")
+    writeFileSync(global, "[diff]\n\tinterHunkContext = 20000\n")
+    const patch = withEnv({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "diff.interHunkContext", GIT_CONFIG_VALUE_0: "20000",
+      GIT_CONFIG_GLOBAL: global }, () => f.collect()["long.txt"]?.patch)
     assert.equal(patch?.split("@@ -").length, 3)
   })
 

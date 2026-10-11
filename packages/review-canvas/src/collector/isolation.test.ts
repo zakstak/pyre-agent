@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFile
 import { join } from "node:path"
 import { describe, test } from "node:test"
 import { configEntries } from "./config.ts"
-import { trustedGit } from "./git.ts"
+import { gitEnvironment, trustedGit } from "./git.ts"
 import { Fixture, script, withEnv } from "./testing.ts"
 
 const stateDirectoryNote = "Not applicable: review state moves from STATE/rounds/NNNN directories to the server's SQLite " +
@@ -253,4 +253,28 @@ test("the Xcode shim runs the system git, never one that DEVELOPER_DIR selects",
   const files = withEnv({ PATH: `/usr/bin:${process.env.PATH}`, DEVELOPER_DIR: developer }, () => f.collect())
   assert.equal(files["a.txt"]?.patch, "@@ -1 +1 @@\n-a\n+b\n")
   assert.ok(!existsSync(marker))
+})
+
+test("only the variables that choose config files reach Git from the environment", () => {
+  const inherited = {
+    GIT_CEILING_DIRECTORIES: "/", GIT_DISCOVERY_ACROSS_FILESYSTEM: "1", GIT_EXEC_PATH: "/nowhere", GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "diff.external", GIT_CONFIG_VALUE_0: "/tool", GIT_CONFIG_PARAMETERS: "'core.pager'='x'",
+    GIT_LITERAL_PATHSPECS: "0", GIT_CONFIG_GLOBAL: "/global", GIT_CONFIG_SYSTEM: "/system", GIT_CONFIG_NOSYSTEM: "1",
+    DEVELOPER_DIR: "/developer", TOOLCHAINS: "swift", REVIEW_CANVAS_UNRELATED: "kept"
+  }
+  const env = withEnv(inherited, () => gitEnvironment({ GIT_CEILING_DIRECTORIES: "/scratch" }))
+  const git = Object.keys(env).filter((key) => key.startsWith("GIT_")).sort()
+  assert.deepEqual(git, ["GIT_CEILING_DIRECTORIES", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_SYSTEM",
+    "GIT_GRAFT_FILE", "GIT_LITERAL_PATHSPECS", "GIT_NO_LAZY_FETCH", "GIT_NO_REPLACE_OBJECTS", "GIT_OPTIONAL_LOCKS",
+    "GIT_SHALLOW_FILE"])
+  assert.deepEqual([env["GIT_CEILING_DIRECTORIES"], env["GIT_LITERAL_PATHSPECS"], env["GIT_CONFIG_GLOBAL"]], ["/scratch", "1", "/global"])
+  assert.deepEqual([env["DEVELOPER_DIR"], env["TOOLCHAINS"], env["REVIEW_CANVAS_UNRELATED"]], [undefined, undefined, "kept"])
+})
+
+test("an inherited ceiling cannot stop collection from a subdirectory", (t) => {
+  const f = new Fixture(t)
+  f.commit({ "sub/a.txt": "a\n" })
+  f.write("sub/a.txt", "b\n")
+  const files = withEnv({ GIT_CEILING_DIRECTORIES: f.root }, () => f.collect({ repo: join(f.root, "sub") }))
+  assert.deepEqual(Object.keys(files), ["sub/a.txt"])
 })

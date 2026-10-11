@@ -12,20 +12,19 @@ import { fsDecode, fsEncode, isSystemError, isWithin, lexists, resolveFrom, reso
  * review: a git there would be code from the change.
  */
 
-/** Inherited variables that would point Git at another repository, index, or object store, or change pathspec and
- * diff parsing. */
-const DROPPED_ENV: ReadonlySet<string> = new Set([
-  "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_DIFF_OPTS", "GIT_EXTERNAL_DIFF",
-  // Grafts and a shallow file rewrite ancestry, which GIT_NO_REPLACE_OBJECTS does not cover.
-  "GIT_GRAFT_FILE", "GIT_SHALLOW_FILE", "GIT_REPLACE_REF_BASE",
-  "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS",
-  // GIT_CONFIG redirects git config but no other command, so filter discovery would read a different file.
-  "GIT_CONFIG",
-  // On macOS, /usr/bin/git is a shim that runs the git of the active developer directory. These would choose that
-  // directory, or a toolchain searched before it, so without them the shim runs the git an administrator selected.
-  "DEVELOPER_DIR", "TOOLCHAINS"
-])
+/**
+ * The only inherited GIT_* variables Git sees. They choose which user and system config files Git reads, as HOME and
+ * XDG_CONFIG_HOME do, and every setting from those files that could change the output or start a program is
+ * overridden below. Every other GIT_* variable is dropped: they select another repository, index, object store, or
+ * namespace, change discovery, pathspecs, or diffs, trace into files, or add config of their own.
+ */
+const KEPT_GIT_ENV: ReadonlySet<string> = new Set(["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM"])
+
+/**
+ * On macOS, /usr/bin/git is a shim that runs the git of the active developer directory. These would choose that
+ * directory, or a toolchain searched before it, so without them the shim runs the git an administrator selected.
+ */
+const DROPPED_ENV: ReadonlySet<string> = new Set(["DEVELOPER_DIR", "TOOLCHAINS"])
 
 /** -c options for every Git call. diff.autoRefreshIndex=false stops git diff from rewriting .git/index; callers drop
  * stat-only entries by blob ID. */
@@ -145,11 +144,12 @@ export const assertOutside = (executable: string, repo: string) => {
   }
 }
 
-const environment = (extra: Readonly<Record<string, string>>): Record<string, string> => {
+/** The environment for a Git call: the inherited one without GIT_* variables, then the settings below and extra. */
+export const gitEnvironment = (extra: Readonly<Record<string, string>>): Record<string, string> => {
   const inherited: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    // Tracing variables would make every call append to a file, which could sit in the working tree.
-    if (value !== undefined && !DROPPED_ENV.has(key) && !key.startsWith("GIT_TRACE")) inherited[key] = value
+    if (value === undefined || DROPPED_ENV.has(key) || (key.startsWith("GIT_") && !KEPT_GIT_ENV.has(key))) continue
+    inherited[key] = value
   }
   return {
     ...inherited,
@@ -181,7 +181,7 @@ export const trustedGit = ({ repo, trace }: { readonly repo: string; readonly tr
       const { ok = [0], env = {}, into } = options
       const result = spawnSync(executable, [...GIT_CONFIG, ...args], {
         cwd,
-        env: environment(env),
+        env: gitEnvironment(env),
         stdio: ["ignore", into ?? "pipe", "pipe"],
         maxBuffer: Number.POSITIVE_INFINITY
       })
