@@ -103,7 +103,12 @@ export type Attachment = typeof Attachment.Type
  * A pull request comment's identity on GitHub, kept so a refresh imports each comment once. Every GitHub comment and
  * reply in a review comes from one pull request: the target's, or the open one of the working tree's branch.
  */
-const gitHubFields = { id: GitHubCommentId, author: GitHubLogin, url: GitHubCommentUrl }
+const gitHubFields = {
+  id: GitHubCommentId,
+  /** Null when GitHub reports no author, as for a deleted account. The page then shows "ghost", as GitHub does. */
+  author: Schema.NullOr(GitHubLogin),
+  url: GitHubCommentUrl
+}
 
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
 export const CommentSource = Schema.Union([

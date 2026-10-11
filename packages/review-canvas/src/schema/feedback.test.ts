@@ -681,6 +681,20 @@ test("feedback: GitHub comments may be empty, though the reviewer's may not", ()
   )
 })
 
+test("feedback: a GitHub comment or reply may have no author, as for a deleted account", () => {
+  const doc = conversation()
+  set(doc, ["comments", 2, "source", "author"], null)
+  set(doc, [...reply(2, 0), "github", "author"], null)
+  const value = accepted(decode(doc))
+  const source = value.comments[2]?.source
+  assert.equal(source?.kind === "github" ? source.author : "not GitHub", null)
+  refused(
+    decode(set(conversation(), ["comments", 2, "source", "author"], "")),
+    /comments\[2\]\.source\.author: Expected a GitHub login/
+  )
+  refused(decode(set(conversation(), [...reply(2, 0), "github", "author"], undefined)), /github\.author: missing/)
+})
+
 test("feedback: each GitHub comment and reply is imported once", () => {
   const sourceId = (doc: Json, index: number) => get(doc, ["comments", index, "source", "id"])
   const asReply = conversation()
