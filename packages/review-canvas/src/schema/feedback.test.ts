@@ -682,21 +682,21 @@ test("feedback: replies are listed by time, then agent, GitHub, and reviewer, th
         "replies go by created_at, then agent, GitHub, and reviewer, then ID$"
     )
   )
-  // At one time, an answer comes before a GitHub reply, and both before the reviewer's reply.
+  // At one time, an answer comes before a GitHub reply, and both before the reviewer's reply. GitHub replies sit
+  // only under the inline comment imported from GitHub, the third in the fixture.
   const at = "2026-10-10T01:00:00.000Z"
   const reviewer: Json = { id: "r9", actor: "reviewer", created_at: at, action: "accept", body: "" }
   const answered: Json = { ...agent, id: "a9", created_at: at, disposition: "question" }
   const github = set(set(copy(get(conversation(), reply(2, 0))), ["created_at"], at), ["id"], "gh-r9")
-  set(github, ["github", "id"], "PRRC_kwDOAbCdEf4AAAABcDeFgZ")
   const withReplies = (replies: ReadonlyArray<Json>) =>
-    decode(set(conversation(), [...comment, "replies"], [...replies]))
+    decode(set(conversation(), ["comments", 2, "replies"], [...replies]))
   accepted(withReplies([answered, github, reviewer]))
-  refused(withReplies([reviewer, answered]), /comments\[0\]\.replies\[1\]: is out of order in comment one/)
-  refused(withReplies([github, answered]), /comments\[0\]\.replies\[1\]: is out of order/)
-  refused(withReplies([reviewer, github]), /comments\[0\]\.replies\[1\]: is out of order/)
+  refused(withReplies([reviewer, answered]), /comments\[2\]\.replies\[1\]: is out of order in comment gh-inline/)
+  refused(withReplies([github, answered]), /comments\[2\]\.replies\[1\]: is out of order/)
+  refused(withReplies([reviewer, github]), /comments\[2\]\.replies\[1\]: is out of order/)
   // The same actor at the same time goes by ID.
   accepted(withReplies([reviewer, set(copy(reviewer), ["id"], "r9a")]))
-  refused(withReplies([set(copy(reviewer), ["id"], "r9a"), reviewer]), /comments\[0\]\.replies\[1\]: is out of order/)
+  refused(withReplies([set(copy(reviewer), ["id"], "r9a"), reviewer]), /comments\[2\]\.replies\[1\]: is out of order/)
   // Sorting a shuffled conversation with compareReplies gives the order the fixture lists.
   const listed = accepted(decode(conversation())).comments[0]?.replies ?? []
   assert.equal(listed.length, 4)
@@ -749,13 +749,13 @@ test("feedback: GitHub comments come from one pull request, the target's when it
   const other = (doc: Json, path: JsonPath, value: string) => decode(set(doc, path, value))
   // pull/20 shares pull/2's prefix, so the check needs the # that follows the target's URL.
   refused(
-    other(conversation(), ["comments", 2, "source", "url"], "https://github.com/example/repo/pull/20#discussion_r1"),
-    /comments\[2\]\.source\.url: is not a comment on the target's pull request/
+    other(conversation(), ["comments", 3, "source", "url"], "https://github.com/example/repo/pull/20#issuecomment-1"),
+    /comments\[3\]\.source\.url: is not a comment on the target's pull request/
   )
-  refused(
-    other(conversation(), [...reply(2, 0), "github", "url"], "https://github.com/example/fork/pull/2#discussion_r1"),
-    /comments\[2\]\.replies\[0\]\.github\.url: is not a comment on the target's pull request/
-  )
+  const thread = conversation()
+  set(thread, ["comments", 2, "source", "url"], "https://github.com/example/fork/pull/2#discussion_r1")
+  set(thread, [...reply(2, 0), "github", "url"], "https://github.com/example/fork/pull/2#discussion_r2")
+  refused(decode(thread), /comments\[2\]\.source\.url: is not a comment on the target's pull request/)
   // A working tree target names no pull request: the comments name the open one of its branch, and agree on it.
   const worktree = () =>
     set(conversation(), ["target"], {
@@ -778,6 +778,50 @@ test("feedback: GitHub comments come from one pull request, the target's when it
     other(worktree(), ["comments", 3, "source", "url"], "https://github.com/example/repo/pull/9#pullrequestreview-1"),
     /comments\[3\]\.source\.url: is on another pull request than the review's other GitHub comments/
   )
+})
+
+test("feedback: only an inline comment from GitHub has GitHub replies and a resolved state", () => {
+  // Conversation comments and review summaries have no threads on GitHub, and nothing is posted back to it.
+  const githubReply = (doc: Json) => copy(get(doc, reply(2, 0)))
+  const pr = "https://github.com/example/repo/pull"
+  const withValue = (path: JsonPath, value: Json) => decode(set(conversation(), path, value))
+  const underReviewer = conversation()
+  set(underReviewer, [...comment, "replies"], [githubReply(underReviewer)])
+  refused(
+    decode(underReviewer),
+    /comments\[0\]\.replies\[0\]: a GitHub reply belongs only under an inline comment from GitHub/
+  )
+  const underGeneral = conversation()
+  set(underGeneral, ["comments", 3, "replies"], [githubReply(underGeneral)])
+  refused(decode(underGeneral), /comments\[3\]\.replies\[0\]: a GitHub reply belongs only under an inline comment/)
+  // A GitHub reply is a review comment in the same thread, so it has a #discussion_r URL on the comment's pull request.
+  refused(
+    withValue([...reply(2, 0), "github", "url"], `${pr}/2#issuecomment-5`),
+    /comments\[2\]\.replies\[0\]\.github\.url: expected a #discussion_r URL on the comment's pull request/
+  )
+  refused(
+    withValue([...reply(2, 0), "github", "url"], `${pr}/3#discussion_r5`),
+    /comments\[2\]\.replies\[0\]\.github\.url: expected a #discussion_r URL on the comment's pull request/
+  )
+  // Reviewer and agent replies under GitHub comments stay allowed: the fixture has an answer under each kind.
+  const answeredSummary = conversation()
+  const question = { ...agent, id: "a8", created_at: "2026-10-10T06:00:00.000Z", disposition: "question" }
+  set(answeredSummary, ["comments", 3, "replies"], [question])
+  accepted(decode(answeredSummary))
+  // GitHub's kinds of comment map to ours by URL.
+  refused(
+    withValue(["comments", 2, "source", "url"], `${pr}/2#pullrequestreview-1`),
+    /comments\[2\]\.source\.url: an inline GitHub comment is a review comment, with a #discussion_r URL/
+  )
+  refused(
+    withValue(["comments", 3, "source", "url"], `${pr}/2#discussion_r9`),
+    /comments\[3\]\.source\.url: a general GitHub comment is a conversation comment or review summary/
+  )
+  refused(
+    withValue(["comments", 3, "source", "resolved"], true),
+    /comments\[3\]\.source\.resolved: only a review thread can be resolved on GitHub/
+  )
+  accepted(withValue(["comments", 2, "source", "resolved"], true))
 })
 
 test("feedback: a GitHub comment may be longer than the reviewer's limit, up to GitHub's", () => {
@@ -846,9 +890,9 @@ test("feedback: notes, comments, and replies share a text budget", () => {
 })
 
 test("feedback: reply, answer, and thread counts are limited", () => {
-  const replies = (count: number, make: (index: number) => Json) => {
+  const replies = (count: number, make: (index: number) => Json, under = 0) => {
     const doc = conversation()
-    set(doc, [...comment, "replies"], Array.from({ length: count }, (_, index) => make(index)))
+    set(doc, ["comments", under, "replies"], Array.from({ length: count }, (_, index) => make(index)))
     return doc
   }
   const reviewer = (index: number): Json => ({
@@ -866,8 +910,8 @@ test("feedback: reply, answer, and thread counts are limited", () => {
   const github = (index: number): Json =>
     set(copy(get(conversation(), reply(2, 0))), ["id"], `g${String(index).padStart(4, "0")}`)
   refused(
-    decode(replies(Limits.MAX_GITHUB_REPLIES + 1, github)),
-    /comments\[0\]\.replies: holds more than 200 GitHub replies/
+    decode(replies(Limits.MAX_GITHUB_REPLIES + 1, github, 2)),
+    /comments\[2\]\.replies: holds more than 200 GitHub replies/
   )
   const answers = (index: number): Json => ({
     ...agent,
