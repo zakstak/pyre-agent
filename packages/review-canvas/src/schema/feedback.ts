@@ -28,7 +28,8 @@ export const FEEDBACK_FORMAT = "review-canvas.feedback/1"
 
 const Text = text(Limits.MAX_TEXT_UNITS)
 const RequiredText = nonEmptyText(Limits.MAX_TEXT_UNITS)
-const GitHubBody = nonEmptyText(Limits.MAX_GITHUB_BODY_UNITS)
+// GitHub decides what a body may hold: a review summary is often empty, and refusing a body would fail an import.
+const GitHubBody = text(Limits.MAX_GITHUB_BODY_UNITS)
 const Offset = integer(0, Limits.MAX_OFFSET)
 const Row = integer(0, Limits.MAX_ROW)
 const SourceLine = integer(1, Limits.MAX_LINE)
@@ -97,7 +98,10 @@ export const Attachment = Schema.Union([
 ])
 export type Attachment = typeof Attachment.Type
 
-/** A pull request comment's identity on GitHub, kept so a refresh imports each comment once. */
+/**
+ * A pull request comment's identity on GitHub, kept so a refresh imports each comment once. Every GitHub comment and
+ * reply in a review comes from one pull request: the target's, or the open one of the working tree's branch.
+ */
 const gitHubFields = { id: GitHubCommentId, author: GitHubLogin, url: GitHubCommentUrl }
 
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
@@ -171,7 +175,7 @@ export const AgentReply = Schema.Union([
 ]).annotate(DISPOSITION_EXPECTED)
 export type AgentReply = typeof AgentReply.Type
 
-/** A reply in the comment's GitHub review thread, with its GitHub author. */
+/** A reply in the comment's GitHub review thread, with its GitHub author. Like a GitHub comment, it may be empty. */
 export const GitHubReply = Schema.Struct({
   ...replyFields,
   actor: Schema.Literal("github"),
@@ -189,7 +193,10 @@ export type Reply = typeof Reply.Type
 const commentFields = {
   id: CommentId,
   source: CommentSource,
-  /** At most {@link Limits.MAX_TEXT_UNITS} units, or {@link Limits.MAX_GITHUB_BODY_UNITS} for a GitHub comment. */
+  /**
+   * The reviewer's comment holds text, up to {@link Limits.MAX_TEXT_UNITS} units. A GitHub comment may be empty, as a
+   * review summary that only approves is, and may run to {@link Limits.MAX_GITHUB_BODY_UNITS} units.
+   */
   body: GitHubBody,
   created_at: Timestamp,
   updated_at: Timestamp,
@@ -212,8 +219,11 @@ const CommentFields = Schema.Union([
 
 /** A comment the agents must answer: inline on a patch selection, or general. */
 export const Comment = CommentFields.check(Schema.makeFilter((comment: typeof CommentFields.Type) => {
-  if (comment.source.kind !== "github" && comment.body.length > Limits.MAX_TEXT_UNITS) {
-    return { path: ["body"], issue: `exceeds ${Limits.MAX_TEXT_UNITS} UTF-16 code units` }
+  if (comment.source.kind === "reviewer") {
+    if (comment.body.trim() === "") return { path: ["body"], issue: "must not be empty" }
+    if (comment.body.length > Limits.MAX_TEXT_UNITS) {
+      return { path: ["body"], issue: `exceeds ${Limits.MAX_TEXT_UNITS} UTF-16 code units` }
+    }
   }
   const count = (actor: Reply["actor"]) => comment.replies.filter((reply) => reply.actor === actor).length
   if (count("reviewer") > Limits.MAX_REVIEWER_REPLIES) {
@@ -331,12 +341,38 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
     }
   }
 
+  // GitHub IDs are unique, and every GitHub comment comes from one pull request: the target's, or for a working tree
+  // the one its first GitHub comment names.
+  const gitHubIds = new Set<string>()
+  let pullRequest = feedback.target.kind === "github_pr" ? `${feedback.target.url}#` : undefined
+  const fromGitHub = (
+    github: { readonly id: string; readonly url: string },
+    at: ReadonlyArray<PropertyKey>
+  ): Schema.FilterIssue | undefined => {
+    if (gitHubIds.has(github.id)) return { path: [...at, "id"], issue: "duplicate GitHub comment ID" }
+    gitHubIds.add(github.id)
+    // The URL schema guarantees a fragment, so this is the pull request's URL and its #.
+    const page = github.url.slice(0, github.url.indexOf("#") + 1)
+    pullRequest ??= page
+    if (page === pullRequest) return undefined
+    return {
+      path: [...at, "url"],
+      issue: feedback.target.kind === "github_pr"
+        ? "is not a comment on the target's pull request"
+        : "is on another pull request than the review's other GitHub comments"
+    }
+  }
+
   const commentIds = new Set<string>()
   const replyIds = new Set<string>()
   let answers = 0
   for (const [index, comment] of feedback.comments.entries()) {
     if (commentIds.has(comment.id)) return { path: ["comments", index, "id"], issue: "duplicate comment ID" }
     commentIds.add(comment.id)
+    if (comment.source.kind === "github") {
+      const problem = fromGitHub(comment.source, ["comments", index, "source"])
+      if (problem !== undefined) return problem
+    }
     if (comment.kind === "inline") {
       for (const [position, anchor] of [comment.anchor, ...comment.history].entries()) {
         const at = position === 0 ? ["anchor", "snapshot"] : ["history", position - 1, "snapshot"]
@@ -355,6 +391,10 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
       if (reply.actor === "agent") {
         answers++
         if (!threads.has(reply.thread)) return { path: [...at, "thread"], issue: "names no thread in threads" }
+      }
+      if (reply.actor === "github") {
+        const problem = fromGitHub(reply.github, [...at, "github"])
+        if (problem !== undefined) return problem
       }
     }
   }

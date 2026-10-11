@@ -666,6 +666,64 @@ test("feedback: anchor rows are zero-based, and offsets stay within a patch", ()
   refused(attachment(end, end + 1), /comments\[0\]\.attachment\.end: Expected a value between 0 and 4194304/)
 })
 
+test("feedback: GitHub comments may be empty, though the reviewer's may not", () => {
+  // An approving review summary often has no body. The importer decides whether to import one; feedback can hold it.
+  const doc = conversation()
+  set(doc, ["comments", 3, "body"], "")
+  set(doc, ["comments", 2, "body"], " ")
+  set(doc, [...reply(2, 0), "body"], "")
+  accepted(decode(doc))
+  refused(decode(set(conversation(), [...comment, "body"], "")), /comments\[0\]\.body: must not be empty/)
+  refused(
+    decode(set(conversation(), [...reply(1, 1), "body"], "")),
+    /comments\[1\]\.replies\[1\]\.body: must not be empty unless the reply accepts/
+  )
+})
+
+test("feedback: each GitHub comment and reply is imported once", () => {
+  const sourceId = (doc: Json, index: number) => get(doc, ["comments", index, "source", "id"])
+  const asReply = conversation()
+  set(asReply, [...reply(2, 0), "github", "id"], sourceId(asReply, 2))
+  refused(decode(asReply), /comments\[2\]\.replies\[0\]\.github\.id: duplicate GitHub comment ID/)
+  const twoComments = conversation()
+  set(twoComments, ["comments", 3, "source", "id"], sourceId(twoComments, 2))
+  refused(decode(twoComments), /comments\[3\]\.source\.id: duplicate GitHub comment ID/)
+  const twoReplies = conversation()
+  set(twoReplies, reply(2, 2), set(copy(get(twoReplies, reply(2, 0))), ["id"], "gh-r2"))
+  refused(decode(twoReplies), /comments\[2\]\.replies\[2\]\.github\.id: duplicate GitHub comment ID/)
+})
+
+test("feedback: GitHub comments come from one pull request, the target's when it has one", () => {
+  const other = (doc: Json, path: JsonPath, value: string) => decode(set(doc, path, value))
+  // pull/20 shares pull/2's prefix, so the check needs the # that follows the target's URL.
+  refused(
+    other(conversation(), ["comments", 2, "source", "url"], "https://github.com/example/repo/pull/20#discussion_r1"),
+    /comments\[2\]\.source\.url: is not a comment on the target's pull request/
+  )
+  refused(
+    other(conversation(), [...reply(2, 0), "github", "url"], "https://github.com/example/fork/pull/2#discussion_r1"),
+    /comments\[2\]\.replies\[0\]\.github\.url: is not a comment on the target's pull request/
+  )
+  // A working tree target names no pull request: the comments name the open one of its branch, and agree on it.
+  const worktree = () =>
+    set(conversation(), ["target"], {
+      kind: "worktree",
+      title: "Uncommitted changes on main",
+      root: "/home/dev/repo",
+      head_sha: "2".repeat(40)
+    })
+  accepted(decode(worktree()))
+  const moved = worktree()
+  set(moved, ["comments", 2, "source", "url"], "https://github.com/example/repo/pull/9#discussion_r1")
+  set(moved, [...reply(2, 0), "github", "url"], "https://github.com/example/repo/pull/9#discussion_r2")
+  set(moved, ["comments", 3, "source", "url"], "https://github.com/example/repo/pull/9#pullrequestreview-3")
+  accepted(decode(moved))
+  refused(
+    other(worktree(), ["comments", 3, "source", "url"], "https://github.com/example/repo/pull/9#pullrequestreview-1"),
+    /comments\[3\]\.source\.url: is on another pull request than the review's other GitHub comments/
+  )
+})
+
 test("feedback: a GitHub comment may be longer than the reviewer's limit, up to GitHub's", () => {
   accepted(decode(set(conversation(), ["comments", 3, "body"], "x".repeat(Limits.MAX_TEXT_UNITS + 1))))
 })
