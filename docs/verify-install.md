@@ -1,68 +1,38 @@
-# Verify a native plugin install
+# Verify the base and optional context
 
-Run these checks after installing `pyre-agent@pyre-agent-local`. They inspect
-plugin registration and component discovery without running a model.
+Use `pyre-market` for production registration. The producer's local fixture
+catalog is `pyre-agent-local`; native tests use only that disposable fixture.
 
-## Codex
-
-```sh
-codex plugin marketplace list --json
-codex plugin list --marketplace pyre-agent-local --json
-```
-
-Expect the marketplace to resolve to the intended checkout, and the plugin to
-report `installed: true` and `enabled: true`.
-
-In a Codex session, open `/hooks`. Expect one plugin hook for `SessionStart`,
-matching `^startup$`, that reads `context/working-with-zak.md` beneath the
-installed plugin directory. Before it can run, its trust status must be trusted.
-New or changed definitions require another review. Do not change trust or global
-instruction files during a read-only verification.
-
-The plugin provides every skill under `skills/`, each with a `pyre-agent:`
-prefix. It must not provide `codex-branch-review`.
-
-## Claude Code
+## Native package checks
 
 ```sh
-claude plugin list --json
-claude plugin details pyre-agent
+PYRE_TEST_CODEX_BIN=/path/to/native/codex \
+PYRE_TEST_CLAUDE_BIN=/path/to/native/claude \
+python3 -m unittest tests/test_plugins.py tests/test_skill_versions.py
 ```
 
-Expect `pyre-agent@pyre-agent-local` to be enabled. The inventory must contain
-the shared skills and `codex-branch-review`, plus one `SessionStart` hook. Use
-`/hooks` to inspect its startup-only matcher.
+Tests refuse wrappers that overwrite temporary configuration directories. They
+install the base in temporary homes and verify that it has skills and no
+startup hook. They install `pyre-context`, verify its untrusted startup hook,
+refresh the context, then remove the optional plugin while keeping the base.
+They finally remove the base. No credentials or inference are used.
 
-The local marketplace's relative source loads from the registered checkout. Do
-not infer its current files from an old cache path in `installed_plugins.json`.
-
-## Test the package in isolation
-
-From the repository root, run:
-
-```sh
-python3 -m unittest tests/test_plugins.py
-```
-
-The tests check the catalogs, manifests, startup hook, and bundled reference.
-When both CLIs are available, they also install a temporary copy through each
-host, inspect the discovered components, refresh a Codex install after a source
-edit, and remove the plugins through the hosts. They set temporary `CODEX_HOME`
-and `CLAUDE_CONFIG_DIR` directories and do not copy credentials or run
-inference. Native integration tests are skipped when either CLI is absent.
-
-Validate Claude Code's manifests separately:
+Validate all Claude manifests and the fixture catalog:
 
 ```sh
 claude plugin validate .claude-plugin/plugin.json --strict
+claude plugin validate plugins/pyre-context/.claude-plugin/plugin.json --strict
 claude plugin validate .claude-plugin/marketplace.json --strict
 ```
 
-## Confirm context delivery in a new session
+## User acceptance
 
-Registration and discovery do not prove that a model saw the helper text. After
-Codex's hook has been trusted, start a new session in each host and ask it to
-identify the `Pyre Agent helper context` header. This uses a model and is a
-separate acceptance check. A resumed session does not reload the startup hook.
+Install `pyre-agent@pyre-market` and inspect its skill inventory. It must have
+no startup hook. Select `pyre-context@pyre-market` if startup preferences are
+wanted. Review and trust its hook in Codex `/hooks`, then start a new session.
+Ask the model for the `Pyre Context release` value without files or tools. The
+initial optional release reports `1.0.0`.
 
-Report installation, discovery, hook trust, and model acceptance separately.
+Report Git-backed acquisition, component discovery, hook trust and model
+acceptance separately. A local fixture check does not prove the Gitea route or
+T3 UI. Removing the optional plugin must leave base skills available.

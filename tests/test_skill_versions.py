@@ -183,6 +183,11 @@ class SkillVersionTests(unittest.TestCase):
         shutil.rmtree(self.root / "skills/alpha")
         self.write("context/working-with-zak.md", "Ship the alpha release.\n")
         self.assertPasses()
+
+    def test_optional_plugin_context_must_not_name_a_removed_skill(self):
+        shutil.rmtree(self.root / "skills/alpha")
+        self.write("plugins/pyre-context/context/preferences.md", "Use /alpha.\n")
+        self.assertFails("plugins/pyre-context/context/preferences.md:1: names alpha")
         for text in (
             "Run /alpha first.\n",
             "Run $alpha first.\n",

@@ -1,8 +1,10 @@
 {
   "name": "pyre-agent",
-  "version": "1.0.0",
-  "description": "Zak's reusable engineering skills and startup reference context.",
-  "author": { "name": "Zak" },
+  "version": "2.0.0",
+  "description": "Reusable engineering skills; startup context is a separate optional plugin.",
+  "author": {
+    "name": "Zak"
+  },
   "license": "MIT",
   "skills": "./skills/"
 }
