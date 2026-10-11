@@ -1,5 +1,6 @@
 """Version-raise check against throwaway Git repositories."""
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -7,14 +8,19 @@ import unittest
 from pathlib import Path
 
 CHECK = Path(__file__).resolve().parent / 'check_skill_versions.py'
+HOOK = Path(__file__).resolve().parents[1] / '.githooks/pre-commit'
 ENV = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
        'GIT_AUTHOR_NAME': 'Test', 'GIT_AUTHOR_EMAIL': 'test@example.com',
        'GIT_COMMITTER_NAME': 'Test', 'GIT_COMMITTER_EMAIL': 'test@example.com'}
 
 
-def skill(name, version='"1.0.0"'):
+def skill(name, version='"1.0.0"', body=''):
     metadata = f'metadata:\n  version: {version}\n' if version is not None else ''
-    return f'---\nname: {name}\ndescription: Test skill.\n{metadata}---\n\n# {name}\n'
+    return f'---\nname: {name}\ndescription: Test skill.\n{metadata}---\n\n# {name}\n{body}'
+
+
+GUIDE = 'Read the diff.\nList each risk.\nSuggest one fix per risk.\n'
+UNRELATED = ''.join(f'Step {number}: do a separate thing.\n' for number in range(20))
 
 
 class SkillVersionTests(unittest.TestCase):
@@ -22,7 +28,7 @@ class SkillVersionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.git('init', '-q', '-b', 'main')
-        self.write('skills/alpha/SKILL.md', skill('alpha'))
+        self.write('skills/alpha/SKILL.md', skill('alpha', body=GUIDE))
         self.write('skills/alpha/references/notes.md', 'Notes.\n')
         self.write('host-skills/claude-code/beta/SKILL.md', skill('beta'))
         self.write('README.md', 'Readme.\n')
@@ -35,6 +41,10 @@ class SkillVersionTests(unittest.TestCase):
     def git(self, *args):
         subprocess.run(('git', *args), cwd=self.root, env=ENV, check=True, capture_output=True)
 
+    def move(self, old, new):
+        (self.root / new).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / old).rename(self.root / new)
+
     def write(self, path, text):
         (self.root / path).parent.mkdir(parents=True, exist_ok=True)
         (self.root / path).write_text(text)
@@ -43,16 +53,16 @@ class SkillVersionTests(unittest.TestCase):
         self.git('add', '-A')
         self.git('commit', '-q', '-m', 'change')
 
-    def check(self, cwd=None):
-        return subprocess.run((sys.executable, str(CHECK), '--base', 'main'), cwd=cwd or self.root,
-                              env=ENV, capture_output=True, text=True)
+    def check(self, cwd=None, staged=False):
+        return subprocess.run((sys.executable, str(CHECK), '--base', 'main', *(['--staged'] if staged else [])),
+                              cwd=cwd or self.root, env=ENV, capture_output=True, text=True)
 
-    def assertPasses(self, cwd=None):
-        result = self.check(cwd)
+    def assertPasses(self, cwd=None, staged=False):
+        result = self.check(cwd, staged)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def assertFails(self, message):
-        result = self.check()
+    def assertFails(self, message, staged=False):
+        result = self.check(staged=staged)
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn(message, result.stderr)
 
@@ -65,6 +75,124 @@ class SkillVersionTests(unittest.TestCase):
         self.write('skills/alpha/references/notes.md', 'Changed notes.\n')
         self.commit()
         self.assertFails('skills/alpha/ changed since')
+
+    def test_deleted_or_renamed_file_without_raise_fails(self):
+        (self.root / 'skills/alpha/references/notes.md').unlink()
+        self.assertFails('skills/alpha/ changed since')
+        self.write('skills/alpha/references/renamed.md', 'Notes.\n')
+        self.assertFails('skills/alpha/ changed since')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.0.1"'))
+        self.assertPasses()
+
+    def test_staged_mode_checks_the_index_not_the_working_tree(self):
+        self.write('skills/alpha/references/notes.md', 'Changed notes.\n')
+        self.assertPasses(staged=True)
+        self.git('add', 'skills/alpha/references/notes.md')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.0.1"'))
+        self.assertFails('raise metadata.version above 1.0.0', staged=True)
+        self.git('add', 'skills/alpha/SKILL.md')
+        self.assertPasses(staged=True)
+
+    def test_renamed_skill_must_raise_its_major_version(self):
+        self.move('skills/alpha', 'skills/omega')
+        self.write('skills/omega/SKILL.md', skill('omega', '"1.1.0"', GUIDE))
+        self.assertFails('skills/omega/SKILL.md: renames skills/alpha/ at 1.0.0, so raise metadata.version to 2.0.0 or above')
+        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"', GUIDE))
+        self.assertPasses()
+
+    def test_renamed_skill_must_rename_its_frontmatter(self):
+        self.move('skills/alpha', 'skills/omega')
+        self.write('skills/omega/SKILL.md', skill('alpha', '"2.0.0"', GUIDE))
+        self.assertFails('skills/omega/SKILL.md: frontmatter name is alpha; use the folder name, omega')
+
+    def test_move_into_host_skills_must_raise_its_major_version_even_when_rewritten(self):
+        self.move('skills/alpha', 'host-skills/claude-code/alpha')
+        self.write('host-skills/claude-code/alpha/SKILL.md', skill('alpha', '"0.1.0"', UNRELATED))
+        self.assertFails('moves skills/alpha/ at 1.0.0, which drops it from other hosts, so raise metadata.version to 2.0.0 or above')
+        self.write('host-skills/claude-code/alpha/SKILL.md', skill('alpha', '"2.0.0"', UNRELATED))
+        self.assertPasses()
+
+    def test_move_out_of_host_skills_needs_any_raise(self):
+        self.move('host-skills/claude-code/beta', 'skills/beta')
+        self.assertFails('moves host-skills/claude-code/beta/ at 1.0.0, so raise metadata.version above 1.0.0')
+        self.write('skills/beta/SKILL.md', skill('beta', '"1.0.1"'))
+        self.assertPasses()
+
+    def test_new_skill_with_the_same_boilerplate_is_not_a_rename(self):
+        shutil.rmtree(self.root / 'skills/alpha')
+        self.write('skills/omega/SKILL.md', skill('omega', '"0.1.0"', 'Do one unrelated thing.\n'))
+        self.assertPasses()
+
+    def test_files_agents_load_must_not_name_a_removed_skill(self):
+        self.git('switch', '-q', 'main')
+        self.write('skills/old-name/SKILL.md', skill('old-name'))
+        self.write('global/AGENTS.md', 'Use old-name for reviews.\n')
+        self.write('README.md', 'Credits: the upstream old-name project.\n')
+        self.commit()
+        self.git('switch', '-q', '-C', 'change')
+        shutil.rmtree(self.root / 'skills/old-name')
+        self.assertFails('global/AGENTS.md:1: names old-name, a skill that was removed; remove the reference')
+        self.write('global/AGENTS.md', 'Use not-old-name-at-all for reviews.\n')
+        self.assertPasses()
+
+    def test_one_word_names_count_only_as_invocations_or_code(self):
+        shutil.rmtree(self.root / 'skills/alpha')
+        self.write('global/AGENTS.md', 'Ship the alpha release.\n')
+        self.assertPasses()
+        for text in ('Run /alpha first.\n', 'Run $alpha first.\n', 'Load `alpha` first.\n', 'Load skills/alpha/SKILL.md.\n'):
+            self.write('global/AGENTS.md', text)
+            self.assertFails('global/AGENTS.md:1: names alpha')
+
+    def test_reference_search_ignores_color_and_odd_bytes(self):
+        self.git('config', 'color.ui', 'always')
+        shutil.rmtree(self.root / 'skills/alpha')
+        self.write('global/AGENTS.md', 'Form\x0cfeed, then run /alpha.\n')
+        (self.root / 'global/notes.txt').write_bytes(b'Caf\xe9 notes for `alpha`.\n')
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('global/AGENTS.md:1: names alpha', result.stderr)
+        self.assertIn('global/notes.txt:1: names alpha', result.stderr)
+
+    def test_merge_in_progress_compares_with_the_merged_base(self):
+        self.git('switch', '-q', 'main')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Main.\n'))
+        self.commit()
+        self.git('switch', '-q', 'change')
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Branch.\n'))
+        self.commit()
+        merge = subprocess.run(('git', 'merge', '-q', 'main'), cwd=self.root, env=ENV, capture_output=True, text=True)
+        self.assertEqual(merge.returncode, 1, merge.stdout)
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.1.0"', GUIDE + 'Main.\nBranch.\n'))
+        self.git('add', '-A')
+        self.assertFails('raise metadata.version above 1.1.0', staged=True)
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.2.0"', GUIDE + 'Main.\nBranch.\n'))
+        self.git('add', '-A')
+        self.assertPasses(staged=True)
+
+    def test_reference_to_a_renamed_skill_names_the_new_one(self):
+        self.move('skills/alpha', 'skills/omega')
+        self.write('skills/omega/SKILL.md', skill('omega', '"2.0.0"', GUIDE))
+        self.write('host-skills/claude-code/beta/SKILL.md', skill('beta', '"1.0.1"', 'Then run /alpha.\n'))
+        self.assertFails('host-skills/claude-code/beta/SKILL.md:9: names alpha, which is now omega; update the reference')
+        self.git('add', '-A')
+        self.write('host-skills/claude-code/beta/SKILL.md', skill('beta', '"1.0.1"', 'Then run /omega.\n'))
+        self.assertPasses()
+        self.assertFails('names alpha, which is now omega', staged=True)
+
+    def test_pre_commit_hook_blocks_a_commit_without_a_raise(self):
+        self.write('tests/check_skill_versions.py', CHECK.read_text())
+        (self.root / '.githooks').mkdir()
+        shutil.copy(HOOK, self.root / '.githooks/pre-commit')
+        self.git('config', 'core.hooksPath', '.githooks')
+        self.git('update-ref', 'refs/remotes/origin/main', 'main')
+        self.commit()
+        self.write('skills/alpha/references/notes.md', 'Changed notes.\n')
+        self.git('add', '-A')
+        result = subprocess.run(('git', 'commit', '-q', '-m', 'change'), cwd=self.root, env=ENV, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn('raise metadata.version above 1.0.0', result.stderr)
+        self.write('skills/alpha/SKILL.md', skill('alpha', '"1.0.1"'))
+        self.commit()
 
     def test_uncommitted_and_untracked_changes_count(self):
         self.write('skills/alpha/references/new.md', 'Untracked.\n')

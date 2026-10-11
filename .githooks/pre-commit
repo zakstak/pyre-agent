@@ -1,0 +1,4 @@
+#!/bin/sh
+# Block a commit that changes a skill without raising its version. Enable once per clone:
+#   git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/tests/check_skill_versions.py" --staged --base origin/main

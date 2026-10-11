@@ -100,6 +100,23 @@ class InstallTests(unittest.TestCase):
         self.assertIn('New.', (self.codex / 'alpha/SKILL.md').read_text())
         self.assertEqual(self.names(self.codex), ['alpha'])
 
+    def test_files_that_left_a_skill_leave_its_installed_copy(self):
+        self.run_installer()
+        self.publish({'skills/alpha/SKILL.md': skill('alpha', '1.0.1')}, delete=['skills/alpha/references'])
+        self.assertIn('update    alpha 1.0.0 -> 1.0.1', self.run_installer())
+        self.assertEqual(self.names(self.claude / 'alpha'), ['SKILL.md'])
+        self.assertEqual(self.names(self.codex / 'alpha'), ['SKILL.md'])
+
+    def test_renamed_skill_replaces_the_old_copy(self):
+        self.run_installer()
+        self.publish({'skills/omega/SKILL.md': skill('omega', '2.0.0'), 'skills/omega/references/notes.md': 'Notes.\n'},
+                     delete=['skills/alpha'])
+        output = self.run_installer()
+        self.assertIn('install   omega 2.0.0', output)
+        self.assertIn('remove    alpha', output)
+        self.assertEqual(self.names(self.codex), ['beta', 'omega'])
+        self.assertNotIn('alpha', self.record()['hosts']['codex']['skills'])
+
     def test_preview_tag_installs_and_follows_a_moved_tag(self):
         self.run_installer()
         first = self.publish({'skills/delta/SKILL.md': skill('delta')}, tag='preview')
