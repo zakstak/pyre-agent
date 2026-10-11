@@ -1,0 +1,32 @@
+name: Review canvas server
+
+on:
+  pull_request:
+    paths:
+      - packages/review-canvas/**
+      - skills/internal-visual-style/**
+      - .github/workflows/review-canvas.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/review-canvas
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: packages/review-canvas/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: packages/review-canvas/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test

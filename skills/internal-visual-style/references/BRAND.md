@@ -81,6 +81,8 @@ The classes below are in components.css. The specimen shows each one.
 - **Notices.** `.notice` explains a condition. Start it with a bold sentence that states the condition. Status variants color the edge and that sentence.
 - **Disclosures.** `details` and `summary` get one chevron style everywhere. Use them for secondary material, not for the main content.
 - **Code.** `.code-region` scrolls wide code inside a labeled, focusable region.
+- **Tables.** Put a `table` directly inside a labeled, focusable `.table-region`. The region styles the table, so a table outside one stays unstyled. Cells break words only to avoid overflow, so on a narrow screen the table scrolls inside its region and no label or link splits mid-word. The region does not use a `.table` class, because Tailwind's `table` utility owns that name.
+- **Decisions.** `.decision` holds one question, its options, and the outcome in one reading column. Each option is a `.panel.panel-body.option`. Mark the choice with `.chosen` and a **Chosen** chip, and put pros and cons in `.tradeoffs`. Stack the options. Do not place them side by side, because options differ in length and a grid stretches the short ones into empty boxes. Compare options or summarize several decisions in a table. After a decision, rejected options can collapse into `details`.
 - **Diffs.** `.diff` is a unified table with old and new line numbers, tinted added and deleted rows, and a colored left edge. Row actions appear on hover and keyboard focus, and stay visible on touch screens.
 - **Toasts.** Show one short message at a time in a polite live region at the bottom of the screen. Hide it after a few seconds unless it offers **Undo**.
 

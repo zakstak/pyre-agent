@@ -1,0 +1,5 @@
+/* The shared internal visual style: Tailwind v4, its design tokens, fonts, and components. */
+@import "../../../../skills/internal-visual-style/assets/tailwind.css";
+
+/* Pages are rendered on the server, so Tailwind reads the class names from there. */
+@source "../server";

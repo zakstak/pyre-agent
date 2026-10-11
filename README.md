@@ -125,15 +125,30 @@ files. The plugin does not own those files.
 
 ## Skill versions
 
-Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version. Whether a change is major, minor, or a patch is a judgment call.
+Each skill records its version as `metadata.version` in its `SKILL.md` frontmatter, nondeterministically following [semver](https://semver.org). Any change inside a skill folder must raise that skill's version, including a deleted or renamed file. Whether a change is major, minor, or a patch is a judgment call, with two exceptions that must raise the major version: a skill whose folder name changes, because `/old-name` stops working, and a skill that moves into `host-skills/`, because the other hosts lose it.
 
-A pull request check compares every changed skill with the base branch. To run it before you push:
+`tests/check_skill_versions.py` compares every skill with the merge base of your branch and `origin/main`. It fails when:
+
+- A changed skill does not raise its version, or any skill lacks a version in the form `"MAJOR.MINOR.PATCH"`. A new skill needs only a valid version.
+- A skill's frontmatter `name` differs from its folder name.
+- A moved or renamed skill does not raise its version as required above. The check pairs a removed skill with a new skill of the same name, or else with one whose `SKILL.md` body shares at least half of its non-blank lines. A rename that also rewrites most of `SKILL.md` counts as a new skill.
+- A file in `skills/`, `host-skills/`, or `context/` still names a skill that was removed or renamed. A hyphenated name counts anywhere. A one-word name counts only as `/name`, `$name`, or `` `name` ``, including the `pyre-agent:` namespace.
+
+Turn on the pre-commit hook once per clone. It checks the files you staged:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The setting applies to every worktree of the clone and replaces `.git/hooks`, so hooks you keep there stop running.
+
+To run the check by hand, including uncommitted and untracked files:
 
 ```sh
 python3 tests/check_skill_versions.py --base origin/main
 ```
 
-The check counts uncommitted and untracked files. A new skill needs only a valid version in the form `"MAJOR.MINOR.PATCH"`.
+Pull requests run the same check in GitHub Actions. The check is advisory, because GitHub Free cannot require checks on a private repository.
 
 ## License and credits
 
