@@ -211,6 +211,23 @@ describe("IsolationTests", () => {
   })
 })
 
+test("a filter key that names no driver is left alone, and an empty driver name still stops collection", (t) => {
+  // Git reads drivers only from filter.NAME.KEY, so [filter] foo = bar configures nothing. [filter ""] configures a
+  // driver with an empty name, which the attribute filter= selects, and that still stops collection.
+  const f = new Fixture(t)
+  const marker = join(f.base, "filter-ran")
+  const tool = script(join(f.base, "filter.sh"), `touch '${marker}'\ncat\n`)
+  f.commit({ ".gitattributes": "*.txt filter=mark\n", "a.txt": "a\n" })
+  f.write("a.txt", "b\n")
+  f.git(f.root, "config", "filter.foo", "bar")
+  f.git(f.root, "config", "filter.mark.clean", tool)
+  const files = f.collect()
+  assert.equal(files["a.txt"]?.patch, "@@ -1 +1 @@\n-a\n+b\n")
+  assert.ok(!existsSync(marker), "a configured filter driver ran")
+  appendFileSync(join(f.root, ".git", "config"), '[filter ""]\n\tclean = cat\n')
+  assert.throws(() => f.collect(), { _tag: "CollectError", message: /^cannot switch off the filter driver ""; its name contains '=' or is empty/ })
+})
+
 test("a git inside a worktree named in a linked worktree's common config never runs", (t) => {
   // A linked worktree's own Git directory has no config; Git reads core.worktree from the common one.
   const f = new Fixture(t)

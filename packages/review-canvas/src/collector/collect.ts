@@ -231,7 +231,9 @@ const filterOverrides = (git: Git, top: string): Array<string> => {
       throw new CollectError({ message: `cannot switch off the filter driver in ${backslashReplace(key)}; its name is not valid UTF-8` })
     }
     const rest = key.toString("utf8").slice("filter.".length)
-    names.add(rest.slice(0, Math.max(rest.lastIndexOf("."), 0)))
+    // Git reads a driver only from filter.NAME.KEY. A key with no name, such as filter.foo, configures no driver.
+    const dot = rest.lastIndexOf(".")
+    if (dot >= 0) names.add(rest.slice(0, dot))
   }
   return [...names].sort(byCodePoint).flatMap((name) => {
     if (name.includes("=") || name === "") {
