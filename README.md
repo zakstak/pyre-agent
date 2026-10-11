@@ -44,10 +44,6 @@ Start a new session. Claude Code loads the shared skills, its extra review skill
 and the startup hook. To inspect registration, use `/hooks` and
 `claude plugin details pyre-agent`.
 
-If you previously ran `install.py`, follow the [one-time migration](docs/migrate-install.md)
-to remove its recorded copies and instruction blocks. Keeping both installs
-loads duplicate skills and repeats the context.
-
 ## Use the skills and helper context
 
 Plugin skills have the `pyre-agent:` namespace. Invoke `/pyre-agent:unslop` in
