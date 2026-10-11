@@ -1,0 +1,266 @@
+{
+  "format": "review-canvas.feedback/1",
+  "target": {
+    "kind": "github_pr",
+    "title": "Synthetic",
+    "url": "https://github.com/example/repo/pull/2",
+    "head_sha": "1111111111111111111111111111111111111111"
+  },
+  "round": 3,
+  "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "exported_at": "2026-10-10T12:00:00.000Z",
+  "general_notes": "Overall",
+  "files": [
+    {
+      "path": "source.js",
+      "status": "modified",
+      "group": "core",
+      "notes": "note"
+    }
+  ],
+  "approvals": [
+    {
+      "path": "source.js",
+      "fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "approved_at": "2026-10-10T00:00:00.000Z",
+      "round": 3
+    },
+    {
+      "path": "README.md",
+      "fingerprint": "9999999999999999999999999999999999999999999999999999999999999999",
+      "approved_at": "2026-10-08T10:00:00.000Z",
+      "round": 1,
+      "carried_from": {
+        "review": "review-earlier",
+        "round": 4
+      }
+    }
+  ],
+  "threads": [
+    {
+      "id": "thread-claude",
+      "label": "Claude Code: atomic save",
+      "host": {
+        "kind": "claude-code",
+        "session_id": "0d6f3c2e-6a1b-4c8e-9f20-7b5d1e3a4c90"
+      }
+    },
+    {
+      "id": "thread-codex",
+      "label": "Codex: review follow-up",
+      "host": {
+        "kind": "codex"
+      }
+    }
+  ],
+  "comments": [
+    {
+      "id": "one",
+      "kind": "inline",
+      "source": {
+        "kind": "reviewer"
+      },
+      "body": "Check this",
+      "created_at": "2026-10-10T00:00:00.000Z",
+      "updated_at": "2026-10-10T00:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "round": 3,
+          "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "path": "source.js",
+        "patch_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "start": 7,
+        "end": 11,
+        "quote": "code",
+        "prefix": "before ",
+        "suffix": " after",
+        "start_row": 0,
+        "end_row": 0,
+        "side": "new",
+        "start_line": 1,
+        "end_line": 1
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 7,
+        "end": 11
+      },
+      "replies": [
+        {
+          "id": "a1",
+          "actor": "agent",
+          "thread": "thread-claude",
+          "created_at": "2026-10-10T00:30:00.000Z",
+          "disposition": "fixed",
+          "body": "save() now locks before it writes.",
+          "fixed_in": {
+            "fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        },
+        {
+          "id": "r1",
+          "actor": "reviewer",
+          "created_at": "2026-10-10T01:00:00.000Z",
+          "action": "reopen",
+          "body": "Still racy."
+        },
+        {
+          "id": "a2",
+          "actor": "agent",
+          "thread": "thread-codex",
+          "created_at": "2026-10-10T01:30:00.000Z",
+          "disposition": "fixed",
+          "body": "The lock now covers the rename too.",
+          "fixed_in": {
+            "commit": "3333333333333333333333333333333333333333"
+          }
+        },
+        {
+          "id": "r2",
+          "actor": "reviewer",
+          "created_at": "2026-10-10T02:00:00.000Z",
+          "action": "accept",
+          "body": ""
+        }
+      ]
+    },
+    {
+      "id": "two",
+      "kind": "inline",
+      "source": {
+        "kind": "reviewer"
+      },
+      "body": "Check this",
+      "created_at": "2026-10-10T00:00:00.000Z",
+      "updated_at": "2026-10-10T00:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "round": 3,
+          "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "path": "source.js",
+        "patch_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "start": 7,
+        "end": 11,
+        "quote": "code",
+        "prefix": "before ",
+        "suffix": " after",
+        "start_row": 0,
+        "end_row": 0,
+        "side": "new",
+        "start_line": 1,
+        "end_line": 1
+      },
+      "history": [],
+      "attachment": {
+        "state": "attached",
+        "reason": "Exact patch and range.",
+        "start": 7,
+        "end": 11
+      },
+      "replies": [
+        {
+          "id": "a3",
+          "actor": "agent",
+          "thread": "thread-claude",
+          "created_at": "2026-10-10T00:40:00.000Z",
+          "disposition": "question",
+          "body": "Should the cache stay per process?"
+        },
+        {
+          "id": "r3",
+          "actor": "reviewer",
+          "created_at": "2026-10-10T01:00:00.000Z",
+          "action": "reply",
+          "body": "Why this order?"
+        },
+        {
+          "id": "a4",
+          "actor": "agent",
+          "thread": "thread-claude",
+          "created_at": "2026-10-10T01:10:00.000Z",
+          "disposition": "deferred",
+          "body": "Reordering needs the new scheduler.",
+          "blocker": "The scheduler lands in a separate PR."
+        }
+      ]
+    },
+    {
+      "id": "gh-inline",
+      "kind": "inline",
+      "source": {
+        "kind": "github",
+        "id": "PRRC_kwDOAbCdEf4AAAABcDeFgH",
+        "author": "octocat",
+        "url": "https://github.com/example/repo/pull/2#discussion_r1234567890",
+        "resolved": false
+      },
+      "body": "Does this handle a full disk?",
+      "created_at": "2026-10-09T07:00:00.000Z",
+      "updated_at": "2026-10-09T07:00:00.000Z",
+      "anchor": {
+        "snapshot": {
+          "round": 3,
+          "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "path": "source.js",
+        "patch_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "start": 7,
+        "end": 11,
+        "quote": "code",
+        "prefix": "before ",
+        "suffix": " after",
+        "start_row": 0,
+        "end_row": 0,
+        "side": "new",
+        "start_line": 1,
+        "end_line": 1
+      },
+      "history": [],
+      "attachment": {
+        "state": "orphan",
+        "reason": "Selected text or its context changed."
+      },
+      "replies": [
+        {
+          "id": "gh-r1",
+          "actor": "github",
+          "created_at": "2026-10-09T08:00:00.000Z",
+          "body": "Same question for a read-only directory.",
+          "github": {
+            "id": "PRRC_kwDOAbCdEf4AAAABcDeFgI",
+            "author": "review-bot[bot]",
+            "url": "https://github.com/example/repo/pull/2#discussion_r1234567891"
+          }
+        },
+        {
+          "id": "a5",
+          "actor": "agent",
+          "thread": "thread-codex",
+          "created_at": "2026-10-10T03:00:00.000Z",
+          "disposition": "rejected",
+          "body": "The write fails before the rename, so the old file stays whole."
+        }
+      ]
+    },
+    {
+      "id": "gh-summary",
+      "kind": "general",
+      "source": {
+        "kind": "github",
+        "id": "PRR_kwDOAbCdEf6AAAABaBcDeF",
+        "author": "hubot",
+        "url": "https://github.com/example/repo/pull/2#pullrequestreview-987654321",
+        "resolved": false
+      },
+      "body": "Looks close. Please add a test for the lock.",
+      "created_at": "2026-10-09T09:00:00.000Z",
+      "updated_at": "2026-10-09T09:00:00.000Z",
+      "replies": []
+    }
+  ],
+  "earlier_rounds": []
+}

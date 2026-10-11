@@ -76,6 +76,13 @@ Schema. One definition replaces both `feedback_contract.py` and the page's
   URL, and resolved state. Replies imported from GitHub keep their GitHub
   author.
 
+Done: the schemas, limits, and decoders live in `src/schema` under the format keys `review-canvas.input/1` and
+`review-canvas.feedback/1`; the collector writes `WorktreeInput`, and documents decode through `decodeBytes`, because
+Effect's own decoders drop unknown fields. Answers moved from the input into feedback replies that name their thread,
+comments are inline or general, anchors name a round instead of a target, PR targets always carry their URL and head
+commit, roots are normalized POSIX paths, times are UTC with milliseconds, and a GitHub inline comment that misses the
+diff still needs an anchor shape in step 6.
+
 ### 2. Collector and fingerprints
 
 Port `collect_worktree.py` and `fingerprint.py`. They are the riskiest part, and
