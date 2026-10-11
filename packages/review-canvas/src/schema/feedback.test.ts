@@ -8,7 +8,8 @@ import { decodeBytes, decodeValue, encodeDocument, FeedbackDocument } from "./do
 import { documentText } from "./encoding.ts"
 import { AgentReply, Answer, Feedback } from "./feedback.ts"
 import * as Limits from "./limits.ts"
-import { sameTarget, Target } from "./target.ts"
+import { GitHubCommentUrl } from "./primitives.ts"
+import { pullRequestKey, sameTarget, Target, targetKey } from "./target.ts"
 import { accepted, copy, fixture, fixtureBytes, get, type Json, type JsonPath, refused, set } from "./testing.ts"
 
 const VALID = ["minimal", "pull-request", "worktree", "conversation"]
@@ -728,6 +729,10 @@ test("feedback: GitHub comments come from one pull request, the target's when it
       head_sha: "2".repeat(40)
     })
   accepted(decode(worktree()))
+  // Pull requests compare by key, so another spelling of the target's owner and repository is the same one.
+  accepted(decode(set(conversation(), ["target", "url"], "https://github.com/Example/Repo/pull/2")))
+  const summary = "https://github.com/EXAMPLE/repo/pull/2#pullrequestreview-1"
+  accepted(decode(set(worktree(), ["comments", 3, "source", "url"], summary)))
   const moved = worktree()
   set(moved, ["comments", 2, "source", "url"], "https://github.com/example/repo/pull/9#discussion_r1")
   set(moved, [...reply(2, 0), "github", "url"], "https://github.com/example/repo/pull/9#discussion_r2")
@@ -845,6 +850,16 @@ test("two targets are one review when they name the same pull request or working
   assert.ok(!sameTarget(worktree, pr))
   assert.ok(!sameTarget(worktree, decodeTarget({ ...worktree, root: "/elsewhere" })))
   assert.ok(sameTarget(worktree, decodeTarget({ ...worktree, head_sha: "3".repeat(40), branch: "other" })))
+  // GitHub ignores the case of owner and repository names, so both spellings name one pull request.
+  assert.ok(sameTarget(pr, decodeTarget({ ...pr, url: "https://github.com/Example/REPO/pull/2" })))
+  assert.ok(!sameTarget(pr, decodeTarget({ ...pr, url: "https://github.com/example/repo/pull/20" })))
+  const spelled = decodeTarget({ ...pr, url: "https://github.com/Example/Repo/pull/2" })
+  assert.equal(targetKey(spelled), "github_pr:https://github.com/example/repo/pull/2")
+  assert.equal(targetKey(worktree), "worktree:/home/dev/repo")
+  const url = Schema.decodeSync(GitHubCommentUrl)("https://github.com/Example/Repo/pull/2#discussion_r9")
+  assert.equal(pullRequestKey(url), "https://github.com/example/repo/pull/2")
+  // Roots keep their case: Linux file systems tell names apart by it.
+  assert.ok(!sameTarget(worktree, decodeTarget({ ...worktree, root: "/home/dev/Repo" })))
 })
 
 test("an answer is what an agent submits; the review adds its ID, thread, and time", () => {

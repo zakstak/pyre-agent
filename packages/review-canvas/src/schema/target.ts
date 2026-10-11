@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema"
 import * as Limits from "./limits.ts"
-import { CommitSha, Count, nonEmptyText, PullRequestUrl, WorktreeRoot } from "./primitives.ts"
+import { CommitSha, Count, type GitHubCommentUrl, nonEmptyText, PullRequestUrl, WorktreeRoot } from "./primitives.ts"
 
 const Title = nonEmptyText(Limits.MAX_TEXT_UNITS)
 
@@ -34,12 +34,25 @@ export const Target = Schema.Union([PullRequestTarget, WorktreeTarget]).annotate
 })
 export type Target = typeof Target.Type
 
-/** Two targets belong to the same review when they name the same pull request, or the same working tree root. */
-export const sameTarget = (a: Target, b: Target): boolean => {
-  switch (a.kind) {
+/**
+ * A pull request's identity, from its URL or a comment's: the URL without its fragment, lowercased. GitHub ignores
+ * the case of owner and repository names, and the URL schemas allow letters nowhere else, so two spellings of one
+ * pull request share a key. Values keep GitHub's spelling for links and display; compare them only through this key.
+ */
+export const pullRequestKey = (url: PullRequestUrl | GitHubCommentUrl): string => {
+  const fragment = url.indexOf("#")
+  return (fragment === -1 ? url : url.slice(0, fragment)).toLowerCase()
+}
+
+/** A target's identity, which keys its reviews: the pull request's key, or the working tree's root. */
+export const targetKey = (target: Target): string => {
+  switch (target.kind) {
     case "github_pr":
-      return b.kind === "github_pr" && a.url === b.url
+      return `github_pr:${pullRequestKey(target.url)}`
     case "worktree":
-      return b.kind === "worktree" && a.root === b.root
+      return `worktree:${target.root}`
   }
 }
+
+/** Two targets belong to the same review when they name the same pull request, or the same working tree root. */
+export const sameTarget = (a: Target, b: Target): boolean => targetKey(a) === targetKey(b)

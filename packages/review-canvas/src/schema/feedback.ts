@@ -21,7 +21,7 @@ import {
   ThreadId,
   Timestamp
 } from "./primitives.ts"
-import { Target } from "./target.ts"
+import { pullRequestKey, Target } from "./target.ts"
 import { Thread } from "./thread.ts"
 
 /** The format key of feedback: a review's notes, approvals, and comments, exported or imported as one file. */
@@ -348,17 +348,16 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   }
 
   // GitHub IDs are unique, and every GitHub comment comes from one pull request: the target's, or for a working tree
-  // the one its first GitHub comment names.
+  // the one its first GitHub comment names. Pull requests compare by key, since GitHub ignores the case of names.
   const gitHubIds = new Set<string>()
-  let pullRequest = feedback.target.kind === "github_pr" ? `${feedback.target.url}#` : undefined
+  let pullRequest = feedback.target.kind === "github_pr" ? pullRequestKey(feedback.target.url) : undefined
   const fromGitHub = (
-    github: { readonly id: string; readonly url: string },
+    github: { readonly id: string; readonly url: GitHubCommentUrl },
     at: ReadonlyArray<PropertyKey>
   ): Schema.FilterIssue | undefined => {
     if (gitHubIds.has(github.id)) return { path: [...at, "id"], issue: "duplicate GitHub comment ID" }
     gitHubIds.add(github.id)
-    // The URL schema guarantees a fragment, so this is the pull request's URL and its #.
-    const page = github.url.slice(0, github.url.indexOf("#") + 1)
+    const page = pullRequestKey(github.url)
     pullRequest ??= page
     if (page === pullRequest) return undefined
     return {
