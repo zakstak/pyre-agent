@@ -6,7 +6,7 @@ description:
 argument-hint: "[base-ref] [review focus or specialist requirements]"
 disable-model-invocation: true
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Adversarial branch review through Codex

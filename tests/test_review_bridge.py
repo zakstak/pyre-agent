@@ -69,6 +69,12 @@ if mode != "no_output":
 if mode == "bad_event": print("not JSON")
 if mode == "failed_event": print(json.dumps({"type": "turn.failed"}))
 if mode == "wrong_model": print(json.dumps({"type": "thread.started", "model": "another-model"}))
+if mode == "raw_separators":
+    # JSON allows these raw inside strings, and Codex does not escape them.
+    # CR before LF is JSON whitespace, so a CRLF line must still parse.
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "a\u2028b\u0085c"}},
+                     ensure_ascii=False), end="\r\n")
 if mode != "no_completion": print(json.dumps({"type": "turn.completed"}))
 """
 
@@ -293,6 +299,11 @@ class ReviewBridgeTests(unittest.TestCase):
         ):
             with self.subTest(mode=mode):
                 self.assert_error(self.invoke(mode=mode))
+
+    def test_event_strings_with_unicode_line_separators_stay_whole(self):
+        result = self.invoke(mode="raw_separators")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "review_completed")
 
     def test_specialists_run_and_reports_reach_lead(self):
         self.request["subagents"] = [

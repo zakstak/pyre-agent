@@ -193,9 +193,6 @@ Parity checklist:
 
 ## Carried over from the Python version
 
-- The `codex-branch-review` bridge splits its event stream with
-  `str.splitlines()`, which also breaks on U+2028 and U+0085. The fixtures work
-  around it with ASCII escapes; the bridge itself needs the fix.
 - Notes in earlier rounds cannot be edited on the page, so a very large history
   can push carried feedback past 8 MiB. The server-owned model should let a
   reviewer drop an earlier snapshot.
