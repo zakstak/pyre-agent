@@ -50,6 +50,9 @@ host, inspect the discovered components, refresh a Codex install after a source
 edit, and remove the plugins through the hosts. They set temporary `CODEX_HOME`
 and `CLAUDE_CONFIG_DIR` directories and do not copy credentials or run
 inference. Native integration tests are skipped when either CLI is absent.
+Tests refuse shell wrappers that overwrite their temporary configuration homes.
+If your normal commands use such wrappers, select the native executables with
+`PYRE_TEST_CODEX_BIN` and `PYRE_TEST_CLAUDE_BIN` before running the tests.
 
 Validate Claude Code's manifests separately:
 

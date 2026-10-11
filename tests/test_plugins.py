@@ -19,7 +19,36 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def native_cli(name, variable):
+    """Refuse launchers that redirect an isolated test into a real user home."""
+    selected = os.environ.get(f"PYRE_TEST_{name.upper()}_BIN", name)
+    executable = shutil.which(selected)
+    if executable is None:
+        raise RuntimeError(f"Cannot find {selected}")
+    with open(executable, "rb") as source:
+        header = source.read(8192)
+    if header.startswith(b"#!") and re.search(
+        rb"\b" + variable.encode() + rb"\s*=", header
+    ):
+        raise RuntimeError(
+            f"{executable} overrides {variable}; set "
+            f"PYRE_TEST_{name.upper()}_BIN to the native executable"
+        )
+    return executable
+
+
 class PackageTests(unittest.TestCase):
+    def test_native_tests_refuse_a_wrapper_that_overrides_the_test_home(self):
+        with tempfile.TemporaryDirectory(prefix="pyre-plugin-wrapper-") as temp:
+            wrapper = Path(temp) / "codex"
+            wrapper.write_text("#!/bin/sh\nexport CODEX_HOME=/real/home\n")
+            wrapper.chmod(0o755)
+            from unittest.mock import patch
+
+            with patch.dict(os.environ, PYRE_TEST_CODEX_BIN=str(wrapper)):
+                with self.assertRaisesRegex(RuntimeError, "overrides CODEX_HOME"):
+                    native_cli("codex", "CODEX_HOME")
+
     def test_catalogs_select_the_same_plugin_and_version(self):
         codex = read_json(ROOT / ".agents/plugins/marketplace.json")
         claude = read_json(ROOT / ".claude-plugin/marketplace.json")
@@ -73,6 +102,10 @@ class PackageTests(unittest.TestCase):
 )
 class NativePluginTests(unittest.TestCase):
     def setUp(self):
+        self.executables = {
+            "codex": native_cli("codex", "CODEX_HOME"),
+            "claude": native_cli("claude", "CLAUDE_CONFIG_DIR"),
+        }
         self.temp = tempfile.TemporaryDirectory(prefix="pyre-plugin-native-")
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
@@ -89,8 +122,11 @@ class NativePluginTests(unittest.TestCase):
         self.env = dict(
             os.environ, CODEX_HOME=str(self.codex), CLAUDE_CONFIG_DIR=str(self.claude)
         )
+        self.env["HOME"] = str(self.base)
+        self.env["XDG_CONFIG_HOME"] = str(self.base / "xdg")
 
     def run_cli(self, *command):
+        command = (self.executables[command[0]], *command[1:])
         result = subprocess.run(
             command,
             check=False,
@@ -106,7 +142,7 @@ class NativePluginTests(unittest.TestCase):
     def inspect_codex_components(self):
         """Ask the installed harness for its skills and hooks, never start a turn."""
         process = subprocess.Popen(
-            ["codex", "app-server", "--stdio"],
+            [self.executables["codex"], "app-server", "--stdio"],
             cwd=self.base,
             env=self.env,
             stdin=subprocess.PIPE,

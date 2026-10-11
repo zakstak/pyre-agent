@@ -65,3 +65,5 @@ If a plan has multiple viable choices or boils down to an unresolved decision:
 - Present the choices with a native picker when available. Otherwise, ask in the
   conversation.
 - Let me select, review, and revise my choice.
+
+Pyre Agent release: 1.0.1.
