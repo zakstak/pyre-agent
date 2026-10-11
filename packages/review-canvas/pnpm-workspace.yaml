@@ -2,16 +2,16 @@ allowBuilds:
   # Its postinstall only shortens the launcher; the plain launcher works without running it.
   tsc-rs: false
 minimumReleaseAgeExclude:
-  - '@tsc-rs/darwin-arm64@0.2.0'
-  - '@tsc-rs/linux-arm64@0.2.0'
-  - '@tsc-rs/linux-x64@0.2.0'
+  - "@tsc-rs/darwin-arm64@0.2.0"
+  - "@tsc-rs/linux-arm64@0.2.0"
+  - "@tsc-rs/linux-x64@0.2.0"
   - tsc-rs@0.2.0
 overrides:
   # 4.0.3 needs effect ^4.0.3, which is not published yet.
-  '@effect/platform-node-shared': 4.0.2
+  "@effect/platform-node-shared": 4.0.2
 packageExtensions:
   # Used only by its Redis module, which this package never loads.
-  '@effect/platform-node':
+  "@effect/platform-node":
     peerDependenciesMeta:
       redis:
         optional: true

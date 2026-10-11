@@ -21,17 +21,47 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import render_review  # noqa: E402
-from fingerprint import DIFF_FLAGS, GitError, decode_path, file_fingerprint, git, git_executable, raw_changes  # noqa: E402
-
+import render_review
+from fingerprint import (
+    DIFF_FLAGS,
+    GitError,
+    decode_path,
+    file_fingerprint,
+    git,
+    git_executable,
+    raw_changes,
+)
 
 ATTEMPTS = 3
-STATUSES = {"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied", "T": "changed", "U": "modified"}
+STATUSES = {
+    "A": "added",
+    "M": "modified",
+    "D": "deleted",
+    "R": "renamed",
+    "C": "copied",
+    "T": "changed",
+    "U": "modified",
+}
 # C0 controls other than tab, LF, and CR, and DEL, show as control pictures. C1 controls, line and paragraph separators,
 # and bidirectional formatting characters, which can hide or reorder code, show as U+FFFD.
-CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
-SECRET_NAMES = {".env", ".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".htpasswd", "credentials",
-                "credentials.json", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+CONTROL = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]"
+)
+SECRET_NAMES = {
+    ".env",
+    ".netrc",
+    "_netrc",
+    ".npmrc",
+    ".pypirc",
+    ".git-credentials",
+    ".htpasswd",
+    "credentials",
+    "credentials.json",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+}
 SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".kdbx")
 SAFE_ENV_SUFFIXES = (".example", ".sample", ".template", ".dist")
 # Written with quantifiers and classes so this file never matches its own patterns.
@@ -41,7 +71,8 @@ SECRET_TEXT = re.compile(
     r"|\bgh[pousr]_[A-Za-z0-9]{36,}"
     r"|\bgithub_pat_[A-Za-z0-9_]{22,}"
     r"|\bxox[abprs]-[A-Za-z0-9-]{10,}"
-    r"|(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}")
+    r"|(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}"
+)
 
 
 class CollectError(ValueError):
@@ -72,7 +103,12 @@ def blob_id(fmt, data):
 
 
 # O_NOFOLLOW and O_NONBLOCK exist only on POSIX; the file type check after opening covers every platform.
-OPEN_FLAGS = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_BINARY", 0)
+)
 
 
 def filter_overrides(top):
@@ -91,14 +127,19 @@ def filter_overrides(top):
             continue
         key = entry.split(b"\n", 1)[0]
         try:
-            names.add(key.decode("utf-8")[len("filter."):].rpartition(".")[0])
+            names.add(key.decode("utf-8")[len("filter.") :].rpartition(".")[0])
         except UnicodeDecodeError:
             # A replacement character would switch off a different driver and leave this one running.
-            raise CollectError("cannot switch off the filter driver in " + key.decode("utf-8", "backslashreplace")
-                               + "; its name is not valid UTF-8") from None
+            raise CollectError(
+                "cannot switch off the filter driver in "
+                + key.decode("utf-8", "backslashreplace")
+                + "; its name is not valid UTF-8"
+            ) from None
     for name in sorted(names):
         if "=" in name or not name:
-            raise CollectError(f"cannot switch off the filter driver {name!r}; its name contains '=' or is empty")
+            raise CollectError(
+                f"cannot switch off the filter driver {name!r}; its name contains '=' or is empty"
+            )
         for setting in ("clean=", "smudge=", "process=", "required=false"):
             options += ["-c", f"filter.{name}.{setting}"]
     return tuple(options)
@@ -119,34 +160,50 @@ def read_blob(path, fmt, keep=0):
             size += len(chunk)
             lines += chunk.count(b"\n")
             tail = chunk[-1:]
-            head += chunk[:8000 - len(head)]
+            head += chunk[: 8000 - len(head)]
             if size <= keep:
                 kept.append(chunk)
     if size != info.st_size:
         raise Changed(f"{path} changed size while it was read")
-    return {"blob": digest.hexdigest(), "size": size, "lines": lines + (tail != b"\n"), "binary": b"\0" in head,
-            "mode": "100755" if info.st_mode & stat.S_IXUSR else "100644", "data": b"".join(kept) if size <= keep else None}
+    return {
+        "blob": digest.hexdigest(),
+        "size": size,
+        "lines": lines + (tail != b"\n"),
+        "binary": b"\0" in head,
+        "mode": "100755" if info.st_mode & stat.S_IXUSR else "100644",
+        "data": b"".join(kept) if size <= keep else None,
+    }
 
 
 def repository_head(path):
     """The commit checked out in a submodule or nested repository, or None when it has none."""
-    if not os.path.lexists(path / ".git"):  # without .git, Git would find the enclosing repository instead
+    if not os.path.lexists(
+        path / ".git"
+    ):  # without .git, Git would find the enclosing repository instead
         return None
     try:
-        return git(path, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").decode().strip()
+        return (
+            git(path, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+            .decode()
+            .strip()
+        )
     except GitError:
         return None
 
 
 def representable(path):
     if any(ord(c) < 32 and c not in "\t\n\r" for c in path):
-        raise CollectError(f"path contains a control character, so review input cannot represent it: {path!r}")
+        raise CollectError(
+            f"path contains a control character, so review input cannot represent it: {path!r}"
+        )
     return path
 
 
 def too_many(count):
-    return CollectError(f"{count} changed files exceed the review limit of {render_review.MAX_FILES}. "
-                        "Commit, stash, or ignore part of the work, then collect again.")
+    return CollectError(
+        f"{count} changed files exceed the review limit of {render_review.MAX_FILES}. "
+        "Commit, stash, or ignore part of the work, then collect again."
+    )
 
 
 def link_blob(path, fmt):
@@ -162,7 +219,11 @@ def link_blob(path, fmt):
 
 def round_input(path):
     """Whether path names a round's input: STATE/rounds/NNNN/input.json."""
-    return path.name == "input.json" and path.parent.parent.name == "rounds" and re.fullmatch(r"[0-9]{4}", path.parent.name) is not None
+    return (
+        path.name == "input.json"
+        and path.parent.parent.name == "rounds"
+        and re.fullmatch(r"[0-9]{4}", path.parent.name) is not None
+    )
 
 
 def in_state_directory(path):
@@ -170,14 +231,24 @@ def in_state_directory(path):
     private to this user and holds a numbered round, so a shared ancestor such as /tmp never counts as one."""
     if not hasattr(os, "getuid"):
         return False  # no ownership to check, as on Windows, where server mode and its state directories are refused
+
     def is_state(directory):
         try:
             info = os.stat(directory)
-            return (info.st_uid == os.getuid() and not info.st_mode & 0o077
-                    and any(re.fullmatch(r"[0-9]{4}", name) for name in os.listdir(directory / "rounds")))
+            return (
+                info.st_uid == os.getuid()
+                and not info.st_mode & 0o077
+                and any(
+                    re.fullmatch(r"[0-9]{4}", name)
+                    for name in os.listdir(directory / "rounds")
+                )
+            )
         except OSError:
             return False
-    return is_state(path.parent) or (path.parent.parent.name == "rounds" and is_state(path.parent.parent.parent))
+
+    return is_state(path.parent) or (
+        path.parent.parent.name == "rounds" and is_state(path.parent.parent.parent)
+    )
 
 
 def rendered_round_input(output):
@@ -189,6 +260,7 @@ def rendered_round_input(output):
     if (path.parent / "review.html").exists():
         return True
     import review_state
+
     try:
         current = review_state.read_current(path.parent.parent.parent)
     except review_state.StateError:
@@ -204,12 +276,20 @@ def disk_mode(path):
         return None
     if stat.S_ISDIR(info.st_mode):
         return "160000"  # a checked-out submodule
-    return "120000" if stat.S_ISLNK(info.st_mode) else "100755" if info.st_mode & stat.S_IXUSR else "100644"
+    return (
+        "120000"
+        if stat.S_ISLNK(info.st_mode)
+        else "100755"
+        if info.st_mode & stat.S_IXUSR
+        else "100644"
+    )
 
 
 def unfingerprintable(path):
-    return CollectError(f"{path} is a nested repository or submodule with no commit checked out, so no fingerprint can cover "
-                        "its contents. Commit in it, or ignore it, then collect again.")
+    return CollectError(
+        f"{path} is a nested repository or submodule with no commit checked out, so no fingerprint can cover "
+        "its contents. Commit in it, or ignore it, then collect again."
+    )
 
 
 def kind(mode):
@@ -217,13 +297,27 @@ def kind(mode):
 
 
 def tracked_entry(top, change, fmt, config):
-    path, old_mode, new_mode = representable(change["path"]), change["old_mode"], change["new_mode"]
+    path, old_mode, new_mode = (
+        representable(change["path"]),
+        change["old_mode"],
+        change["new_mode"],
+    )
     if change["status"] not in STATUSES:
         raise CollectError(f"unexpected Git status {change['status']} for {path}")
     # The current file decides what the reviewer sees: a symlink replaced by a file shows the file's contents.
-    entry = {"path": path, "old_path": change["old_path"] and representable(change["old_path"]),
-             "status": STATUSES[change["status"]], "untracked": False, "kind": kind(new_mode or old_mode), "hidden": change.get("hidden", False),
-             "old_blob": change["old_blob"], "old_mode": old_mode, "new_blob": None, "new_mode": new_mode, "size": 0}
+    entry = {
+        "path": path,
+        "old_path": change["old_path"] and representable(change["old_path"]),
+        "status": STATUSES[change["status"]],
+        "untracked": False,
+        "kind": kind(new_mode or old_mode),
+        "hidden": change.get("hidden", False),
+        "old_blob": change["old_blob"],
+        "old_mode": old_mode,
+        "new_blob": None,
+        "new_mode": new_mode,
+        "size": 0,
+    }
     full = top / path
     if new_mode == "160000":
         entry["new_blob"] = change["new_blob"] or repository_head(full)
@@ -231,7 +325,11 @@ def tracked_entry(top, change, fmt, config):
             raise unfingerprintable(path)
     elif new_mode and change["new_blob"] and not os.path.lexists(full):
         # A skip-worktree entry in a sparse checkout, file or link, is staged but absent from disk; its content is the index blob.
-        entry.update(new_blob=change["new_blob"], size=int(git(top, *config, "cat-file", "-s", change["new_blob"])), from_index=True)
+        entry.update(
+            new_blob=change["new_blob"],
+            size=int(git(top, *config, "cat-file", "-s", change["new_blob"])),
+            from_index=True,
+        )
     elif new_mode == "120000":
         entry["new_blob"] = link_blob(full, fmt)
     elif new_mode:
@@ -241,56 +339,120 @@ def tracked_entry(top, change, fmt, config):
         if old_mode == new_mode:
             return None  # only the stat data changed; Git lists it because the index is never refreshed
         entry["status"] = "changed"
-    decode_path(os.fsencode(path))  # a hidden change with an undecodable name cannot be represented
-    entry["fingerprint"] = file_fingerprint(path, entry["old_path"], entry["old_blob"], entry["new_blob"], old_mode, new_mode)
+    decode_path(
+        os.fsencode(path)
+    )  # a hidden change with an undecodable name cannot be represented
+    entry["fingerprint"] = file_fingerprint(
+        path,
+        entry["old_path"],
+        entry["old_blob"],
+        entry["new_blob"],
+        old_mode,
+        new_mode,
+    )
     return entry
 
 
 def untracked_entry(top, path, nested, fmt, modes_count=True):
     full = top / path
-    entry = {"path": path, "old_path": None, "status": "added", "untracked": True, "old_blob": None, "old_mode": None, "size": 0}
+    entry = {
+        "path": path,
+        "old_path": None,
+        "status": "added",
+        "untracked": True,
+        "old_blob": None,
+        "old_mode": None,
+        "size": 0,
+    }
     info = os.lstat(full)
     if nested:
         if not stat.S_ISDIR(info.st_mode):
             raise Changed(f"{path} is no longer a directory")
-        entry.update(kind="submodule", new_mode="160000", new_blob=repository_head(full))
+        entry.update(
+            kind="submodule", new_mode="160000", new_blob=repository_head(full)
+        )
         if entry["new_blob"] is None:
             raise unfingerprintable(path)
     elif stat.S_ISLNK(info.st_mode):
         target = os.readlink(os.fsencode(full))
         # Git counts a link's target as its content, so a target with line breaks is several lines.
-        entry.update(kind="symlink", new_mode="120000", new_blob=blob_id(fmt, target), lines=target.count(b"\n") + (not target.endswith(b"\n")))
+        entry.update(
+            kind="symlink",
+            new_mode="120000",
+            new_blob=blob_id(fmt, target),
+            lines=target.count(b"\n") + (not target.endswith(b"\n")),
+        )
     else:
         blob = read_blob(full, fmt)
         # With core.filemode off, Git adds a file as 100644 whatever its executable bit.
-        entry.update(kind="file", new_mode=blob["mode"] if modes_count else "100644", new_blob=blob["blob"], size=blob["size"],
-                     lines=blob["lines"], binary=blob["binary"])
-    entry["fingerprint"] = file_fingerprint(path, None, None, entry["new_blob"], None, entry["new_mode"])
+        entry.update(
+            kind="file",
+            new_mode=blob["mode"] if modes_count else "100644",
+            new_blob=blob["blob"],
+            size=blob["size"],
+            lines=blob["lines"],
+            binary=blob["binary"],
+        )
+    entry["fingerprint"] = file_fingerprint(
+        path, None, None, entry["new_blob"], None, entry["new_mode"]
+    )
     return entry
 
 
 def inventory(top, fmt, config):
     """Read HEAD and every changed path with its fingerprint. Equal reads before and after bracket a consistent snapshot."""
     try:
-        head = git(top, "rev-parse", "--verify", "--quiet", "HEAD^{commit}").decode().strip()
+        head = (
+            git(top, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+            .decode()
+            .strip()
+        )
     except GitError:
-        raise CollectError("HEAD has no commit yet. Make a first commit, then collect again.") from None
+        raise CollectError(
+            "HEAD has no commit yet. Make a first commit, then collect again."
+        ) from None
     try:
-        branch = git(top, "symbolic-ref", "--quiet", "HEAD").decode("utf-8", "replace").strip().removeprefix("refs/heads/")
+        branch = (
+            git(top, "symbolic-ref", "--quiet", "HEAD")
+            .decode("utf-8", "replace")
+            .strip()
+            .removeprefix("refs/heads/")
+        )
     except GitError:
         branch = None  # detached HEAD
     # Staging can change the index without changing any file the review shows, so its identity joins the snapshot.
     try:
-        info = os.stat(top / decode_path(git(top, "rev-parse", "--git-path", "index").removesuffix(b"\n")))
+        info = os.stat(
+            top
+            / decode_path(
+                git(top, "rev-parse", "--git-path", "index").removesuffix(b"\n")
+            )
+        )
         index = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
     except FileNotFoundError:
         index = None
     if git(top, "ls-files", "-z", "--unmerged"):
         # git diff HEAD hides a conflict whose working tree bytes match HEAD, so the snapshot would look clean.
-        raise CollectError("the index has unresolved merge conflicts. Resolve and stage them, then collect again.")
-    tracked = raw_changes(git(top, *config, "diff", "--raw", "-z", "--no-abbrev", *DIFF_FLAGS, "HEAD", "--"))
+        raise CollectError(
+            "the index has unresolved merge conflicts. Resolve and stage them, then collect again."
+        )
+    tracked = raw_changes(
+        git(
+            top,
+            *config,
+            "diff",
+            "--raw",
+            "-z",
+            "--no-abbrev",
+            *DIFF_FLAGS,
+            "HEAD",
+            "--",
+        )
+    )
     tracked = assumed_unchanged(top, tracked, config)
-    others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
+    others = git(top, "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[
+        :-1
+    ]
     if len(others) > render_review.MAX_FILES:
         raise too_many(len(others))
     modes_count = git_bool(top, "core.filemode")
@@ -307,38 +469,70 @@ def inventory(top, fmt, config):
         path = representable(decode_path(raw.removesuffix(b"/")))
         if path in entries:
             # git rm --cached deletes the path from Git but leaves the file: one path, two contradictory changes.
-            raise CollectError(f"{path} is removed from Git's index but still on disk, as after git rm --cached. Restore it with "
-                               "git restore --staged, or move or ignore the file, then collect again.")
+            raise CollectError(
+                f"{path} is removed from Git's index but still on disk, as after git rm --cached. Restore it with "
+                "git restore --staged, or move or ignore the file, then collect again."
+            )
         with reading(path):
-            entries[path] = untracked_entry(top, path, raw.endswith(b"/"), fmt, modes_count)
+            entries[path] = untracked_entry(
+                top, path, raw.endswith(b"/"), fmt, modes_count
+            )
     if len(entries) > render_review.MAX_FILES:
         raise too_many(len(entries))
     folds_case = git_bool(top, "core.ignoreCase", default=False)
     for entry in entries.values():
         # With core.ignoreCase on, Git hides a file whose name, or a directory's on the way, differs from a deleted one
         # only in case.
-        if folds_case and entry["status"] == "deleted" and case_renamed(top, entry["path"]):
-            raise CollectError(f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
-                               "Stage the rename with git mv, then collect again.")
+        if (
+            folds_case
+            and entry["status"] == "deleted"
+            and case_renamed(top, entry["path"])
+        ):
+            raise CollectError(
+                f"{entry['path']} was renamed by case only, which Git hides with core.ignoreCase on. "
+                "Stage the rename with git mv, then collect again."
+            )
     if folds_case:
         # Git also hides a new file beside a tracked one whose name differs only in case. Listing with exact case
         # finds it; on a filesystem that folds case too, it is the tracked file itself.
-        exact = git(top, "-c", "core.ignoreCase=false", "ls-files", "-z", "--others", "--exclude-standard").split(b"\0")[:-1]
+        exact = git(
+            top,
+            "-c",
+            "core.ignoreCase=false",
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+        ).split(b"\0")[:-1]
         for raw in set(exact) - set(others):
             path = Path(os.fsdecode(raw.removesuffix(b"/")))
             for other in os.listdir(top / path.parent):
                 twin = path.parent / other
-                if (other != path.name and os.fsencode(other).lower() == os.fsencode(path.name).lower()
-                        and git(top, "ls-files", "-z", "--", str(twin)) and not os.path.samefile(top / path, top / twin)):
-                    raise CollectError(f"{path} differs from tracked {twin} only in case, which Git hides with core.ignoreCase on. "
-                                       "Rename one of them, then collect again.")
-    return {"head": head, "branch": branch, "index": index, "entries": [entries[path] for path in sorted(entries)]}
+                if (
+                    other != path.name
+                    and os.fsencode(other).lower() == os.fsencode(path.name).lower()
+                    and git(top, "ls-files", "-z", "--", str(twin))
+                    and not os.path.samefile(top / path, top / twin)
+                ):
+                    raise CollectError(
+                        f"{path} differs from tracked {twin} only in case, which Git hides with core.ignoreCase on. "
+                        "Rename one of them, then collect again."
+                    )
+    return {
+        "head": head,
+        "branch": branch,
+        "index": index,
+        "entries": [entries[path] for path in sorted(entries)],
+    }
 
 
 def case_renamed(top, path):
     """Whether a deleted path still exists under a spelling, of its name or a directory's on the way, that differs only
     in case. Git folds only ASCII letters, so this does too; the old spelling of a directory may remain beside the new."""
-    fold = lambda name: os.fsencode(name).lower()  # bytes.lower changes ASCII letters only
+    fold = lambda name: os.fsencode(
+        name
+    ).lower()  # bytes.lower changes ASCII letters only
+
     def found(parent, parts, exact):
         if not parts:
             return not exact
@@ -346,7 +540,12 @@ def case_renamed(top, path):
             names = os.listdir(parent)
         except OSError:
             return False
-        return any(found(parent / name, parts[1:], exact and name == parts[0]) for name in names if fold(name) == fold(parts[0]))
+        return any(
+            found(parent / name, parts[1:], exact and name == parts[0])
+            for name in names
+            if fold(name) == fold(parts[0])
+        )
+
     return found(top, Path(path).parts, True)
 
 
@@ -354,19 +553,42 @@ def index_entries(top, paths):
     """Map each of paths found in the index to (mode, blob, tag), where tag is the ls-files -v letter: S marks
     skip-worktree. Only the named paths are read, so a large index never sits in memory."""
     wanted, names, entries = set(paths), sorted(paths), {}
-    for start in range(0, len(names), 200):  # in chunks, so many long paths never overflow one command line
-        chunk = names[start:start + 200]
-        tags = {os.fsdecode(entry[2:]): entry[:1].decode("ascii") for entry in git(top, "ls-files", "-v", "-z", "--", *chunk).split(b"\0")[:-1]}
+    for start in range(
+        0, len(names), 200
+    ):  # in chunks, so many long paths never overflow one command line
+        chunk = names[start : start + 200]
+        tags = {
+            os.fsdecode(entry[2:]): entry[:1].decode("ascii")
+            for entry in git(top, "ls-files", "-v", "-z", "--", *chunk).split(b"\0")[
+                :-1
+            ]
+        }
         for entry in git(top, "ls-files", "-s", "-z", "--", *chunk).split(b"\0")[:-1]:
             info, raw = entry.split(b"\t", 1)
             mode, blob = info.decode("ascii").split(" ")[:2]
-            if os.fsdecode(raw) in wanted:  # a pathspec naming a directory also lists its contents
-                entries[os.fsdecode(raw)] = (mode, blob, tags.get(os.fsdecode(raw), "H"))
+            if (
+                os.fsdecode(raw) in wanted
+            ):  # a pathspec naming a directory also lists its contents
+                entries[os.fsdecode(raw)] = (
+                    mode,
+                    blob,
+                    tags.get(os.fsdecode(raw), "H"),
+                )
     return entries
 
 
 def git_bool(top, key, default=True):
-    return git(top, "config", "--type=bool", "--default", "true" if default else "false", key).strip() == b"true"
+    return (
+        git(
+            top,
+            "config",
+            "--type=bool",
+            "--default",
+            "true" if default else "false",
+            key,
+        ).strip()
+        == b"true"
+    )
 
 
 def ancestor_replaced(top, path):
@@ -392,16 +614,36 @@ def assumed_unchanged(top, tracked, config):
     # behind a symlinked directory is a deletion, as staging would record it.
     # Names keep undecodable bytes as surrogates, so an unchanged or absent entry with such a name never stops collection;
     # tracked_entry refuses one only if it turns out to be a change.
-    assumed = {os.fsdecode(entry[2:]) for entry in listing
-               if (entry[:1].islower() and entry[:1] != b"s")
-               or (entry[:1] in b"Ss" and (os.path.lexists(top / os.fsdecode(entry[2:])) or ancestor_replaced(top, os.fsdecode(entry[2:]))))}
+    assumed = {
+        os.fsdecode(entry[2:])
+        for entry in listing
+        if (entry[:1].islower() and entry[:1] != b"s")
+        or (
+            entry[:1] in b"Ss"
+            and (
+                os.path.lexists(top / os.fsdecode(entry[2:]))
+                or ancestor_replaced(top, os.fsdecode(entry[2:]))
+            )
+        )
+    }
     if not assumed:
         return tracked
     changes = {change["path"]: change for change in tracked}
     head = {}
     names = sorted(assumed)
-    for start in range(0, len(names), 200):  # in chunks, so many long paths never overflow one command line
-        for entry in git(top, *config, "ls-tree", "-z", "--full-tree", "HEAD", "--", *names[start:start + 200]).split(b"\0")[:-1]:
+    for start in range(
+        0, len(names), 200
+    ):  # in chunks, so many long paths never overflow one command line
+        for entry in git(
+            top,
+            *config,
+            "ls-tree",
+            "-z",
+            "--full-tree",
+            "HEAD",
+            "--",
+            *names[start : start + 200],
+        ).split(b"\0")[:-1]:
             info, path = entry.split(b"\t", 1)
             mode, _, blob = info.decode("ascii").split(" ")
             head[os.fsdecode(path)] = (mode, blob)
@@ -410,29 +652,70 @@ def assumed_unchanged(top, tracked, config):
     modes_count = git_bool(top, "core.filemode")
     folds_case = git_bool(top, "core.ignoreCase", default=False)
     for path in sorted(assumed):
-        new_mode, indexed = None if ancestor_replaced(top, path) else disk_mode(top / path), index.get(path, ("",))[0]
+        new_mode, indexed = (
+            None if ancestor_replaced(top, path) else disk_mode(top / path),
+            index.get(path, ("",))[0],
+        )
         if links_are_files and indexed == "120000" and new_mode in ("100644", "100755"):
             new_mode = "120000"  # with core.symlinks off, Git checks a link out as a placeholder file and keeps the link mode
-        elif not modes_count and indexed in ("100644", "100755") and new_mode in ("100644", "100755"):
+        elif (
+            not modes_count
+            and indexed in ("100644", "100755")
+            and new_mode in ("100644", "100755")
+        ):
             new_mode = indexed  # with core.filemode off, Git records the index mode, not the executable bit on disk
-        elif new_mode == "160000" and indexed != "160000" and repository_head(top / path) is None:
+        elif (
+            new_mode == "160000"
+            and indexed != "160000"
+            and repository_head(top / path) is None
+        ):
             new_mode = None  # an ordinary directory replaced the file: a deletion, with its children collected as untracked
         # A directory HEAD held at this path is no old side for a file: the file was only ever staged.
-        if path in changes and not new_mode and (path not in head or head[path][0] == "040000"):
+        if (
+            path in changes
+            and not new_mode
+            and (path not in head or head[path][0] == "040000")
+        ):
             if folds_case and case_renamed(top, path):
                 # Git hides the new spelling from the untracked list, and no HEAD deletion is left for the later guard.
-                raise CollectError(f"{path} was renamed by case only, which Git hides with core.ignoreCase on. "
-                                   "Stage the rename with git mv, then collect again.")
-            source = changes.pop(path)  # added to the index, then removed from disk: nothing new in the tree
-            if source.get("old_path"):  # a rename's source is still gone from the tree, so it is a deletion
-                changes[source["old_path"]] = {"status": "D", "path": source["old_path"], "old_path": None, "old_mode": source["old_mode"],
-                                               "new_mode": None, "old_blob": source["old_blob"], "new_blob": None}
+                raise CollectError(
+                    f"{path} was renamed by case only, which Git hides with core.ignoreCase on. "
+                    "Stage the rename with git mv, then collect again."
+                )
+            source = changes.pop(
+                path
+            )  # added to the index, then removed from disk: nothing new in the tree
+            if source.get(
+                "old_path"
+            ):  # a rename's source is still gone from the tree, so it is a deletion
+                changes[source["old_path"]] = {
+                    "status": "D",
+                    "path": source["old_path"],
+                    "old_path": None,
+                    "old_mode": source["old_mode"],
+                    "new_mode": None,
+                    "old_blob": source["old_blob"],
+                    "new_blob": None,
+                }
         elif path in changes:
-            changes[path].update(new_blob=None, new_mode=new_mode, status=changes[path]["status"] if new_mode else "D", hidden=True)
+            changes[path].update(
+                new_blob=None,
+                new_mode=new_mode,
+                status=changes[path]["status"] if new_mode else "D",
+                hidden=True,
+            )
         elif path in head:
             old_mode, old_blob = head[path]
-            changes[path] = {"status": "M" if new_mode else "D", "path": path, "old_path": None, "old_mode": old_mode,
-                             "new_mode": new_mode, "old_blob": old_blob, "new_blob": None, "hidden": True}
+            changes[path] = {
+                "status": "M" if new_mode else "D",
+                "path": path,
+                "old_path": None,
+                "old_mode": old_mode,
+                "new_mode": new_mode,
+                "old_blob": old_blob,
+                "new_blob": None,
+                "hidden": True,
+            }
     return list(changes.values())
 
 
@@ -446,7 +729,9 @@ def hidden_stats(top, entry, config):
             Path(old).write_text(f"Subproject commit {entry['old_blob']}\n")
         elif entry["old_blob"]:
             old = str(Path(temp, "old"))
-            with open(old, "wb") as handle:  # streamed, so a large blob never sits in memory
+            with open(
+                old, "wb"
+            ) as handle:  # streamed, so a large blob never sits in memory
                 git(top, *config, "cat-file", "blob", entry["old_blob"], into=handle)
         new = str(top / entry["path"]) if entry["new_mode"] else os.devnull
         if entry["new_mode"] == "160000":
@@ -457,12 +742,30 @@ def hidden_stats(top, entry, config):
             new = str(Path(temp, "new"))
             with open(new, "wb") as handle:
                 git(top, *config, "cat-file", "blob", entry["new_blob"], into=handle)
-        elif entry["kind"] == "symlink" and entry["new_mode"] and os.path.islink(top / entry["path"]):
+        elif (
+            entry["kind"] == "symlink"
+            and entry["new_mode"]
+            and os.path.islink(top / entry["path"])
+        ):
             # Git counts a link's target as its content. With core.symlinks off, the placeholder file already holds it.
             new = str(Path(temp, "new"))
             Path(new).write_bytes(os.readlink(os.fsencode(top / entry["path"])))
-        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--numstat", "--no-ext-diff",
-                     "--no-textconv", "--", old, new, ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"})
+        output = git(
+            temp,
+            *config,
+            "-c",
+            f"core.attributesFile={os.devnull}",
+            "diff",
+            "--no-index",
+            "--numstat",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--",
+            old,
+            new,
+            ok=(0, 1),
+            env={"GIT_CEILING_DIRECTORIES": temp, "GIT_ATTR_NOSYSTEM": "1"},
+        )
     fields = output.split(b"\t")
     if len(fields) < 3:
         return 0, 0, False  # no difference in the bytes
@@ -473,7 +776,9 @@ def hidden_stats(top, entry, config):
 
 def numstat(top, config):
     """Map each tracked path to (additions, deletions, binary)."""
-    fields = git(top, *config, "diff", "--numstat", "-z", *DIFF_FLAGS, "HEAD", "--").split(b"\0")
+    fields = git(
+        top, *config, "diff", "--numstat", "-z", *DIFF_FLAGS, "HEAD", "--"
+    ).split(b"\0")
     stats, i = {}, 0
     while i < len(fields) and fields[i]:
         additions, deletions, path = fields[i].split(b"\t", 2)
@@ -482,7 +787,11 @@ def numstat(top, config):
         else:  # a rename: the old and new paths follow as separate fields
             path, i = fields[i + 2], i + 3
         binary = additions == b"-"
-        stats[decode_path(path)] = (0 if binary else int(additions), 0 if binary else int(deletions), binary)
+        stats[decode_path(path)] = (
+            0 if binary else int(additions),
+            0 if binary else int(deletions),
+            binary,
+        )
     return stats
 
 
@@ -499,7 +808,16 @@ def clean_text(data):
         text, replaced = data.decode("utf-8"), False
     except UnicodeDecodeError:
         text, replaced = data.decode("utf-8", "replace"), True
-    cleaned = CONTROL.sub(lambda match: chr(0x2421 if match[0] == "\x7f" else 0x2400 + ord(match[0]) if match[0] < "\x20" else 0xFFFD), text)
+    cleaned = CONTROL.sub(
+        lambda match: chr(
+            0x2421
+            if match[0] == "\x7f"
+            else 0x2400 + ord(match[0])
+            if match[0] < "\x20"
+            else 0xFFFD
+        ),
+        text,
+    )
     return cleaned, replaced or cleaned != text
 
 
@@ -515,16 +833,36 @@ def text_patch(old, new, config):
                 names.append(name)
         # The ceiling keeps Git from finding a repository, and its attributes, above the temporary directory.
         # No attributes apply: a global core.attributesFile with * -diff would otherwise call text binary.
-        output = git(temp, *config, "-c", f"core.attributesFile={os.devnull}", "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--unified=3",
-                     "--inter-hunk-context=0", "--", *names,
-                     ok=(0, 1), env={"GIT_CEILING_DIRECTORIES": str(Path(temp).parent), "GIT_ATTR_NOSYSTEM": "1"})
+        output = git(
+            temp,
+            *config,
+            "-c",
+            f"core.attributesFile={os.devnull}",
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--unified=3",
+            "--inter-hunk-context=0",
+            "--",
+            *names,
+            ok=(0, 1),
+            env={
+                "GIT_CEILING_DIRECTORIES": str(Path(temp).parent),
+                "GIT_ATTR_NOSYSTEM": "1",
+            },
+        )
     at = output.find(b"\n@@")
     header = output if at < 0 else output[:at]
-    if any(line.startswith(b"Binary files ") and line.endswith(b" differ") for line in header.split(b"\n")):
+    if any(
+        line.startswith(b"Binary files ") and line.endswith(b" differ")
+        for line in header.split(b"\n")
+    ):
         return "binary", None
     if at < 0:
         return "no_content_change", None
-    return None, output[at + 1:]
+    return None, output[at + 1 :]
 
 
 def content(top, entry, fmt, binary, allow_secret, oversized, config):
@@ -537,7 +875,9 @@ def content(top, entry, fmt, binary, allow_secret, oversized, config):
         return entry["kind"], None
     if entry["old_blob"] == entry["new_blob"]:
         return "no_content_change", None
-    if not allow_secret and any(p and secret_name(p) for p in (path, entry["old_path"])):
+    if not allow_secret and any(
+        p and secret_name(p) for p in (path, entry["old_path"])
+    ):
         return "secret", None
     # Binary means NUL bytes in the content, never a diff attribute: a text file marked -diff still shows its patch.
     if binary:
@@ -574,7 +914,16 @@ def build(top, snapshot, fmt, include, config):
         binary = entry.get("binary", False)
         if entry["untracked"]:
             # Git counts a link's target as its lines, and a submodule's commit as one line.
-            additions, deletions = (0 if binary else 1 if entry["kind"] == "submodule" else entry["lines"]), 0
+            additions, deletions = (
+                (
+                    0
+                    if binary
+                    else 1
+                    if entry["kind"] == "submodule"
+                    else entry["lines"]
+                ),
+                0,
+            )
         elif path in stats and (binary or not stats[path][2]):
             additions, deletions, _ = stats[path]
         elif entry.get("hidden") or path in stats:
@@ -582,15 +931,32 @@ def build(top, snapshot, fmt, include, config):
             additions, deletions, _ = hidden_stats(top, entry, config)
         else:
             additions, deletions = 0, 0
-        file = {"path": path, "status": entry["status"], "group": "core", "additions": additions, "deletions": deletions,
-                "fingerprint": entry["fingerprint"]}
+        file = {
+            "path": path,
+            "status": entry["status"],
+            "group": "core",
+            "additions": additions,
+            "deletions": deletions,
+            "fingerprint": entry["fingerprint"],
+        }
         if entry["old_path"]:
             file["old_path"] = entry["old_path"]
         for side in ("old_mode", "new_mode"):
             if entry[side]:
                 file[side] = entry[side]
-        budget = min(render_review.MAX_PATCH_LINES, render_review.MAX_TOTAL_PATCH_LINES - total_lines)
-        note, data = content(top, entry, fmt, binary, path in include, additions + deletions > budget, config)
+        budget = min(
+            render_review.MAX_PATCH_LINES,
+            render_review.MAX_TOTAL_PATCH_LINES - total_lines,
+        )
+        note, data = content(
+            top,
+            entry,
+            fmt,
+            binary,
+            path in include,
+            additions + deletions > budget,
+            config,
+        )
         if data is not None:
             patch, replaced = clean_text(data)
             hunk_lines = patch.split("\n")
@@ -604,7 +970,11 @@ def build(top, snapshot, fmt, include, config):
             if path not in include and SECRET_TEXT.search(patch):
                 note = "secret"
             # Patches may fill half of the renderer's input limit, leaving room for paths and the agent's analysis.
-            elif render_review.units(patch) > render_review.MAX_PATCH_CHARS or lines > budget or total_bytes + size > render_review.MAX_INPUT_BYTES // 2:
+            elif (
+                render_review.units(patch) > render_review.MAX_PATCH_CHARS
+                or lines > budget
+                or total_bytes + size > render_review.MAX_INPUT_BYTES // 2
+            ):
                 note = "too_large"
             else:
                 total_lines += lines
@@ -626,44 +996,85 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
 
     staged, when a list, receives the paths whose staged version differs from the review, read inside the same
     before-and-after inventory check as the review itself, so a file that changes during that scan is caught too."""
-    git_executable(repo)  # before any Git call: a git inside the repository would be code from the change
-    top = Path(decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n")))
-    git_executable(top)  # the working tree Git found, which core.worktree may put outside repo
-    git_dir = Path(decode_path(git(repo, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))).resolve()
+    git_executable(
+        repo
+    )  # before any Git call: a git inside the repository would be code from the change
+    top = Path(
+        decode_path(git(repo, "rev-parse", "--show-toplevel").removesuffix(b"\n"))
+    )
+    git_executable(
+        top
+    )  # the working tree Git found, which core.worktree may put outside repo
+    git_dir = Path(
+        decode_path(git(repo, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))
+    ).resolve()
     # Every later command runs from top and finds its repository again. If core.worktree points at a checkout with a
     # .git of its own, that is another repository.
     try:
-        same = Path(decode_path(git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n"))).resolve() == git_dir
+        same = (
+            Path(
+                decode_path(
+                    git(top, "rev-parse", "--absolute-git-dir").removesuffix(b"\n")
+                )
+            ).resolve()
+            == git_dir
+        )
     except GitError:
         same = False
     if not same:
-        raise CollectError(f"{repo} sets core.worktree to {top}, which Git there resolves to another repository or none. "
-                           f"Collect from the repository that {top} belongs to.")
+        raise CollectError(
+            f"{repo} sets core.worktree to {top}, which Git there resolves to another repository or none. "
+            f"Collect from the repository that {top} belongs to."
+        )
     if output is not None:
         if rendered_round_input(output):
-            raise CollectError(f"{Path(output).parent} has rendered, or a newer round has; a round never changes after it renders. Start a new round.")
-        common_dir = (Path(repo) / decode_path(git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n"))).resolve()
+            raise CollectError(
+                f"{Path(output).parent} has rendered, or a newer round has; a round never changes after it renders. Start a new round."
+            )
+        common_dir = (
+            Path(repo)
+            / decode_path(
+                git(repo, "rev-parse", "--git-common-dir").removesuffix(b"\n")
+            )
+        ).resolve()
         states = git_dir / "review-canvas"
         # Replacing a symlink writes a regular file where the link was, so judge the link's own location.
         if os.path.islink(output):
-            raise CollectError(f"--output {output} is a symbolic link; name the real file instead")
+            raise CollectError(
+                f"--output {output} is a symbolic link; name the real file instead"
+            )
         destination = Path(output).absolute().parent.resolve() / Path(output).name
         # Git's own files, such as HEAD, index, and config, sit in the Git directory; only its review-canvas folder is ours.
-        if (destination.is_relative_to(git_dir) or destination.is_relative_to(common_dir)) and not destination.is_relative_to(states):
-            raise CollectError(f"--output {output} is inside the Git directory, where it could replace Git's own files. "
-                               f"Write it inside {states} or outside the repository.")
-        if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(states):
-            raise CollectError(f"--output {output} is inside the working tree, where the snapshot would become an untracked "
-                               f"change of its own. Write it outside {top} or inside {states}.")
+        if (
+            destination.is_relative_to(git_dir)
+            or destination.is_relative_to(common_dir)
+        ) and not destination.is_relative_to(states):
+            raise CollectError(
+                f"--output {output} is inside the Git directory, where it could replace Git's own files. "
+                f"Write it inside {states} or outside the repository."
+            )
+        if destination.is_relative_to(top.resolve()) and not destination.is_relative_to(
+            states
+        ):
+            raise CollectError(
+                f"--output {output} is inside the working tree, where the snapshot would become an untracked "
+                f"change of its own. Write it outside {top} or inside {states}."
+            )
         # In a review state directory, only a round's input is the collector's: pages, feedback, and locks are not.
-        if (destination.is_relative_to(states) or in_state_directory(destination)) and not round_input(destination):
-            raise CollectError(f"--output {output} is inside a review state directory, where only STATE/rounds/NNNN/input.json "
-                               "is the collector's to write. Create a round with review_state.py new-round and write its input.json.")
+        if (
+            destination.is_relative_to(states) or in_state_directory(destination)
+        ) and not round_input(destination):
+            raise CollectError(
+                f"--output {output} is inside a review state directory, where only STATE/rounds/NNNN/input.json "
+                "is the collector's to write. Create a round with review_state.py new-round and write its input.json."
+            )
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
     config = filter_overrides(top)
     if Path(tempfile.gettempdir()).resolve().is_relative_to(top.resolve()):
         # Scratch diffs hold copies of the reviewed files; they must never land inside the tree they come from.
-        raise CollectError(f"the temporary directory {tempfile.gettempdir()} is inside the working tree. Set TMPDIR elsewhere.")
+        raise CollectError(
+            f"the temporary directory {tempfile.gettempdir()} is inside the working tree. Set TMPDIR elsewhere."
+        )
     include = set(include_secret)
     reason = "HEAD or a changed file differed between two reads"
     for _ in range(ATTEMPTS):
@@ -671,7 +1082,10 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
             snapshot = inventory(top, fmt, config)
             unknown = include - {entry["path"] for entry in snapshot["entries"]}
             if unknown:
-                raise CollectError("--include-secret-file names a path that is not a changed file: " + ", ".join(sorted(unknown)))
+                raise CollectError(
+                    "--include-secret-file names a path that is not a changed file: "
+                    + ", ".join(sorted(unknown))
+                )
             files, flagged = build(top, snapshot, fmt, include, config)
             diverging = staged_differently(top, config) if staged is not None else []
             between_reads()
@@ -681,16 +1095,30 @@ def collect(repo, title=None, include_secret=(), output=None, staged=None):
         except Changed as change:
             reason = str(change)
     else:
-        raise CollectError(f"the working tree kept changing during {ATTEMPTS} attempts ({reason}). "
-                           "Collect again when writes finish.")
+        raise CollectError(
+            f"the working tree kept changing during {ATTEMPTS} attempts ({reason}). "
+            "Collect again when writes finish."
+        )
     head, branch = snapshot["head"], snapshot["branch"]
-    target = {"kind": "worktree", "title": title if title is not None else
-              f"Uncommitted changes on {branch}" if branch else f"Uncommitted changes at {head[:7]}",
-              "root": str(top), "head_sha": head}
+    target = {
+        "kind": "worktree",
+        "title": title
+        if title is not None
+        else f"Uncommitted changes on {branch}"
+        if branch
+        else f"Uncommitted changes at {head[:7]}",
+        "root": str(top),
+        "head_sha": head,
+    }
     if branch:
         target["branch"] = branch
     target["changed_files"] = len(files)
-    review = {"schema_version": 2, "target": target, "files_complete": True, "files": files}
+    review = {
+        "schema_version": 2,
+        "target": target,
+        "files_complete": True,
+        "files": files,
+    }
     if staged is not None:
         staged[:] = diverging
     return render_review.validate_review(review), flagged
@@ -700,7 +1128,21 @@ def staged_differently(top, config):
     """Paths whose staged version differs from both HEAD and the working tree. The review shows the working tree, but a
     commit records the staged version."""
     fmt = git(top, "rev-parse", "--show-object-format").decode().strip()
-    staged = {decode_path(path) for path in git(top, *config, "diff", "--cached", "--name-only", "-z", "--no-renames", "HEAD", "--").split(b"\0") if path}
+    staged = {
+        decode_path(path)
+        for path in git(
+            top,
+            *config,
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "HEAD",
+            "--",
+        ).split(b"\0")
+        if path
+    }
     if not staged:
         return []
     # With core.filemode off, Git ignores the executable bit on disk, so only content can differ.
@@ -709,11 +1151,17 @@ def staged_differently(top, config):
     found = []
     index = index_entries(top, staged)
     # A staged deletion has no index entry; a file kept on disk at that path means the commit removes what was reviewed.
-    found += [path for path in staged - index.keys() if os.path.lexists(top / path) and not ancestor_replaced(top, path)]
+    found += [
+        path
+        for path in staged - index.keys()
+        if os.path.lexists(top / path) and not ancestor_replaced(top, path)
+    ]
     for path, (mode, blob, tag) in index.items():
         full = top / path
         if ancestor_replaced(top, path):
-            found.append(path)  # the review shows a deletion, but the commit records the staged file
+            found.append(
+                path
+            )  # the review shows a deletion, but the commit records the staged file
             continue
         if tag in "Ss" and not os.path.lexists(full):
             continue  # a sparse entry whose staged blob is what the review showed
@@ -722,9 +1170,13 @@ def staged_differently(top, config):
                 differs = repository_head(full) != blob
             elif mode == "120000":
                 # A regular file holding the target's bytes has the same blob; only the mode shows the type change.
-                differs = link_blob(full, fmt) != blob or (links_are_links and disk_mode(full) != "120000")
+                differs = link_blob(full, fmt) != blob or (
+                    links_are_links and disk_mode(full) != "120000"
+                )
             else:
-                differs = read_blob(full, fmt)["blob"] != blob or (modes_count and disk_mode(full) != mode)
+                differs = read_blob(full, fmt)["blob"] != blob or (
+                    modes_count and disk_mode(full) != mode
+                )
         except (OSError, Changed):
             differs = True
         if differs:
@@ -735,7 +1187,9 @@ def staged_differently(top, config):
 def write_atomic(path, text):
     """Replace path in one step with a private file, so no reader sees a partial snapshot."""
     path = Path(path)
-    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")  # created with mode 0600
+    fd, temp = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )  # created with mode 0600
     try:
         with open(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
@@ -746,12 +1200,32 @@ def write_atomic(path, text):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--repo", type=Path, default=Path("."), help="Directory inside the working tree (default: current directory)")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Review JSON to write: outside the repository, or STATE/rounds/NNNN/input.json in a review state directory")
-    parser.add_argument("--title", help="Review title (default: Uncommitted changes on BRANCH)")
-    parser.add_argument("--include-secret-file", action="append", default=[], metavar="PATH",
-                        help="Include the contents of this likely secret file (exact repository-relative path; repeatable)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path("."),
+        help="Directory inside the working tree (default: current directory)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Review JSON to write: outside the repository, or STATE/rounds/NNNN/input.json in a review state directory",
+    )
+    parser.add_argument(
+        "--title", help="Review title (default: Uncommitted changes on BRANCH)"
+    )
+    parser.add_argument(
+        "--include-secret-file",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="Include the contents of this likely secret file (exact repository-relative path; repeatable)",
+    )
     args = parser.parse_args(argv)
     try:
         # Resolve the directories once. The lock, the final check, and the write all use this path, so retargeting a
@@ -759,30 +1233,51 @@ def main(argv=None):
         output = Path(args.output).absolute().parent.resolve() / Path(args.output).name
         # A round's state could be archived and a new one made at the same path while collecting; its identity tells them apart.
         state = output.parent.parent.parent if round_input(output) else None
-        identity = lambda: (lambda info: (info.st_dev, info.st_ino))(os.stat(state)) if state and state.exists() else None
+
+        def identity():
+            if state and state.exists():
+                info = os.stat(state)
+                return info.st_dev, info.st_ino
+            return None
+
         before = identity()
         staged = []  # filled inside collect's consistency check, before writing, so a failure writes nothing
-        review, flagged = collect(args.repo, args.title, args.include_secret_file, output, staged=staged)
+        review, flagged = collect(
+            args.repo, args.title, args.include_secret_file, output, staged=staged
+        )
         # Collecting can take a while; a render may publish the round meanwhile. The round's publish lock, which
         # rendering also holds from its check to publishing, makes this last check and the write one step.
         import review_state
+
         with review_state.round_lock(output):
             if identity() != before:
-                raise CollectError(f"{state} was archived or replaced while collecting; nothing was written. Create a round and collect again.")
+                raise CollectError(
+                    f"{state} was archived or replaced while collecting; nothing was written. Create a round and collect again."
+                )
             if rendered_round_input(output):
-                raise CollectError(f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round.")
-            write_atomic(output, json.dumps(review, ensure_ascii=False, indent=2) + "\n")
+                raise CollectError(
+                    f"{output.parent} closed while collecting, by its own render or a newer one; a round never changes after it renders. Start a new round."
+                )
+            write_atomic(
+                output, json.dumps(review, ensure_ascii=False, indent=2) + "\n"
+            )
     except (ValueError, GitError, OSError) as error:
-        print(f"Error: {render_review.escaped(error)}", file=sys.stderr)  # errors name paths, which may hold line breaks
+        print(
+            f"Error: {render_review.escaped(error)}", file=sys.stderr
+        )  # errors name paths, which may hold line breaks
         return 2
     notes = [file.get("patch_note") for file in review["files"]]
     count = len(notes)
-    print(f"Wrote {render_review.shown(str(args.output))} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
-          f"{notes.count('too_large')} too large; {len(flagged)} likely secret)")
+    print(
+        f"Wrote {render_review.shown(str(args.output))} ({count} file{'' if count == 1 else 's'}; {notes.count('binary')} binary; "
+        f"{notes.count('too_large')} too large; {len(flagged)} likely secret)"
+    )
     for path in flagged:
         print(f"Likely secret, contents left out: {render_review.shown(path)}")
     for path in staged:
-        print(f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {render_review.shown(path)}")
+        print(
+            f"Staged version differs from the reviewed file, so a commit would record unreviewed content: {render_review.shown(path)}"
+        )
     return 0
 
 

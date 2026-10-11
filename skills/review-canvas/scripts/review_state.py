@@ -51,15 +51,22 @@ class StateError(ValueError):
 def _group_has_others(gid):
     import grp
     import pwd
+
     try:
-        members = set(grp.getgrgid(gid).gr_mem) | {user.pw_name for user in pwd.getpwall() if user.pw_gid == gid}
+        members = set(grp.getgrgid(gid).gr_mem) | {
+            user.pw_name for user in pwd.getpwall() if user.pw_gid == gid
+        }
         return bool(members - {pwd.getpwuid(os.getuid()).pw_name})
     except KeyError:
         return True
 
 
 # Errors that mean an attribute is absent, or that the filesystem cannot hold that kind of ACL at all.
-ABSENT = {code for code in (getattr(errno, "ENODATA", None), errno.ENOTSUP, errno.EOPNOTSUPP) if code is not None}
+ABSENT = {
+    code
+    for code in (getattr(errno, "ENODATA", None), errno.ENOTSUP, errno.EOPNOTSUPP)
+    if code is not None
+}
 
 
 def _attribute(path, name):
@@ -70,24 +77,38 @@ def _attribute(path, name):
     except OSError as error:
         if error.errno in ABSENT:
             return None
-        raise StateError(f"cannot read the access control list of {path}: {error.strerror}") from None
+        raise StateError(
+            f"cannot read the access control list of {path}: {error.strerror}"
+        ) from None
 
 
 def _acl_writers(path, gid):
     """The users and groups a POSIX access ACL lets write to path, or None when path has none or the platform cannot
     read one. With an ACL, the mode's group bits are only its mask, so they cannot say who may write."""
     if _attribute(path, "system.nfs4_acl") is not None:
-        raise StateError(f"{path} uses NFSv4 access control lists, which these scripts cannot check. "
-                         "Keep the review state on a local filesystem, or render with render_review.py INPUT --output.")
+        raise StateError(
+            f"{path} uses NFSv4 access control lists, which these scripts cannot check. "
+            "Keep the review state on a local filesystem, or render with render_review.py INPUT --output."
+        )
     raw = _attribute(path, "system.posix_acl_access")
     if raw is None:
         return None
     if len(raw) < 4 or (len(raw) - 4) % 8 or struct.unpack_from("<I", raw)[0] != 2:
         raise StateError(f"cannot read the access control list of {path}")
-    entries = [struct.unpack_from("<HHI", raw, offset) for offset in range(4, len(raw), 8)]
-    mask = next((perm for tag, perm, _ in entries if tag == 0x10), 0o7)  # ACL_MASK limits every entry below
-    users = {uid for tag, perm, uid in entries if tag == 0x02 and perm & mask & 0o2}  # ACL_USER
-    groups = {gid if tag == 0x04 else id_ for tag, perm, id_ in entries if tag in (0x04, 0x08) and perm & mask & 0o2}  # ACL_GROUP_OBJ, ACL_GROUP
+    entries = [
+        struct.unpack_from("<HHI", raw, offset) for offset in range(4, len(raw), 8)
+    ]
+    mask = next(
+        (perm for tag, perm, _ in entries if tag == 0x10), 0o7
+    )  # ACL_MASK limits every entry below
+    users = {
+        uid for tag, perm, uid in entries if tag == 0x02 and perm & mask & 0o2
+    }  # ACL_USER
+    groups = {
+        gid if tag == 0x04 else id_
+        for tag, perm, id_ in entries
+        if tag in (0x04, 0x08) and perm & mask & 0o2
+    }  # ACL_GROUP_OBJ, ACL_GROUP
     return users, groups
 
 
@@ -103,7 +124,9 @@ def _others_can_replace(path, info):
     if acl is None:
         return bool(info.st_mode & 0o020 and _group_has_others(info.st_gid))
     users, groups = acl
-    return bool(users - {0, os.getuid()}) or any(_group_has_others(gid) for gid in groups)
+    return bool(users - {0, os.getuid()}) or any(
+        _group_has_others(gid) for gid in groups
+    )
 
 
 def private_dir(path, create=False):
@@ -112,8 +135,10 @@ def private_dir(path, create=False):
     Its resolved ancestors must also be safe from other users, who could otherwise swap in a directory of their own
     after the check, for example one holding a page that reads the session token."""
     if not PRIVACY_CHECKABLE:
-        raise StateError("this platform cannot confirm that only you can read the review state. "
-                         "Render with render_review.py INPUT --output and use export and import instead.")
+        raise StateError(
+            "this platform cannot confirm that only you can read the review state. "
+            "Render with render_review.py INPUT --output and use export and import instead."
+        )
     path = Path(path)
     if create:
         try:
@@ -129,17 +154,25 @@ def private_dir(path, create=False):
     resolved = path.resolve()
     for parent in resolved.parents:
         if _others_can_replace(parent, os.stat(parent)):
-            raise StateError(f"another user can rename or replace entries in {parent}, an ancestor of {path}. "
-                             "Keep the review state under directories only you and root can change.")
+            raise StateError(
+                f"another user can rename or replace entries in {parent}, an ancestor of {path}. "
+                "Keep the review state under directories only you and root can change."
+            )
     try:
         info = os.lstat(resolved)
     except OSError as error:
-        raise StateError(f"{path} is not a review state directory: {error.strerror}") from error
+        raise StateError(
+            f"{path} is not a review state directory: {error.strerror}"
+        ) from error
     if not stat.S_ISDIR(info.st_mode):
         raise StateError(f"{path} is not a directory")
     if info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise StateError(f"{path} must belong to you and be private (mode 0700); other users could read the review")
-    _acl_writers(resolved, info.st_gid)  # mode 0700 bounds a POSIX ACL; this refuses an ACL it cannot read
+        raise StateError(
+            f"{path} must belong to you and be private (mode 0700); other users could read the review"
+        )
+    _acl_writers(
+        resolved, info.st_gid
+    )  # mode 0700 bounds a POSIX ACL; this refuses an ACL it cannot read
     return resolved
 
 
@@ -171,7 +204,11 @@ def write_private(path, data, replace=True):
     try:
         os.fsync(directory)
     except OSError as error:
-        if error.errno not in {errno.EINVAL, getattr(errno, "ENOTSUP", errno.EINVAL), getattr(errno, "EOPNOTSUPP", errno.EINVAL)}:
+        if error.errno not in {
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+        }:
             raise
     finally:
         os.close(directory)
@@ -208,7 +245,17 @@ def new_round(state):
     """Create the next empty round directory and return it."""
     state = private_dir(state, create=True)
     rounds = private_dir(state / "rounds", create=True)
-    number = max((int(entry.name) for entry in rounds.iterdir() if ROUND_NAME.fullmatch(entry.name)), default=0) + 1
+    number = (
+        max(
+            (
+                int(entry.name)
+                for entry in rounds.iterdir()
+                if ROUND_NAME.fullmatch(entry.name)
+            ),
+            default=0,
+        )
+        + 1
+    )
     while number <= 9999:
         try:
             (rounds / f"{number:04d}").mkdir(mode=0o700)
@@ -222,7 +269,9 @@ def round_of(directory):
     """Return (state directory, round number) for a rounds/NNNN directory."""
     directory = Path(directory).resolve()
     if directory.parent.name != "rounds" or not ROUND_NAME.fullmatch(directory.name):
-        raise StateError(f"{directory} is not a round directory: expected STATE/rounds/NNNN")
+        raise StateError(
+            f"{directory} is not a round directory: expected STATE/rounds/NNNN"
+        )
     private_dir(directory)
     return private_dir(directory.parent.parent), int(directory.name)
 
@@ -247,7 +296,9 @@ def publish(state, number, held=False):
     with contextlib.nullcontext() if held else lock(state, "publish"):
         current = read_current(state)
         if current is not None and number < current:
-            raise StateError(f"round {number:04d} is older than the published round {current:04d}")
+            raise StateError(
+                f"round {number:04d} is older than the published round {current:04d}"
+            )
         write_private(Path(state) / "current", f"{number:04d}\n".encode("ascii"))
 
 
@@ -258,12 +309,18 @@ def round_lock(input_path):
     can change a round under another."""
     # Resolve aliases first, so a symlinked rounds directory still names the lock that rendering takes.
     path = Path(input_path).resolve()
-    if path.name != "input.json" or path.parent.parent.name != "rounds" or not ROUND_NAME.fullmatch(path.parent.name):
+    if (
+        path.name != "input.json"
+        or path.parent.parent.name != "rounds"
+        or not ROUND_NAME.fullmatch(path.parent.name)
+    ):
         return contextlib.nullcontext()
     try:
         state = private_dir(path.parent.parent.parent)
     except StateError:
-        return contextlib.nullcontext()  # not a review state directory, so no round to protect
+        return (
+            contextlib.nullcontext()
+        )  # not a review state directory, so no round to protect
     return lock(state, "publish")
 
 
@@ -279,12 +336,28 @@ def archive(state):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     commands = parser.add_subparsers(dest="command", required=True)
-    create = commands.add_parser("new-round", help="Create the next round directory and print its path")
-    create.add_argument("--state-dir", type=Path, required=True, help="The review's state directory; created if missing")
-    aside = commands.add_parser("archive", help="Move a finished review's state aside and print where it went")
-    aside.add_argument("--state-dir", type=Path, required=True, help="The review's state directory; no server may be running for it")
+    create = commands.add_parser(
+        "new-round", help="Create the next round directory and print its path"
+    )
+    create.add_argument(
+        "--state-dir",
+        type=Path,
+        required=True,
+        help="The review's state directory; created if missing",
+    )
+    aside = commands.add_parser(
+        "archive", help="Move a finished review's state aside and print where it went"
+    )
+    aside.add_argument(
+        "--state-dir",
+        type=Path,
+        required=True,
+        help="The review's state directory; no server may be running for it",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "archive":
@@ -292,13 +365,18 @@ def main(argv=None):
                 print(archive(args.state_dir))
             except StateError as error:
                 if "another process holds" in str(error):
-                    raise StateError("a server still runs for this review; stop it before archiving") from None
+                    raise StateError(
+                        "a server still runs for this review; stop it before archiving"
+                    ) from None
                 raise
         else:
-            print(new_round(args.state_dir))  # raw, unlike other output: shells capture it, as in ROUND=$(...)
+            print(
+                new_round(args.state_dir)
+            )  # raw, unlike other output: shells capture it, as in ROUND=$(...)
     except (StateError, OSError) as error:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import render_review
+
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
     return 0

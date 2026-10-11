@@ -7,6 +7,7 @@ the pre-commit hook does. A renamed skill, or one that moves into host-skills/,
 must raise its major version, and no file agents load may still name a skill
 that left. Python 3.10+; standard library only.
 """
+
 import argparse
 import difflib
 import re
@@ -19,12 +20,16 @@ LOADED = ("skills", "host-skills", "context")
 RENAME_SIMILARITY = 0.5
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 NAME = re.compile(r"""^name:[ \t]*["']?(.*?)["']?[ \t]*$""", re.MULTILINE)
-METADATA_VERSION = re.compile(r'^metadata:\n(?:[ \t]+\S.*\n)*?[ \t]+version:[ \t]*(.*?)[ \t]*$', re.MULTILINE)
+METADATA_VERSION = re.compile(
+    r"^metadata:\n(?:[ \t]+\S.*\n)*?[ \t]+version:[ \t]*(.*?)[ \t]*$", re.MULTILINE
+)
 SEMVER = re.compile(r'"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"\Z')
 
 
 def git(*args, cwd=None):
-    return subprocess.run(("git", *args), cwd=cwd, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        ("git", *args), cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout
 
 
 def parse_version(text):
@@ -37,7 +42,9 @@ def parse_version(text):
         return 'frontmatter has no metadata.version; add `metadata:` with `version: "1.0.0"`'
     version = SEMVER.match(found[1])
     if not version:
-        return f'metadata.version is {found[1]}; use a quoted "MAJOR.MINOR.PATCH" version'
+        return (
+            f'metadata.version is {found[1]}; use a quoted "MAJOR.MINOR.PATCH" version'
+        )
     return tuple(int(part) for part in version.groups())
 
 
@@ -57,11 +64,20 @@ def name(skill_md):
 
 def current_skills(root, staged):
     """Return {SKILL.md path: text} from the index, or from the working tree including untracked files."""
-    listed = git("ls-files", "-z", *([] if staged else ["--cached", "--others", "--exclude-standard"]), cwd=root)
+    listed = git(
+        "ls-files",
+        "-z",
+        *([] if staged else ["--cached", "--others", "--exclude-standard"]),
+        cwd=root,
+    )
     paths = {path for path in listed.split("\0") if SKILL_MD.fullmatch(path)}
     if staged:
         return {path: git("show", f":{path}", cwd=root) for path in paths}
-    return {path: (root / path).read_text(encoding="utf-8") for path in paths if (root / path).is_file()}
+    return {
+        path: (root / path).read_text(encoding="utf-8")
+        for path in paths
+        if (root / path).is_file()
+    }
 
 
 def merge_base(root, base_ref):
@@ -74,25 +90,58 @@ def merge_base(root, base_ref):
 
 def changed_paths(root, base, staged):
     if staged:
-        return set(filter(None, git("diff", "--cached", "--name-only", "--no-renames", "-z", base, cwd=root).split("\0")))
-    tracked = git("diff", "--name-only", "--no-renames", "-z", base, cwd=root).split("\0")
-    untracked = git("ls-files", "--others", "--exclude-standard", "-z", cwd=root).split("\0")
+        return set(
+            filter(
+                None,
+                git(
+                    "diff",
+                    "--cached",
+                    "--name-only",
+                    "--no-renames",
+                    "-z",
+                    base,
+                    cwd=root,
+                ).split("\0"),
+            )
+        )
+    tracked = git("diff", "--name-only", "--no-renames", "-z", base, cwd=root).split(
+        "\0"
+    )
+    untracked = git("ls-files", "--others", "--exclude-standard", "-z", cwd=root).split(
+        "\0"
+    )
     return {path for path in tracked + untracked if path}
 
 
 def similarity(old_text, new_text):
     """Share of matching non-blank lines after the frontmatter, so shared boilerplate cannot pair unrelated skills."""
+
     def body(text):
         text = text.replace("\r\n", "\n")
         frontmatter = FRONTMATTER.match(text)
-        return [line for line in text[frontmatter.end() if frontmatter else 0:].splitlines() if line.strip()]
+        return [
+            line
+            for line in text[frontmatter.end() if frontmatter else 0 :].splitlines()
+            if line.strip()
+        ]
+
     return difflib.SequenceMatcher(None, body(old_text), body(new_text)).ratio()
 
 
 def pair_moves(removed, added):
     """Pair each skill that left with the new skill that replaces it: one with the same name, else the most similar."""
-    scored = sorted(((2 if name(old) == name(new) else similarity(removed[old], added[new]), old, new)
-                     for old in removed for new in added), reverse=True)
+    scored = sorted(
+        (
+            (
+                2 if name(old) == name(new) else similarity(removed[old], added[new]),
+                old,
+                new,
+            )
+            for old in removed
+            for new in added
+        ),
+        reverse=True,
+    )
     paired, pairs = set(), []
     for score, old, new in scored:
         if score >= RENAME_SIMILARITY and old not in paired and new not in paired:
@@ -109,12 +158,39 @@ def stale_references(root, gone, staged):
         if "-" in old:
             pattern = re.compile(rf"(?<![\w-]){re.escape(old)}(?![\w-])")
         else:
-            pattern = re.compile(rf"[/$](?:pyre-agent:)?{re.escape(old)}(?![\w-])|`(?:pyre-agent:)?{re.escape(old)}`")
-        found = subprocess.run(("git", "grep", "--no-color", "-I", "-n", "-z", "-F", "-e", old,
-                                "--cached" if staged else "--untracked", "--", *LOADED), cwd=root, capture_output=True)
+            pattern = re.compile(
+                rf"[/$](?:pyre-agent:)?{re.escape(old)}(?![\w-])|`(?:pyre-agent:)?{re.escape(old)}`"
+            )
+        found = subprocess.run(
+            (
+                "git",
+                "grep",
+                "--no-color",
+                "-I",
+                "-n",
+                "-z",
+                "-F",
+                "-e",
+                old,
+                "--cached" if staged else "--untracked",
+                "--",
+                *LOADED,
+            ),
+            check=False,
+            cwd=root,
+            capture_output=True,
+        )
         if found.returncode > 1:
-            raise subprocess.CalledProcessError(found.returncode, found.args, stderr=found.stderr.decode(errors="replace"))
-        left = f"which is now {new}; update the reference" if new else "a skill that was removed; remove the reference"
+            raise subprocess.CalledProcessError(
+                found.returncode,
+                found.args,
+                stderr=found.stderr.decode(errors="replace"),
+            )
+        left = (
+            f"which is now {new}; update the reference"
+            if new
+            else "a skill that was removed; remove the reference"
+        )
         for line in filter(None, found.stdout.split(b"\n")):
             path, number, text = line.decode(errors="replace").split("\0", 2)
             if pattern.search(text):
@@ -126,7 +202,13 @@ def check(base_ref, staged):
     root = Path(git("rev-parse", "--show-toplevel").strip())
     base = merge_base(root, base_ref)
     current = current_skills(root, staged)
-    at_base = {path for path in git("ls-tree", "-r", "-z", "--name-only", base, cwd=root).split("\0") if SKILL_MD.fullmatch(path)}
+    at_base = {
+        path
+        for path in git("ls-tree", "-r", "-z", "--name-only", base, cwd=root).split(
+            "\0"
+        )
+        if SKILL_MD.fullmatch(path)
+    }
     changed = changed_paths(root, base, staged)
     errors, versions = [], {}
     for skill_md, text in sorted(current.items()):
@@ -136,16 +218,25 @@ def check(base_ref, staged):
             continue
         versions[skill_md] = version
         if parse_name(text) != name(skill_md):
-            errors.append(f"{skill_md}: frontmatter name is {parse_name(text)}; use the folder name, {name(skill_md)}")
+            errors.append(
+                f"{skill_md}: frontmatter name is {parse_name(text)}; use the folder name, {name(skill_md)}"
+            )
     for skill_md in sorted(versions.keys() & at_base):
         folder = skill_md.removesuffix("SKILL.md")
         if not any(path.startswith(folder) for path in changed):
             continue
         previous = parse_version(git("show", f"{base}:{skill_md}", cwd=root))
         if isinstance(previous, tuple) and versions[skill_md] <= previous:
-            errors.append(f"{skill_md}: {folder} changed since {base[:12]}, so raise metadata.version above {shown(previous)}")
-    removed = {path: git("show", f"{base}:{path}", cwd=root) for path in at_base - current.keys()}
-    pairs = pair_moves(removed, {path: current[path] for path in current.keys() - at_base})
+            errors.append(
+                f"{skill_md}: {folder} changed since {base[:12]}, so raise metadata.version above {shown(previous)}"
+            )
+    removed = {
+        path: git("show", f"{base}:{path}", cwd=root)
+        for path in at_base - current.keys()
+    }
+    pairs = pair_moves(
+        removed, {path: current[path] for path in current.keys() - at_base}
+    )
     for old, new in pairs:
         previous = parse_version(removed[old])
         if new not in versions or not isinstance(previous, tuple):
@@ -158,9 +249,13 @@ def check(base_ref, staged):
         else:
             breaking = None
         if breaking and versions[new][0] <= previous[0]:
-            errors.append(f"{new}: {breaking}, so raise metadata.version to {previous[0] + 1}.0.0 or above")
+            errors.append(
+                f"{new}: {breaking}, so raise metadata.version to {previous[0] + 1}.0.0 or above"
+            )
         elif not breaking and versions[new] <= previous:
-            errors.append(f"{new}: moves {old.removesuffix('SKILL.md')} at {shown(previous)}, so raise metadata.version above {shown(previous)}")
+            errors.append(
+                f"{new}: moves {old.removesuffix('SKILL.md')} at {shown(previous)}, so raise metadata.version above {shown(previous)}"
+            )
     names_now = {name(path) for path in current}
     gone = {name(path): None for path in removed if name(path) not in names_now}
     gone.update({name(old): name(new) for old, new in pairs if name(old) in gone})
@@ -169,13 +264,24 @@ def check(base_ref, staged):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--base", default="origin/main", help="Base ref to compare with (default origin/main)")
-    parser.add_argument("--staged", action="store_true", help="Check the index instead of the working tree")
+    parser.add_argument(
+        "--base",
+        default="origin/main",
+        help="Base ref to compare with (default origin/main)",
+    )
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="Check the index instead of the working tree",
+    )
     args = parser.parse_args()
     try:
         errors = check(args.base, args.staged)
     except subprocess.CalledProcessError as error:
-        print(f"git {' '.join(error.cmd[1:])} failed: {error.stderr.strip()}", file=sys.stderr)
+        print(
+            f"git {' '.join(error.cmd[1:])} failed: {error.stderr.strip()}",
+            file=sys.stderr,
+        )
         return 2
     for error in errors:
         print(error, file=sys.stderr)
