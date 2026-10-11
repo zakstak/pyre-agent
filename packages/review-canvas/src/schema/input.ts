@@ -138,6 +138,7 @@ const inputRules = Schema.makeFilter((input: typeof ReviewInputFields.Type) => {
       issue: "true requires target.changed_files matching the supplied file count"
     }
   }
+  // An early refusal, not a guarantee: the feedback schema checks the size of the whole export.
   let pathBytes = 0
   for (const file of input.files) pathBytes += utf8.encode(JSON.stringify(file.path)).length
   if (2 * pathBytes + Limits.FEEDBACK_BYTES_PER_FILE * input.files.length > Limits.MAX_FEEDBACK_PATH_BYTES) {

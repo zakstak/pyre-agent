@@ -104,10 +104,11 @@ export type Timestamp = typeof Timestamp.Type
 /**
  * An exact repository-relative path, as Git names it: segments joined by single slashes, with no empty, `.`, or `..`
  * segment and no leading or trailing slash. The collector writes Git's names as they are, so a name may hold spaces,
- * backslashes, tabs, or line breaks; a name that is not UTF-8 or holds another control character, NUL included, has
- * no representation, and the collector refuses it.
+ * backslashes, tabs, line breaks, or a byte order mark, and may be only those: it is plain text, not trimmed. A name
+ * that is not UTF-8 or holds another control character, NUL included, has no representation, and the collector
+ * refuses it.
  */
-export const RepoPath = nonEmptyText(Limits.MAX_PATH_UNITS).check(
+export const RepoPath = text(Limits.MAX_PATH_UNITS).check(
   Schema.makeFilter((value: string) =>
     value.split("/").every((part) => part !== "" && part !== "." && part !== "..") ||
     "expected a repository-relative path with no empty, . or .. segment and no leading or trailing slash"
@@ -119,7 +120,7 @@ export type RepoPath = typeof RepoPath.Type
  * A working tree's absolute POSIX path, as `git rev-parse --show-toplevel` prints it: no empty, `.`, or `..`
  * segment and no trailing slash. Reviews of a working tree are keyed by it, so one tree has one spelling.
  */
-export const WorktreeRoot = nonEmptyText(Limits.MAX_PATH_UNITS).check(
+export const WorktreeRoot = text(Limits.MAX_PATH_UNITS).check(
   Schema.makeFilter((value: string) => {
     const segments = value.slice(1).split("/")
     return value === "/" ||

@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { documentBytes } from "./encoding.ts"
 import { FileGroup, FileStatus } from "./input.ts"
 import * as Limits from "./limits.ts"
 import {
@@ -20,7 +21,7 @@ import {
   ThreadId,
   Timestamp
 } from "./primitives.ts"
-import { Target } from "./target.ts"
+import { pullRequestKey, Target } from "./target.ts"
 import { Thread } from "./thread.ts"
 
 /** The format key of feedback: a review's notes, approvals, and comments, exported or imported as one file. */
@@ -102,7 +103,12 @@ export type Attachment = typeof Attachment.Type
  * A pull request comment's identity on GitHub, kept so a refresh imports each comment once. Every GitHub comment and
  * reply in a review comes from one pull request: the target's, or the open one of the working tree's branch.
  */
-const gitHubFields = { id: GitHubCommentId, author: GitHubLogin, url: GitHubCommentUrl }
+const gitHubFields = {
+  id: GitHubCommentId,
+  /** Null when GitHub reports no author, as for a deleted account. The page then shows "ghost", as GitHub does. */
+  author: Schema.NullOr(GitHubLogin),
+  url: GitHubCommentUrl
+}
 
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
 export const CommentSource = Schema.Union([
@@ -190,6 +196,20 @@ export const Reply = Schema.Union([ReviewerReply, AgentReply, GitHubReply]).anno
 })
 export type Reply = typeof Reply.Type
 
+// At one time, an agent's answer comes first and the reviewer's reply last, since an accept or a reopen judges what
+// came before it. Replies imported from GitHub sit between.
+const ACTOR_ORDER = { agent: 0, github: 1, reviewer: 2 } satisfies { readonly [A in Reply["actor"]]: number }
+
+/**
+ * The order of a comment's conversation, as the Python version sorted it: by time, then by actor, then by ID. Times
+ * compare as strings, since a timestamp has one spelling. Feedback lists replies in this order, so an import replays
+ * them in it, and an export must sort with it.
+ */
+export const compareReplies = (a: Reply, b: Reply): number =>
+  a.created_at !== b.created_at
+    ? a.created_at < b.created_at ? -1 : 1
+    : ACTOR_ORDER[a.actor] - ACTOR_ORDER[b.actor] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+
 const commentFields = {
   id: CommentId,
   source: CommentSource,
@@ -200,7 +220,7 @@ const commentFields = {
   body: GitHubBody,
   created_at: Timestamp,
   updated_at: Timestamp,
-  /** The conversation, in order. */
+  /** The conversation, in the order {@link compareReplies} gives. */
   replies: Schema.Array(Reply)
 }
 
@@ -231,6 +251,19 @@ export const Comment = CommentFields.check(Schema.makeFilter((comment: typeof Co
   }
   if (count("github") > Limits.MAX_GITHUB_REPLIES) {
     return { path: ["replies"], issue: `holds more than ${Limits.MAX_GITHUB_REPLIES} GitHub replies` }
+  }
+  // An import replays replies in order, and the last one decides whose turn it is, so one order is the only order.
+  // Equal keys mean a repeated ID, which the feedback's ID check reports.
+  let previous: Reply | undefined
+  for (const [index, reply] of comment.replies.entries()) {
+    if (previous !== undefined && compareReplies(previous, reply) > 0) {
+      return {
+        path: ["replies", index],
+        issue: `is out of order in comment ${comment.id}: ` +
+          "replies go by created_at, then agent, GitHub, and reviewer, then ID"
+      }
+    }
+    previous = reply
   }
   return undefined
 }))
@@ -342,17 +375,16 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   }
 
   // GitHub IDs are unique, and every GitHub comment comes from one pull request: the target's, or for a working tree
-  // the one its first GitHub comment names.
+  // the one its first GitHub comment names. Pull requests compare by key, since GitHub ignores the case of names.
   const gitHubIds = new Set<string>()
-  let pullRequest = feedback.target.kind === "github_pr" ? `${feedback.target.url}#` : undefined
+  let pullRequest = feedback.target.kind === "github_pr" ? pullRequestKey(feedback.target.url) : undefined
   const fromGitHub = (
-    github: { readonly id: string; readonly url: string },
+    github: { readonly id: string; readonly url: GitHubCommentUrl },
     at: ReadonlyArray<PropertyKey>
   ): Schema.FilterIssue | undefined => {
     if (gitHubIds.has(github.id)) return { path: [...at, "id"], issue: "duplicate GitHub comment ID" }
     gitHubIds.add(github.id)
-    // The URL schema guarantees a fragment, so this is the pull request's URL and its #.
-    const page = github.url.slice(0, github.url.indexOf("#") + 1)
+    const page = pullRequestKey(github.url)
     pullRequest ??= page
     if (page === pullRequest) return undefined
     return {
@@ -404,12 +436,20 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   if (feedbackTextUnits(feedback) > Limits.MAX_FEEDBACK_TEXT_UNITS) {
     return `notes, comments, and replies exceed ${Limits.MAX_FEEDBACK_TEXT_UNITS} UTF-16 code units together`
   }
+  // The rule every other limit only approaches: written as a document, feedback fits its byte limit, so an export
+  // always imports again. The text budget counts UTF-16 units, which can take up to 3 bytes each.
+  const bytes = documentBytes(feedback).byteLength
+  if (bytes > Limits.MAX_FEEDBACK_BYTES) {
+    return `takes ${bytes} bytes as exported JSON, more than ${Limits.MAX_FEEDBACK_BYTES / 1024 / 1024} MiB`
+  }
   return undefined
 })
 
 /**
  * A review's feedback as one file: the round it describes, the reviewer's notes, approvals, comments with their
  * conversations, and the threads that answered. Export writes it; import replays its comments and replies as actions.
+ * Only replies have a required order. Comments, approvals, threads, and earlier rounds are keyed by a unique ID,
+ * path, or round, and none depends on another, so their order changes nothing.
  */
 export const Feedback = FeedbackFields.check(feedbackRules)
 export type Feedback = typeof Feedback.Type
