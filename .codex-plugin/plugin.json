@@ -1,0 +1,8 @@
+{
+  "name": "pyre-agent",
+  "version": "1.0.0",
+  "description": "Zak's reusable engineering skills and startup reference context.",
+  "author": { "name": "Zak" },
+  "license": "MIT",
+  "skills": "./skills/"
+}

@@ -1,3 +1,8 @@
+# Pyre Agent helper context
+
+Use these preferences when they apply to the current task. Loading this reference
+does not require invoking a skill, running extra checks, or changing project files.
+
 # Working with Zak
 
 ## About me

@@ -1,88 +1,127 @@
 # Pyre Agent
 
-Zak's global agent defaults: reusable skills for Claude Code, Codex, and T3 Code, plus a global instruction file.
+Zak's reusable engineering skills and optional startup context, packaged as a
+plugin for Codex and Claude Code. Each host installs, loads, updates, and removes
+its own plugin files. T3 Code uses the plugin support of its selected provider.
 
 | Path | Contents |
 | --- | --- |
-| `skills/` | Portable skills for any provider that reads `SKILL.md` folders. |
-| `host-skills/claude-code/` | Claude Code-only skills. |
-| `global/AGENTS.md` | Global instructions. |
-| `install.py` | Installs the skills and global instructions. |
+| `skills/` | Shared skills for both hosts. |
+| `host-skills/claude-code/` | The Claude Code-only `codex-branch-review` skill. |
+| `context/working-with-zak.md` | Reference context loaded once at startup. |
+| `hooks/hooks.json` | The shared startup-only hook. |
+| `.codex-plugin/plugin.json` | Codex's plugin manifest. |
+| `.claude-plugin/plugin.json` | Claude Code's plugin manifest. |
+| `.agents/plugins/marketplace.json` | Codex's local marketplace catalog. |
+| `.claude-plugin/marketplace.json` | Claude Code's local marketplace catalog. |
 
-## Install the skills
+## Install from a local checkout
 
-`install.py` copies every skill from one Git version of this repository into each host's skill folder. It needs Python 3.10 or later and Git.
+Run these commands from this repository. They register the checkout as the
+`pyre-agent-local` marketplace and install the `pyre-agent` plugin for your user.
+They do not copy skills into a global skill folder or write an instruction file.
 
-```sh
-python3 install.py
-```
-
-| Host | Skill folder | Skills |
-| --- | --- | --- |
-| Claude Code | `${CLAUDE_CONFIG_DIR:-~/.claude}/skills` | `skills/` and `host-skills/claude-code/` |
-| Codex | `~/.agents/skills` | `skills/` |
-
-The installer acts on each host whose configuration folder exists: `${CLAUDE_CONFIG_DIR:-~/.claude}` for Claude Code and `${CODEX_HOME:-~/.codex}` for Codex. To choose one, pass `--host claude-code` or `--host codex`. T3 Code uses the skill folder of its selected provider.
-
-By default, the installer fetches `origin` and installs `main`. Your checkout's branch and uncommitted edits never reach the installed skills. Run it again after a change merges.
-
-The installer records what it installed in `${XDG_STATE_HOME:-~/.local/state}/pyre-agent/install.json` and changes nothing else:
-
-- If a skill folder with the same name already exists and the installer did not create it, the installer reports a conflict and leaves the folder alone.
-- If you edited an installed copy, the installer keeps your copy. `--force` replaces it.
-- If a skill leaves the repository, the installer removes its copy.
-- If the earlier README steps left a symlink into this checkout, the installer replaces the symlink with a copy.
-
-The installer exits with code 1 after it skips a conflict or an edited copy, and with code 2 when it cannot run.
-
-### Try a change before it merges
-
-Tag the commit `preview`, push the tag, and install it:
+### Codex
 
 ```sh
-git tag -f preview <commit>
-git push -f origin preview
-python3 install.py --ref preview
+codex plugin marketplace add "$PWD"
+codex plugin add pyre-agent@pyre-agent-local
 ```
 
-`--ref` takes a tag, a branch on `origin`, or a commit. To return to `main`, run `python3 install.py`. To install a commit you have not pushed, run `python3 install.py --ref HEAD --offline`.
+In Codex, open `/hooks` and review and trust the plugin's startup hook. Installation
+alone does not trust hooks. Until you trust it, the skills load but the helper
+context does not. Start a new session after the review, because this hook matches
+only a new session's `startup` event.
 
-### Check or remove the installed skills
+### Claude Code
 
 ```sh
-python3 install.py status      # installed versions, local edits, and versions on main
-python3 install.py --dry-run   # print the plan without changing installed skills
-python3 install.py uninstall   # remove the installed skills and nothing else
+claude plugin marketplace add "$PWD"
+claude plugin install pyre-agent@pyre-agent-local
 ```
 
-To have an agent check an install end to end, give it the [install verification runbook](docs/verify-install.md). It changes nothing and reports each finding with a proposed fix.
+Start a new session. Claude Code loads the shared skills, its extra review skill,
+and the startup hook. To inspect registration, use `/hooks` and
+`claude plugin details pyre-agent`.
 
-Invoke a skill by name with `/skill-name` in Claude Code or `$skill-name` in Codex. Agents also pick skills up from matching requests, except `correct`, `deliver-draft-pr`, and `codex-branch-review`, which run only when you invoke them by name.
+If you previously ran `install.py`, follow the [one-time migration](docs/migrate-install.md)
+to remove its recorded copies and instruction blocks. Keeping both installs
+loads duplicate skills and repeats the context.
 
-### Codex branch review requirements
+## Use the skills and helper context
 
-The installer adds `codex-branch-review` for Claude Code only. The skill needs Python 3.11 or later and an authenticated Codex CLI with access to `gpt-6.1-sol`. Claude Code asks for Bash approval to run its Python wrapper. See the [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md) for details.
+Plugin skills have the `pyre-agent:` namespace. Invoke `/pyre-agent:unslop` in
+Claude Code or `$pyre-agent:unslop` in Codex. The host also selects skills whose
+descriptions match the task. `correct`, `deliver-draft-pr`, and
+`codex-branch-review` require an explicit invocation.
 
-## Install the global instructions
+The plugin supplies `context/working-with-zak.md` through a `SessionStart` hook
+with the matcher `^startup$`. The hook reads the installed file and emits its
+contents as context. It performs no installation or configuration writes.
+It does not run on resume, clear, compaction, subagent start, or tool calls.
+After compaction, the host can summarize this context. The full text is not
+reloaded automatically.
 
-`install.py` also writes `global/AGENTS.md`, from the same commit as the skills, into each host's instruction file:
+Keep this reference short. Claude Code passes at most 10,000 characters directly
+from one hook output, and Codex has its own hook context limits. Project-specific
+instructions still belong in the project's instruction files.
 
-| Host | File |
-| --- | --- |
-| Claude Code | `${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md` |
-| Codex | `${CODEX_HOME:-~/.codex}/AGENTS.md` |
+### Claude Code branch review
 
-The installer owns one block that starts with a `<!-- pyre-agent:begin ... -->` line and ends with `<!-- pyre-agent:end -->`. Later installs replace only that block. Text outside the block is yours, and the installer never changes it. If you edit inside the block, the installer keeps your edit and reports it until you pass `--force`.
+The Claude manifest adds `host-skills/claude-code/` to the shared skill inventory.
+The Codex manifest scans only `skills/`, so it does not expose this host-specific
+workflow. Invoke `/pyre-agent:codex-branch-review` in Claude Code.
 
-The first install into an existing file merges it. The installer backs up the file to `<name>.pyre-backup-<timestamp>`, then compares its `##` sections with `global/AGENTS.md`. Curly quotes and whitespace do not count as differences.
+The bridge needs Python 3.11 or later and an authenticated Codex CLI with access
+to `gpt-6.1-sol`. Claude Code uses its normal Bash permission flow to run the
+bundled Python wrapper. See the [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
 
-- If a section has the same heading and the same text, the installer drops it, because the block repeats it.
-- If a section has a heading that `global/AGENTS.md` lacks, the installer keeps it after the block. It also keeps text above the first heading when that text differs from the repository's.
-- If a section has the same heading but different text, the installer shows a diff and writes nothing. Edit or rename your section, then run the installer again.
+## Update a local install
 
-The installer cannot recognize a section whose heading changed, so it lists every section it keeps. Delete any that repeat the block. It removes an `@.../global/AGENTS.md` import line or an `AGENTS.md` symlink into this checkout, which the earlier README steps created.
+Update the registered checkout with your normal Git workflow. The local
+marketplace exposes that checkout's current files, including uncommitted edits.
+Keep a separate checkout for experiments if you want sessions to use only
+reviewed changes.
 
-Codex reads a non-empty `AGENTS.override.md` instead of `AGENTS.md`, and the installer warns when one exists. `uninstall` removes the block and deletes any instruction file the installer created. A backup stays where the merge left it.
+For Codex, refresh its installed copy through the host:
+
+```sh
+codex plugin add pyre-agent@pyre-agent-local
+```
+
+Then start a new session. If `/hooks` reports the hook needs review, trust its
+current definition there before starting the next session.
+
+Claude Code reads a relative-source plugin from a local marketplace in place.
+Its edits load at the next session start or with `/reload-plugins`. Reloading
+components does not turn a resume into a startup, so start a new session to load
+the helper context again.
+
+The manifests record the same plugin version. Raise both versions for a release.
+Individual skill versions follow the checks below.
+
+## Verify or remove an install
+
+See [Verify a native plugin install](docs/verify-install.md) for read-only checks,
+and for testing installation in temporary configuration directories without
+running a model.
+
+The hosts own removal:
+
+```sh
+codex plugin remove pyre-agent@pyre-agent-local
+claude plugin uninstall pyre-agent@pyre-agent-local
+```
+
+Removing the plugin does not undo preferences you wrote in your own instruction
+files. The plugin does not own those files.
+
+## Plugin references
+
+- [Codex packaging, marketplaces, and bundled hooks](https://developers.openai.com/plugins/build/plugins)
+- [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks)
+- [Claude Code local marketplace behavior](https://code.claude.com/docs/en/plugin-marketplaces#test-an-edit-to-a-plugin)
+- [Claude Code plugin manifests](https://code.claude.com/docs/en/plugins-reference)
 
 ## Skill versions
 

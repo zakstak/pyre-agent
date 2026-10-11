@@ -4,7 +4,7 @@ description: Ask Codex GPT-6.1 Sol for an independent adversarial review of a Gi
 argument-hint: "[base-ref] [review focus or specialist requirements]"
 disable-model-invocation: true
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Adversarial branch review through Codex
@@ -12,7 +12,7 @@ metadata:
 This skill runs only in Claude Code. It calls the paired Codex reviewer using the
 exact model `gpt-6.1-sol`, then brings its findings back into this conversation.
 It does not change the current Claude model. Invocation is explicit:
-`/codex-branch-review origin/main focus on authorization and compatibility`.
+`/pyre-agent:codex-branch-review origin/main focus on authorization and compatibility`.
 
 Caller instructions: $ARGUMENTS
 
