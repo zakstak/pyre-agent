@@ -168,7 +168,10 @@ test("input: paths are repository-relative, as Git names them", () => {
   }
   refused(decode(set(simpleReview(), file("path"), "a\u0000b")), /files\[0\]\.path: contains a control character/)
   const renamed = set(simpleReview(), file("status"), "renamed")
-  refused(decode(set(renamed, file("old_path"), "../a.py")), /files\[0\]\.old_path: expected a repository-relative path/)
+  refused(
+    decode(set(renamed, file("old_path"), "../a.py")),
+    /files\[0\]\.old_path: expected a repository-relative path/
+  )
 })
 
 test("input: format errors name the format", () => {

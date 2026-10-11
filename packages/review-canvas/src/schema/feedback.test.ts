@@ -242,7 +242,7 @@ const ported: ReadonlyArray<Case> = [
   {
     python: "invalid-start-negative",
     edit: change([...anchor, "start"], -1),
-    message: /comments\[0\]\.anchor\.start: Expected a value between 0 and 50000000/
+    message: /comments\[0\]\.anchor\.start: Expected a value between 0 and 4194304/
   },
   {
     python: "invalid-status-list",
@@ -637,6 +637,33 @@ test("feedback: earlier rounds come before the feedback's round, with one digest
   const doc = fixture("feedback/worktree.json")
   set(doc, ["earlier_rounds"], [{ round: 1, input_sha256: "c".repeat(64), general_notes: "", files: [] }])
   refused(decode(doc), /comments\[0\]\.history\[0\]\.snapshot\.input_sha256: differs from another digest of this round/)
+})
+
+test("feedback: anchor rows are zero-based, and offsets stay within a patch", () => {
+  const withAnchor = (changes: { readonly [key: string]: Json }) => {
+    const doc = fixture("feedback/pull-request.json")
+    for (const [key, value] of Object.entries(changes)) set(doc, [...anchor, key], value)
+    return decode(doc)
+  }
+  // A patch has at most 10,000 rows, numbered 0 through 9,999.
+  accepted(withAnchor({ start_row: Limits.MAX_PATCH_LINES - 1, end_row: Limits.MAX_PATCH_LINES - 1 }))
+  refused(
+    withAnchor({ end_row: Limits.MAX_PATCH_LINES }),
+    /comments\[0\]\.anchor\.end_row: Expected a value between 0 and 9999/
+  )
+  // Offsets index the patch's rows joined with LF; the exclusive end can reach the patch's length, and no further.
+  const end = Limits.MAX_PATCH_UNITS
+  accepted(withAnchor({ start: end - 4, end }))
+  refused(
+    withAnchor({ start: end - 3, end: end + 1 }),
+    /comments\[0\]\.anchor\.end: Expected a value between 0 and 4194304/
+  )
+  const attachment = (start: number, stop: number) => {
+    const attached = { state: "attached", reason: "", start, end: stop }
+    return decode(set(fixture("feedback/pull-request.json"), [...comment, "attachment"], attached))
+  }
+  accepted(attachment(end - 1, end))
+  refused(attachment(end, end + 1), /comments\[0\]\.attachment\.end: Expected a value between 0 and 4194304/)
 })
 
 test("feedback: a GitHub comment may be longer than the reviewer's limit, up to GitHub's", () => {

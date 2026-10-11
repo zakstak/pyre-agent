@@ -21,8 +21,10 @@ export const MAX_FILES = 2000
 export const MAX_CALLOUTS = 100
 /** One patch, in UTF-16 code units. */
 export const MAX_PATCH_UNITS = 4 * MiB
-/** LF-delimited lines in one patch. Anchor rows are patch rows, so they share this bound. */
+/** LF-delimited lines in one patch. */
 export const MAX_PATCH_LINES = 10_000
+/** The last zero-based patch row an anchor can name. */
+export const MAX_ROW = MAX_PATCH_LINES - 1
 /** LF-delimited lines in all patches of one input. */
 export const MAX_TOTAL_PATCH_LINES = 50_000
 /**
@@ -79,8 +81,11 @@ export const MAX_LABEL_UNITS = 200
 export const MAX_ID_LENGTH = 80
 /** Line counts and the declared changed-file count. Booleans are not counts. */
 export const MAX_COUNT = 10 ** 12
-/** Anchor and attachment offsets into a patch. */
-export const MAX_OFFSET = 50_000_000
+/**
+ * Anchor and attachment offsets into a patch's rows joined with LF, which is no longer than the patch. An end offset
+ * is exclusive, so it can equal the length. The Python version allowed 50,000,000, more than any patch holds.
+ */
+export const MAX_OFFSET = MAX_PATCH_UNITS
 /** Source line numbers an anchor names. Hunk headers allow 12 digits. */
 export const MAX_LINE = 10 ** 12
 

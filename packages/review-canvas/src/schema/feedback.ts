@@ -30,7 +30,7 @@ const Text = text(Limits.MAX_TEXT_UNITS)
 const RequiredText = nonEmptyText(Limits.MAX_TEXT_UNITS)
 const GitHubBody = nonEmptyText(Limits.MAX_GITHUB_BODY_UNITS)
 const Offset = integer(0, Limits.MAX_OFFSET)
-const Row = integer(0, Limits.MAX_PATCH_LINES)
+const Row = integer(0, Limits.MAX_ROW)
 const SourceLine = integer(1, Limits.MAX_LINE)
 
 /** The index of the first value that repeats an earlier one. */
