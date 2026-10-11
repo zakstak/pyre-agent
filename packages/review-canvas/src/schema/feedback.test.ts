@@ -6,7 +6,7 @@ import { existsSync, readdirSync } from "node:fs"
 import { test } from "node:test"
 import { decodeBytes, decodeValue, encodeDocument, FeedbackDocument } from "./document.ts"
 import { documentText } from "./encoding.ts"
-import { AgentReply, Answer, Feedback } from "./feedback.ts"
+import { AgentReply, Answer, compareReplies, Feedback } from "./feedback.ts"
 import * as Limits from "./limits.ts"
 import { GitHubCommentUrl } from "./primitives.ts"
 import { pullRequestKey, sameTarget, Target, targetKey } from "./target.ts"
@@ -448,7 +448,7 @@ const agent = {
   id: "a9",
   actor: "agent",
   thread: "thread-claude",
-  created_at: "2026-10-10T05:00:00.000Z",
+  created_at: "2026-10-10T00:20:00.000Z",
   body: "Done."
 }
 
@@ -470,7 +470,7 @@ test("feedback: agent answers follow the reply rules of the Python input", () =>
       answer({ disposition: "rejected", fixed_in: undefined }),
       answer({ fixed_in: { commit: "e".repeat(40) } }),
       answer({ disposition: "deferred", fixed_in: undefined, blocker: "Waiting on the API owner." }),
-      answer({ disposition: "question", fixed_in: undefined, created_at: "2026-10-10T10:00:00.250Z" })
+      answer({ disposition: "question", fixed_in: undefined, created_at: "2026-10-10T00:20:00.250Z" })
     ]
   ) accepted(withAnswer(valid))
   const cases: ReadonlyArray<readonly [Json, RegExp]> = [
@@ -504,7 +504,7 @@ test("feedback: agent answers follow the reply rules of the Python input", () =>
   ]
   for (const [value, message] of cases) refused(withAnswer(value), message)
   refused(
-    decode(set(conversation(), reply(0, 2), answer({ id: "a1" }))),
+    decode(set(conversation(), reply(0, 2), answer({ id: "a1", created_at: "2026-10-10T01:30:00.000Z" }))),
     /comments\[0\]\.replies\[2\]\.id: duplicate reply ID/
   )
 })
@@ -668,6 +668,41 @@ test("feedback: anchor rows are zero-based, and offsets stay within a patch", ()
   refused(attachment(end, end + 1), /comments\[0\]\.attachment\.end: Expected a value between 0 and 4194304/)
 })
 
+test("feedback: replies are listed by time, then agent, GitHub, and reviewer, then ID", () => {
+  // Python's thread() merged answers and reviewer replies in this order. An import replays replies as listed, and the
+  // last decides whose turn it is, so an accept listed before the answer it judges would leave the wrong turn.
+  const swapped = conversation()
+  const answer = copy(get(swapped, reply(0, 2)))
+  set(swapped, reply(0, 2), copy(get(swapped, reply(0, 1))))
+  set(swapped, reply(0, 1), answer)
+  refused(
+    decode(swapped),
+    new RegExp(
+      "^Feedback is invalid: comments\\[0\\]\\.replies\\[2\\]: is out of order in comment one: " +
+        "replies go by created_at, then agent, GitHub, and reviewer, then ID$"
+    )
+  )
+  // At one time, an answer comes before a GitHub reply, and both before the reviewer's reply.
+  const at = "2026-10-10T01:00:00.000Z"
+  const reviewer: Json = { id: "r9", actor: "reviewer", created_at: at, action: "accept", body: "" }
+  const answered: Json = { ...agent, id: "a9", created_at: at, disposition: "question" }
+  const github = set(set(copy(get(conversation(), reply(2, 0))), ["created_at"], at), ["id"], "gh-r9")
+  set(github, ["github", "id"], "PRRC_kwDOAbCdEf4AAAABcDeFgZ")
+  const withReplies = (replies: ReadonlyArray<Json>) =>
+    decode(set(conversation(), [...comment, "replies"], [...replies]))
+  accepted(withReplies([answered, github, reviewer]))
+  refused(withReplies([reviewer, answered]), /comments\[0\]\.replies\[1\]: is out of order in comment one/)
+  refused(withReplies([github, answered]), /comments\[0\]\.replies\[1\]: is out of order/)
+  refused(withReplies([reviewer, github]), /comments\[0\]\.replies\[1\]: is out of order/)
+  // The same actor at the same time goes by ID.
+  accepted(withReplies([reviewer, set(copy(reviewer), ["id"], "r9a")]))
+  refused(withReplies([set(copy(reviewer), ["id"], "r9a"), reviewer]), /comments\[0\]\.replies\[1\]: is out of order/)
+  // Sorting a shuffled conversation with compareReplies gives the order the fixture lists.
+  const listed = accepted(decode(conversation())).comments[0]?.replies ?? []
+  assert.equal(listed.length, 4)
+  assert.deepEqual([...listed].reverse().sort(compareReplies), listed)
+})
+
 test("feedback: GitHub comments may be empty, though the reviewer's may not", () => {
   // An approving review summary often has no body. The importer decides whether to import one; feedback can hold it.
   const doc = conversation()
@@ -705,7 +740,8 @@ test("feedback: each GitHub comment and reply is imported once", () => {
   set(twoComments, ["comments", 3, "source", "id"], sourceId(twoComments, 2))
   refused(decode(twoComments), /comments\[3\]\.source\.id: duplicate GitHub comment ID/)
   const twoReplies = conversation()
-  set(twoReplies, reply(2, 2), set(copy(get(twoReplies, reply(2, 0))), ["id"], "gh-r2"))
+  const later = set(copy(get(twoReplies, reply(2, 0))), ["created_at"], "2026-10-10T04:00:00.000Z")
+  set(twoReplies, reply(2, 2), set(later, ["id"], "gh-r2"))
   refused(decode(twoReplies), /comments\[2\]\.replies\[2\]\.github\.id: duplicate GitHub comment ID/)
 })
 
@@ -816,7 +852,7 @@ test("feedback: reply, answer, and thread counts are limited", () => {
     return doc
   }
   const reviewer = (index: number): Json => ({
-    id: `x${index}`,
+    id: `x${String(index).padStart(4, "0")}`,
     actor: "reviewer",
     created_at: "2026-10-10T01:00:00.000Z",
     action: "reply",
@@ -827,12 +863,17 @@ test("feedback: reply, answer, and thread counts are limited", () => {
     decode(replies(Limits.MAX_REVIEWER_REPLIES + 1, reviewer)),
     /comments\[0\]\.replies: holds more than 200 reviewer replies/
   )
-  const github = (index: number): Json => set(copy(get(conversation(), reply(2, 0))), ["id"], `g${index}`)
+  const github = (index: number): Json =>
+    set(copy(get(conversation(), reply(2, 0))), ["id"], `g${String(index).padStart(4, "0")}`)
   refused(
     decode(replies(Limits.MAX_GITHUB_REPLIES + 1, github)),
     /comments\[0\]\.replies: holds more than 200 GitHub replies/
   )
-  const answers = (index: number): Json => ({ ...agent, id: `y${index}`, disposition: "question" })
+  const answers = (index: number): Json => ({
+    ...agent,
+    id: `y${String(index).padStart(4, "0")}`,
+    disposition: "question"
+  })
   refused(decode(replies(Limits.MAX_AGENT_ANSWERS + 1, answers)), /comments: hold more than 5000 agent answers/)
   const threads = conversation()
   const thread = (index: number): Json => ({ id: `t${index}`, label: "T", host: { kind: "t3" } })
