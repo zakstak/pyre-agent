@@ -16,7 +16,7 @@ import sys
 from pathlib import Path, PurePosixPath
 
 SKILL_MD = re.compile(r"(?:skills/[^/]+|host-skills/[^/]+/[^/]+)/SKILL\.md")
-LOADED = ("skills", "host-skills", "context")
+LOADED = ("skills", "host-skills", "context", "plugins")
 RENAME_SIMILARITY = 0.5
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 NAME = re.compile(r"""^name:[ \t]*["']?(.*?)["']?[ \t]*$""", re.MULTILINE)

@@ -1,11 +1,31 @@
 {
   "name": "pyre-agent-local",
-  "interface": { "displayName": "Pyre Agent" },
+  "interface": {
+    "displayName": "Pyre Agent"
+  },
   "plugins": [
     {
       "name": "pyre-agent",
-      "source": { "source": "local", "path": "./" },
-      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "pyre-context",
+      "source": {
+        "source": "local",
+        "path": "./plugins/pyre-context"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
       "category": "Productivity"
     }
   ]

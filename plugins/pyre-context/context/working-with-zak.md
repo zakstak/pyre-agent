@@ -66,4 +66,4 @@ If a plan has multiple viable choices or boils down to an unresolved decision:
   conversation.
 - Let me select, review, and revise my choice.
 
-Pyre Agent release: 1.0.1.
+Pyre Context release: 1.0.0.
