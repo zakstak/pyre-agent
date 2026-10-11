@@ -570,11 +570,6 @@ const isTracked = (listing: ReadonlyArray<Buffer>, path: string) => {
   })
 }
 
-const sameFile = (a: Buffer, b: Buffer) => {
-  const [x, y] = [statSync(a, { bigint: true }), statSync(b, { bigint: true })]
-  return x.dev === y.dev && x.ino === y.ino
-}
-
 /** Reads HEAD and every changed path with its fingerprint. Equal reads before and after bracket a consistent snapshot. */
 const inventory = (worktree: Worktree, limits: Limits): Snapshot => {
   const { git, top, config } = worktree
@@ -635,19 +630,23 @@ const inventory = (worktree: Worktree, limits: Limits): Snapshot => {
     for (const entry of entries.values()) {
       if (entry.status === "deleted" && caseRenamed(top, entry.path)) throw caseRenamedError(entry.path)
     }
-    // Git also hides a new file beside a tracked one whose name differs only in case. Listing with exact case finds it;
-    // on a file system that folds case too, it is the tracked file itself.
+    // Git also hides a new file beside a tracked one whose name differs only in case. Listing with exact case finds it.
+    // Twins are two directory entries, so both names must appear in their folder's listing: on a file system that folds
+    // case, the folder holds one entry and the name Git listed is the tracked file itself. Links, symbolic or hard, to
+    // one file are still two entries, so neither a followed link nor a shared inode makes them one.
     const listed = new Set(others.map((raw) => raw.toString("latin1")))
     for (const raw of records(git.run(top, ["-c", "core.ignoreCase=false", "ls-files", "-z", "--others", "--exclude-standard"]))) {
       if (listed.has(raw.toString("latin1"))) continue
       const path = fsDecode(raw.at(-1) === 0x2f ? raw.subarray(0, -1) : raw)
       const slash = path.lastIndexOf("/")
       const [parent, name] = [slash < 0 ? "" : path.slice(0, slash), path.slice(slash + 1)]
-      const folded = asciiLower(fsEncode(name))
-      for (const other of readdirSync(onDisk(top, parent), { encoding: "buffer" })) {
+      const own = fsEncode(name)
+      const folder = readdirSync(onDisk(top, parent), { encoding: "buffer" })
+      if (!folder.some((entry) => entry.equals(own))) continue
+      const folded = asciiLower(own)
+      for (const other of folder) {
         const twin = parent === "" ? fsDecode(other) : `${parent}/${fsDecode(other)}`
-        if (fsDecode(other) !== name && asciiLower(other).equals(folded) && isTracked(listing, twin) &&
-          !sameFile(onDisk(top, path), onDisk(top, twin))) {
+        if (!other.equals(own) && asciiLower(other).equals(folded) && isTracked(listing, twin)) {
           throw new CollectError({ message: `${path} differs from tracked ${twin} only in case, which Git hides with core.ignoreCase on. Rename one of them, then collect again.` })
         }
       }

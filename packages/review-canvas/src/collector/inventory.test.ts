@@ -2,7 +2,7 @@
 // parity.test.ts can check that every Python case has a counterpart here or in another collector test file.
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { chmodSync, copyFileSync, lstatSync, mkdirSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync,
+import { chmodSync, copyFileSync, linkSync, lstatSync, mkdirSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync,
   writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, test } from "node:test"
@@ -725,6 +725,22 @@ describe("InventoryTests", () => {
     // On a file system that folds case, writing FOO rewrites foo.
     if (foldsCase) return assert.deepEqual(statuses(f.collect()), { foo: "modified" })
     assert.throws(() => f.collect(), { _tag: "CollectError", message: /FOO differs from tracked foo only in case/ })
+  })
+
+  // Not in the Python suite, whose same-file check followed links: twins are separate names even when they share a file.
+  test("case twins that link to one file still stop collection", { skip: foldsCase && caseFoldingNote }, (t) => {
+    const f = new Fixture(t)
+    f.commit({ target: "t\n" })
+    symlinkSync("target", join(f.root, "foo"))
+    f.commit()
+    f.git(f.root, "config", "core.ignoreCase", "true")
+    symlinkSync("target", join(f.root, "FOO"))
+    assert.throws(() => f.collect(), { _tag: "CollectError", message: /^FOO differs from tracked foo only in case/ })
+    const linked = f.init(join(f.base, "linked"))
+    f.commit({ bar: "b\n" }, { root: linked })
+    f.git(linked, "config", "core.ignoreCase", "true")
+    linkSync(join(linked, "bar"), join(linked, "BAR"))
+    assert.throws(() => f.collect({ repo: linked }), { _tag: "CollectError", message: /^BAR differs from tracked bar only in case/ })
   })
 
   test("test_many_long_hidden_paths_fit", (t) => {
