@@ -1,8 +1,8 @@
 // Ported from IsolationTests in tests/test_collect_worktree.py. Each test keeps its Python name. The tests after the
 // describe block are not in the Python suite: they cover protections the TypeScript port adds.
 import assert from "node:assert/strict"
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, unlinkSync, utimesSync,
-  writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync,
+  utimesSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, test } from "node:test"
 import { configEntries } from "./config.ts"
@@ -223,6 +223,63 @@ test("a git inside a worktree named in a linked worktree's common config never r
   f.git(f.root, "config", "core.worktree", outside)
   withEnv({ PATH: `${join(outside, "bin")}:${process.env.PATH}` }, () =>
     assert.throws(() => trustedGit({ repo: linked }), { _tag: "GitError", message: /inside the repository under review/ }))
+  assert.ok(!existsSync(marker))
+})
+
+test("a git inside the Git directory that a .git file names, or in its common directory, never runs", (t) => {
+  // A linked worktree's .git file names its Git directory inside the main checkout's .git, whose commondir names that
+  // .git as the common directory. A submodule's .git file names its Git directory relative to the submodule.
+  const f = new Fixture(t)
+  f.commit({ "a.txt": "a\n" })
+  const linked = join(f.base, "linked")
+  f.git(f.root, "worktree", "add", "-q", linked)
+  const separate = f.init(join(f.base, "separate"))
+  f.commit({ "s.txt": "s\n" }, { root: separate })
+  renameSync(join(separate, ".git"), join(f.base, "modules"))
+  writeFileSync(join(separate, ".git"), "gitdir: ../modules\n")
+  for (const [repo, directory] of [[linked, join(f.root, ".git", "worktrees", "linked")], [linked, join(f.root, ".git")],
+    [separate, join(f.base, "modules")]] as const) {
+    const marker = join(f.base, "metadata-git-ran")
+    fakeGit(join(directory, "bin", "git"), marker)
+    withEnv({ PATH: `${join(directory, "bin")}:${process.env.PATH}` }, () =>
+      assert.throws(() => f.collect({ repo }), { _tag: "GitError", message: /inside the repository under review/ }, directory))
+    assert.ok(!existsSync(marker), directory)
+    rmSync(join(directory, "bin"), { recursive: true })
+  }
+})
+
+test("Git metadata the collector cannot read as Git does stops collection before git runs", (t) => {
+  const f = new Fixture(t)
+  f.commit({ "a.txt": "a\n" })
+  const linked = join(f.base, "linked")
+  f.git(f.root, "worktree", "add", "-q", linked)
+  const marker = join(f.base, "metadata-git-ran")
+  const tools = join(f.base, "tools")
+  fakeGit(join(tools, "git"), marker)
+  const dotGit = join(linked, ".git")
+  const commondir = join(f.root, ".git", "worktrees", "linked", "commondir")
+  const original = readFileSync(dotGit)
+  const refused = (problem: RegExp, label: string) => {
+    withEnv({ PATH: `${tools}:${process.env.PATH}` }, () =>
+      assert.throws(() => f.collect({ repo: linked }), { _tag: "GitError", message: problem }, label))
+    assert.ok(!existsSync(marker), label)
+  }
+  // Git reads "gitdir:" without its space as no .git file at all.
+  writeFileSync(dotGit, `gitdir:${original.toString().slice("gitdir: ".length)}`)
+  refused(/\.git does not hold "gitdir: " and a path, so the collector cannot tell where/, "no space")
+  writeFileSync(join(f.base, "dotgit"), original)
+  unlinkSync(dotGit)
+  symlinkSync(join(f.base, "dotgit"), dotGit)
+  refused(/\.git is a symbolic link, so/, "symbolic link")
+  unlinkSync(dotGit)
+  writeFileSync(dotGit, original)
+  writeFileSync(commondir, "")
+  refused(/commondir holds no path, so/, "empty commondir")
+  // Git drops every trailing CR and LF, so this commondir still names the main .git, and a git there is still refused.
+  writeFileSync(commondir, "../..\r\n")
+  fakeGit(join(f.root, ".git", "bin", "git"), marker)
+  withEnv({ PATH: `${join(f.root, ".git", "bin")}:${process.env.PATH}` }, () =>
+    assert.throws(() => f.collect({ repo: linked }), { _tag: "GitError", message: /inside the repository under review/ }))
   assert.ok(!existsSync(marker))
 })
 

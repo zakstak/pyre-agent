@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs"
+import { accessSync, closeSync, constants, fstatSync, openSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { devNull, homedir } from "node:os"
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 import { configEntries } from "./config.ts"
@@ -67,6 +67,15 @@ export interface Git {
 export const trustedPath = () =>
   (process.env["PATH"] ?? "").split(delimiter).filter((entry) => entry !== "" && isAbsolute(entry)).join(delimiter)
 
+const isDirectory = (path: string) => {
+  try {
+    return statSync(fsEncode(path)).isDirectory()
+  } catch (error) {
+    if (isSystemError(error)) return false
+    throw error
+  }
+}
+
 const isExecutableFile = (path: string) => {
   try {
     if (statSync(path).isDirectory()) return false
@@ -95,6 +104,73 @@ const readText = (path: string): string | null => {
 
 const expandHome = (path: string) => (path === "~" ? homedir() : path.startsWith("~/") ? homedir() + path.slice(1) : path)
 
+/** Git refuses a .git file larger than this, and the collector reads no larger metadata file. */
+const METADATA_BYTES = 1 << 20
+
+const badMetadata = (path: string, problem: string) =>
+  new GitError({ message: `${path} ${problem}, so the collector cannot tell where the repository's Git directory is and runs no git` })
+
+/**
+ * A file of Git metadata, such as .git or commondir, or null when nothing is there. It is read as working tree files
+ * are, without following a symbolic link or blocking on a FIFO. Git would follow a link, so a link, or anything else
+ * that is not a small regular file, stops collection rather than leave a Git directory unknown.
+ */
+const readMetadata = (path: string): Buffer | null => {
+  let fd: number
+  try {
+    fd = openSync(fsEncode(path), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+  } catch (error) {
+    if (!isSystemError(error)) throw error
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return null
+    throw badMetadata(path, error.code === "ELOOP" ? "is a symbolic link" : `cannot be read (${systemMessage(error)})`)
+  }
+  try {
+    const info = fstatSync(fd)
+    if (!info.isFile()) throw badMetadata(path, "is not a regular file")
+    if (info.size > METADATA_BYTES) throw badMetadata(path, `holds more than ${METADATA_BYTES} bytes`)
+    return readFileSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * The path in a metadata file, after prefix and without its trailing line breaks, as Git reads it. A file that Git
+ * would refuse, or would cut short at a NUL byte, stops collection.
+ */
+const metadataPath = (path: string, data: Buffer | null, prefix: string): string => {
+  const bytes = data ?? Buffer.alloc(0)
+  let end = bytes.length
+  while (end > 0 && (bytes[end - 1] === 0x0a || bytes[end - 1] === 0x0d)) end -= 1
+  const head = Buffer.from(prefix)
+  if (end <= head.length || !bytes.subarray(0, head.length).equals(head) || bytes.subarray(0, end).includes(0)) {
+    throw badMetadata(path, prefix === "" ? "holds no path" : `does not hold "${prefix}" and a path`)
+  }
+  return fsDecode(bytes.subarray(head.length, end))
+}
+
+/** The Git directory that top's .git names: .git itself, or the directory a .git file names relative to top. */
+const dotGitTarget = (top: string) => {
+  const dotGit = join(top, ".git")
+  // Git follows a link to a directory, which needs no reading. Anything else must be a .git file.
+  if (isDirectory(dotGit)) return resolveLoose(dotGit)
+  return resolveFrom(top, metadataPath(dotGit, readMetadata(dotGit), "gitdir: "))
+}
+
+/**
+ * The repository's Git directory, and the common directory its commondir file names, read without running Git. Both
+ * are the same directory unless repo is a linked worktree. A linked worktree or a submodule has a .git file that names
+ * a Git directory outside the working tree, often inside another checkout's .git, so a git there must be refused
+ * before Git first runs. A bare repository has no .git child, so the path itself counts.
+ */
+export const gitDirectories = (repo: string): { readonly gitDir: string; readonly commonDir: string } => {
+  const top = repositoryTop(repo)
+  const gitDir = top === null ? resolveLoose(repo) : dotGitTarget(top)
+  const common = join(gitDir, "commondir")
+  const data = readMetadata(common)
+  return { gitDir, commonDir: data === null ? gitDir : resolveFrom(gitDir, metadataPath(common, data, "")) }
+}
+
 /**
  * Every working tree that core.worktree names in repo's configuration, read without running Git. The checkout under
  * review may sit there, outside repo, so a git inside it must be refused before Git first runs. Included files count
@@ -102,15 +178,8 @@ const expandHome = (path: string) => (path === "~" ? homedir() : path.startsWith
  * configuration of a linked worktree, which Git also reads.
  */
 export const configuredWorktrees = (repo: string): Array<string> => {
-  const top = repositoryTop(repo)
-  let gitDir = top !== null ? join(top, ".git") : resolveLoose(repo)
-  if (statSync(fsEncode(gitDir), { throwIfNoEntry: false })?.isFile()) {
-    // A linked worktree or submodule: .git names the Git directory.
-    const text = readText(gitDir)?.trim() ?? ""
-    if (text.startsWith("gitdir:")) gitDir = resolveFrom(dirname(gitDir), text.slice("gitdir:".length).trim())
-  }
-  const common = readText(join(gitDir, "commondir"))
-  const directories = common === null ? [gitDir] : [gitDir, resolveFrom(gitDir, common.replace(/\n$/, ""))]
+  const { gitDir, commonDir } = gitDirectories(repo)
+  const directories = [gitDir, commonDir]
   const found: Array<string> = []
   const seen = new Set<string>()
   const read = (path: string, depth: number) => {
@@ -132,12 +201,14 @@ export const configuredWorktrees = (repo: string): Array<string> => {
 }
 
 /**
- * Refuses an executable inside repo: under the path as given or resolved, the working tree above it, or a working
- * tree its configuration names. A bare repository has no .git child, so the path itself counts. Both the executable
- * as found and its target count: a symbolic link inside the repository could point a PATH entry elsewhere.
+ * Refuses an executable inside repo: under the path as given or resolved, the working tree above it, its Git and
+ * common directories, or a working tree its configuration names. A bare repository has no .git child, so the path
+ * itself counts. Both the executable as found and its target count: a symbolic link inside the repository could point
+ * a PATH entry elsewhere.
  */
 export const assertOutside = (executable: string, repo: string) => {
-  const roots = [resolveLoose(repo), resolve(repo), repositoryTop(repo), ...configuredWorktrees(repo)]
+  const { gitDir, commonDir } = gitDirectories(repo)
+  const roots = [resolveLoose(repo), resolve(repo), repositoryTop(repo), gitDir, commonDir, ...configuredWorktrees(repo)]
   const candidates = [resolve(executable), realpathSync(executable)]
   if (roots.some((root) => root !== null && candidates.some((candidate) => isWithin(candidate, root)))) {
     throw new GitError({ message: `git resolves to ${executable}, inside the repository under review. Put the system git earlier in PATH.` })
