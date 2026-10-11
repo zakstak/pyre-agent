@@ -101,8 +101,18 @@ export const Timestamp = Schema.String.check(
 ).pipe(Schema.brand("Timestamp"))
 export type Timestamp = typeof Timestamp.Type
 
-/** An exact repository-relative path, as Git names it. */
-export const RepoPath = nonEmptyText(Limits.MAX_PATH_UNITS).pipe(Schema.brand("RepoPath"))
+/**
+ * An exact repository-relative path, as Git names it: segments joined by single slashes, with no empty, `.`, or `..`
+ * segment and no leading or trailing slash. The collector writes Git's names as they are, so a name may hold spaces,
+ * backslashes, tabs, or line breaks; a name that is not UTF-8 or holds another control character, NUL included, has
+ * no representation, and the collector refuses it.
+ */
+export const RepoPath = nonEmptyText(Limits.MAX_PATH_UNITS).check(
+  Schema.makeFilter((value: string) =>
+    value.split("/").every((part) => part !== "" && part !== "." && part !== "..") ||
+    "expected a repository-relative path with no empty, . or .. segment and no leading or trailing slash"
+  )
+).pipe(Schema.brand("RepoPath"))
 export type RepoPath = typeof RepoPath.Type
 
 /**

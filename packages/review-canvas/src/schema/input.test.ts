@@ -144,6 +144,33 @@ test("input: a replaced-characters note needs its patch, and an old path differs
   )
 })
 
+test("input: paths are repository-relative, as Git names them", () => {
+  // The Python collector writes Git's names unquoted. It refuses names that are not UTF-8 or that hold a control
+  // character other than tab, LF, or CR; everything else it writes must decode.
+  for (
+    const path of [
+      ".env.local",
+      "notes/.keep",
+      "...",
+      "..hidden/file..",
+      "dir with space/back\\slash",
+      "tab\tand\nnewline",
+      "🙂/é.txt"
+    ]
+  ) {
+    accepted(decode(set(simpleReview(), file("path"), path)))
+  }
+  for (const path of ["/etc/passwd", "../outside", "a/../b", "a/./b", "a//b", "a/", ".", "..", "/", "./a"]) {
+    refused(
+      decode(set(simpleReview(), file("path"), path)),
+      /files\[0\]\.path: expected a repository-relative path with no empty, \. or \.\. segment/
+    )
+  }
+  refused(decode(set(simpleReview(), file("path"), "a\u0000b")), /files\[0\]\.path: contains a control character/)
+  const renamed = set(simpleReview(), file("status"), "renamed")
+  refused(decode(set(renamed, file("old_path"), "../a.py")), /files\[0\]\.old_path: expected a repository-relative path/)
+})
+
 test("input: format errors name the format", () => {
   refused(
     decode(set(simpleReview(), ["format"], true)),

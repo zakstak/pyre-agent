@@ -589,6 +589,16 @@ const added: ReadonlyArray<{ readonly name: string; readonly edit: (doc: Json) =
     message: /comments\[0\]\.source: Expected a source whose kind is reviewer or github/
   },
   {
+    name: "an approval names a repository-relative path",
+    edit: change(["approvals", 0, "path"], "/etc/passwd"),
+    message: /approvals\[0\]\.path: expected a repository-relative path/
+  },
+  {
+    name: "an anchor names a repository-relative path",
+    edit: change([...anchor, "path"], "src/../../outside.js"),
+    message: /comments\[0\]\.anchor\.path: expected a repository-relative path/
+  },
+  {
     name: "an approval cannot come from a later round",
     edit: change(["approvals", 0, "round"], 4),
     message: /approvals\[0\]\.round: is after the feedback's round/
