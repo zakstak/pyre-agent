@@ -357,6 +357,50 @@ test("input: every accepted input fits 32 MiB written in its one spelling", () =
   assert.deepEqual(accepted(decodeBytes(InputDocument, written)), fits)
 })
 
+test("input: a patch marked complete is whole hunks whose lines add up", () => {
+  // The Python renderer only warned about an unverified patch. A complete one now has to be what it claims.
+  const complete = (changes: { readonly [key: string]: Json | undefined }) => {
+    const review = set(simpleReview(), file("patch_complete"), true)
+    for (const [key, value] of Object.entries(changes)) set(review, file(key), value)
+    return decode(review)
+  }
+  accepted(complete({}))
+  refused(complete({ patch: undefined }), /files\[0\]\.patch_complete: true needs a patch/)
+  refused(complete({ additions: 2 }), /files\[0\]\.additions: is 2, but the complete patch adds 1/)
+  refused(complete({ deletions: 0 }), /files\[0\]\.deletions: is 0, but the complete patch deletes 1/)
+  const malformed = (patch: string, problem: RegExp) =>
+    refused(complete({ patch }), new RegExp(`files\\[0\\]\\.patch: is marked complete, but ${problem.source}`))
+  malformed("-old\n+new\n", /it does not start with a hunk header/)
+  malformed("@@ -a +b @@\n-old\n+new\n", /line 1 is not a hunk header/)
+  malformed(
+    "@@ -1,3 +1,2 @@\n-old\n+new\n context\n",
+    /the hunk at line 1 declares 3 old and 2 new lines, but holds 2 and 2/
+  )
+  malformed("@@ -1 +1 @@\n-old\n+new\ngarbage\n", /line 4 is not context, an addition, or a deletion/)
+  malformed("@@ -1 +1 @@\n-old\n+new\n@@ -9 +9 @@\n", /the hunk at line 4 declares 1 old and 1 new lines, but holds 0/)
+  // Omitted counts are 1, no-newline markers and CR count as nothing, and several hunks add up together.
+  accepted(complete({ patch: "@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n" }))
+  accepted(complete({ patch: "@@ -1 +1 @@\n-old\r\n+new\r\n" }))
+  accepted(complete({ patch: "@@ -1,2 +1,2 @@ def save():\n-a\n+b\n c\n@@ -9 +9,2 @@\n x\n+y\n", additions: 2 }))
+  // A link or submodule replaced by a file shows only the file; deletions keep Git's count of the old side.
+  const replaced = {
+    status: "changed",
+    patch: "@@ -0,0 +1,2 @@\n+a\n+b\n",
+    additions: 2,
+    deletions: 1,
+    new_mode: "100644"
+  }
+  accepted(complete({ ...replaced, old_mode: "120000" }))
+  accepted(complete({ ...replaced, old_mode: "160000" }))
+  refused(
+    complete({ ...replaced, old_mode: "100644" }),
+    /files\[0\]\.deletions: is 1, but the complete patch deletes 0/
+  )
+  // A patch not marked complete is shown as it is, as before.
+  accepted(decode(set(set(simpleReview(), file("patch"), "not a diff\n"), file("additions"), 7)))
+  accepted(decode(set(set(simpleReview(), file("patch_complete"), false), file("deletions"), 9)))
+})
+
 test("input: line limits refuse a patch instead of truncating it", () => {
   accepted(decode(set(simpleReview(), file("patch"), "\n".repeat(Limits.MAX_PATCH_LINES))))
   refused(

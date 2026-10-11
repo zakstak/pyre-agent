@@ -48,6 +48,69 @@ export const patchLines = (patch: string): number => {
   return lines
 }
 
+const HUNK_HEADER = /^@@ -[0-9]+(?:,([0-9]+))? \+[0-9]+(?:,([0-9]+))? @@/
+
+/** What a complete patch holds: its added and deleted lines, or why it is not a whole unified diff. */
+export type PatchTotals =
+  | { readonly kind: "totals"; readonly additions: number; readonly deletions: number }
+  | { readonly kind: "malformed"; readonly problem: string }
+
+/** An open hunk: where it starts, the counts its header declares, and the old and new lines seen so far. */
+interface Hunk {
+  readonly line: number
+  readonly declared: readonly [number, number]
+  old: number
+  new: number
+}
+
+/**
+ * Reads a patch as whole hunks: it starts with a hunk header, every other line is context, an addition, a deletion,
+ * or a no-newline marker, and each hunk holds the old and new line counts its header declares (1 when omitted).
+ */
+export const patchTotals = (patch: string): PatchTotals => {
+  const lines = patch.split("\n")
+  if (patch.endsWith("\n")) lines.pop()
+  let additions = 0
+  let deletions = 0
+  let hunk: Hunk | undefined
+  const unbalanced = (): PatchTotals | undefined => {
+    if (hunk === undefined || (hunk.old === hunk.declared[0] && hunk.new === hunk.declared[1])) return undefined
+    const [old, added] = hunk.declared
+    return {
+      kind: "malformed",
+      problem: `the hunk at line ${hunk.line} declares ${old} old and ${added} new lines, but holds ${hunk.old} and ` +
+        `${hunk.new}`
+    }
+  }
+  for (const [index, line] of lines.entries()) {
+    if (line.startsWith("@@")) {
+      const header = HUNK_HEADER.exec(line)
+      if (header === null) return { kind: "malformed", problem: `line ${index + 1} is not a hunk header` }
+      const problem = unbalanced()
+      if (problem !== undefined) return problem
+      hunk = { line: index + 1, declared: [Number(header[1] ?? 1), Number(header[2] ?? 1)], old: 0, new: 0 }
+    } else if (hunk === undefined) {
+      return { kind: "malformed", problem: "it does not start with a hunk header" }
+    } else if (line.startsWith(" ")) {
+      hunk.old++
+      hunk.new++
+    } else if (line.startsWith("-")) {
+      hunk.old++
+      deletions++
+    } else if (line.startsWith("+")) {
+      hunk.new++
+      additions++
+    } else if (!line.startsWith("\\")) {
+      return { kind: "malformed", problem: `line ${index + 1} is not context, an addition, or a deletion` }
+    }
+  }
+  return unbalanced() ?? { kind: "totals", additions, deletions }
+}
+
+// A link or submodule replaced by a file has no text on its old side, so the patch shows only the new file, and the
+// deletions keep Git's count of the old side.
+const NO_TEXT_MODES: ReadonlySet<string> = new Set(["120000", "160000"])
+
 /**
  * A unified diff as plain text, from its first hunk header. CR is kept, so a CRLF line ends in CR. A file without a
  * patch omits the field, so a patch is never empty; it may be only whitespace, such as a file of blank lines.
@@ -81,7 +144,10 @@ const fileFields = {
   old_mode: Schema.optionalKey(GitMode),
   new_mode: Schema.optionalKey(GitMode),
   patch: Schema.optionalKey(Patch),
-  /** True only after the whole patch was verified, false for an excerpt. Absent means unverified. */
+  /**
+   * True only after the whole patch was verified, false for an excerpt. Absent means unverified. A complete patch is
+   * whole hunks, and its lines add up to additions and deletions; any other patch is shown as it is.
+   */
   patch_complete: Schema.optionalKey(Schema.Boolean),
   patch_note: Schema.optionalKey(PatchNote),
   summary: Schema.optionalKey(Text),
@@ -106,6 +172,17 @@ const fileRules = Schema.makeFilter((file: typeof ReviewFileFields.Type) => {
       issue: TEXT_PATCH_NOTES.has(file.patch_note)
         ? `${file.patch_note} needs a patch`
         : `${file.patch_note} is only for a file without a patch`
+    }
+  }
+  if (file.patch_complete === true) {
+    if (file.patch === undefined) return { path: ["patch_complete"], issue: "true needs a patch" }
+    const totals = patchTotals(file.patch)
+    if (totals.kind === "malformed") return { path: ["patch"], issue: `is marked complete, but ${totals.problem}` }
+    if (totals.additions !== file.additions) {
+      return { path: ["additions"], issue: `is ${file.additions}, but the complete patch adds ${totals.additions}` }
+    }
+    if (totals.deletions !== file.deletions && !NO_TEXT_MODES.has(file.old_mode ?? "")) {
+      return { path: ["deletions"], issue: `is ${file.deletions}, but the complete patch deletes ${totals.deletions}` }
     }
   }
   return undefined
