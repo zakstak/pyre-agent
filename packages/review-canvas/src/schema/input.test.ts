@@ -97,7 +97,7 @@ const invalidFields: ReadonlyArray<readonly [JsonPath, Json, RegExp]> = [
   [["target", "kind"], "branch", /target: Expected a target whose kind is github_pr or worktree/],
   [["target", "root"], "/home/dev/project", /target\.root: unknown field/],
   [["pr"], { title: "Old" }, /pr: unknown field/],
-  [file("path"), "", /files\[0\]\.path: must not be empty/],
+  [file("path"), "", /files\[0\]\.path: expected a repository-relative path/],
   [file("path"), "bad\u0000path", /files\[0\]\.path: contains a control character/],
   [file("path"), "bad\ud800path", /files\[0\]\.path: contains an unpaired Unicode surrogate/],
   [file("additions"), true, /files\[0\]\.additions: Expected number/],
@@ -155,6 +155,12 @@ test("input: paths are repository-relative, as Git names them", () => {
       "..hidden/file..",
       "dir with space/back\\slash",
       "tab\tand\nnewline",
+      // Names Git allows that are only whitespace; the Python version refused them, and failed the whole collection.
+      " ",
+      "\t",
+      "dir/ \r\n",
+      "\ufeff",
+      "\u3000/\u00a0",
       "🙂/é.txt"
     ]
   ) {
