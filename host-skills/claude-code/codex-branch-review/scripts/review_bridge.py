@@ -15,10 +15,9 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
-
-import tomllib
 
 MODEL = "gpt-6.1-sol"
 SKILL = Path(__file__).resolve().parents[1]

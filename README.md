@@ -150,10 +150,15 @@ branch and `origin/main`. It fails when:
 Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
 formatting, lint, secret scanning, and the skill-version guard before commits.
 Pre-push hooks run the Python suite and the nested review-canvas typecheck,
-build, and tests. The bootstrap used for this configuration is
-`67843c5075e46f2cf0a5722fc3f4e5ff52ff0fda` (from
-[Pragma PR #16](https://github.com/zakstak/pragma/pull/16)); merge that
-prerequisite first.
+build, and tests. The Pragma source used to validate this configuration is
+`ef07e80e88edb426f1e5660f151d2a899eedc984`, including the reviewed core and tool
+updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
+[PR #17](https://github.com/zakstak/pragma/pull/17).
+
+Ruff targets Python 3.10 for review-canvas, matching the skill and script
+contracts. The Claude Code bridge targets Python 3.11, its documented minimum.
+This keeps UTC timestamp parsing compatible with 3.10 without suppressing lint
+rules.
 
 ```sh
 git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"
