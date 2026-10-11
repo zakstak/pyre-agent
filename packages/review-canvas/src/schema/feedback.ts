@@ -89,7 +89,8 @@ const AttachedFields = Schema.Struct({ state: Schema.Literal("attached"), reason
 
 /**
  * Where a comment's anchor lands in the current round: attached at offsets, or an orphan when its code changed,
- * moved ambiguously, or is gone. The server derives it; an import never trusts it.
+ * moved ambiguously, or is gone. Attached offsets span the anchor's quote, found again at the anchor's own offsets or
+ * by its context. The server derives it; an import never trusts it.
  */
 export const Attachment = Schema.Union([
   AttachedFields.check(Schema.makeFilter((attached: typeof AttachedFields.Type) =>
@@ -260,6 +261,13 @@ export const Comment = CommentFields.check(Schema.makeFilter((comment: typeof Co
     }
   } else if (comment.kind === "general" && comment.source.resolved) {
     return { path: ["source", "resolved"], issue: "only a review thread can be resolved on GitHub" }
+  }
+  // An attachment is where the anchor's quote was found again, exactly or by its context, so it spans the quote.
+  if (comment.kind === "inline" && comment.attachment.state === "attached") {
+    const { start, end } = comment.attachment
+    if (end - start !== comment.anchor.quote.length) {
+      return { path: ["attachment", "end"], issue: "must exceed start by the anchor quote's length in UTF-16 code units" }
+    }
   }
   const thread = comment.kind === "inline" && comment.source.kind === "github" ? comment.source : undefined
   for (const [index, reply] of comment.replies.entries()) {

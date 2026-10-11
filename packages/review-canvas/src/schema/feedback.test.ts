@@ -664,7 +664,7 @@ test("feedback: anchor rows are zero-based, and offsets stay within a patch", ()
     const attached = { state: "attached", reason: "", start, end: stop }
     return decode(set(fixture("feedback/pull-request.json"), [...comment, "attachment"], attached))
   }
-  accepted(attachment(end - 1, end))
+  accepted(attachment(end - 4, end))
   refused(attachment(end, end + 1), /comments\[0\]\.attachment\.end: Expected a value between 0 and 4194304/)
 })
 
@@ -701,6 +701,28 @@ test("feedback: replies are listed by time, then agent, GitHub, and reviewer, th
   const listed = accepted(decode(conversation())).comments[0]?.replies ?? []
   assert.equal(listed.length, 4)
   assert.deepEqual([...listed].reverse().sort(compareReplies), listed)
+})
+
+test("feedback: an attachment spans the anchor's quote where it was found again", () => {
+  // feedback.js attached a comment at the anchor's own offsets when they still held the quote, or where the quote and
+  // its context matched once, so the attached range always has the quote's length.
+  const attached = (start: number, end: number, quote = "code") => {
+    const doc = set(fixture("feedback/pull-request.json"), [...comment, "attachment"], {
+      state: "attached",
+      reason: "",
+      start,
+      end
+    })
+    return decode(set(set(doc, [...anchor, "quote"], quote), [...anchor, "end"], 7 + quote.length))
+  }
+  const wrongLength = /^Feedback is invalid: comments\[0\]\.attachment\.end: must exceed start by the anchor quote's/
+  accepted(attached(7, 11))
+  accepted(attached(100, 104))
+  refused(attached(7, 12), wrongLength)
+  refused(attached(7, 10), wrongLength)
+  // The length counts UTF-16 code units, as the offsets do: the emoji counts as 2.
+  accepted(attached(20, 24, "🙂 x"))
+  refused(attached(20, 23, "🙂 x"), wrongLength)
 })
 
 test("feedback: GitHub comments may be empty, though the reviewer's may not", () => {
