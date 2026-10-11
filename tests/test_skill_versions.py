@@ -126,32 +126,43 @@ class SkillVersionTests(unittest.TestCase):
     def test_files_agents_load_must_not_name_a_removed_skill(self):
         self.git('switch', '-q', 'main')
         self.write('skills/old-name/SKILL.md', skill('old-name'))
-        self.write('global/AGENTS.md', 'Use old-name for reviews.\n')
+        self.write('context/working-with-zak.md', 'Use old-name for reviews.\n')
         self.write('README.md', 'Credits: the upstream old-name project.\n')
         self.commit()
         self.git('switch', '-q', '-C', 'change')
         shutil.rmtree(self.root / 'skills/old-name')
-        self.assertFails('global/AGENTS.md:1: names old-name, a skill that was removed; remove the reference')
-        self.write('global/AGENTS.md', 'Use not-old-name-at-all for reviews.\n')
+        self.assertFails('context/working-with-zak.md:1: names old-name, a skill that was removed; remove the reference')
+        self.write('context/working-with-zak.md', 'Use not-old-name-at-all for reviews.\n')
         self.assertPasses()
 
     def test_one_word_names_count_only_as_invocations_or_code(self):
         shutil.rmtree(self.root / 'skills/alpha')
-        self.write('global/AGENTS.md', 'Ship the alpha release.\n')
+        self.write('context/working-with-zak.md', 'Ship the alpha release.\n')
         self.assertPasses()
         for text in ('Run /alpha first.\n', 'Run $alpha first.\n', 'Load `alpha` first.\n', 'Load skills/alpha/SKILL.md.\n'):
-            self.write('global/AGENTS.md', text)
-            self.assertFails('global/AGENTS.md:1: names alpha')
+            self.write('context/working-with-zak.md', text)
+            self.assertFails('context/working-with-zak.md:1: names alpha')
+
+    def test_namespaced_invocations_in_startup_context_are_checked_in_the_index(self):
+        shutil.rmtree(self.root / 'skills/alpha')
+        for text in ('Run /pyre-agent:alpha first.\n', 'Run $pyre-agent:alpha first.\n',
+                     'Load `pyre-agent:alpha` first.\n'):
+            self.write('context/working-with-zak.md', text)
+            self.assertFails('context/working-with-zak.md:1: names alpha')
+            self.git('add', '-A')
+            self.write('context/working-with-zak.md', 'Ship the alpha release.\n')
+            self.assertPasses()
+            self.assertFails('context/working-with-zak.md:1: names alpha', staged=True)
 
     def test_reference_search_ignores_color_and_odd_bytes(self):
         self.git('config', 'color.ui', 'always')
         shutil.rmtree(self.root / 'skills/alpha')
-        self.write('global/AGENTS.md', 'Form\x0cfeed, then run /alpha.\n')
-        (self.root / 'global/notes.txt').write_bytes(b'Caf\xe9 notes for `alpha`.\n')
+        self.write('context/working-with-zak.md', 'Form\x0cfeed, then run /alpha.\n')
+        (self.root / 'context/notes.txt').write_bytes(b'Caf\xe9 notes for `alpha`.\n')
         result = self.check()
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn('global/AGENTS.md:1: names alpha', result.stderr)
-        self.assertIn('global/notes.txt:1: names alpha', result.stderr)
+        self.assertIn('context/working-with-zak.md:1: names alpha', result.stderr)
+        self.assertIn('context/notes.txt:1: names alpha', result.stderr)
 
     def test_merge_in_progress_compares_with_the_merged_base(self):
         self.git('switch', '-q', 'main')

@@ -15,7 +15,7 @@ import sys
 from pathlib import Path, PurePosixPath
 
 SKILL_MD = re.compile(r"(?:skills/[^/]+|host-skills/[^/]+/[^/]+)/SKILL\.md")
-LOADED = ("skills", "host-skills", "global")
+LOADED = ("skills", "host-skills", "context")
 RENAME_SIMILARITY = 0.5
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 NAME = re.compile(r"""^name:[ \t]*["']?(.*?)["']?[ \t]*$""", re.MULTILINE)
@@ -105,11 +105,11 @@ def stale_references(root, gone, staged):
     """Return an error for each line in a file agents load that still names a skill that left."""
     errors = []
     for old, new in sorted(gone.items()):
-        # A hyphenated name is distinctive. A one-word name such as `correct` counts only as /name, $name, or `name`.
+        # A one-word name counts only as an invocation or code, optionally namespaced.
         if "-" in old:
             pattern = re.compile(rf"(?<![\w-]){re.escape(old)}(?![\w-])")
         else:
-            pattern = re.compile(rf"[/$]{re.escape(old)}(?![\w-])|`{re.escape(old)}`")
+            pattern = re.compile(rf"[/$](?:pyre-agent:)?{re.escape(old)}(?![\w-])|`(?:pyre-agent:)?{re.escape(old)}`")
         found = subprocess.run(("git", "grep", "--no-color", "-I", "-n", "-z", "-F", "-e", old,
                                 "--cached" if staged else "--untracked", "--", *LOADED), cwd=root, capture_output=True)
         if found.returncode > 1:

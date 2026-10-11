@@ -1,0 +1,12 @@
+{
+  "name": "pyre-agent-local",
+  "description": "Zak's reusable engineering skills and startup reference context.",
+  "owner": { "name": "Zak" },
+  "plugins": [
+    {
+      "name": "pyre-agent",
+      "source": "./",
+      "description": "Engineering skills and optional startup reference context."
+    }
+  ]
+}
