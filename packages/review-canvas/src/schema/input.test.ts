@@ -3,7 +3,7 @@
 import * as Schema from "effect/Schema"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { decodeBytes, decodeValue, InputDocument, WorktreeInputDocument } from "./document.ts"
+import { decodeBytes, decodeValue, encodeDocument, InputDocument, WorktreeInputDocument } from "./document.ts"
 import { ReviewInput, WorktreeInput } from "./input.ts"
 import * as Limits from "./limits.ts"
 import { accepted, copy, fixture, fixtureBytes, get, type Json, type JsonPath, refused, set } from "./testing.ts"
@@ -335,6 +335,26 @@ test("input: resource limits", () => {
     decodeBytes(InputDocument, new Uint8Array(Limits.MAX_INPUT_BYTES + 1).fill(0x20)),
     /^Review input exceeds 32 MiB\.$/, "too_large"
   )
+})
+
+test("input: every accepted input fits 32 MiB written in its one spelling", () => {
+  // Minified, 2,000 files of 100 minimal callouts and a 10,200-character summary take about 25 MiB; indented, about
+  // 34 MiB. The supplied bytes pass the limit, so only the schema's check of the written document refuses them.
+  const callouts = Array.from({ length: Limits.MAX_CALLOUTS }, (): Json => ({ tag: "t", text: "x" }))
+  const withCallouts = (count: number) =>
+    withFiles(count, (index) =>
+      set(set(fileAt(`f${index}`, undefined), ["summary"], "s".repeat(10_200)), ["callouts"], callouts))
+  const minified = new TextEncoder().encode(JSON.stringify(withCallouts(2000)))
+  assert.ok(minified.byteLength < Limits.MAX_INPUT_BYTES, String(minified.byteLength))
+  refused(
+    decodeBytes(InputDocument, minified),
+    /^Review input is invalid: takes \d+ bytes as written JSON, more than 32 MiB$/
+  )
+  const fits = accepted(decode(withCallouts(1500)))
+  const written = accepted(encodeDocument(InputDocument, fits))
+  assert.ok(written.byteLength > 24 * 1024 * 1024, String(written.byteLength))
+  assert.ok(written.byteLength <= Limits.MAX_INPUT_BYTES, String(written.byteLength))
+  assert.deepEqual(accepted(decodeBytes(InputDocument, written)), fits)
 })
 
 test("input: line limits refuse a patch instead of truncating it", () => {

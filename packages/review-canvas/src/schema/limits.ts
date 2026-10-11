@@ -8,7 +8,10 @@
 
 const MiB = 1024 * 1024
 
-/** A review input file: what an agent publishes as a round, including the collector's working tree snapshot. */
+/**
+ * A review input: what an agent publishes as a round, including the collector's working tree snapshot. It counts the
+ * UTF-8 bytes of the document as written, and the input schema checks it too.
+ */
 export const MAX_INPUT_BYTES = 32 * MiB
 /** A feedback export or import, as the exported document's UTF-8 bytes. The feedback schema checks it too. */
 export const MAX_FEEDBACK_BYTES = 8 * MiB

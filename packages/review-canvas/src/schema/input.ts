@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { documentBytes } from "./encoding.ts"
 import * as Limits from "./limits.ts"
 import { Count, Fingerprint, GitMode, nonEmptyText, RepoPath, text } from "./primitives.ts"
 import { Target, WorktreeTarget } from "./target.ts"
@@ -167,6 +168,12 @@ const inputRules = Schema.makeFilter((input: typeof ReviewInputFields.Type) => {
         issue: `patches exceed ${Limits.MAX_TOTAL_PATCH_LINES} total lines; nothing was truncated`
       }
     }
+  }
+  // Written in its one spelling, the input fits its byte limit, so every accepted input can be stored and written
+  // again. Indentation can grow a minified input past the limit its bytes passed.
+  const bytes = documentBytes(input).byteLength
+  if (bytes > Limits.MAX_INPUT_BYTES) {
+    return `takes ${bytes} bytes as written JSON, more than ${Limits.MAX_INPUT_BYTES / 1024 / 1024} MiB`
   }
   return undefined
 })
