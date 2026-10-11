@@ -3,22 +3,45 @@
  * page only through `html` templates.
  */
 export class Html {
-  readonly value: string
+  readonly value: string;
   constructor(value: string) {
-    this.value = value
+    this.value = value;
   }
 }
 
-export type Interpolation = Html | string | number | boolean | null | undefined | ReadonlyArray<Interpolation>
+export type Interpolation =
+  | Html
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | ReadonlyArray<Interpolation>;
 
-const escapes: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }
+const escapes: Readonly<Record<string, string>> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
 
 const render = (value: Interpolation): string => {
-  if (value instanceof Html) return value.value
-  if (Array.isArray(value)) return value.map(render).join("")
-  if (value === null || value === undefined || value === false) return ""
-  return String(value).replace(/[&<>"']/g, (character) => escapes[character] ?? character)
-}
+  if (value instanceof Html) return value.value;
+  if (Array.isArray(value)) return value.map(render).join("");
+  if (value === null || value === undefined || value === false) return "";
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) => escapes[character] ?? character,
+  );
+};
 
-export const html = (strings: TemplateStringsArray, ...values: ReadonlyArray<Interpolation>): Html =>
-  new Html(strings.reduce((out, part, index) => out + render(values[index - 1]) + part))
+export const html = (
+  strings: TemplateStringsArray,
+  ...values: ReadonlyArray<Interpolation>
+): Html =>
+  new Html(
+    strings.reduce(
+      (out, part, index) => out + render(values[index - 1]) + part,
+    ),
+  );

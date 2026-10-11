@@ -1,10 +1,14 @@
 # TypeScript patterns
 
-Code examples for selected rules in `SKILL.md`. The underlying principles are language-agnostic. See the [type-system-discipline](../../principle-type-system-discipline/SKILL.md) and [boundary-discipline](../../principle-boundary-discipline/SKILL.md) principles.
+Code examples for selected rules in `SKILL.md`. The underlying principles are
+language-agnostic. See the
+[type-system-discipline](../../principle-type-system-discipline/SKILL.md) and
+[boundary-discipline](../../principle-boundary-discipline/SKILL.md) principles.
 
 ## Branded types
 
-Brand primitives so they can't be mixed up. Validate once at the boundary. Downstream code trusts the type.
+Brand primitives so they can't be mixed up. Validate once at the boundary.
+Downstream code trusts the type.
 
 ```ts
 type AgentId = string & { readonly __brand: "AgentId" };
@@ -23,7 +27,8 @@ Match the `readonly __brand: 'X'` shape. Don't invent a new convention.
 
 ## Discriminated unions
 
-Model variants with a literal discriminant. Every variant shares the field name and each variant's value is unique, so impossible combos can't be represented.
+Model variants with a literal discriminant. Every variant shares the field name
+and each variant's value is unique, so impossible combos can't be represented.
 
 ```ts
 // Don't. Boolean + optionals lets contradictory states exist.
@@ -36,11 +41,14 @@ type DiffState =
   | { kind: "error"; error: string; diff?: never };
 ```
 
-The optional `never` fields reject conflicting payloads even when a value is first inferred in a variable. Raw runtime input still needs boundary validation. Pick one discriminant name (`kind`, `type`, `tag`) and stick to it.
+The optional `never` fields reject conflicting payloads even when a value is
+first inferred in a variable. Raw runtime input still needs boundary validation.
+Pick one discriminant name (`kind`, `type`, `tag`) and stick to it.
 
 ## Constructive modeling
 
-Build the type from parts that are all legal instead of restricting a loose type with runtime checks.
+Build the type from parts that are all legal instead of restricting a loose type
+with runtime checks.
 
 Non-empty, via a variadic tuple:
 
@@ -60,15 +68,18 @@ function pickWinner(entries: NonEmpty<string>): string {
 }
 ```
 
-An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`; the known head provides a valid fallback.
+An arbitrary index remains possibly undefined under `noUncheckedIndexedAccess`;
+the known head provides a valid fallback.
 
-Where a plain array arrives, narrow once with a guard. The fact then travels in the type:
+Where a plain array arrives, narrow once with a guard. The fact then travels in
+the type:
 
 ```ts
 const isNonEmpty = <T>(arr: readonly T[]): arr is NonEmpty<T> => arr.length > 0;
 ```
 
-The guard checks the array once. If other code can still mutate that array, narrow a copy (`[...input]`) instead.
+The guard checks the array once. If other code can still mutate that array,
+narrow a copy (`[...input]`) instead.
 
 Even length, as pairs:
 
@@ -95,7 +106,9 @@ function parseDurationMs(value: number): DurationMs {
 type TimeRange = { readonly start: Date; readonly durationMs: DurationMs };
 ```
 
-A plain `number` still admits negatives, NaN, and infinity. The brand records that the constructor rejected them. Expose the reading you need on top, such as `pairs.flat()` or a `rangeEnd()` helper.
+A plain `number` still admits negatives, NaN, and infinity. The brand records
+that the constructor rejected them. Expose the reading you need on top, such as
+`pairs.flat()` or a `rangeEnd()` helper.
 
 ## Simplest total type
 
@@ -105,7 +118,8 @@ Don't strengthen everything. Keep `T[]` when every operation on it is total:
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0); // [] is 0, fine
 ```
 
-Strengthen when the loose type forces a lie at a use site. The tells are `!`, `arr[0] as T`, and a "should never happen" throw:
+Strengthen when the loose type forces a lie at a use site. The tells are `!`,
+`arr[0] as T`, and a "should never happen" throw:
 
 ```ts
 // Don't: partiality smuggled past the compiler
@@ -139,11 +153,15 @@ function handle(input: unknown) {
 }
 ```
 
-External sources include RPC payloads, `JSON.parse`, `postMessage`, IPC, file contents, environment variables, database results.
+External sources include RPC payloads, `JSON.parse`, `postMessage`, IPC, file
+contents, environment variables, database results.
 
 ## Schemas before hand-rolled guards
 
-Before writing a property-by-property type guard for external data, look for the repository's runtime schema library and existing schemas. Let one schema own validation and derive the TypeScript type from it. Do not maintain a schema, a duplicate interface, and a guard that can drift apart.
+Before writing a property-by-property type guard for external data, look for the
+repository's runtime schema library and existing schemas. Let one schema own
+validation and derive the TypeScript type from it. Do not maintain a schema, a
+duplicate interface, and a guard that can drift apart.
 
 ```ts
 import { z } from "zod";
@@ -160,11 +178,16 @@ function parseUser(input: unknown): User {
 }
 ```
 
-Use `safeParse` when failure is an expected branch. Use the equivalent inference helper when the repository uses another schema library. Do not add a new schema dependency for one guard. This rule prefers the schema system the codebase already trusts.
+Use `safeParse` when failure is an expected branch. Use the equivalent inference
+helper when the repository uses another schema library. Do not add a new schema
+dependency for one guard. This rule prefers the schema system the codebase
+already trusts.
 
 ## No unchecked `as` casts
 
-Unchecked type assertions can hide runtime type errors. Validate or narrow before asserting a domain type. A const assertion records literal/readonly types without validating data; it is not a substitute for boundary checks.
+Unchecked type assertions can hide runtime type errors. Validate or narrow
+before asserting a domain type. A const assertion records literal/readonly types
+without validating data; it is not a substitute for boundary checks.
 
 ```ts
 import { z } from "zod";
@@ -186,19 +209,26 @@ function parseUser(data: unknown): User {
 }
 ```
 
-When the type comes first, annotate the validator with the type it proves. The compiler then rejects a validator that proves less than the type. Remove `name` from the object below and the assignment fails to compile.
+When the type comes first, annotate the validator with the type it proves. The
+compiler then rejects a validator that proves less than the type. Remove `name`
+from the object below and the assignment fails to compile.
 
 ```ts
 type User = { id: string; name: string };
 
-const userSchema: z.ZodType<User> = z.object({ id: z.string(), name: z.string() });
+const userSchema: z.ZodType<User> = z.object({
+  id: z.string(),
+  name: z.string(),
+});
 ```
 
-When refactoring an `as` out of existing code, identify why TypeScript can't infer:
+When refactoring an `as` out of existing code, identify why TypeScript can't
+infer:
 
 - Missing discriminant: add one, switch to a discriminated union.
 - Overly wide source type (e.g. `Record<string, unknown>`): narrow it.
-- Untyped boundary: parse with the schema that owns the shape. Add a schema only where none exists.
+- Untyped boundary: parse with the schema that owns the shape. Add a schema only
+  where none exists.
 - Genuinely inexpressible: use a branded type or `satisfies`.
 
 ## Narrowing hierarchy
@@ -270,7 +300,10 @@ Return-style in value-returning switches, void-style in statement switches.
 
 ## `satisfies` over `as`
 
-`satisfies` checks assignability without asserting the expression to the target type. Literal widening depends on context. Use `as const` when preserving these literal values is required; it records literal and readonly types, not runtime validation.
+`satisfies` checks assignability without asserting the expression to the target
+type. Literal widening depends on context. Use `as const` when preserving these
+literal values is required; it records literal and readonly types, not runtime
+validation.
 
 ```ts
 type Config = { theme: string; cols: number };
@@ -285,15 +318,23 @@ const config = { theme: "dark", cols: 3 } as const satisfies Config;
 
 ## Boundary validation
 
-Validate once where data crosses in. Trust types inside. See the [boundary-discipline principle](../../principle-boundary-discipline/SKILL.md).
+Validate once where data crosses in. Trust types inside. See the
+[boundary-discipline principle](../../principle-boundary-discipline/SKILL.md).
 
-- **Wire formats:** validate against the protocol and method schema. Use a supported ProtoJSON ignore-unknown-fields option only when the repository's compatibility policy permits discarding those fields. JSON-RPC named parameters must match the method contract.
-- **Persisted JSON:** treat parsed data as `unknown`, then validate its versioned runtime schema or migrate validated supported older data before domain use. Catch syntax, validation and migration failures at the storage boundary.
+- **Wire formats:** validate against the protocol and method schema. Use a
+  supported ProtoJSON ignore-unknown-fields option only when the repository's
+  compatibility policy permits discarding those fields. JSON-RPC named
+  parameters must match the method contract.
+- **Persisted JSON:** treat parsed data as `unknown`, then validate its
+  versioned runtime schema or migrate validated supported older data before
+  domain use. Catch syntax, validation and migration failures at the storage
+  boundary.
 - **Don't re-validate** deep in call chains.
 
 ## Schema-derived types
 
-When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already defines a shape, derive from the generated types instead of duplicating them.
+When a `.proto`, OpenAPI spec, GraphQL schema, or database migration already
+defines a shape, derive from the generated types instead of duplicating them.
 
 ```ts
 // Don't. Duplicate shape, drifts when the schema changes.
@@ -312,7 +353,8 @@ function renderChecks(s: Pick<ChecksMessage, "totalCount" | "checks">) {
 }
 ```
 
-Reach for `Pick`, `Omit`, `Parameters`, `ReturnType`, `Awaited`, `typeof` before writing a new interface.
+Reach for `Pick`, `Omit`, `Parameters`, `ReturnType`, `Awaited`, `typeof` before
+writing a new interface.
 
 ## Object args
 
@@ -332,4 +374,5 @@ openFile({
 });
 ```
 
-Skip on hot paths: per-frame render, tokenizers, parsers, anything in a tight loop where the allocation cost matters.
+Skip on hot paths: per-frame render, tokenizers, parsers, anything in a tight
+loop where the allocation cost matters.

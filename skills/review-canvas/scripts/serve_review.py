@@ -29,10 +29,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import feedback_contract  # noqa: E402
-import render_review  # noqa: E402
-import review_state  # noqa: E402
-
+import feedback_contract
+import render_review
+import review_state
 
 MAX_PAGE_BYTES = 256 * 1024 * 1024
 REVISION = re.compile(r"none|[a-f0-9]{64}")
@@ -41,8 +40,13 @@ CSP_CONNECT = html.escape("connect-src 'none'", quote=True)
 CSP_CONNECT_SERVED = html.escape("connect-src 'self'", quote=True)
 CSP_META = '<meta http-equiv="Content-Security-Policy" content="'
 CHARSET_META = '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
-COMMON_HEADERS = (("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
-                  ("Cross-Origin-Resource-Policy", "same-origin"), ("Cross-Origin-Opener-Policy", "same-origin"))
+COMMON_HEADERS = (
+    ("Cache-Control", "no-store"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+)
 
 
 def revision(data):
@@ -58,7 +62,9 @@ class ReviewServer(ThreadingHTTPServer):
     def __init__(self, state, idle_timeout, port=0):
         self.state = review_state.private_dir(state)
         if review_state.read_current(self.state) is None:
-            raise review_state.StateError(f"{self.state} has no rendered round. Run render_review.py --round first.")
+            raise review_state.StateError(
+                f"{self.state} has no rendered round. Run render_review.py --round first."
+            )
         super().__init__(("127.0.0.1", port), Handler)
         self.port = self.server_address[1]
         self.token = secrets.token_urlsafe(32)
@@ -100,19 +106,27 @@ class ReviewServer(ThreadingHTTPServer):
     def snapshot(self, number):
         """The target, input digest, and agent answers of a published round, read once from its immutable input."""
         if number not in self.snapshots:
-            review = render_review.load_review(self.state / "rounds" / f"{number:04d}" / "input.json")
+            review = render_review.load_review(
+                self.state / "rounds" / f"{number:04d}" / "input.json"
+            )
             answers = {}
             for reply in review.get("replies", []):
                 answers.setdefault(reply["comment_id"], set()).add(reply["id"])
-            self.snapshots[number] = {"target": review["target"], "input_sha256": render_review.input_digest(review),
-                                      "answered": frozenset(answers), "answers": {key: frozenset(ids) for key, ids in answers.items()}}
+            self.snapshots[number] = {
+                "target": review["target"],
+                "input_sha256": render_review.input_digest(review),
+                "answered": frozenset(answers),
+                "answers": {key: frozenset(ids) for key, ids in answers.items()},
+            }
         return self.snapshots[number]
 
     def shown_answers(self, digest, current):
         """The agent answers, by comment, that the page of the published round with this input digest showed. None when
         no published round has that digest."""
         for number in range(current, 0, -1):
-            if (self.state / "rounds" / f"{number:04d}" / "review.html").exists() and self.snapshot(number)["input_sha256"] == digest:
+            if (
+                self.state / "rounds" / f"{number:04d}" / "review.html"
+            ).exists() and self.snapshot(number)["input_sha256"] == digest:
                 return self.snapshot(number)["answers"]
         return None
 
@@ -121,11 +135,16 @@ class ReviewServer(ThreadingHTTPServer):
         and before the render. None when such an input cannot be read yet, as while the agent writes its analysis."""
         answered = {}
         for entry in (self.state / "rounds").iterdir():
-            if not review_state.ROUND_NAME.fullmatch(entry.name) or int(entry.name) <= current:
+            if (
+                not review_state.ROUND_NAME.fullmatch(entry.name)
+                or int(entry.name) <= current
+            ):
                 continue
             try:
                 with (entry / "input.json").open("rb") as handle:
-                    replies = json.loads(handle.read(render_review.MAX_INPUT_BYTES + 1)).get("replies", [])
+                    replies = json.loads(
+                        handle.read(render_review.MAX_INPUT_BYTES + 1)
+                    ).get("replies", [])
                 for reply in replies:
                     answered.setdefault(reply["comment_id"], set()).add(reply["id"])
             except FileNotFoundError:
@@ -143,7 +162,10 @@ class ReviewServer(ThreadingHTTPServer):
     def watch_idle(self):
         while True:
             time.sleep(min(1.0, self.idle_timeout))
-            if self.busy == 0 and time.monotonic() - self.last_request > self.idle_timeout:
+            if (
+                self.busy == 0
+                and time.monotonic() - self.last_request > self.idle_timeout
+            ):
                 self.shutdown()
                 return
 
@@ -162,7 +184,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.not_found
         raise AttributeError(name)
 
-    def respond(self, status, body, content_type="application/json; charset=utf-8", policy="default-src 'none'; frame-ancestors 'none'"):
+    def respond(
+        self,
+        status,
+        body,
+        content_type="application/json; charset=utf-8",
+        policy="default-src 'none'; frame-ancestors 'none'",
+    ):
         self.send_response(status)
         for name, value in COMMON_HEADERS:
             self.send_header(name, value)
@@ -192,10 +220,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.route()
             except ConnectionError:
                 raise
-            except (review_state.StateError, render_review.ValidationError, OSError) as error:
+            except (
+                review_state.StateError,
+                render_review.ValidationError,
+                OSError,
+            ) as error:
                 self.reply(500, error=f"The review state is unreadable: {error}")
         except ConnectionError:
-            self.close_connection = True  # the client left; there is no one to answer, and nothing to log
+            self.close_connection = (
+                True  # the client left; there is no one to answer, and nothing to log
+            )
 
     def route(self):
         self.close_connection = True
@@ -205,7 +239,11 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         if self.command == "GET" and parts.path == "/":
             return self.page(parts.query)
-        routes = {("GET", "/feedback"): self.load, ("GET", "/round"): self.round, ("PUT", "/feedback"): self.save}
+        routes = {
+            ("GET", "/feedback"): self.load,
+            ("GET", "/round"): self.round,
+            ("PUT", "/feedback"): self.save,
+        }
         handler = routes.get((self.command, parts.path))
         if handler is None or parts.query:
             return self.not_found()
@@ -213,22 +251,39 @@ class Handler(BaseHTTPRequestHandler):
             origins = self.headers.get_all("Origin") or []
             if len(origins) != 1 or origins[0] != f"http://{hosts[0]}":
                 return self.reply(403, error="Origin must be this server.")
-            media, _, parameters = (self.headers.get("Content-Type") or "").partition(";")
-            if media.strip().lower() != "application/json" or parameters.replace(" ", "").lower() not in ("", "charset=utf-8"):
+            media, _, parameters = (self.headers.get("Content-Type") or "").partition(
+                ";"
+            )
+            if media.strip().lower() != "application/json" or parameters.replace(
+                " ", ""
+            ).lower() not in ("", "charset=utf-8"):
                 return self.reply(415, error="Content-Type must be application/json.")
         if not self.token_matches(self.headers.get("X-Review-Token")):
-            return self.reply(403, error="Missing or wrong session token. Reload the page from the URL the agent gave you.")
+            return self.reply(
+                403,
+                error="Missing or wrong session token. Reload the page from the URL the agent gave you.",
+            )
         # Only a request with the token counts as activity, so another local process cannot keep the server alive.
         with self.server.activity():
             return handler()
 
     def token_matches(self, value):
-        return isinstance(value, str) and hmac.compare_digest(value.encode(), self.server.token.encode())
+        return isinstance(value, str) and hmac.compare_digest(
+            value.encode(), self.server.token.encode()
+        )
 
     def page(self, query):
         values = parse_qs(query, keep_blank_values=True, strict_parsing=False)
-        if list(values) != ["token"] or len(values["token"]) != 1 or not self.token_matches(values["token"][0]):
-            return self.respond(403, b"Open the review URL that the agent gave you.\n", "text/plain; charset=utf-8")
+        if (
+            list(values) != ["token"]
+            or len(values["token"]) != 1
+            or not self.token_matches(values["token"][0])
+        ):
+            return self.respond(
+                403,
+                b"Open the review URL that the agent gave you.\n",
+                "text/plain; charset=utf-8",
+            )
         with self.server.activity():
             return self.send_page()
 
@@ -242,15 +297,34 @@ class Handler(BaseHTTPRequestHandler):
         start = page.find(CSP_META, 0, page.find("</head>"))
         end = page.find('">', start)
         policy = page[start:end]
-        if not page.startswith(CHARSET_META) or start < 0 or policy.count(CSP_CONNECT) != 1:
-            return self.reply(500, error="The rendered page lacks the expected security policy.")
+        if (
+            not page.startswith(CHARSET_META)
+            or start < 0
+            or policy.count(CSP_CONNECT) != 1
+        ):
+            return self.reply(
+                500, error="The rendered page lacks the expected security policy."
+            )
         # The script and its hash are unchanged, and so is the file on disk.
         # The page asks for the round well inside the idle timeout, so an open page keeps the server running.
         poll = max(250, min(3000, int(self.server.idle_timeout * 1000 / 3)))
-        session = (f'<meta name="review-canvas-token" content="{self.server.token}"><meta name="review-canvas-round" content="{number}">'
-                   f'<meta name="review-canvas-poll" content="{poll}">')
-        page = CHARSET_META + session + page[len(CHARSET_META):start] + policy.replace(CSP_CONNECT, CSP_CONNECT_SERVED) + page[end:]
-        self.respond(200, page.encode("utf-8"), "text/html; charset=utf-8", "frame-ancestors 'none'")
+        session = (
+            f'<meta name="review-canvas-token" content="{self.server.token}"><meta name="review-canvas-round" content="{number}">'
+            f'<meta name="review-canvas-poll" content="{poll}">'
+        )
+        page = (
+            CHARSET_META
+            + session
+            + page[len(CHARSET_META) : start]
+            + policy.replace(CSP_CONNECT, CSP_CONNECT_SERVED)
+            + page[end:]
+        )
+        self.respond(
+            200,
+            page.encode("utf-8"),
+            "text/html; charset=utf-8",
+            "frame-ancestors 'none'",
+        )
 
     def round(self):
         self.reply(200, round=review_state.read_current(self.server.state))
@@ -262,13 +336,20 @@ class Handler(BaseHTTPRequestHandler):
         try:
             feedback = feedback_contract.parse_feedback(data)
         except feedback_contract.FeedbackError as error:
-            return self.reply(500, error=f"The saved feedback is invalid, so saving is paused: {error}", revision=revision(data))
+            return self.reply(
+                500,
+                error=f"The saved feedback is invalid, so saving is paused: {error}",
+                revision=revision(data),
+            )
         self.reply(200, revision=revision(data), feedback=feedback)
 
     def save(self):
         with self.server.saves_done:
             if self.server.closing:
-                return self.reply(503, error="The review server is stopping. Export your feedback to keep it.")
+                return self.reply(
+                    503,
+                    error="The review server is stopping. Export your feedback to keep it.",
+                )
             self.server.active_saves += 1
         try:
             self.write_feedback()
@@ -287,7 +368,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(413, error="Feedback exceeds 8 MiB.")
         base = self.headers.get("X-Review-Revision") or ""
         if not REVISION.fullmatch(base):
-            return self.reply(400, error="X-Review-Revision must name the revision this save is based on.")
+            return self.reply(
+                400,
+                error="X-Review-Revision must name the revision this save is based on.",
+            )
         body = self.rfile.read(int(length))
         if len(body) != int(length):
             return self.reply(400, error="The body ended early.")
@@ -307,64 +391,126 @@ class Handler(BaseHTTPRequestHandler):
             saved = self.server.saved()
             current = revision(saved)
             if base != current:
-                return self.reply(409, error="Feedback changed since this page loaded it, in another tab or round. Reload to continue.", revision=current)
+                return self.reply(
+                    409,
+                    error="Feedback changed since this page loaded it, in another tab or round. Reload to continue.",
+                    revision=current,
+                )
             # A page from an earlier round does not know the agent's newest answers. It must not delete a comment that
             # the current round answers, or the answer would lose its thread.
             # It must not change one either: the answer refers to the comment as the agent read it.
             previous = json.loads(saved)["comments"] if saved else []
-            question = lambda comment: (comment["body"], comment["anchor"], comment["history"])
-            kept = {comment["id"]: question(comment) for comment in feedback["comments"]}
+            question = lambda comment: (
+                comment["body"],
+                comment["anchor"],
+                comment["history"],
+            )
+            kept = {
+                comment["id"]: question(comment) for comment in feedback["comments"]
+            }
             before = {comment["id"]: question(comment) for comment in previous}
             for comment_id in snapshot["answered"] & before.keys():
                 if comment_id not in kept:
-                    return self.reply(409, error="The agent answered a comment this page deletes. Reload to see the answer.", revision=current)
+                    return self.reply(
+                        409,
+                        error="The agent answered a comment this page deletes. Reload to see the answer.",
+                        revision=current,
+                    )
                 if kept[comment_id] != before[comment_id]:
-                    return self.reply(409, error="The agent answered a comment this page changes. Reload to see the answer.", revision=current)
+                    return self.reply(
+                        409,
+                        error="The agent answered a comment this page changes. Reload to see the answer.",
+                        revision=current,
+                    )
             # Nor may it answer one: its reply could sort before an answer it never showed, and the agent would miss it.
-            earlier = {comment["id"]: comment.get("replies", []) for comment in previous}
-            replied = {comment["id"] for comment in feedback["comments"] if comment.get("replies", []) != earlier.get(comment["id"], [])}
+            earlier = {
+                comment["id"]: comment.get("replies", []) for comment in previous
+            }
+            replied = {
+                comment["id"]
+                for comment in feedback["comments"]
+                if comment.get("replies", []) != earlier.get(comment["id"], [])
+            }
             # The answers the saving page showed. An answer merely carried into this round is one of them; only an answer
             # it never showed blocks it.
-            shown = snapshot["answers"] if feedback["input_sha256"] == snapshot["input_sha256"] else self.server.shown_answers(feedback["input_sha256"], number)
-            if feedback["input_sha256"] != snapshot["input_sha256"]:
-                if any(shown is None or shown.get(comment_id) != snapshot["answers"][comment_id] for comment_id in replied & snapshot["answered"]):
-                    return self.reply(409, error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
-                                      revision=current)
+            shown = (
+                snapshot["answers"]
+                if feedback["input_sha256"] == snapshot["input_sha256"]
+                else self.server.shown_answers(feedback["input_sha256"], number)
+            )
+            if feedback["input_sha256"] != snapshot["input_sha256"] and any(
+                shown is None
+                or shown.get(comment_id) != snapshot["answers"][comment_id]
+                for comment_id in replied & snapshot["answered"]
+            ):
+                return self.reply(
+                    409,
+                    error="The agent answered a comment this page replies to. Reload to see the answer, then reply.",
+                    revision=current,
+                )
             # Answers already written for the next round, before it publishes, protect their comments the same way. Until
             # such an input can be read, every saved comment is protected.
             pending = self.server.pending_answers(number)
             if pending is None:
                 pending = set(before)
             else:  # answers the round merely carries were shown already, so only new ones protect their comments
-                pending = {comment_id for comment_id, ids in pending.items() if shown is None or not ids <= shown.get(comment_id, frozenset())}
-            if any(comment_id not in kept or kept[comment_id] != before[comment_id] for comment_id in pending & before.keys()) or replied & pending:
-                return self.reply(409, error="The agent is answering this page's comments for the next round. Reload when that round is ready.",
-                                  revision=current)
+                pending = {
+                    comment_id
+                    for comment_id, ids in pending.items()
+                    if shown is None or not ids <= shown.get(comment_id, frozenset())
+                }
+            if (
+                any(
+                    comment_id not in kept or kept[comment_id] != before[comment_id]
+                    for comment_id in pending & before.keys()
+                )
+                or replied & pending
+            ):
+                return self.reply(
+                    409,
+                    error="The agent is answering this page's comments for the next round. Reload when that round is ready.",
+                    revision=current,
+                )
             review_state.write_private(self.server.state / "feedback.json", body)
         self.reply(200, revision=revision(body))
 
 
 def write_server_file(server):
     record = {"url": server.url, "port": server.port, "pid": os.getpid()}
-    review_state.write_private(server.state / "server.json", (json.dumps(record, indent=2) + "\n").encode())
+    review_state.write_private(
+        server.state / "server.json", (json.dumps(record, indent=2) + "\n").encode()
+    )
 
 
 def running_server(state):
     """Return the URL recorded by the server that holds this review's lock. The lock, not a process probe, proves it
     runs: on Windows, os.kill with signal 0 would terminate the process."""
     try:
-        return json.loads((Path(state) / "server.json").read_text(encoding="utf-8"))["url"]
+        return json.loads((Path(state) / "server.json").read_text(encoding="utf-8"))[
+            "url"
+        ]
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--state-dir", type=Path, required=True, help="The review's state directory")
-    parser.add_argument("--idle-timeout", type=float, default=3600, help="Stop after this many seconds without a request (default 3600)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--state-dir", type=Path, required=True, help="The review's state directory"
+    )
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=3600,
+        help="Stop after this many seconds without a request (default 3600)",
+    )
     args = parser.parse_args(argv)
     if not math.isfinite(args.idle_timeout) or args.idle_timeout < 1:
-        parser.error("--idle-timeout must be at least 1 second, so an open page can poll inside it")
+        parser.error(
+            "--idle-timeout must be at least 1 second, so an open page can poll inside it"
+        )
     # One server per review: its lock lasts as long as the process, so two starts cannot both serve and both save.
     ownership = contextlib.ExitStack()
     try:
@@ -373,7 +519,9 @@ def main(argv=None):
         try:
             ownership.enter_context(review_state.lock(state, "server", wait=False))
         except review_state.StateError:
-            raise review_state.StateError(f"a server already runs for this review: {running_server(state) or 'see server.json'}") from None
+            raise review_state.StateError(
+                f"a server already runs for this review: {running_server(state) or 'see server.json'}"
+            ) from None
         server = ReviewServer(state, args.idle_timeout)
         write_server_file(server)
     except (review_state.StateError, OSError) as error:
@@ -382,10 +530,18 @@ def main(argv=None):
         return 2
     with ownership:
         for signum in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(signum, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+            signal.signal(
+                signum,
+                lambda *_: threading.Thread(
+                    target=server.shutdown, daemon=True
+                ).start(),
+            )
         threading.Thread(target=server.watch_idle, daemon=True).start()
         print(f"Review server: {server.url}", flush=True)
-        print(f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {render_review.shown(str(server.state / 'feedback.json'))}.", flush=True)
+        print(
+            f"It stops after {args.idle_timeout:g} seconds without a request. Feedback saves to {render_review.shown(str(server.state / 'feedback.json'))}.",
+            flush=True,
+        )
         try:
             server.serve_forever(poll_interval=0.25)
         finally:

@@ -13,11 +13,11 @@ Python 3.10+; standard library only.
 import argparse
 import datetime
 import hashlib
+import itertools
 import json
 import re
 import sys
 from pathlib import Path
-
 
 VERSION = 3
 MAX_BYTES = 8 * 1024 * 1024
@@ -27,13 +27,26 @@ SHA = re.compile(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")
 PR = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*")
 ROOT = re.compile(r"(?:/|[A-Za-z]:[\\/]|\\\\[^\\/]+\\[^\\/]+)")
 COMMENT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
-STATUSES = {"added", "modified", "deleted", "removed", "renamed", "copied", "changed", "unchanged"}
+STATUSES = {
+    "added",
+    "modified",
+    "deleted",
+    "removed",
+    "renamed",
+    "copied",
+    "changed",
+    "unchanged",
+}
 GROUPS = {"core", "wiring", "mechanical"}
 ACTIONS = ("accept", "reopen", "reply")
 # Reply times order a thread, so both languages must parse them alike: UTC, with optional milliseconds.
-REPLY_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z")
+REPLY_TIME = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z"
+)
 # String.prototype.trim removes these: WhiteSpace (including every Zs character) and LineTerminator.
-JS_SPACE = set("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff")
+JS_SPACE = set(
+    "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 SAFE_INTEGER = 2**53 - 1
 
 
@@ -49,12 +62,18 @@ def units(value):
 def _object(value, required, optional=()):
     if not isinstance(value, dict):
         raise FeedbackError("Expected an object.")
-    if any(key not in value for key in required) or any(key not in required and key not in optional for key in value):
+    if any(key not in value for key in required) or any(
+        key not in required and key not in optional for key in value
+    ):
         raise FeedbackError("Missing or unsupported feedback fields.")
 
 
 def _text(value, limit=20000, nonempty=False):
-    if not isinstance(value, str) or units(value) > limit or (nonempty and all(c in JS_SPACE for c in value)):
+    if (
+        not isinstance(value, str)
+        or units(value) > limit
+        or (nonempty and all(c in JS_SPACE for c in value))
+    ):
         raise FeedbackError("Invalid or oversized feedback text.")
     for c in value:
         # Python decodes a valid surrogate pair to one character, so any surrogate left here is unpaired. The messages
@@ -71,14 +90,23 @@ def _integer(value, maximum=50000000, minimum=0):
 
 
 def _target(value):
-    if not isinstance(value, dict) or value.get("kind") not in ("github_pr", "worktree"):
+    if not isinstance(value, dict) or value.get("kind") not in (
+        "github_pr",
+        "worktree",
+    ):
         raise FeedbackError("Invalid review target.")
     if value["kind"] == "github_pr":
-        _object(value, ("kind", "title"), ("url", "head_sha", "base_sha", "changed_files"))
-        if "url" in value and (not isinstance(value["url"], str) or not PR.fullmatch(value["url"])):
+        _object(
+            value, ("kind", "title"), ("url", "head_sha", "base_sha", "changed_files")
+        )
+        if "url" in value and (
+            not isinstance(value["url"], str) or not PR.fullmatch(value["url"])
+        ):
             raise FeedbackError("Invalid PR identity.")
     else:
-        _object(value, ("kind", "title", "root", "head_sha"), ("branch", "changed_files"))
+        _object(
+            value, ("kind", "title", "root", "head_sha"), ("branch", "changed_files")
+        )
         _text(value["root"], 4096, True)
         if not ROOT.match(value["root"]):
             raise FeedbackError("Invalid working tree root.")
@@ -86,20 +114,26 @@ def _target(value):
             _text(value["branch"], 1024, True)
     _text(value["title"], 20000, True)
     for key in ("head_sha", "base_sha"):
-        if key in value and (not isinstance(value[key], str) or not SHA.fullmatch(value[key])):
+        if key in value and (
+            not isinstance(value[key], str) or not SHA.fullmatch(value[key])
+        ):
             raise FeedbackError("Invalid commit snapshot.")
     if "changed_files" in value:
         _integer(value["changed_files"], 10**12)
 
 
 def pinned(target):
-    return target["kind"] == "worktree" or bool(target.get("url") and target.get("head_sha"))
+    return target["kind"] == "worktree" or bool(
+        target.get("url") and target.get("head_sha")
+    )
 
 
 def _snapshot(value):
     _object(value, ("target", "input_sha256"))
     _target(value["target"])
-    if not isinstance(value["input_sha256"], str) or not HASH.fullmatch(value["input_sha256"]):
+    if not isinstance(value["input_sha256"], str) or not HASH.fullmatch(
+        value["input_sha256"]
+    ):
         raise FeedbackError("Invalid input digest.")
 
 
@@ -111,7 +145,13 @@ def _files(value):
         _object(file, ("path", "status", "group", "notes"))
         _text(file["path"], 4096, True)
         _text(file["notes"])
-        if file["path"] in paths or not isinstance(file["status"], str) or file["status"] not in STATUSES or not isinstance(file["group"], str) or file["group"] not in GROUPS:
+        if (
+            file["path"] in paths
+            or not isinstance(file["status"], str)
+            or file["status"] not in STATUSES
+            or not isinstance(file["group"], str)
+            or file["group"] not in GROUPS
+        ):
             raise FeedbackError("Invalid or duplicate feedback file.")
         paths.add(file["path"])
 
@@ -124,27 +164,61 @@ def _approvals(value):
         _object(approval, ("path", "fingerprint", "approved_at"))
         _text(approval["path"], 4096, True)
         _text(approval["approved_at"], 40, True)
-        if not isinstance(approval["fingerprint"], str) or not HASH.fullmatch(approval["fingerprint"]) or approval["path"] in paths:
+        if (
+            not isinstance(approval["fingerprint"], str)
+            or not HASH.fullmatch(approval["fingerprint"])
+            or approval["path"] in paths
+        ):
             raise FeedbackError("Invalid or duplicate approval.")
         paths.add(approval["path"])
 
 
 def _anchor(value):
-    _object(value, ("snapshot", "path", "patch_sha256", "start", "end", "quote", "prefix", "suffix", "start_row", "end_row",
-                    "side", "start_line", "end_line"))
+    _object(
+        value,
+        (
+            "snapshot",
+            "path",
+            "patch_sha256",
+            "start",
+            "end",
+            "quote",
+            "prefix",
+            "suffix",
+            "start_row",
+            "end_row",
+            "side",
+            "start_line",
+            "end_line",
+        ),
+    )
     _snapshot(value["snapshot"])
     if not pinned(value["snapshot"]["target"]):
-        raise FeedbackError("Comments require a pinned target: a PR URL and head commit, or a working tree.")
+        raise FeedbackError(
+            "Comments require a pinned target: a PR URL and head commit, or a working tree."
+        )
     _text(value["path"], 4096, True)
-    if not isinstance(value["patch_sha256"], str) or not HASH.fullmatch(value["patch_sha256"]):
+    if not isinstance(value["patch_sha256"], str) or not HASH.fullmatch(
+        value["patch_sha256"]
+    ):
         raise FeedbackError("Invalid patch digest.")
-    _integer(value["start"]); _integer(value["end"]); _integer(value["start_row"], 10000); _integer(value["end_row"], 10000)
-    _text(value["quote"], 20000, True); _text(value["prefix"], 80); _text(value["suffix"], 80)
-    if value["end"] <= value["start"] or value["end"] - value["start"] != units(value["quote"]) or value["end_row"] < value["start_row"]:
+    _integer(value["start"])
+    _integer(value["end"])
+    _integer(value["start_row"], 10000)
+    _integer(value["end_row"], 10000)
+    _text(value["quote"], 20000, True)
+    _text(value["prefix"], 80)
+    _text(value["suffix"], 80)
+    if (
+        value["end"] <= value["start"]
+        or value["end"] - value["start"] != units(value["quote"])
+        or value["end_row"] < value["start_row"]
+    ):
         raise FeedbackError("Invalid quote range.")
     if value["side"] not in ("old", "new"):
         raise FeedbackError("Invalid anchor side.")
-    _integer(value["start_line"], 10**12, 1); _integer(value["end_line"], 10**12, 1)
+    _integer(value["start_line"], 10**12, 1)
+    _integer(value["end_line"], 10**12, 1)
     if value["end_line"] < value["start_line"]:
         raise FeedbackError("Invalid source line range.")
 
@@ -156,16 +230,26 @@ def _replies(value, ids):
     total = 0
     for reply in value:
         _object(reply, ("id", "actor", "created_at", "body", "action"))
-        if not isinstance(reply["id"], str) or not COMMENT_ID.fullmatch(reply["id"]) or reply["id"] in ids:
+        if (
+            not isinstance(reply["id"], str)
+            or not COMMENT_ID.fullmatch(reply["id"])
+            or reply["id"] in ids
+        ):
             raise FeedbackError("Invalid or duplicate reply ID.")
         ids.add(reply["id"])
         if reply["actor"] != "reviewer":
-            raise FeedbackError("Feedback replies come from the reviewer; agent replies belong in the review input.")
+            raise FeedbackError(
+                "Feedback replies come from the reviewer; agent replies belong in the review input."
+            )
         if not isinstance(reply["action"], str) or reply["action"] not in ACTIONS:
             raise FeedbackError("Invalid reply action.")
         _text(reply["created_at"], 40, True)
-        if not REPLY_TIME.fullmatch(reply["created_at"]) or reply_time(reply) == float("inf"):
-            raise FeedbackError("Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z.")
+        if not REPLY_TIME.fullmatch(reply["created_at"]) or reply_time(reply) == float(
+            "inf"
+        ):
+            raise FeedbackError(
+                "Reply times must be UTC ISO 8601, such as 2026-10-10T09:00:00.000Z."
+            )
         _text(reply["body"], 20000, reply["action"] != "accept")
         total += units(reply["body"])
     return total
@@ -177,7 +261,8 @@ def _attachment(value):
         raise FeedbackError("Invalid attachment state.")
     _text(value["reason"], 200)
     if value["state"] == "attached":
-        _integer(value["start"]); _integer(value["end"])
+        _integer(value["start"])
+        _integer(value["end"])
         if value["end"] <= value["start"]:
             raise FeedbackError("Invalid attachment range.")
     elif value["start"] is not None or value["end"] is not None:
@@ -191,25 +276,70 @@ def snapshot_of(value):
 def validate_feedback(value):
     """Validate a parsed document. Return it unchanged."""
     if isinstance(value, dict) and value.get("feedback_schema_version") != VERSION:
-        raise FeedbackError(f"Feedback version {json.dumps(value.get('feedback_schema_version'))} is not supported; "
-                            f"expected {VERSION}. There is no migration.")
-    _object(value, ("feedback_schema_version", "target", "input_sha256", "exported_at", "general_notes", "files", "approvals",
-                    "comments", "retained_reviews"))
+        raise FeedbackError(
+            f"Feedback version {json.dumps(value.get('feedback_schema_version'))} is not supported; "
+            f"expected {VERSION}. There is no migration."
+        )
+    _object(
+        value,
+        (
+            "feedback_schema_version",
+            "target",
+            "input_sha256",
+            "exported_at",
+            "general_notes",
+            "files",
+            "approvals",
+            "comments",
+            "retained_reviews",
+        ),
+    )
     if type(value["feedback_schema_version"]) is not int:
-        raise FeedbackError(f"Feedback version {value['feedback_schema_version']!r} is not supported; expected {VERSION}.")
+        raise FeedbackError(
+            f"Feedback version {value['feedback_schema_version']!r} is not supported; expected {VERSION}."
+        )
     _snapshot(snapshot_of(value))
-    _text(value["exported_at"], 40, True); _text(value["general_notes"]); _files(value["files"]); _approvals(value["approvals"])
-    if not isinstance(value["comments"], list) or len(value["comments"]) > 1000 or not isinstance(value["retained_reviews"], list) or len(value["retained_reviews"]) > 50:
+    _text(value["exported_at"], 40, True)
+    _text(value["general_notes"])
+    _files(value["files"])
+    _approvals(value["approvals"])
+    if (
+        not isinstance(value["comments"], list)
+        or len(value["comments"]) > 1000
+        or not isinstance(value["retained_reviews"], list)
+        or len(value["retained_reviews"]) > 50
+    ):
         raise FeedbackError("Feedback collection limit exceeded.")
     ids, reply_ids = set(), set()
-    total = units(value["general_notes"]) + sum(units(file["notes"]) for file in value["files"])
+    total = units(value["general_notes"]) + sum(
+        units(file["notes"]) for file in value["files"]
+    )
     for comment in value["comments"]:
-        _object(comment, ("id", "body", "created_at", "updated_at", "anchor", "history", "attachment"), ("replies",))
-        if not isinstance(comment["id"], str) or not COMMENT_ID.fullmatch(comment["id"]) or comment["id"] in ids:
+        _object(
+            comment,
+            (
+                "id",
+                "body",
+                "created_at",
+                "updated_at",
+                "anchor",
+                "history",
+                "attachment",
+            ),
+            ("replies",),
+        )
+        if (
+            not isinstance(comment["id"], str)
+            or not COMMENT_ID.fullmatch(comment["id"])
+            or comment["id"] in ids
+        ):
             raise FeedbackError("Invalid or duplicate comment ID.")
         ids.add(comment["id"])
-        _text(comment["body"], 20000, True); _text(comment["created_at"], 40, True); _text(comment["updated_at"], 40, True)
-        _anchor(comment["anchor"]); _attachment(comment["attachment"])
+        _text(comment["body"], 20000, True)
+        _text(comment["created_at"], 40, True)
+        _text(comment["updated_at"], 40, True)
+        _anchor(comment["anchor"])
+        _attachment(comment["attachment"])
         if not isinstance(comment["history"], list) or len(comment["history"]) > 20:
             raise FeedbackError("Comment anchor history limit exceeded.")
         for previous in comment["history"]:
@@ -217,15 +347,23 @@ def validate_feedback(value):
             total += units(previous["quote"]) + units(previous["path"])
         if "replies" in comment:
             total += _replies(comment["replies"], reply_ids)
-        total += units(comment["body"]) + units(comment["anchor"]["quote"]) + units(comment["anchor"]["path"])
+        total += (
+            units(comment["body"])
+            + units(comment["anchor"]["quote"])
+            + units(comment["anchor"]["path"])
+        )
     retained = set()
     for review in value["retained_reviews"]:
         _object(review, ("target", "input_sha256", "general_notes", "files"))
-        _snapshot(snapshot_of(review)); _text(review["general_notes"]); _files(review["files"])
+        _snapshot(snapshot_of(review))
+        _text(review["general_notes"])
+        _files(review["files"])
         if review["input_sha256"] in retained:
             raise FeedbackError("Duplicate retained snapshot.")
         retained.add(review["input_sha256"])
-        total += units(review["general_notes"]) + sum(units(file["notes"]) for file in review["files"])
+        total += units(review["general_notes"]) + sum(
+            units(file["notes"]) for file in review["files"]
+        )
     if total > 2 * 1024 * 1024:
         raise FeedbackError("Feedback text budget exceeded.")
     return value
@@ -252,13 +390,21 @@ def _integer_token(token):
 
 def _reject_constant(token):
     # JSON has no NaN or Infinity; JSON.parse calls them a syntax error, so this message matches that category.
-    raise FeedbackError(f"Feedback is not valid UTF-8 JSON: {token} is not a JSON value")
+    raise FeedbackError(
+        f"Feedback is not valid UTF-8 JSON: {token} is not a JSON value"
+    )
 
 
 def _depth(value, depth=0):
     if depth > MAX_DEPTH:
         raise FeedbackError("Feedback is nested too deeply.")
-    children = value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+    children = (
+        value.values()
+        if isinstance(value, dict)
+        else value
+        if isinstance(value, list)
+        else ()
+    )
     for child in children:
         _depth(child, depth + 1)
 
@@ -272,8 +418,13 @@ def parse_feedback(raw):
     except UnicodeDecodeError:
         raise FeedbackError("Feedback is not valid UTF-8.") from None
     try:
-        value = json.loads(text, object_pairs_hook=_unique, parse_float=_reject_number,
-                           parse_int=_integer_token, parse_constant=_reject_constant)
+        value = json.loads(
+            text,
+            object_pairs_hook=_unique,
+            parse_float=_reject_number,
+            parse_int=_integer_token,
+            parse_constant=_reject_constant,
+        )
     except FeedbackError:
         raise
     except (ValueError, RecursionError) as error:
@@ -295,54 +446,88 @@ def same_target(a, b):
 
 def check_identity(feedback, snapshot):
     """Raise unless every snapshot named in the feedback belongs to the same review as snapshot."""
-    named = [snapshot_of(feedback)] + [snapshot_of(review) for review in feedback["retained_reviews"]]
+    named = [snapshot_of(feedback)] + [
+        snapshot_of(review) for review in feedback["retained_reviews"]
+    ]
     for comment in feedback["comments"]:
-        named += [comment["anchor"]["snapshot"]] + [anchor["snapshot"] for anchor in comment["history"]]
+        named += [comment["anchor"]["snapshot"]] + [
+            anchor["snapshot"] for anchor in comment["history"]
+        ]
     if not all(same_target(item, snapshot) for item in named):
-        raise FeedbackError("Feedback belongs to another review target or an unidentified snapshot.")
+        raise FeedbackError(
+            "Feedback belongs to another review target or an unidentified snapshot."
+        )
 
 
 def reply_time(reply):
     """Sort key matching the page: the reply time, unparseable times last."""
     try:
-        moment = datetime.datetime.fromisoformat(reply["created_at"].replace("Z", "+00:00"))
+        moment = datetime.datetime.fromisoformat(
+            reply["created_at"].replace("Z", "+00:00")
+        )
     except ValueError:
         return float("inf")
     # A round trip rejects what JavaScript would roll over, such as 24:00:00 for the next midnight.
-    return moment.timestamp() if moment.strftime("%Y-%m-%dT%H:%M:%S") == reply["created_at"][:19] else float("inf")
+    return (
+        moment.timestamp()
+        if moment.strftime("%Y-%m-%dT%H:%M:%S") == reply["created_at"][:19]
+        else float("inf")
+    )
 
 
 def thread(comment, agent_replies):
     """One comment's replies in order: the agent's from the review input, the reviewer's from feedback."""
-    replies = [reply for reply in agent_replies if reply["comment_id"] == comment["id"]] + comment.get("replies", [])
-    return sorted(replies, key=lambda reply: (reply_time(reply), reply["actor"] != "agent", reply["id"]))
+    replies = [
+        reply for reply in agent_replies if reply["comment_id"] == comment["id"]
+    ] + comment.get("replies", [])
+    return sorted(
+        replies,
+        key=lambda reply: (reply_time(reply), reply["actor"] != "agent", reply["id"]),
+    )
 
 
 def thread_state(replies):
     """Return whose turn it is, from the last reply: agent, reviewer, or None once the reviewer accepts."""
     if not replies:
         return "agent", "open"
+
     def out_of_order(previous, reply):
         if reply.get("action") == "accept":
             return previous["actor"] != "agent"
-        return reply.get("action") == "reopen" and previous["actor"] != "agent" and previous.get("action") != "accept"
+        return (
+            reply.get("action") == "reopen"
+            and previous["actor"] != "agent"
+            and previous.get("action") != "accept"
+        )
+
     # A reviewer reply always follows an agent answer, and the page offers accept only right after one and reopen only
     # after one or an accept. Any other order means earlier answers were not carried into this round.
-    if replies[0]["actor"] == "reviewer" or any(out_of_order(previous, reply) for previous, reply in zip(replies, replies[1:])):
+    if replies[0]["actor"] == "reviewer" or any(
+        out_of_order(previous, reply) for previous, reply in itertools.pairwise(replies)
+    ):
         return "agent", "earlier answers missing"
     # reply.py add answers only on the agent's turn, so two answers in a row mean this feedback lacks the reviewer reply
     # between them: it is older than the round.
-    if any(previous["actor"] == reply["actor"] == "agent" for previous, reply in zip(replies, replies[1:])):
+    if any(
+        previous["actor"] == reply["actor"] == "agent"
+        for previous, reply in itertools.pairwise(replies)
+    ):
         return "reviewer", "reviewer replies missing"
     last = replies[-1]
     if last["actor"] == "agent":
         return "reviewer", f"answered: {last['disposition']}"
-    return (None, "resolved") if last["action"] == "accept" else ("agent", {"reopen": "reopened", "reply": "replied"}[last["action"]])
+    return (
+        (None, "resolved")
+        if last["action"] == "accept"
+        else ("agent", {"reopen": "reopened", "reply": "replied"}[last["action"]])
+    )
 
 
 def check_inventory(feedback, review, digest):
     """Feedback that names this exact snapshot must list its files: the same paths, each once."""
-    if feedback["input_sha256"] == digest and sorted(file["path"] for file in feedback["files"]) != sorted(file["path"] for file in review["files"]):
+    if feedback["input_sha256"] == digest and sorted(
+        file["path"] for file in feedback["files"]
+    ) != sorted(file["path"] for file in review["files"]):
         raise FeedbackError("Feedback names this snapshot but lists other files.")
 
 
@@ -363,42 +548,87 @@ def main(argv=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import render_review
 
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("feedback", type=Path, help="Feedback JSON exported by the page or saved by serve_review.py")
-    parser.add_argument("--input", type=Path, help="Review input of the round to compare with: target identity and approvals")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "feedback",
+        type=Path,
+        help="Feedback JSON exported by the page or saved by serve_review.py",
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        help="Review input of the round to compare with: target identity and approvals",
+    )
     args = parser.parse_args(argv)
     try:
         feedback, current = load_feedback(args.feedback)
         review = render_review.load_review(args.input) if args.input else None
         if review:
-            check_identity(feedback, {"target": review["target"], "input_sha256": render_review.input_digest(review)})
+            check_identity(
+                feedback,
+                {
+                    "target": review["target"],
+                    "input_sha256": render_review.input_digest(review),
+                },
+            )
             check_inventory(feedback, review, render_review.input_digest(review))
     except (FeedbackError, render_review.ValidationError, OSError) as error:
         print(f"Error: {render_review.escaped(error)}", file=sys.stderr)
         return 2
-    orphans = sum(comment["attachment"]["state"] == "orphan" for comment in feedback["comments"])
+    orphans = sum(
+        comment["attachment"]["state"] == "orphan" for comment in feedback["comments"]
+    )
     # Titles and paths are reviewed data and may hold line breaks or terminal controls, so they print escaped.
-    print(f"Valid feedback for {render_review.shown(feedback['target']['title'])}: {len(feedback['comments'])} comments ({orphans} unattached when saved), "
-          f"{len(feedback['approvals'])} approvals.")
-    print(f"Revision: {current}. Pass it to reply.py add --revision, which refuses feedback that changed since.")
+    print(
+        f"Valid feedback for {render_review.shown(feedback['target']['title'])}: {len(feedback['comments'])} comments ({orphans} unattached when saved), "
+        f"{len(feedback['approvals'])} approvals."
+    )
+    print(
+        f"Revision: {current}. Pass it to reply.py add --revision, which refuses feedback that changed since."
+    )
     if review:
-        approvals = {record["path"]: record["fingerprint"] for record in feedback["approvals"]}
+        approvals = {
+            record["path"]: record["fingerprint"] for record in feedback["approvals"]
+        }
         states = {"approved": [], "changed since approval": [], "not approved": []}
         for file in review["files"]:
             stored = approvals.get(file["path"])
-            states["not approved" if stored is None else "approved" if stored == file.get("fingerprint") else "changed since approval"].append(file["path"])
+            states[
+                "not approved"
+                if stored is None
+                else "approved"
+                if stored == file.get("fingerprint")
+                else "changed since approval"
+            ].append(file["path"])
         same = feedback["input_sha256"] == render_review.input_digest(review)
-        print(f"Against {render_review.shown(str(args.input))}: {'same snapshot' if same else 'an earlier snapshot of the same review'}.")
+        print(
+            f"Against {render_review.shown(str(args.input))}: {'same snapshot' if same else 'an earlier snapshot of the same review'}."
+        )
         for state, paths in states.items():
-            print(f"  {len(paths)} {state}" + (": " + ", ".join(map(render_review.shown, paths)) if paths and state != "approved" else ""))
+            print(
+                f"  {len(paths)} {state}"
+                + (
+                    ": " + ", ".join(map(render_review.shown, paths))
+                    if paths and state != "approved"
+                    else ""
+                )
+            )
         turns = {"agent": [], "reviewer": [], None: []}
         for comment in feedback["comments"]:
             turn, label = thread_state(thread(comment, review.get("replies", [])))
             turns[turn].append(f"{comment['id']} ({label})")
-        for turn, one, many in (("agent", "needs your answer", "need your answer"), ("reviewer", "waits for the reviewer", "wait for the reviewer"),
-                                (None, "is resolved", "are resolved")):
+        for turn, one, many in (
+            ("agent", "needs your answer", "need your answer"),
+            ("reviewer", "waits for the reviewer", "wait for the reviewer"),
+            (None, "is resolved", "are resolved"),
+        ):
             count = len(turns[turn])
-            print(f"  {count} comment{'' if count == 1 else 's'} {one if count == 1 else many}" + (": " + ", ".join(turns[turn]) if turns[turn] else ""))
+            print(
+                f"  {count} comment{'' if count == 1 else 's'} {one if count == 1 else many}"
+                + (": " + ", ".join(turns[turn]) if turns[turn] else "")
+            )
     return 0
 
 
