@@ -4,7 +4,8 @@ import * as Schema from "effect/Schema"
 import assert from "node:assert/strict"
 import { existsSync, readdirSync } from "node:fs"
 import { test } from "node:test"
-import { decodeBytes, decodeValue, FeedbackDocument } from "./document.ts"
+import { decodeBytes, decodeValue, encodeDocument, FeedbackDocument } from "./document.ts"
+import { documentText } from "./encoding.ts"
 import { AgentReply, Answer, Feedback } from "./feedback.ts"
 import * as Limits from "./limits.ts"
 import { sameTarget, Target } from "./target.ts"
@@ -733,6 +734,51 @@ test("feedback: the size limit holds before parsing", () => {
     decodeRaw(new Uint8Array(Limits.MAX_FEEDBACK_BYTES + 1).fill(0x20)),
     /^Feedback exceeds 8 MiB\.$/, "too_large"
   )
+})
+
+test("feedback that passes the schema always exports within 8 MiB, and imports again", () => {
+  // Paths are outside the text budget, and 2 Mi units of text can take 6 MiB, so only the encoded size decides.
+  const withPaths = (count: number) => {
+    const doc = fixture("feedback/pull-request.json")
+    const path = (index: number) => `${index}/${"p".repeat(4090)}`
+    const file = (index: number): Json => ({ path: path(index), status: "added", group: "core", notes: "" })
+    set(doc, ["files"], Array.from({ length: count }, (_, index) => file(index)))
+    set(doc, ["approvals"], Array.from({ length: count }, (_, index) => ({
+      path: path(index),
+      fingerprint: "f".repeat(64),
+      approved_at: "2026-10-10T00:00:00.000Z",
+      round: 2
+    })))
+    return doc
+  }
+  const fits = withPaths(900)
+  const value = accepted(decode(fits))
+  const bytes = accepted(encodeDocument(FeedbackDocument, value))
+  assert.ok(bytes.byteLength > 7 * 1024 * 1024, String(bytes.byteLength))
+  assert.ok(bytes.byteLength <= Limits.MAX_FEEDBACK_BYTES, String(bytes.byteLength))
+  assert.deepEqual(accepted(decodeRaw(bytes)), value)
+  refused(decode(withPaths(1100)), /^Feedback is invalid: takes \d+ bytes as exported JSON, more than 8 MiB$/)
+  // Three-byte characters within the 2 Mi unit text budget take 6 MiB; with paths that fit alone, they pass 8 MiB.
+  const wide = (paths: number) => {
+    const doc = withPaths(paths)
+    const one = get(doc, comment)
+    const body = "\u4e00".repeat(20_000)
+    const big = (index: number) => set(set(copy(one), ["id"], `c${index}`), ["body"], body)
+    return set(doc, ["comments"], Array.from({ length: 104 }, (_, index) => big(index)))
+  }
+  accepted(decode(wide(0)))
+  accepted(decode(withPaths(400)))
+  refused(decode(wide(400)), /takes \d+ bytes as exported JSON, more than 8 MiB/)
+})
+
+test("an export is the document's one spelling, and decodes to the same value", () => {
+  const value = accepted(decodeRaw(fixtureBytes("feedback/conversation.json")))
+  const bytes = accepted(encodeDocument(FeedbackDocument, value))
+  const text = new TextDecoder().decode(bytes)
+  assert.ok(text.endsWith("}\n") && text.startsWith("{\n  \""))
+  const spelled = new TextEncoder().encode(documentText(fixture("feedback/conversation.json")))
+  assert.equal(bytes.byteLength, spelled.byteLength)
+  assert.deepEqual(accepted(decodeRaw(bytes)), value)
 })
 
 test("feedback: notes, comments, and replies share a text budget", () => {

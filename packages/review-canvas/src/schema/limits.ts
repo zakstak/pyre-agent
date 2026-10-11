@@ -10,7 +10,7 @@ const MiB = 1024 * 1024
 
 /** A review input file: what an agent publishes as a round, including the collector's working tree snapshot. */
 export const MAX_INPUT_BYTES = 32 * MiB
-/** A feedback export or import. */
+/** A feedback export or import, as the exported document's UTF-8 bytes. The feedback schema checks it too. */
 export const MAX_FEEDBACK_BYTES = 8 * MiB
 /** The deepest JSON value either format allows: the root is depth 0, and each array or object adds one. */
 export const MAX_JSON_DEPTH = 32
@@ -29,8 +29,9 @@ export const MAX_ROW = MAX_PATCH_LINES - 1
 export const MAX_TOTAL_PATCH_LINES = 50_000
 /**
  * Feedback lists every path twice, in files and approvals, so the paths of one input must fit this many bytes as
- * JSON, with {@link FEEDBACK_BYTES_PER_FILE} more for each file, to leave room for notes and comments within
- * {@link MAX_FEEDBACK_BYTES}.
+ * JSON, with {@link FEEDBACK_BYTES_PER_FILE} more for each file. It refuses early an input whose feedback could
+ * barely hold a note. It guarantees nothing: notes and comments can still push feedback past
+ * {@link MAX_FEEDBACK_BYTES}, which the feedback schema refuses as a whole.
  */
 export const MAX_FEEDBACK_PATH_BYTES = 6 * MiB
 export const FEEDBACK_BYTES_PER_FILE = 200

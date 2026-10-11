@@ -2,6 +2,7 @@ import * as Data from "effect/Data"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as SchemaIssue from "effect/SchemaIssue"
+import { documentBytes } from "./encoding.ts"
 import { FEEDBACK_FORMAT, Feedback } from "./feedback.ts"
 import { INPUT_FORMAT, ReviewInput, WorktreeInput } from "./input.ts"
 import * as Limits from "./limits.ts"
@@ -121,14 +122,34 @@ export const decodeValue = <S extends Schema.Codec<unknown, unknown>>(
   const named = checkFormat(format, value)
   if (Result.isFailure(named)) return named
   const decoded = Schema.decodeUnknownResult(format.schema)(value, { onExcessProperty: "error" })
-  if (Result.isSuccess(decoded)) return Result.succeed(decoded.success)
-  const problems = describe(decoded.failure.issue).issues.map((issue) =>
+  return Result.isSuccess(decoded) ? Result.succeed(decoded.success) : schemaFailure(format, decoded.failure)
+}
+
+const schemaFailure = (format: Pick<DocumentFormat<never>, "noun">, error: Schema.SchemaError) => {
+  const problems = describe(error.issue).issues.map((issue) =>
     issue.path === undefined || issue.path.length === 0
       ? issue.message
       : `${formatPath(issue.path.map((key) => (typeof key === "object" ? key.key : key)))}: ${issue.message}`
   )
   // Each member of a union reports its own failure, and they often agree.
   return invalid("schema", `${format.noun} is invalid: ${[...new Set(problems)].join("; ")}`)
+}
+
+/**
+ * Writes a document in its one spelling, after checking it against its schema, so the bytes always decode again.
+ * The feedback schema refuses a value whose document would pass {@link Limits.MAX_FEEDBACK_BYTES}, so the store can
+ * check an action by encoding the feedback it would leave.
+ */
+export const encodeDocument = <S extends Schema.Codec<unknown, unknown>>(
+  format: DocumentFormat<S>,
+  value: S["Type"]
+): Result.Result<Uint8Array, InvalidDocument> => {
+  const encoded = Schema.encodeResult(format.schema)(value)
+  if (Result.isFailure(encoded)) return schemaFailure(format, encoded.failure)
+  const bytes = documentBytes(encoded.success)
+  return bytes.byteLength > format.maxBytes
+    ? invalid("too_large", `${format.noun} exceeds ${format.maxBytes / 1024 / 1024} MiB.`)
+    : Result.succeed(bytes)
 }
 
 /**

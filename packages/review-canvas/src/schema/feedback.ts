@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema"
+import { documentBytes } from "./encoding.ts"
 import { FileGroup, FileStatus } from "./input.ts"
 import * as Limits from "./limits.ts"
 import {
@@ -403,6 +404,12 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   }
   if (feedbackTextUnits(feedback) > Limits.MAX_FEEDBACK_TEXT_UNITS) {
     return `notes, comments, and replies exceed ${Limits.MAX_FEEDBACK_TEXT_UNITS} UTF-16 code units together`
+  }
+  // The rule every other limit only approaches: written as a document, feedback fits its byte limit, so an export
+  // always imports again. The text budget counts UTF-16 units, which can take up to 3 bytes each.
+  const bytes = documentBytes(feedback).byteLength
+  if (bytes > Limits.MAX_FEEDBACK_BYTES) {
+    return `takes ${bytes} bytes as exported JSON, more than ${Limits.MAX_FEEDBACK_BYTES / 1024 / 1024} MiB`
   }
   return undefined
 })
