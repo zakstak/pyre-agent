@@ -219,18 +219,13 @@ const caseRenamedError = (path: string) =>
  * the bytes on disk, which are also what fingerprints hash.
  */
 const filterOverrides = (git: Git, top: string): Array<string> => {
-  let listing: Buffer
-  try {
-    listing = git.run(top, ["config", "-z", "--get-regexp", String.raw`^filter\.`])
-  } catch (error) {
-    if (error instanceof GitError) return [] // no filter configured
-    throw error
-  }
+  // Every entry, filtered here rather than with --get-regexp: Git matches that regular expression with the C library,
+  // which on macOS refuses a key that is not valid UTF-8 in a UTF-8 locale, so such a driver would go unlisted and run.
   const names = new Set<string>()
-  for (const entry of records(listing)) {
-    if (entry.length === 0) continue
+  for (const entry of records(git.run(top, ["config", "-z", "--list"]))) {
     const newline = entry.indexOf(0x0a)
     const key = newline < 0 ? entry : entry.subarray(0, newline)
+    if (!key.subarray(0, "filter.".length).equals(Buffer.from("filter."))) continue
     if (!isDecodable(key)) {
       // A replacement character would switch off a different driver and leave this one running.
       throw new CollectError({ message: `cannot switch off the filter driver in ${backslashReplace(key)}; its name is not valid UTF-8` })
