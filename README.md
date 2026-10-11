@@ -67,8 +67,10 @@ plugins remain individually selectable.
 
 Release 2.0.0 separates startup context from the earlier 1.x bundle. Install
 the new base and select `pyre-context` before removing the old marketplace.
-Then review the optional Codex hook and verify a new session. Removing the old
-marketplace removes only its own installed plugins; other marketplaces remain.
+Then review the optional Codex hook and verify a new session. Explicitly remove
+`pyre-agent@pyre-agent-local` with `codex plugin remove` before removing its
+marketplace; Codex marketplace removal alone keeps cached plugins installed.
+Claude marketplace removal uninstalls its own entries. Preserve other marketplaces.
 
 ## Skill versions
 
