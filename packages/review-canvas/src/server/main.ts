@@ -7,8 +7,9 @@ import { HttpRouter, HttpServer } from "effect/http";
 import { chmodSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { AgentApi } from "./agent.ts";
+import { clientDir as installedClientDir } from "./install.ts";
 import { App } from "./app.ts";
 import * as Assets from "./assets.ts";
 import { databasePath, idleMinutes, runtimeDir, socketPath } from "./paths.ts";
@@ -20,7 +21,7 @@ import {
   storeLayer,
 } from "./services.ts";
 
-const clientDir = fileURLToPath(new URL("../../dist/client", import.meta.url));
+const clientDir = installedClientDir();
 
 class SocketInUse extends Data.TaggedError("SocketInUse")<{
   readonly path: string;

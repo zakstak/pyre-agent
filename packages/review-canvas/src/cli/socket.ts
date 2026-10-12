@@ -3,8 +3,8 @@ import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
-import { fileURLToPath } from "node:url";
 import { runtimeDir, socketPath } from "../server/paths.ts";
+import { serverEntry } from "../server/install.ts";
 import { checkSocket, secureRuntimeDir } from "../server/runtime.ts";
 
 export interface Reply {
@@ -108,7 +108,7 @@ export const ensureServer = async (): Promise<void> => {
   checkSocket(socketPath());
   if (await answering()) return;
   const log = openSync(`${dir}/server.log`, "a", 0o600);
-  const main = fileURLToPath(new URL("../server/main.ts", import.meta.url));
+  const main = serverEntry();
   const child = spawn(process.execPath, [main], {
     detached: true,
     stdio: ["ignore", log, log],
