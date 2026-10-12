@@ -107,10 +107,8 @@ build, and tests. The Pragma source used to validate this configuration is
 updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
 [PR #17](https://github.com/zakstak/pragma/pull/17).
 
-Ruff targets Python 3.10 for review-canvas, matching the skill and script
-contracts. The Claude Code bridge targets Python 3.11, its documented minimum.
-This keeps UTC timestamp parsing compatible with 3.10 without suppressing lint
-rules.
+Ruff targets Python 3.10 for the repository's checks. The Claude Code bridge
+targets Python 3.11, its documented minimum.
 
 ```sh
 git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"

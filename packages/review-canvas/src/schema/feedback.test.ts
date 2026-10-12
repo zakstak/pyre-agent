@@ -527,38 +527,6 @@ test("feedback: invalid-replies-empty is valid now, and replies are required", (
   );
 });
 
-test(
-  "every Python feedback fixture has a ported case",
-  {
-    skip:
-      !existsSync(
-        new URL("../../../../tests/fixtures/feedback", import.meta.url),
-      ) && "the Python fixtures are gone",
-  },
-  () => {
-    const names = readdirSync(
-      new URL("../../../../tests/fixtures/feedback", import.meta.url),
-    )
-      .filter((name) => /^(?:in)?valid-.*\.json$/.test(name))
-      .map((name) => name.replace(/\.json$/, ""));
-    // valid-unicode is the UTF-16 test above; valid-minimal, valid-pr, valid-replies, and valid-worktree are fixtures.
-    const covered = new Set([
-      ...ported.map((item) => item.python),
-      ...rawCases.map((item) => item.python),
-      ...nowValid,
-      "valid-unicode",
-      "valid-minimal",
-      "valid-pr",
-      "valid-replies",
-      "valid-worktree",
-    ]);
-    assert.deepEqual(
-      names.filter((name) => !covered.has(name)),
-      [],
-    );
-  },
-);
-
 const conversation = () => fixture("feedback/conversation.json");
 const agent = {
   id: "a9",

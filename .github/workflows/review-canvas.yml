@@ -5,8 +5,6 @@ on:
     paths:
       - packages/review-canvas/**
       - skills/internal-visual-style/**
-      # The collector's parity test reads the Python collector's cases.
-      - tests/test_collect_worktree.py
       - .github/workflows/review-canvas.yml
 
 permissions:

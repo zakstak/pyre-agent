@@ -73,7 +73,7 @@ const checkFormat = (
     );
   }
   if (!("format" in value)) {
-    // The version fields of the Python review canvas. There is no conversion: finish such a review there.
+    // The version fields of the removed Python review canvas. There is no conversion.
     const python =
       "feedback_schema_version" in value
         ? `feedback, feedback_schema_version ${shown(value.feedback_schema_version)}`
@@ -85,7 +85,7 @@ const checkFormat = (
       python === undefined
         ? `${format.noun} has no "format" field; expected "${format.key}".`
         : `This is Python review canvas ${python}, which this version cannot read. ` +
-            "Finish that review in the Python version.",
+            "The Python review canvas was removed in review-canvas 4.0.0, and there is no conversion: start a new review.",
     );
   }
   const named = value.format;
