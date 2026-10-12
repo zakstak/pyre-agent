@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,12 +77,27 @@ const get = (url: string) =>
       .end();
   });
 
+const answers = (path: string) =>
+  new Promise<boolean>((resolve) => {
+    const client = connect(path);
+    client.once("connect", () => {
+      client.end();
+      resolve(true);
+    });
+    client.once("error", () => resolve(false));
+  });
+
 let server: ChildProcess | undefined;
 try {
   server = spawn(bin, ["serve"], {
     env,
     stdio: ["ignore", "ignore", "inherit"],
   });
+  // Until serve listens, a command would start a server of its own, detached, which would outlive this test.
+  const socket = join(work, "run/agent.sock");
+  for (let attempt = 0; attempt < 100 && !(await answers(socket)); attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.ok(await answers(socket), "serve did not start listening");
   const registered = JSON.parse(
     execFileSync(
       bin,

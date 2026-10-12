@@ -349,6 +349,21 @@ export const agentAnswer = (
         : `Comment ${id} waits for the reviewer; it already has an answer.`,
     );
   }
+  // A fix named by file version must be one the reviewer can see: a version of the current round.
+  if (
+    answer.disposition === "fixed" &&
+    "fingerprint" in answer.fixed_in &&
+    !(context.input?.files ?? []).some(
+      (file) =>
+        "fingerprint" in answer.fixed_in &&
+        file.fingerprint === answer.fixed_in.fingerprint,
+    )
+  ) {
+    return fail(
+      "invalid",
+      `No file of the current round has fingerprint ${answer.fixed_in.fingerprint}. Publish the round with the fix first, then answer with a fingerprint from it.`,
+    );
+  }
   const reply: Reply = {
     id: context.replyId(),
     created_at: context.now,

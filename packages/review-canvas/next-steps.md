@@ -6,18 +6,12 @@ remaining work.
 
 ## Where things stand
 
-- Steps 0 to 6 are done in this package; the Python review canvas stays beside it until step 7. See each step for
-  what remains.
-- `main` holds the Python review canvas: PRs #27 to #30, merged on 2026-10-10 as
-  `c1bbfc3`, `fc63bb7`, `fc1de64`, and `81c77d7`. It reviews GitHub PRs and
-  local working trees, serves a loopback page, and threads agent answers with
-  reviewer replies. It is the working version until the port reaches parity.
-- The server skeleton is on branch `review-canvas/server-skeleton`, in the
-  worktree `/home/zak/git/pyre-agent-worktrees/server-skeleton`. It is in draft
-  PR #31, and the `Review canvas server` workflow passes in CI.
-- The skeleton serves one page and the built assets from 127.0.0.1, refuses
-  requests for any other Host, and sets the security headers. `pnpm typecheck`,
-  `pnpm build`, and `pnpm test` pass.
+- Every step below is done on branch `feat/standalone-review-canvas`, including step 7: the Python review canvas is
+  removed, and the skill is at 4.0.0. Nothing is published to npm.
+- `main` still holds the Python review canvas (PRs #27 to #30) until this branch merges.
+- Past parity, the branch adds what T3 Code's pull request view offers: questions the agents answer at once, GitHub
+  comment import, drift reports, side by side diffs, folding approved files, unchanged lines on demand, and moving an
+  orphaned comment.
 
 ## Decisions
 
@@ -133,15 +127,15 @@ Done, as a tour: the round's `stops` (new in the input format, modeled on T3 Cod
 and one stop at a time with excerpts, lettered notes, an attention notice, questions, J and K, and a closing stop for
 uncovered files; a files view with per-file approval and the whole patch; line selection with a composer; threads with
 accept, reopen, and reply; a finish dialog with a verdict; live refresh that keeps the reviewer's place and drafts.
-Not done: Playwright tests owned by this package. The page was checked by hand in a browser.
+Browser tests in `browser/` drive the page in Chromium against a real server, in CI on Linux and macOS.
 
 ### 6. Agent commands and the skill
 
 Done: `review-canvas` with `serve`, `collect`, `register`, `publish`, `status`, `wait`, `answer`, and `export`;
 the skill and its references rewritten for the server, at 4.0.0, with the tour guidance adapted from T3 Code's
-review guide prompt. The package has a `bin` for `pnpm link --global`. Not done: importing the open PR's GitHub
-comments (the decision above stands; the comment source and reply shapes are in the schema), the JavaScript build
-and packed-tarball test before an npm release.
+review guide prompt. Later commands: `github`, `check`, and `fingerprints`. `publish` imports the pull request's
+GitHub comments with `gh`. The build emits the server and the command into `dist/node`, the `bin` points there, and
+`pnpm test:pack` installs the packed tarball and serves a review from it. Not done: publishing to npm.
 
 ### 7. Parity, then removal
 
@@ -155,14 +149,17 @@ Parity checklist:
 - [x] GitHub PR and working tree targets
 - [x] Every collector case from `tests/test_collect_worktree.py`
 - [x] Approvals by fingerprint, carried across rounds
-- [x] Side-aware comment anchors, orphans, and reattachment (the action exists; the page has no reattach control yet)
+- [x] Side-aware comment anchors, orphans, and reattachment
 - [x] Agent answers with dispositions, reviewer accept, reopen, and reply
 - [x] Thread states; missing history cannot happen, since the server holds every reply
-- [ ] Feedback limits and export are done; import of a feedback file is not
+- [x] Feedback limits, export, and import
 - [x] All request checks, except the page token, which is dropped on purpose
 - [x] A working review loop driven by the skill
-- [ ] GitHub comment import
-- [ ] Browser tests
+- [x] GitHub comment import
+- [x] Browser tests
+
+Done: the Python scripts, page assets, their tests, and the shared fixtures are removed, and the package's parity tests
+went with them.
 
 ## Risks
 
@@ -188,11 +185,13 @@ Parity checklist:
 - **macOS is new.** The Python collector and server ran only on Linux in CI. Run
   the collector tests on macOS from step 2.
 
+## Open
+
+- GitHub import is tested with a fake `gh` that serves recorded GraphQL pages, not against GitHub itself.
+- The page asks only the agents registered with the review; nothing wakes an agent that is not running `wait`.
+
 ## Carried over from the Python version
 
-- Notes in earlier rounds cannot be edited on the page, so a very large history
-  can push carried feedback past 8 MiB. The server-owned model should let a
-  reviewer drop an earlier snapshot.
 - The screenshots in PRs #28 to #30 predate the last review fixes. The
   `pr-28-screenshots`, `pr-29-screenshots`, and `pr-30-screenshots` branches
   stay, because the PR descriptions link to them.

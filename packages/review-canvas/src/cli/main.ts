@@ -5,7 +5,7 @@
  */
 import * as Result from "effect/Result";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
   checkOutput,
@@ -15,13 +15,19 @@ import {
 } from "../collector/output.ts";
 import { collect, openWorktree } from "../collector/collect.ts";
 import { CollectError, GitError } from "../collector/errors.ts";
+import { prFingerprints } from "../collector/fingerprint.ts";
 import {
   decodeBytes,
   encodeDocument,
   FeedbackDocument,
   InputDocument,
 } from "../schema/document.ts";
+import * as Schema from "effect/Schema";
+import { Analysis, applyAnalysis } from "../schema/analysis.ts";
 import type { Answer } from "../schema/feedback.ts";
+import type { ReviewInput } from "../schema/input.ts";
+import { hunkRanges } from "../review/patch.ts";
+import { tourView } from "../review/tour.ts";
 import type { Target } from "../schema/target.ts";
 import { HOSTS } from "../schema/thread.ts";
 import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
@@ -34,14 +40,20 @@ Commands
   serve                                   Run the server in the foreground (agents start it on demand).
   collect  --repo DIR --output FILE       Snapshot a working tree's uncommitted changes as review input.
            [--title TEXT] [--include-secret PATH]... [--no-content]
+  fingerprints --repo DIR --base SHA      Print each changed file's fingerprint between two commits, for the
+           --head SHA                     files of a pull request's input.
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
            --label TEXT [--host KIND] [--session-id ID] [--fresh]
+                                          KIND is claude-code (the default), codex, or t3.
   publish  --session DIR --input FILE     Publish the input as the review's next round, then import the comments
-           [--no-github]                  of its pull request with gh.
+           [--analysis FILE] [--no-github] of its pull request with gh. --analysis merges a kept analysis file:
+           [--dry-run]                    summary, stops, and files by path. --dry-run validates and prints
+                                          the tour and its warnings without publishing.
+  hunks    --input FILE [--path PATH]     Each file's hunks as old and new line ranges, for excerpts and notes.
   github   --session DIR                  Import new comments of the review's pull request with gh.
   status   --session DIR                  The review: comments, whose turn each is, approvals, the verdict.
   wait     --session DIR [--since REV]    Block until the reviewer finishes the current round, or asks a question.
-           [--timeout-minutes N]
+           [--timeout-minutes N]          Gives up after N minutes (60) with "timed_out": true; run it again.
   answer   --session DIR --comment ID     Answer a comment on the agent's turn.
            --disposition fixed|rejected|deferred|question|answered --body TEXT
            [--fixed-in-commit SHA | --fixed-in-fingerprint SHA256] [--blocker TEXT]
@@ -149,6 +161,37 @@ const importGitHub = async (current: Session, target: Target) => {
   return { pull_request: found.url, ...reply.report };
 };
 
+/** The snapshot with the analysis file merged in, and what of the analysis did not apply. */
+const withAnalysis = (
+  input: ReviewInput,
+  file: string | undefined,
+): {
+  readonly input: ReviewInput;
+  readonly warnings: ReadonlyArray<string>;
+} => {
+  if (file === undefined) return { input, warnings: [] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    return fail(
+      `cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const decoded = Schema.decodeUnknownResult(Analysis)(raw, {
+    onExcessProperty: "error",
+  });
+  if (Result.isFailure(decoded))
+    return fail(`${file} is not a valid analysis: ${decoded.failure.message}`);
+  const applied = applyAnalysis(input, decoded.success);
+  return {
+    input: applied.input,
+    warnings: applied.unknownPaths.map(
+      (path) => `the analysis names ${path}, which is not in this round`,
+    ),
+  };
+};
+
 const commands: Record<string, (args: Array<string>) => Promise<void>> = {
   async serve() {
     const { run } = await import("../server/main.ts");
@@ -171,6 +214,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
     try {
       const worktree = openWorktree({ repo });
       const output = checkOutput(worktree, outputPath);
+      // The session folder holds the thread's token later, so it is private.
+      mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
       const collected = collect(worktree, {
         ...(values.title === undefined ? {} : { title: values.title }),
         includeSecret: values["include-secret"] ?? [],
@@ -192,6 +237,48 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         process.stderr.write(`${errorLine(error)}\n`);
         process.exit(1);
       }
+      throw error;
+    }
+  },
+
+  /** Each file's hunks as line ranges on both sides, the numbers excerpts and notes name. */
+  async hunks(args) {
+    const { values } = parseArgs({
+      args,
+      options: { input: { type: "string" }, path: { type: "string" } },
+    });
+    const { input } = readInput(values.input);
+    const files = input.files.filter(
+      (file) =>
+        file.patch !== undefined &&
+        (values.path === undefined || file.path === values.path),
+    );
+    print({
+      ok: true,
+      files: Object.fromEntries(
+        files.map((file) => [file.path, hunkRanges(file.patch ?? "")]),
+      ),
+    });
+  },
+
+  async fingerprints(args) {
+    const { values } = parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        base: { type: "string" },
+        head: { type: "string" },
+      },
+    });
+    try {
+      const found = prFingerprints({
+        repo: need(values.repo, "fingerprints needs --repo DIR"),
+        base: need(values.base, "fingerprints needs --base SHA"),
+        head: need(values.head, "fingerprints needs --head SHA"),
+      });
+      print({ ok: true, fingerprints: Object.fromEntries(found) });
+    } catch (error) {
+      if (error instanceof GitError) return fail(error.message);
       throw error;
     }
   },
@@ -259,11 +346,38 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       options: {
         session: { type: "string" },
         input: { type: "string" },
+        analysis: { type: "string" },
+        "dry-run": { type: "boolean", default: false },
         "no-github": { type: "boolean", default: false },
       },
     });
+    const { input, warnings: merged } = withAnalysis(
+      readInput(values.input).input,
+      values.analysis,
+    );
+    const encoded = encodeDocument(InputDocument, input);
+    if (Result.isFailure(encoded))
+      return fail(
+        `the input with its analysis is invalid: ${encoded.failure.message}`,
+      );
+    if (values["dry-run"]) {
+      // What publishing would show, without publishing: the reviewer sees nothing until the real run.
+      const tour = tourView(input);
+      print({
+        ok: true,
+        dry_run: true,
+        files: input.files.length,
+        stops: tour.stops.map((stop) => ({
+          title: stop.title,
+          excerpts: stop.excerpts.length,
+          files: stop.files.map((file) => file.path),
+        })),
+        warnings: [...merged, ...tour.warnings],
+      });
+      return;
+    }
     const current = session(values.session);
-    const { bytes, input } = readInput(values.input);
+    const bytes = encoded.success;
     const reply = await expectOk<{
       ok: true;
       round: { round: number };
@@ -282,7 +396,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       round: reply.round.round,
       revision: reply.revision,
       url: reply.url,
-      warnings: reply.warnings,
+      warnings: [...merged, ...reply.warnings],
       github: values["no-github"]
         ? { skipped: "--no-github" }
         : await importGitHub(current, input.target),
@@ -423,9 +537,16 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       }
       // A question asked now is answered now: return without waiting for the round to finish.
       if (hasQuestions(latest)) {
+        // A finish can wait behind a question: report both, so the agent answers and knows the round is done.
+        const finished = finishedSince(latest, since);
+        if (finished)
+          saveSession(folder, {
+            ...current,
+            seen_submission: latest.submission?.revision ?? since,
+          });
         print({
           ok: true,
-          finished: false,
+          finished,
           questions: latest.questions,
           status: latest,
         });
@@ -547,7 +668,10 @@ const main = async () => {
   const run = need(commands[command], `unknown command ${command}\n\n${USAGE}`);
   try {
     // Any command that talks to the server starts it when none answers: the socket is the single-instance lock.
-    if (command !== "serve" && command !== "collect") await ensureServer();
+    const offline =
+      ["serve", "collect", "fingerprints", "hunks"].includes(command) ||
+      rest.includes("--dry-run");
+    if (!offline) await ensureServer();
     await run(rest);
   } catch (error) {
     if (error instanceof ServerError) fail(`${error.message} (${error.kind})`);

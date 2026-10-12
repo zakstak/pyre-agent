@@ -52,8 +52,23 @@ server: `attached` with current offsets, or `orphan` with a reason. The same
 patch attaches at the anchor's offsets. Another patch attaches where the quote
 is found once, or where its context picks one of several places. A missing
 file, a missing patch, a gone quote, or an ambiguous one makes an orphan. No
-rename guessing or fuzzy matching. A manual reattachment keeps the earlier
-anchor in `history`.
+rename guessing or fuzzy matching. Only an orphan can be moved by hand; the move
+keeps the earlier anchor in `history`.
+
+A reviewer comment whose source has `"question": true` was asked now: the agents
+answer it, and the replies after it, without waiting for the round to finish.
+Any other reviewer comment waits for **Finish review**.
+
+## Import
+
+The reviewer can import a feedback file of the same target from the page, such
+as an export of an earlier review. Approvals carry where the file's fingerprint
+still matches. Each comment the review lacks is added with its replies, up to
+the first reply that was not its author's turn. An inline comment is anchored
+again on the current patch where its quote is found, and stays an orphan where
+it is not. Threads its answers name join the review without a token, so no
+agent can act as them. Notes and finishes are not imported. The page reports
+what it added, what was already there, and what it left out.
 
 ## Replies and turns
 
@@ -64,7 +79,8 @@ ID. Each has `id`, `created_at`, `actor`, and `body`.
   have an empty body; `reopen` and `reply` return it to the agents.
 - An `agent` reply names its `thread` and a `disposition`: `fixed` with
   `fixed_in` (`{ "fingerprint" }` or `{ "commit" }`), `rejected`, `deferred`
-  with a `blocker`, or `question`.
+  with a `blocker`, `question`, or `answered`, an explanation for a question
+  that asks for no change.
 - A `github` reply carries its GitHub ID, author, and URL.
 
 The last reply decides the turn. No reply: the agent's. An agent reply: the

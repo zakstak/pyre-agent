@@ -2,6 +2,7 @@
 import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
 import type { ATTENTION_KINDS } from "../../schema/tour.ts";
+import { unifiedDiff } from "../../review/linediff.ts";
 import { parseRows } from "../../review/patch.ts";
 import {
   approvalHolds,
@@ -82,6 +83,13 @@ interface PageContext {
   readonly writable: boolean;
   /** How whole files show their patch. Excerpts are always unified. */
   readonly layout: Layout;
+  /** The round before this one, to show what each file changed since. */
+  readonly previous:
+    | {
+        readonly round: number;
+        readonly files: ReadonlyMap<string, ReviewFile>;
+      }
+    | undefined;
 }
 
 const fileContexts = (
@@ -122,6 +130,56 @@ const approveButton = (context: FileContext, writable: boolean): Html =>
       ? html`<span class="chip" title="This file has no fingerprint, so it cannot be approved">Cannot approve</span>`
       : html`<button type="button" class="approve${context.approved ? " approved" : ""}" data-action="approve" data-path="${context.file.path}" data-fingerprint="${context.file.fingerprint}" aria-pressed="${context.approved}">${context.approved ? "Approved" : "Approve"}</button>`;
 
+/** Whether a file is new in this round, or changed since the round before; undefined when it is as it was. */
+const sinceRound = (
+  context: FileContext,
+  page: PageContext,
+): "new" | "changed" | undefined => {
+  if (page.previous === undefined) return undefined;
+  const before = page.previous.files.get(context.file.path);
+  if (before === undefined) return "new";
+  return before.fingerprint !== context.file.fingerprint
+    ? "changed"
+    : undefined;
+};
+
+const sinceChip = (context: FileContext, page: PageContext): Html => {
+  const since = sinceRound(context, page);
+  return since === undefined
+    ? html``
+    : html`<span class="chip">${since === "new" ? "New" : "Changed"} in round ${(page.previous?.round ?? 0) + 1}</span>`;
+};
+
+/**
+ * What a file changed since the round before, as a read-only patch between the two rounds' texts. Each round's patch
+ * compares with the base, so for a file changed again, or one new to the repository, only this shows the latest work.
+ */
+const sinceSection = (
+  context: FileContext,
+  page: PageContext,
+  tableId: string,
+): Html => {
+  if (sinceRound(context, page) !== "changed") return html``;
+  const before = page.previous?.files.get(context.file.path)?.new_content;
+  const after = context.file.new_content;
+  if (before === undefined || after === undefined) return html``;
+  const patch = unifiedDiff(before, after);
+  if (patch === undefined) return html``;
+  return html`<details class="file-detail since" id="since-${tableId}"><summary>Changes since round ${page.previous?.round}</summary>${diffTable(
+    {
+      // The same file with the patch between rounds; without its text, so the table shows no unchanged lines.
+      file: (({ new_content: _text, ...file }) => ({ ...file, patch }))(
+        context.file,
+      ),
+      comments: [],
+      tableId: `${tableId}-since`,
+      threads: page.view.threads,
+      writable: false,
+      readOnly: true,
+    },
+  )}</details>`;
+};
+
 /** A file's panel: its header, the agent's notes on it, and its whole patch. */
 const filePanel = (
   context: FileContext,
@@ -137,6 +195,7 @@ const filePanel = (
 ${file.group === "core" ? "" : html`<span class="chip">${file.group === "wiring" ? "Wiring" : "Mechanical"}</span>`}
 ${stat(file)}
 ${context.open > 0 ? html`<span class="chip warning">${context.open} open</span>` : ""}
+${sinceChip(context, page)}
 ${approveButton(context, page.writable)}
 </p>
 </header>
@@ -148,6 +207,7 @@ ${
     ? ""
     : html`<ul class="callouts">${file.callouts.map((callout) => html`<li class="notice warning"><strong>${callout.tag}</strong> ${callout.text}</li>`)}</ul>`
 }
+${sinceSection(context, page, tableId)}
 ${
   file.pseudocode === undefined
     ? ""
@@ -283,6 +343,14 @@ ${
 </article>`;
 };
 
+/** A path as the rail shows it: the file's name first, and the folder it is in below, so long paths stay readable. */
+const pathParts = (path: string): Html => {
+  const at = path.lastIndexOf("/");
+  return at === -1
+    ? html`<code class="file-base">${path}</code>`
+    : html`<code class="file-base">${path.slice(at + 1)}</code><code class="file-dir">${path.slice(0, at + 1)}</code>`;
+};
+
 const rail = (stops: ReadonlyArray<StopView>, page: PageContext): Html => {
   const groups = ["core", "wiring", "mechanical"] as const;
   const label = {
@@ -316,7 +384,7 @@ ${groups.map((group) => {
         (
           item,
         ) => html`<li><a class="file-link${item.approved ? " approved" : ""}" href="#files/${item.file.path}" data-open-file="${item.file.path}" title="${item.file.path}">
-<span class="file-link-name"><code>${item.file.path}</code></span>
+<span class="file-link-name">${pathParts(item.file.path)}</span>
 <span class="file-link-meta small">${item.open > 0 ? html`<span class="open-count" title="${item.open} open comments">${item.open}</span>` : ""}${item.approved ? html`<span class="check" aria-label="approved">✓</span>` : ""}</span>
 </a></li>`,
       )}</ul>`;
@@ -437,13 +505,27 @@ export const reviewPage = (
   assets: Assets["Service"],
   view: ReviewView,
   input: ReviewInput,
-  layout: Layout = "unified",
+  options: {
+    readonly layout?: Layout;
+    /** The input of the round before this one. */
+    readonly previous?: ReviewInput | undefined;
+  } = {},
 ): Html => {
+  const layout = options.layout ?? "unified";
   const round = view.round;
   if (round === undefined) throw new Error("reviewPage needs a round");
   const writable = view.state.closed_at === undefined;
   const files = fileContexts(view, input);
-  const page: PageContext = { view, input, files, writable, layout };
+  const previous =
+    options.previous === undefined || round.round < 2
+      ? undefined
+      : {
+          round: round.round - 1,
+          files: new Map(
+            options.previous.files.map((file) => [file.path, file]),
+          ),
+        };
+  const page: PageContext = { view, input, files, writable, layout, previous };
   const { stops } = tourView(input);
   const title = input.target.title;
   const threads = view.threads;

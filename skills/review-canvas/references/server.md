@@ -46,9 +46,16 @@ revision it saw with each action; when the review moved on, the server refuses
 the action and the page refreshes. No state is written that the feedback schema
 would refuse, so every review exports as a valid feedback document.
 
+A page acts on the revision its markup shows. A comment names the patch its
+rows belong to, and a finish names the round it covers, so neither can land on
+a round the reviewer has not seen even while a refresh is on its way.
+
 Open pages hold a server-sent event stream and refresh the page's content when
 the revision changes, keeping the reviewer's place, open drafts, and scroll. A
-hidden tab closes its stream and catches up when shown.
+draft whose code changed is not moved; its text fills the next comment. A
+hidden tab holds no stream and catches up when shown. A failed refresh waits
+longer each time. Whole files show unified or side by side; the choice is a
+cookie the server reads when it renders.
 
 ## Whose turn
 
@@ -64,7 +71,19 @@ An agent may answer only on its turn. Any registered thread of the review may
 answer, and each answer names its thread. The review as a whole changes hands
 when the reviewer chooses **Finish review**: the submission records the round,
 a verdict (comment, approve, or request changes), and a summary, and
-`review-canvas wait` returns.
+`review-canvas wait` returns. A question the reviewer asks now returns `wait`
+without a finish, so the agent can answer while the reviewer reads.
+
+## What agents tell the server
+
+Beside rounds and answers, an agent reports two things the page shows:
+
+- **Drift.** `review-canvas check` compares the code with the current round: a
+  working tree's files, or a pull request's head. The page shows what changed
+  until the next round.
+- **GitHub comments.** `publish` and `review-canvas github` read the pull
+  request's comments with `gh` and hand them over. The server stores them once
+  by GitHub ID and never goes online itself.
 
 ## Reviews and threads
 

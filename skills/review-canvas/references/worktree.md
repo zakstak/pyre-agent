@@ -8,17 +8,24 @@ exact old-side or new-side lines and approves exact file versions.
 ## The review loop
 
 1. Finish the change. Collect a snapshot of the working tree into the session
-   folder. It holds every changed file with its patch and fingerprint.
-2. Add analysis to the snapshot: the summary, groups, file notes, and the tour.
-   Keep every collector field as it is.
-3. Register the thread, publish the round, and give the reviewer the URL.
+   folder. It holds every changed file with its patch, fingerprint, and text.
+2. Write the analysis file: the summary, groups, file notes, and the tour. Keep
+   the snapshot as the collector wrote it; `publish --analysis` merges the two.
+3. Register the thread, dry-run and publish the round, and give the reviewer
+   the URL.
 4. The reviewer walks the tour, comments, approves files, and chooses **Finish
-   review**. `review-canvas wait` returns with the verdict and the comments.
-5. For each comment, fix the code, reject the comment with a reason, defer it
-   with a blocker, or ask a question, and answer it.
-6. When the code changed, collect and publish the next round. Approvals carry
-   over for every file whose fingerprint still matches. Changed files return to
-   the queue. Comments reattach to the new patch or show as orphans.
+   review**. `review-canvas wait` returns with the verdict and the comments. A
+   question the reviewer asks now returns `wait` at once; answer it and wait
+   again.
+5. Answer what needs no change: reject a comment with a reason, defer it with a
+   blocker, ask a question, or explain.
+6. Change the code for the rest, test it, and run `review-canvas check`, so the
+   page shows which files changed since the round. Collect and publish the next
+   round with the updated analysis file, then answer each fixed comment with
+   its file's fingerprint from that round. Approvals carry over for every file
+   whose fingerprint still matches. Changed files return to the queue, marked
+   with their changes since the round before. Comments reattach to the new
+   patch or show as orphans.
 7. Stop when the reviewer is satisfied. Report the verdict, the approval
    counts, and any open comments. Committing still needs the user's normal
    authorization.
@@ -26,7 +33,7 @@ exact old-side or new-side lines and approves exact file versions.
 ## Run the collector
 
 ```sh
-review-canvas collect --repo /path/to/repo --output "$SESSION/round-1.json" --title "Short change title"
+"$RC" collect --repo /path/to/repo --output "$SESSION/round-1.json" --title "Short change title"
 ```
 
 | Option                  | Meaning                                                                                                              |
@@ -35,11 +42,15 @@ review-canvas collect --repo /path/to/repo --output "$SESSION/round-1.json" --ti
 | `--output FILE`         | Where to write the snapshot: outside the repository. A path inside the working tree or the Git directory is refused. |
 | `--title TEXT`          | The review title. Defaults to `Uncommitted changes on BRANCH`.                                                       |
 | `--include-secret PATH` | Show the contents of one likely secret file, by exact repository-relative path. Repeat for each file.                |
+| `--no-content`          | Leave out each file's whole text. Without it, the page can show the unchanged lines around each patch.               |
 
 The collector writes `review-canvas.input/1` input with a `worktree` target and
 `files_complete: true`. Every file starts in the `core` group with no analysis.
-It writes the file with mode 0600, prints a summary with each likely secret
-file it left out, and prints JSON with the file count and the target. It exits
+It writes the file with mode 0600, in a 0700 folder it creates when needed. It
+prints a summary with each likely secret file it left out to stderr, and JSON
+to stdout: the file count, the target, `flagged` (likely secret files left
+out), and `staged` (files whose staged version differs from both `HEAD` and the
+working tree, so a commit would record content the review does not show). It exits
 with code 1 and writes nothing when it fails.
 
 It needs a commit at `HEAD`. It refuses a repository with unmerged paths, and a

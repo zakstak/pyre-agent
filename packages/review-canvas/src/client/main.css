@@ -129,12 +129,20 @@
     background: var(--pyre-subtle);
   }
   .file-link-name {
+    display: grid;
     flex: 1;
     min-width: 0;
-    overflow-wrap: anywhere;
   }
   .file-link-name code {
+    overflow-wrap: anywhere;
+  }
+  .file-link-name .file-base {
     font-size: var(--size-technical);
+    font-weight: 600;
+  }
+  .file-link-name .file-dir {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
   }
   .file-link-meta {
     display: inline-flex;

@@ -127,3 +127,27 @@ export const rowsForLines = (
     ? undefined
     : { start: first, end: last };
 };
+
+/** A hunk's lines on each side, from its header: [first, last], or empty when the side has no lines. */
+export interface HunkRange {
+  readonly old: readonly [number, number] | [];
+  readonly new: readonly [number, number] | [];
+}
+
+const HUNK_COUNTS = /^@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@/;
+
+export const hunkRanges = (patch: string): ReadonlyArray<HunkRange> =>
+  patch
+    .split("\n")
+    .map((line) => HUNK_COUNTS.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => {
+      const span = (start: string | undefined, count: string | undefined) => {
+        const first = Number(start);
+        const length = count === undefined ? 1 : Number(count);
+        return length === 0
+          ? ([] as [])
+          : ([first, first + length - 1] as const);
+      };
+      return { old: span(match[1], match[2]), new: span(match[3], match[4]) };
+    });

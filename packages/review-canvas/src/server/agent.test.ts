@@ -559,3 +559,61 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
       /<table class="diff split"/,
     );
   }));
+
+test("a file the next round changes shows what changed since the round before", () =>
+  withServers(async (agent, pages) => {
+    const round = (text: string) => {
+      const base = input();
+      base.files_complete = false;
+      base.files = [
+        {
+          path: "notes.txt",
+          status: "added",
+          group: "core",
+          additions: text.split("\n").length - 1,
+          deletions: 0,
+          fingerprint: (text.includes("three") ? "3" : "2").repeat(64),
+          patch: `@@ -0,0 +1,${text.split("\n").length - 1} @@\n${text
+            .split("\n")
+            .slice(0, -1)
+            .map((line) => `+${line}`)
+            .join("\n")}\n`,
+          new_content: text,
+        },
+      ];
+      return base;
+    };
+    const first = round("one\ntwo\n");
+    const registered = await call(agent, "POST", "/agent/register", {
+      body: JSON.stringify({
+        target: first.target,
+        label: "Claude Code",
+        host: { kind: "claude-code" },
+      }),
+    });
+    const { review, token } = registered.body as {
+      review: string;
+      token: string;
+    };
+    const publish = (body: unknown) =>
+      call(agent, "POST", `/agent/reviews/${review}/rounds`, {
+        body: JSON.stringify(body),
+        headers: { authorization: `Bearer ${token}` },
+      });
+    assert.equal((await publish(first)).status, 200);
+    assert.doesNotMatch(
+      (await call(pages, "GET", `/reviews/${review}`)).text,
+      /Changes since round/,
+    );
+    assert.equal((await publish(round("one\ntwo\nthree\n"))).status, 200);
+    const page = (await call(pages, "GET", `/reviews/${review}`)).text;
+    assert.match(page, /Changed in round 2/);
+    assert.match(page, /<summary>Changes since round 1<\/summary>/);
+    // The patch between rounds holds only the new line, and offers no comment control.
+    const since = page.slice(page.indexOf("Changes since round 1"));
+    assert.match(since, /<td class="source"><code>three<\/code>/);
+    assert.doesNotMatch(
+      since.slice(0, since.indexOf("</details>")),
+      /add-comment/,
+    );
+  }));

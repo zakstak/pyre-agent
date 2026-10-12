@@ -66,6 +66,11 @@ Optional fields:
 - `patch_complete`: `true` only after the whole patch was verified: it is whole
   hunks, and its lines add up to `additions` and `deletions`. `false` marks an
   excerpt. Absent means unverified.
+- `new_content`: the file's whole text after the change, at most 1 MiB, so the
+  page can show the unchanged lines around the patch on demand. Every context
+  and added row of the patch must be the line of this text it names, or the
+  server refuses the input. The collector includes it for each text file while
+  half of the input limit has room after every patch.
 - `summary`: what the change to this file does and why
 - `pseudocode`: the algorithm, for dense logic
 - `trace`: `{ "input", "before", "after" }`, one input through the old and new
@@ -93,14 +98,21 @@ source code. Redaction and coverage claims are the agent's responsibility.
 }
 ```
 
+Every key is required: `null` for no attention, `[]` for no excerpts, files,
+notes, or questions, and `""` for an empty summary, caption, or note body. The
+limits below are the server's hard limits; the skill's numbers are how a good
+tour reads.
+
 - `title`: at most 200 UTF-16 units. `summary`: text, may be empty.
 - `attention`: `null`, or `kind` of `tradeoff`, `contract`, `product`, `risk`,
   or `accessibility` with a `note`.
 - `excerpts`: at most 10. `side` is `new` or `old`; `start` and `end` are
-  source line numbers on that side, inclusive. The server resolves them to the
-  rows the patch shows, cuts an excerpt past 60 rows, and drops one that names
-  no shown line or a file that is not in the round, with a warning that
-  `publish` prints.
+  source line numbers on that side, inclusive; an added file's new side is its
+  own line numbers. The server resolves them to the rows the patch shows, from
+  the first named line it shows to the last, with any hunk header between. It
+  cuts an excerpt past 60 rows, and drops one that names no shown line or a
+  file that is not in the round, with a warning that `publish` prints.
+  `review-canvas hunks` prints each file's hunks as line ranges.
 - `files`: files the stop covers without an excerpt. A file belongs to the first
   stop that excerpts or lists it; later mentions are ignored.
 - `notes`: at most 10. Each attaches to the row of one of the stop's excerpts
@@ -109,8 +121,31 @@ source code. Redaction and coverage claims are the agent's responsibility.
 - `questions`: at most 5 short questions. The reviewer can turn one into a
   general comment with one click.
 
-At most 50 stops. Files no stop covers go in a closing stop the server adds.
-A round without `stops` gets one stop that lists every file.
+At most 50 stops. Files no stop covers go in a closing stop titled "Other
+files" that the server adds, and `publish` warns about them. A round without
+`stops` gets one stop, "Changed files", that lists every file.
+
+## The analysis file
+
+`publish --analysis FILE` merges an analysis file into the snapshot before it
+publishes, so the agent keeps its analysis apart from the collected snapshot
+and carries it from round to round:
+
+```json
+{
+  "summary": "save() becomes atomic; the rest is a rename and a CLI hook.",
+  "stops": [],
+  "files": {
+    "src/notes/store.py": { "summary": "Writes a temporary file and renames it." },
+    "src/notes/cli.py": { "group": "wiring" }
+  }
+}
+```
+
+Each key is optional. `summary` and `stops` replace the snapshot's; each entry
+of `files` sets the named fields of the file at that path: `group`, `summary`,
+`pseudocode`, `trace`, and `callouts`. A path the round does not hold is
+reported as a warning, not applied.
 
 ## Input limits
 

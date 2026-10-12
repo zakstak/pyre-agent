@@ -168,6 +168,15 @@ export const tourView = (input: ReviewInput): TourView => {
   const left = input.files
     .filter((file) => !covered.has(file.path))
     .map((file): StopFile => ({ path: file.path }));
+  if (left.length > 0 && stops.length > 0) {
+    const shown = left
+      .slice(0, 5)
+      .map((file) => file.path)
+      .join(", ");
+    warnings.push(
+      `${left.length} file${left.length === 1 ? "" : "s"} no stop covers went into a closing "Other files" stop: ${shown}${left.length > 5 ? ", …" : ""}`,
+    );
+  }
   if (left.length > 0 || stops.length === 0) {
     stops.push({
       index: stops.length,

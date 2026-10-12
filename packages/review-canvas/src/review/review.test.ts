@@ -9,8 +9,11 @@ import type {
   RepoPath,
   RoundNumber,
 } from "../schema/primitives.ts";
+import { patchTotals } from "../schema/input.ts";
 import { anchorForRows } from "./anchor.ts";
-import { patchDigest } from "./patch.ts";
+import { unifiedDiff } from "./linediff.ts";
+import { applyAnalysis } from "../schema/analysis.ts";
+import { hunkRanges, patchDigest } from "./patch.ts";
 import { tourView } from "./tour.ts";
 
 const file = (patch: string): ReviewFile =>
@@ -118,4 +121,72 @@ test("a selection of only blank lines is refused with a reason, not a schema err
     end_row: 2,
   });
   assert.ok(!("kind" in withCode), JSON.stringify(withCode));
+});
+
+test("a line diff of two texts is a unified patch the patch reader agrees with", () => {
+  const before =
+    Array.from({ length: 12 }, (_, at) => `line ${at + 1}`).join("\n") + "\n";
+  const after = before
+    .replace("line 3\n", "three\n")
+    .replace("line 11\n", "line 11\nnew\n");
+  const patch = unifiedDiff(before, after);
+  assert.equal(
+    patch,
+    "@@ -1,6 +1,6 @@\n line 1\n line 2\n-line 3\n+three\n line 4\n line 5\n line 6\n" +
+      "@@ -9,4 +9,5 @@\n line 9\n line 10\n line 11\n+new\n line 12\n",
+  );
+  assert.deepEqual(patchTotals(patch ?? ""), {
+    kind: "totals",
+    additions: 2,
+    deletions: 1,
+  });
+  assert.equal(unifiedDiff(before, before), undefined);
+  // A new file, and a file emptied.
+  assert.equal(unifiedDiff("", "a\nb\n"), "@@ -0,0 +1,2 @@\n+a\n+b\n");
+  assert.equal(unifiedDiff("a\n", ""), "@@ -1,1 +0,0 @@\n-a\n");
+  // Too different to diff within the limit.
+  assert.equal(unifiedDiff("a\nb\nc\n", "x\ny\nz\n", { limit: 2 }), undefined);
+});
+
+test("an analysis merges into a snapshot by path, and names the paths it could not apply", () => {
+  const snapshot = {
+    format: "review-canvas.input/1",
+    target: {
+      kind: "worktree",
+      title: "t",
+      root: "/r",
+      head_sha: "d".repeat(40),
+    },
+    files_complete: false,
+    files: [
+      { ...file("@@ -1 +1 @@\n-a\n+b\n"), path: "a.txt" },
+      { ...file("@@ -1 +1 @@\n-c\n+d\n"), path: "b.txt" },
+    ],
+  } as unknown as ReviewInput;
+  const { input, unknownPaths } = applyAnalysis(snapshot, {
+    summary: "Swaps letters.",
+    files: {
+      "a.txt": { group: "mechanical", summary: "a becomes b" },
+      "gone.txt": { group: "wiring" },
+    },
+  });
+  assert.equal(input.summary, "Swaps letters.");
+  assert.deepEqual(
+    input.files.map((item) => [item.path, item.group, item.summary]),
+    [
+      ["a.txt", "mechanical", "a becomes b"],
+      ["b.txt", "core", undefined],
+    ],
+  );
+  assert.deepEqual(unknownPaths, ["gone.txt"]);
+});
+
+test("hunk ranges give each hunk's lines on both sides", () => {
+  assert.deepEqual(
+    hunkRanges("@@ -2,3 +2,4 @@\n a\n-b\n+B\n+C\n c\n@@ -0,0 +10 @@\n+x\n"),
+    [
+      { old: [2, 4], new: [2, 5] },
+      { old: [], new: [10, 10] },
+    ],
+  );
 });

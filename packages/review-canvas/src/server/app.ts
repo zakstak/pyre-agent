@@ -132,7 +132,13 @@ const Review = HttpRouter.add(
     return htmlResponse(
       view.input === undefined
         ? waitingPage(assets, view)
-        : reviewPage(assets, view, view.input, layout),
+        : reviewPage(assets, view, view.input, {
+            layout,
+            previous:
+              view.round !== undefined && view.round.round > 1
+                ? store.round(view.state.id, view.round.round - 1)
+                : undefined,
+          }),
     );
   }),
 );

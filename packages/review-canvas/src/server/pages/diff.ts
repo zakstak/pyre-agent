@@ -70,6 +70,8 @@ export interface DiffOptions extends Omit<ThreadOptions, "instance"> {
   /** Distinguishes several tables of one file on a page, so row IDs stay unique. */
   readonly tableId: string;
   readonly layout?: Layout | undefined;
+  /** For a patch the reviewer cannot comment on, such as the changes between two rounds. */
+  readonly readOnly?: boolean | undefined;
 }
 
 /** Unchanged lines before a hunk, or after the last one, which the file's text supplies. */
@@ -158,7 +160,7 @@ export const pairRows = (rows: ReadonlyArray<Row>): ReadonlyArray<Pair> => {
   return pairs;
 };
 
-const selectable = (row: Row) =>
+const changeable = (row: Row) =>
   row.kind === "add" || row.kind === "del" || row.kind === "context";
 
 /** The attributes of a selectable unit: its row, its source lines, and the side of a changed line. */
@@ -181,7 +183,10 @@ export const diffTable = (options: DiffOptions): Html => {
   const { file, comments, tableId } = options;
   const rows = parseRows(file.patch ?? "");
   const whole = options.range === undefined;
-  const layout: Layout = whole ? (options.layout ?? "unified") : "unified";
+  const readOnly = options.readOnly === true;
+  const layout: Layout =
+    whole && !readOnly ? (options.layout ?? "unified") : "unified";
+  const selectable = (row: Row) => !readOnly && changeable(row);
   const columns = layout === "split" ? 2 : 4;
   const range = options.range ?? { start: 0, end: rows.length - 1 };
   const threadsEndingAt = new Map<number, Array<PlacedComment>>();
