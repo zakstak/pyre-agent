@@ -67,7 +67,11 @@ import {
 import type { GitHubItem } from "../schema/github.ts";
 import { pullRequestKey } from "../schema/target.ts";
 
-const SCHEMA_VERSION = 1;
+/**
+ * The database layout. Version 1 keyed threads by ID alone and was never released; a version 1 database is refused
+ * with the other unknown versions.
+ */
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE reviews (
@@ -303,7 +307,7 @@ export class Store {
       db.exec("ROLLBACK");
       db.close();
       throw new Error(
-        `${path} has schema version ${row.user_version}; this version reads ${SCHEMA_VERSION}.`,
+        `${path} has schema version ${row.user_version}; this version reads ${SCHEMA_VERSION}. Move it aside to start an empty one.`,
       );
     }
     return new Store(db);

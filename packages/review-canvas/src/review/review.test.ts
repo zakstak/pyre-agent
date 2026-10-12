@@ -190,3 +190,50 @@ test("hunk ranges give each hunk's lines on both sides", () => {
     ],
   );
 });
+
+test("the tour says which stop owns each file, and warns about the entries it leaves out", () => {
+  const input = {
+    format: "review-canvas.input/1",
+    target: { kind: "worktree", title: "t", root: "/r", head_sha: "d".repeat(40) },
+    files_complete: false,
+    files: [
+      { ...file("@@ -1 +1 @@\n-a\n+b\n"), path: "a.txt" },
+      { ...file("@@ -1 +1 @@\n-c\n+d\n"), path: "b.txt" },
+      { ...file("@@ -1 +1 @@\n-e\n+f\n"), path: "c.txt" },
+    ],
+    stops: [
+      {
+        title: "First",
+        summary: "",
+        attention: null,
+        excerpts: [{ path: "a.txt", side: "new", start: 1, end: 1, caption: "" }],
+        files: [{ path: "a.txt", note: "lost" }, { path: "b.txt" }],
+        notes: [],
+        questions: [],
+      },
+      {
+        title: "Second",
+        summary: "",
+        attention: null,
+        excerpts: [{ path: "a.txt", side: "new", start: 1, end: 1, caption: "" }],
+        files: [{ path: "b.txt" }],
+        notes: [],
+        questions: [],
+      },
+    ],
+  } as unknown as ReviewInput;
+  const { stops, warnings } = tourView(input);
+  assert.deepEqual(
+    stops.map((stop) => [stop.title, stop.owns]),
+    [
+      ["First", ["a.txt", "b.txt"]],
+      ["Second", []],
+      ["Other files", ["c.txt"]],
+    ],
+  );
+  assert.deepEqual(warnings, [
+    'stop 1 ("First"): left out the note on a.txt, which this stop excerpts; put it in the excerpt\'s caption',
+    'stop 2 ("Second"): left out b.txt, which an earlier stop already covers',
+    '1 file no stop covers went into a closing "Other files" stop: c.txt',
+  ]);
+});

@@ -33,6 +33,15 @@ const ATTENTION_LABEL: Readonly<
   accessibility: "An accessibility call",
 };
 
+/** The rail's short name for each kind of call a stop asks the reviewer to make. */
+const ATTENTION_CHIP: Readonly<Record<(typeof ATTENTION_KINDS)[number], string>> = {
+  tradeoff: "Tradeoff",
+  contract: "Contract",
+  product: "Product call",
+  risk: "Risk",
+  accessibility: "Accessibility",
+};
+
 const STATUS_LABEL: Readonly<Record<ReviewFile["status"], string>> = {
   added: "Added",
   modified: "Modified",
@@ -367,7 +376,7 @@ const rail = (stops: ReadonlyArray<StopView>, page: PageContext): Html => {
     ) => html`<li><button type="button" class="stop-link" data-stop-go="${stop.index}" aria-current="false">
 <span class="stop-bullet" aria-hidden="true">${stop.index + 1}</span>
 <span class="stop-text"><span class="stop-title">${stop.title}</span>
-<span class="small muted">${stop.files.length === 0 ? "Context, no code" : `${stop.files.length} file${stop.files.length === 1 ? "" : "s"}`}${stop.attention === null ? "" : html` · <span class="chip warning">Look closely</span>`}</span></span>
+<span class="small muted">${stop.files.length === 0 ? "Context, no code" : `${stop.files.length} file${stop.files.length === 1 ? "" : "s"}`}${stop.attention === null ? "" : html` · <span class="chip warning">${ATTENTION_CHIP[stop.attention.kind]}</span>`}</span></span>
 </button></li>`,
   )}</ol>
 </nav>

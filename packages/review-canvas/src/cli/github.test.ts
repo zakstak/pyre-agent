@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Target } from "../schema/target.ts";
+import { Fixture } from "../collector/testing.ts";
 import {
+  branchHome,
   cleanBody,
   findPullRequest,
   type Gh,
   GhFailed,
+  gitHubRepo,
   readComments,
 } from "./github.ts";
 
@@ -28,28 +31,51 @@ test("the pull request is the target's, or the open one of the working tree's br
     ),
     { kind: "found", url: URL },
   );
-  const asked: Array<[ReadonlyArray<string>, string | undefined]> = [];
-  const open: Gh = (args, cwd) => {
-    asked.push([args, cwd]);
-    return JSON.stringify({ url: URL, state: "OPEN" });
+  const asked: Array<ReadonlyArray<string>> = [];
+  const open: Gh = (args) => {
+    asked.push(args);
+    return JSON.stringify([{ url: URL }]);
   };
-  assert.deepEqual(findPullRequest(worktree, open), {
-    kind: "found",
-    url: URL,
-  });
-  assert.deepEqual(asked, [[["pr", "view", "--json", "url,state"], "/repo"]]);
-  const merged = findPullRequest(worktree, () =>
-    JSON.stringify({ url: URL, state: "MERGED" }),
-  );
-  assert.deepEqual(merged, {
+  const home = () =>
+    ({ kind: "github", repo: "example/notes", branch: "atomic-save" }) as const;
+  assert.deepEqual(findPullRequest(worktree, open, home), { kind: "found", url: URL });
+  // gh is asked by repository and branch, never inside the working tree.
+  assert.deepEqual(asked, [
+    ["pr", "list", "--repo", "example/notes", "--head", "atomic-save", "--state", "open", "--json", "url", "--limit", "1"],
+  ]);
+  assert.deepEqual(findPullRequest(worktree, () => "[]", home), {
     kind: "none",
-    reason: "the branch's pull request is merged",
+    reason: "no open pull request for atomic-save in example/notes",
   });
-  const missing = findPullRequest(worktree, () => {
-    throw new GhFailed("no pull requests found for branch");
-  });
-  assert.equal(missing.kind, "none");
+  assert.deepEqual(
+    findPullRequest(worktree, open, () => ({ kind: "none", reason: "the remote origin is not on github.com" })),
+    { kind: "none", reason: "the remote origin is not on github.com" },
+  );
 });
+
+test("a remote URL names its GitHub repository in any spelling", () => {
+  for (const url of [
+    "https://github.com/example/notes.git",
+    "https://github.com/example/notes",
+    "git@github.com:example/notes.git",
+    "ssh://git@github.com/example/notes.git",
+  ])
+    assert.equal(gitHubRepo(url), "example/notes", url);
+  assert.equal(gitHubRepo("https://gitlab.com/example/notes.git"), undefined);
+});
+
+test("a branch's home is read with hardened Git from its upstream", (t) => {
+  const f = new Fixture(t);
+  f.commit({ "a.txt": "a\n" });
+  f.git(f.root, "checkout", "-q", "-b", "feature");
+  f.git(f.root, "remote", "add", "origin", "git@github.com:example/notes.git");
+  assert.deepEqual(branchHome(f.root), {
+    kind: "github",
+    repo: "example/notes",
+    branch: "feature",
+  });
+});
+
 
 const node = (n: number, kind: string, body: string) => ({
   id: `NODE_${n}`,

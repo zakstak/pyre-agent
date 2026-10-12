@@ -33,6 +33,8 @@ export interface StopView {
   readonly questions: ReadonlyArray<string>;
   /** True for the stop the server adds for files no stop covers. */
   readonly closing: boolean;
+  /** The files this stop is the first to cover. */
+  readonly owns: ReadonlyArray<RepoPath>;
 }
 
 export interface TourView {
@@ -72,6 +74,7 @@ export const tourView = (input: ReviewInput): TourView => {
     const excerpts: Array<ExcerptView> = [];
     let letters = 0;
     const pendingNotes = [...stop.notes];
+    const owns: Array<RepoPath> = [];
     for (const excerpt of stop.excerpts) {
       const file = files.get(excerpt.path);
       if (file === undefined) {
@@ -133,6 +136,7 @@ export const tourView = (input: ReviewInput): TourView => {
         caption: excerpt.caption,
         notes: notes.map((note) => ({ ...note, letter: letter(letters++) })),
       });
+      if (!covered.has(excerpt.path)) owns.push(excerpt.path);
       covered.add(excerpt.path);
     }
     for (const note of pendingNotes)
@@ -140,6 +144,7 @@ export const tourView = (input: ReviewInput): TourView => {
         `${where}: dropped the note "${note.title}" on ${note.path} line ${note.line}, which no excerpt of the stop shows`,
       );
     const listed: Array<StopFile> = [];
+    const excerpted = new Set<string>(excerpts.map((excerpt) => excerpt.path));
     for (const file of stop.files) {
       if (!files.has(file.path)) {
         warnings.push(
@@ -147,8 +152,22 @@ export const tourView = (input: ReviewInput): TourView => {
         );
         continue;
       }
-      if (covered.has(file.path)) continue;
+      if (covered.has(file.path)) {
+        // The stop that first excerpts or lists a file owns it; a later entry, and its note, are left out.
+        if (excerpted.has(file.path)) {
+          if (file.note !== undefined)
+            warnings.push(
+              `${where}: left out the note on ${file.path}, which this stop excerpts; put it in the excerpt's caption`,
+            );
+        } else {
+          warnings.push(
+            `${where}: left out ${file.path}, which an earlier stop already covers`,
+          );
+        }
+        continue;
+      }
       covered.add(file.path);
+      owns.push(file.path);
       listed.push(file);
     }
     const shown = [...new Set(excerpts.map((excerpt) => excerpt.path))].map(
@@ -163,6 +182,7 @@ export const tourView = (input: ReviewInput): TourView => {
       files: [...shown, ...listed],
       questions: stop.questions,
       closing: false,
+      owns,
     });
   }
   const left = input.files
@@ -190,6 +210,7 @@ export const tourView = (input: ReviewInput): TourView => {
       files: left,
       questions: [],
       closing: true,
+      owns: left.map((file) => file.path),
     });
   }
   return { stops, warnings };

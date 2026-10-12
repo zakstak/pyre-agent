@@ -5,6 +5,8 @@
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { openWorktree } from "../collector/collect.ts";
 import {
   type GitHubImport,
   GitHubImport as GitHubImportSchema,
@@ -17,7 +19,11 @@ export type Gh = (args: ReadonlyArray<string>, cwd?: string) => string;
 
 export class GhFailed extends Error {}
 
-export const runGh: Gh = (args, cwd) => {
+/**
+ * Runs gh outside any repository. gh runs Git where it starts, and Git reads the repository's own configuration,
+ * which can run commands; the reviewed repository is not trusted that far, so gh never starts in it.
+ */
+export const runGh: Gh = (args, cwd = tmpdir()) => {
   const result = spawnSync("gh", [...args], {
     cwd,
     encoding: "utf8",
@@ -41,26 +47,91 @@ export type PullRequestFound =
   | { readonly kind: "found"; readonly url: string }
   | { readonly kind: "none"; readonly reason: string };
 
-/** The pull request whose comments a review imports: the target's, or the open one of the working tree's branch. */
-export const findPullRequest = (target: Target, gh: Gh): PullRequestFound => {
-  if (target.kind === "github_pr") return { kind: "found", url: target.url };
-  let answer: { url?: unknown; state?: unknown };
+/** Where a working tree's branch lives on GitHub, or why it has no such place. */
+export type BranchHome =
+  | { readonly kind: "github"; readonly repo: string; readonly branch: string }
+  | { readonly kind: "none"; readonly reason: string };
+
+/** The GitHub repository a remote URL names, as OWNER/NAME, for HTTPS and SSH spellings. */
+export const gitHubRepo = (url: string): string | undefined =>
+  /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(
+    url.trim(),
+  )?.[1];
+
+/**
+ * The branch's upstream on GitHub, read with the collector's hardened Git, which ignores the configuration that
+ * could run commands. Without an upstream, the branch of the same name on origin.
+ */
+export const branchHome = (root: string): BranchHome => {
+  let worktree;
   try {
-    answer = JSON.parse(gh(["pr", "view", "--json", "url,state"], target.root));
+    worktree = openWorktree({ repo: root });
   } catch (error) {
     return {
       kind: "none",
-      reason: `no pull request for the checked-out branch (${error instanceof Error ? error.message : String(error)})`,
+      reason: error instanceof Error ? error.message : String(error),
     };
   }
-  if (typeof answer.url !== "string")
-    return { kind: "none", reason: "gh named no pull request" };
-  if (answer.state !== "OPEN")
+  const git = (args: ReadonlyArray<string>) => {
+    try {
+      return worktree.git
+        .run(worktree.top, [...worktree.config, ...args])
+        .toString("utf8")
+        .trim();
+    } catch {
+      return undefined;
+    }
+  };
+  const local = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (local === undefined || local === "")
+    return { kind: "none", reason: "the working tree has no branch checked out" };
+  const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  const remote = upstream?.split("/")[0] ?? "origin";
+  const branch = upstream === undefined ? local : upstream.slice(remote.length + 1);
+  const url = git(["config", "--get", `remote.${remote}.url`]);
+  const repo = url === undefined ? undefined : gitHubRepo(url);
+  return repo === undefined
+    ? { kind: "none", reason: `the remote ${remote} is not on github.com` }
+    : { kind: "github", repo, branch };
+};
+
+/** The pull request whose comments a review imports: the target's, or the open one of the working tree's branch. */
+export const findPullRequest = (
+  target: Target,
+  gh: Gh,
+  home: (root: string) => BranchHome = branchHome,
+): PullRequestFound => {
+  if (target.kind === "github_pr") return { kind: "found", url: target.url };
+  const found = home(target.root);
+  if (found.kind === "none") return found;
+  let answer: Array<{ url?: unknown }>;
+  try {
+    answer = JSON.parse(
+      gh([
+        "pr",
+        "list",
+        "--repo",
+        found.repo,
+        "--head",
+        found.branch,
+        "--state",
+        "open",
+        "--json",
+        "url",
+        "--limit",
+        "1",
+      ]),
+    );
+  } catch (error) {
     return {
       kind: "none",
-      reason: `the branch's pull request is ${String(answer.state).toLowerCase()}`,
+      reason: `gh could not list pull requests (${error instanceof Error ? error.message : String(error)})`,
     };
-  return { kind: "found", url: answer.url };
+  }
+  const url = answer[0]?.url;
+  return typeof url === "string"
+    ? { kind: "found", url }
+    : { kind: "none", reason: `no open pull request for ${found.branch} in ${found.repo}` };
 };
 
 const PULL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([0-9]+)$/;

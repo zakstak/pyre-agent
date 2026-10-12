@@ -26,7 +26,7 @@ import * as Schema from "effect/Schema";
 import { Analysis, applyAnalysis } from "../schema/analysis.ts";
 import type { Answer } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
-import { hunkRanges } from "../review/patch.ts";
+import { hunkRanges, parseRows } from "../review/patch.ts";
 import { tourView } from "../review/tour.ts";
 import type { Target } from "../schema/target.ts";
 import { HOSTS } from "../schema/thread.ts";
@@ -50,6 +50,7 @@ Commands
            [--dry-run]                    summary, stops, and files by path. --dry-run validates and prints
                                           the tour and its warnings without publishing.
   hunks    --input FILE [--path PATH]     Each file's hunks as old and new line ranges, for excerpts and notes.
+           [--rows]                       --rows prints every patch row with its old and new line numbers.
   github   --session DIR                  Import new comments of the review's pull request with gh.
   status   --session DIR                  The review: comments, whose turn each is, approvals, the verdict.
   wait     --session DIR [--since REV]    Block until the reviewer finishes the current round, or asks a question.
@@ -230,6 +231,12 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         files: collected.review.files.length,
         flagged: collected.flagged,
         staged: collected.staged,
+        // Text files the page cannot open unchanged lines for: their text did not fit, or was left out.
+        without_content: collected.review.files
+          .filter(
+            (file) => file.patch !== undefined && file.new_content === undefined,
+          )
+          .map((file) => file.path),
         target: collected.review.target,
       });
     } catch (error) {
@@ -245,7 +252,11 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
   async hunks(args) {
     const { values } = parseArgs({
       args,
-      options: { input: { type: "string" }, path: { type: "string" } },
+      options: {
+        input: { type: "string" },
+        path: { type: "string" },
+        rows: { type: "boolean", default: false },
+      },
     });
     const { input } = readInput(values.input);
     const files = input.files.filter(
@@ -253,10 +264,23 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         file.patch !== undefined &&
         (values.path === undefined || file.path === values.path),
     );
+    const range = (side: readonly [number, number] | []) =>
+      side.length === 0 ? "none" : `${side[0]}-${side[1]}`;
     print({
       ok: true,
       files: Object.fromEntries(
-        files.map((file) => [file.path, hunkRanges(file.patch ?? "")]),
+        files.map((file) => [
+          file.path,
+          values.rows
+            ? // Each row as "old new marker text", the numbers excerpts and notes name.
+              parseRows(file.patch ?? "").map(
+                (row) =>
+                  `${String(row.old ?? "").padStart(5)} ${String(row.new ?? "").padStart(5)} ${row.text}`,
+              )
+            : hunkRanges(file.patch ?? "").map(
+                (hunk) => `old ${range(hunk.old)}, new ${range(hunk.new)}`,
+              ),
+        ]),
       ),
     });
   },
@@ -369,8 +393,16 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         files: input.files.length,
         stops: tour.stops.map((stop) => ({
           title: stop.title,
-          excerpts: stop.excerpts.length,
-          files: stop.files.map((file) => file.path),
+          attention: stop.attention?.kind ?? null,
+          excerpts: stop.excerpts.map(
+            (excerpt) =>
+              `${excerpt.path} rows ${excerpt.start_row}-${excerpt.end_row}`,
+          ),
+          notes: stop.excerpts.flatMap((excerpt) =>
+            excerpt.notes.map((note) => `${note.letter} ${note.title}`),
+          ),
+          questions: stop.questions.length,
+          owns: stop.owns,
         })),
         warnings: [...merged, ...tour.warnings],
       });

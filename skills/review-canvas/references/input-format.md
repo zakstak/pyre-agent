@@ -113,13 +113,17 @@ tour reads.
   cuts an excerpt past 60 rows, and drops one that names no shown line or a
   file that is not in the round, with a warning that `publish` prints.
   `review-canvas hunks` prints each file's hunks as line ranges.
-- `files`: files the stop covers without an excerpt. A file belongs to the first
-  stop that excerpts or lists it; later mentions are ignored.
+- `files`: files the stop covers without an excerpt, each with an optional
+  `note`. The first stop that excerpts or lists a file owns it. A later stop's
+  `files` entry for it is left out, and so is the note of an entry for a file
+  the same stop excerpts; `publish` warns about each. Excerpts always show, in
+  any stop. On the page, each stop lists the files it excerpts or owns, and
+  opens their whole patch on demand.
 - `notes`: at most 10. Each attaches to the row of one of the stop's excerpts
   that shows `line` on the excerpt's side. The page letters them A, B, C across
   the stop. A note that no excerpt shows is dropped with a warning.
-- `questions`: at most 5 short questions. The reviewer can turn one into a
-  general comment with one click.
+- `questions`: at most 5 short questions. A click puts one in the reviewer's
+  question box, ready to ask.
 
 At most 50 stops. Files no stop covers go in a closing stop titled "Other
 files" that the server adds, and `publish` warns about them. A round without

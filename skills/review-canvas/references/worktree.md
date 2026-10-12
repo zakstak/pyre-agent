@@ -50,7 +50,9 @@ It writes the file with mode 0600, in a 0700 folder it creates when needed. It
 prints a summary with each likely secret file it left out to stderr, and JSON
 to stdout: the file count, the target, `flagged` (likely secret files left
 out), and `staged` (files whose staged version differs from both `HEAD` and the
-working tree, so a commit would record content the review does not show). It exits
+working tree, so a commit would record content the review does not show), and
+`without_content` (text files whose whole text did not fit in the input, so
+the page cannot open the unchanged lines around their patch). It exits
 with code 1 and writes nothing when it fails.
 
 It needs a commit at `HEAD`. It refuses a repository with unmerged paths, and a
