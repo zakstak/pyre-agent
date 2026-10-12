@@ -36,8 +36,8 @@ Call `orchestrator_capabilities`. The T3 tools can carry a harness prefix such
 as `mcp__t3-code__`, can need loading first (Claude Code: ToolSearch with
 `select:`), and are called as `tools.mcp__t3_code__orchestrator_capabilities({})`
 in Codex code mode. Make one direct attempt before declaring them absent. If they
-are absent, or the target provider has `canRunChildTask: false` or constraints,
-stop and report the blocker.
+are absent, or no instance of the reviewer's provider has
+`canRunChildTask: true`, stop and report the blocker.
 
 ## 2. Pin the scope
 
@@ -60,12 +60,17 @@ the checkout until every reviewer returns.
 
 ## 3. Choose reviewers
 
-By default, use one reviewer from the other provider:
+By default, use one reviewer from the other provider. `orchestrator_capabilities`
+reports this thread's instance as `inheritedProviderInstanceId`.
 
-| This thread runs | Reviewer `target`                                                                             |
-| ---------------- | --------------------------------------------------------------------------------------------- |
-| Claude           | `{"providerInstanceId":"codex","model":"gpt-6.1-sol","options":{"reasoningEffort":"xhigh"}}`  |
-| Codex            | `{"providerInstanceId":"claudeAgent","model":"claude-opus-5-5","options":{"effort":"xhigh"}}` |
+| This thread runs | Reviewer `driverKind` | `model`           | `options`                     |
+| ---------------- | --------------------- | ----------------- | ----------------------------- |
+| Claude           | `codex`               | `gpt-6.1-sol`     | `{"reasoningEffort":"xhigh"}` |
+| Codex            | `claudeAgent`         | `claude-opus-5-5` | `{"effort":"xhigh"}`          |
+
+Instance IDs are user configuration, such as `codex` or `codex-pyre`. Use the
+instance with that `driverKind` and `canRunChildTask: true` that lists the
+model, and pass its `providerInstanceId`. If several qualify, ask which.
 
 The user can name other providers, models or options. Use the exact IDs listed
 by `orchestrator_capabilities`. If a requested or default model is missing,
@@ -88,7 +93,7 @@ Call `delegate_task` once per reviewer, all in the same turn:
 {
   "task": "<filled reviewer brief>",
   "target": {
-    "providerInstanceId": "codex",
+    "providerInstanceId": "<instance with driverKind codex>",
     "model": "gpt-6.1-sol",
     "options": { "reasoningEffort": "xhigh" }
   },
