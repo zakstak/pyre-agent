@@ -32,6 +32,15 @@ I like trying new technology and finding ways to improve developer experience.
 - Do not use paid hosting, services, or integrations unless I approve them
   first.
 
+## Browser use
+
+- Prefer T3's shared browser. Use the dedicated Chrome fallback as Linux user
+  `agent` when T3 is unavailable or I request Chrome.
+- The fallback launcher is `/home/agent/.local/bin/agent-chrome`; its profile is
+  `/home/agent/.local/share/agent-chrome/profile`.
+- Keep Brave as my personal default browser. Do not inspect or reuse its normal
+  or protected profiles, including through sudo, for routine agent tasks.
+
 ## Architecture
 
 Architecture matters most to me. Prefer designs that make the right thing easy
