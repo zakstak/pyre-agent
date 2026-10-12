@@ -46,17 +46,32 @@ conversation. Pin commits so the review target cannot move while anyone works.
 
 1. Repository: `git rev-parse --show-toplevel`.
 2. Base: take it from the request or the branch's PR, otherwise ask. Do not
-   guess `main`, fetch, switch branches or commit.
+   guess `main`, fetch, switch branches or commit to a branch.
 3. Resolve `base_sha`, `head_sha` (default `HEAD`) and `merge_base`.
    `git merge-base --all <base_sha> <head_sha>` must print exactly one commit;
    otherwise stop and report it.
-4. Snapshot `git status --porcelain`. The default scope is committed work,
-   `merge_base..head_sha`. Tell the user when uncommitted or untracked work is
-   excluded.
+4. Fingerprint the checkout with `HEAD` and a tree of every tracked and
+   untracked file, built in a temporary index so the real one is untouched.
+   Ignored files are not covered.
 
-If the user explicitly wants uncommitted work reviewed, use working-tree scope.
-The reviewer then reads the live checkout against `merge_base`, so do not touch
-the checkout until every reviewer returns.
+   ```sh
+   index="$(mktemp -d)/index"
+   GIT_INDEX_FILE="$index" git read-tree HEAD
+   GIT_INDEX_FILE="$index" git add -A
+   GIT_INDEX_FILE="$index" git write-tree
+   ```
+
+The default scope is committed work, `merge_base..head_sha`. Tell the user when
+`git status --porcelain` shows uncommitted or untracked work that is excluded.
+
+If the user explicitly wants uncommitted work reviewed, pin the fingerprint tree
+as a snapshot commit and use it as `head_sha`. No ref points to it, and the
+branch, index and checkout stay as they were. Review and verification then work
+exactly as for committed work.
+
+```sh
+git commit-tree <tree> -p HEAD -m "t3-branch-review working-tree snapshot"
+```
 
 ## 3. Choose reviewers
 
@@ -117,10 +132,10 @@ the head changes before it finishes.
 
 After every reviewer returns:
 
-1. Unless you changed the checkout yourself, compare `HEAD` and
-   `git status --porcelain` with the snapshot. A difference means a reviewer
-   wrote to the checkout. Report that first and do not revert it without the
-   user.
+1. Unless you changed the checkout yourself, fingerprint it again as in step 2.
+   A different `HEAD` or tree means the checkout changed during the review,
+   most likely by a reviewer. Report that first and do not revert it without
+   the user.
 2. Parse the JSON block that ends each result. A missing or malformed block,
    or `verdict: incomplete`, is a coverage gap, never a clean pass.
 3. Check each finding against the code at `head_sha` with
@@ -132,7 +147,8 @@ Report:
 
 - Reviewers: the provider and model echoed by `delegate_task`, each task ID,
   and each child thread as `[title](t3-thread://v1/<childThreadId>)`.
-- Scope: `merge_base..head_sha` and any excluded local changes.
+- Scope: `merge_base..head_sha`, whether `head_sha` is a working-tree snapshot,
+  and any excluded local changes.
 - Findings: confirmed findings by severity, each with `path:line`, trigger,
   impact and fix. Then plausible findings, then rejected findings with the
   reason.

@@ -2,8 +2,7 @@
 
 Copy everything below the rule into the `delegate_task` `task` field and
 replace each `<placeholder>`. Remove the specialist line for a single reviewer.
-Remove the round section in round 1. In working-tree scope, use the working-tree
-variant of the scope section.
+Remove the round section in round 1.
 
 ---
 
@@ -28,11 +27,6 @@ git --no-pager diff --no-ext-diff --no-textconv <merge_base> <head_sha>
 git --no-pager show --no-ext-diff --no-textconv <head_sha>:<path>
 git --no-pager ls-tree -r --name-only <head_sha>
 ```
-
-Working-tree variant: review the live checkout against `<merge_base>`,
-including uncommitted and untracked files. Use
-`git --no-pager diff --no-ext-diff --no-textconv <merge_base>`,
-`git status --porcelain` and the files themselves.
 
 ## Focus
 
