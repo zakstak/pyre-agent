@@ -4,6 +4,7 @@ import type { CommentId, Timestamp } from "../schema/primitives.ts";
 import {
   approvalHolds,
   currentSubmission,
+  type SubmissionRecord,
   type Turn,
   turnOf,
 } from "../review/state.ts";
@@ -15,12 +16,8 @@ export interface Status {
   readonly revision: number;
   readonly closed: boolean;
   readonly round: number | undefined;
-  /** The reviewer's verdict on the current round, once they finished it. */
-  readonly submission: Feedback["submissions"] extends
-    | ReadonlyArray<infer S>
-    | undefined
-    ? S | undefined
-    : never;
+  /** The reviewer's verdict on the current round, once they finished it, with the revision it made. */
+  readonly submission: SubmissionRecord | undefined;
   /** Comments whose turn is the agent's: answer each before publishing the next round. */
   readonly to_answer: ReadonlyArray<CommentId>;
   readonly turns: Readonly<Record<string, Turn>>;
@@ -59,3 +56,10 @@ export const statusOf = (
     feedback: feedbackOf(view, now),
   };
 };
+
+/**
+ * Whether the reviewer finished the current round after the submission an agent last read, named by the revision it
+ * made. Other changes to the review, such as a later comment, are not a finish.
+ */
+export const finishedSince = (status: Status, since: number): boolean =>
+  status.submission !== undefined && status.submission.revision > since;

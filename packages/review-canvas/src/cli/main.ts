@@ -23,7 +23,7 @@ import {
 } from "../schema/document.ts";
 import type { Answer } from "../schema/feedback.ts";
 import { HOSTS } from "../schema/thread.ts";
-import type { Status } from "../server/status.ts";
+import { finishedSince, type Status } from "../server/status.ts";
 import { call, ensureServer, expectOk, ServerError } from "./socket.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
@@ -50,6 +50,8 @@ interface Session {
   readonly thread: { readonly id: string; readonly label: string };
   readonly token: string;
   readonly url: string;
+  /** The revision of the last submission `wait` reported, so the next `wait` reports only a newer one. */
+  readonly seen_submission?: number;
 }
 
 const fail = (message: string): never => {
@@ -65,8 +67,11 @@ const print = (value: unknown) => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 };
 
+const sessionFolder = (folder: string | undefined) =>
+  need(folder, "--session DIR is required");
+
 const session = (folder: string | undefined): Session => {
-  const dir = need(folder, "--session DIR is required");
+  const dir = sessionFolder(folder);
   try {
     return JSON.parse(
       readFileSync(join(dir, "session.json"), "utf8"),
@@ -74,6 +79,16 @@ const session = (folder: string | undefined): Session => {
   } catch {
     return fail(`no session in ${dir}; run register first`);
   }
+};
+
+/** Writes session.json privately: it holds the thread's token. */
+const saveSession = (folder: string, saved: Session) => {
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(folder, "session.json"),
+    `${JSON.stringify(saved, null, 2)}\n`,
+    { mode: 0o600 },
+  );
 };
 
 const readInput = (file: string | undefined) => {
@@ -186,18 +201,12 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         }),
       }),
     );
-    mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-    const saved: Session = {
+    saveSession(sessionDir, {
       review: reply.review,
       thread: reply.thread,
       token: reply.token,
       url: reply.url,
-    };
-    writeFileSync(
-      join(sessionDir, "session.json"),
-      `${JSON.stringify(saved, null, 2)}\n`,
-      { mode: 0o600 },
-    );
+    });
     print({
       ok: true,
       review: reply.review,
@@ -246,6 +255,10 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
     print({ ok: true, status: await status(session(values.session)) });
   },
 
+  /**
+   * Waits for a submission newer than the last one this session reported, or than --since. A submission that already
+   * happened counts, so an agent that starts waiting late does not miss it.
+   */
   async wait(args) {
     const { values } = parseArgs({
       args,
@@ -255,37 +268,48 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         "timeout-minutes": { type: "string", default: "60" },
       },
     });
-    const current = session(values.session);
+    const folder = sessionFolder(values.session);
+    const current = session(folder);
     const deadline =
       Date.now() + (Number(values["timeout-minutes"]) || 60) * 60_000;
-    let since =
+    const since =
       values.since === undefined
-        ? (await status(current)).revision
+        ? (current.seen_submission ?? 0)
         : Number(values.since);
+    // -1 answers at once with the current status; later calls block until the review moves past the cursor.
+    let cursor = -1;
+    let latest: Status | undefined;
     while (Date.now() < deadline) {
-      const reply = await expectOk<{ ok: true; status: Status }>(
-        await call(
-          "GET",
-          `/agent/reviews/${current.review}/wait?revision=${since}&timeout=25000`,
-          { token: current.token, timeoutMs: 40_000 },
-        ),
-      );
-      const { status: latest } = reply;
+      // Each long poll ends by the deadline, so a short --timeout-minutes is kept.
+      const poll = Math.max(100, Math.min(25_000, deadline - Date.now()));
+      latest = (
+        await expectOk<{ ok: true; status: Status }>(
+          await call(
+            "GET",
+            `/agent/reviews/${current.review}/wait?revision=${cursor}&timeout=${poll}`,
+            { token: current.token, timeoutMs: poll + 15_000 },
+          ),
+        )
+      ).status;
       if (latest.closed) {
         print({ ok: true, finished: false, closed: true, status: latest });
         return;
       }
-      if (latest.revision > since && latest.submission !== undefined) {
+      if (finishedSince(latest, since)) {
+        saveSession(folder, {
+          ...current,
+          seen_submission: latest.submission?.revision ?? since,
+        });
         print({ ok: true, finished: true, status: latest });
         return;
       }
-      if (latest.revision > since) since = latest.revision;
+      cursor = latest.revision;
     }
     print({
       ok: true,
       finished: false,
       timed_out: true,
-      status: await status(current),
+      status: latest ?? (await status(current)),
     });
   },
 

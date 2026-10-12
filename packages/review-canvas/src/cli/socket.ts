@@ -1,10 +1,11 @@
 /** Calls to the server over its Unix socket, and starting the server when none answers. */
 import { spawn } from "node:child_process";
-import { mkdirSync, openSync } from "node:fs";
+import { openSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
 import { fileURLToPath } from "node:url";
 import { runtimeDir, socketPath } from "../server/paths.ts";
+import { checkSocket, secureRuntimeDir } from "../server/runtime.ts";
 
 export interface Reply {
   readonly status: number;
@@ -101,9 +102,11 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * server.log in the runtime folder.
  */
 export const ensureServer = async (): Promise<void> => {
-  if (await answering()) return;
+  // Before any connection: a listener in a folder another user controls could be an impostor collecting tokens.
   const dir = runtimeDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  secureRuntimeDir(dir);
+  checkSocket(socketPath());
+  if (await answering()) return;
   const log = openSync(`${dir}/server.log`, "a", 0o600);
   const main = fileURLToPath(new URL("../server/main.ts", import.meta.url));
   const child = spawn(process.execPath, [main], {

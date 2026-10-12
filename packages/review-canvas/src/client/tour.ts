@@ -1,4 +1,5 @@
 /** Walking the tour: one stop at a time, J and K to move, the rail to jump, and the files view beside it. */
+import { parseHash } from "./places.ts";
 
 type View = "tour" | "files";
 
@@ -57,10 +58,13 @@ const renderRail = () => {
     );
 };
 
-/** Shows one stop, remembers it as read, and keeps the location in the hash. */
+/**
+ * Shows one stop, remembers it as read, and keeps the location in the hash, unless the hash already names something
+ * in the stop, such as a note.
+ */
 export const showStop = (
   index: number,
-  options: { readonly scroll?: boolean } = {},
+  options: { readonly scroll?: boolean; readonly keepHash?: boolean } = {},
 ) => {
   const all = stops();
   if (all.length === 0) return;
@@ -70,7 +74,8 @@ export const showStop = (
   seen.add(current);
   rememberSeen(seen);
   setView("tour", { keepHash: true });
-  history.replaceState(null, "", `#tour/${current + 1}`);
+  if (options.keepHash !== true)
+    history.replaceState(null, "", `#tour/${current + 1}`);
   renderRail();
   if (options.scroll !== false) {
     const main = document.querySelector<HTMLElement>("#main");
@@ -90,9 +95,11 @@ export const setView = (
   const files = document.querySelector<HTMLElement>("#files-view");
   if (tour !== null) tour.hidden = next !== "tour";
   if (files !== null) files.hidden = next !== "files";
-  for (const button of document.querySelectorAll<HTMLElement>("[data-view]"))
+  for (const button of document.querySelectorAll<HTMLElement>(
+    "button[data-view]",
+  ))
     button.setAttribute("aria-pressed", String(button.dataset.view === next));
-  document.body.dataset.view = next;
+  document.body.dataset.currentView = next;
   if (next === "files") {
     if (options.keepHash !== true)
       history.replaceState(
@@ -101,8 +108,9 @@ export const setView = (
         options.file === undefined ? "#files" : `#files/${options.file}`,
       );
     if (options.file !== undefined) {
-      const panel = document.getElementById(
-        `file-${options.file.replace(/[^A-Za-z0-9]+/g, "-")}`,
+      // The files view's own panel: a stop can hold another copy of the same file, hidden with the tour.
+      const panel = document.querySelector<HTMLElement>(
+        `#files-view > article.file[data-path="${CSS.escape(options.file)}"]`,
       );
       panel?.scrollIntoView({ block: "start" });
       panel?.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
@@ -111,15 +119,44 @@ export const setView = (
   renderRail();
 };
 
-/** Where the hash says the page is: a stop, the files view, or a file in it. */
-export const applyHash = (options: { readonly scroll?: boolean } = {}) => {
-  const hash = decodeURIComponent(location.hash.slice(1));
-  if (hash === "files") setView("files", { keepHash: true });
-  else if (hash.startsWith("files/"))
-    setView("files", { keepHash: true, file: hash.slice(6) });
-  else {
-    const match = /^tour\/([0-9]+)$/.exec(hash);
-    showStop(match === null ? 0 : Number(match[1]) - 1, options);
+/**
+ * Where the hash says the page is: a stop, the files view or a file in it, or an element. A note link shows its
+ * stop and keeps its hash; a link to anything else on the page, such as the skip link's target, is the browser's.
+ */
+export const applyHash = (
+  options: { readonly scroll?: boolean; readonly initial?: boolean } = {},
+) => {
+  const place = parseHash(location.hash);
+  switch (place.kind) {
+    case "files":
+      setView(
+        "files",
+        place.file === undefined
+          ? { keepHash: true }
+          : { keepHash: true, file: place.file },
+      );
+      return;
+    case "stop":
+      showStop(place.index, options);
+      return;
+    case "start":
+      showStop(0, options);
+      return;
+    case "element": {
+      const element = document.getElementById(place.id);
+      const stop = element?.closest<HTMLElement>("article.stop");
+      if (element != null && stop != null) {
+        showStop(Number(stop.dataset.stop), { keepHash: true, scroll: false });
+        element.scrollIntoView({ block: "center" });
+      } else if (element?.closest("#files-view") != null) {
+        setView("files", { keepHash: true });
+        element.scrollIntoView({ block: "start" });
+      } else if (options.initial === true || element === null) {
+        // The page still needs a view: the current stop, with the hash left as the reader gave it.
+        showStop(current, { keepHash: element !== null, scroll: false });
+      }
+      return;
+    }
   }
 };
 
@@ -142,7 +179,7 @@ export const installTour = () => {
       showStop(Number(go.dataset.stopGo));
       return;
     }
-    const viewButton = target?.closest<HTMLElement>("[data-view]");
+    const viewButton = target?.closest<HTMLElement>("button[data-view]");
     if (viewButton !== null && viewButton !== undefined) {
       const next = viewButton.dataset.view === "files" ? "files" : "tour";
       if (next === "tour") showStop(current);
@@ -168,5 +205,5 @@ export const installTour = () => {
     }
   });
   window.addEventListener("hashchange", () => applyHash());
-  applyHash({ scroll: false });
+  applyHash({ scroll: false, initial: true });
 };

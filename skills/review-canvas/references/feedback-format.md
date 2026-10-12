@@ -76,8 +76,11 @@ reviewer reply on a resolved comment, so one order is the only order.
 
 Each submission holds `round`, `verdict` (`comment`, `approve`, or
 `request_changes`), `body`, and `submitted_at`. The reviewer's **Finish
-review** adds one, and `review-canvas wait` returns when the current round has
-a submission newer than the revision the agent last saw.
+review** adds one, for the round the reviewer's page showed; the server refuses
+a finish for a round that is no longer current. The store also records the
+revision each submission made. `review-canvas status` reports it, and
+`review-canvas wait` returns when the current round has a submission newer than
+the last one the session reported.
 
 ## Limits
 
@@ -85,5 +88,5 @@ a submission newer than the revision the agent last saw.
 with unique IDs; 200 reviewer replies and 200 GitHub replies per comment; 5,000
 agent answers; 100 threads; 20 earlier anchors per comment; 50 earlier rounds;
 1,000 submissions; 20,000 UTF-16 units per body or note, 131,072 for a GitHub
-body; 2 MiB of all text together. The server refuses an action that would push
+body; 2 MiB of all text together, submission summaries included. The server refuses an action that would push
 the review past a limit and says which.

@@ -23,12 +23,18 @@ import type {
   ReplyId,
   RepoPath,
   ReviewId,
+  Revision,
   RoundNumber,
   ThreadId,
   Timestamp,
 } from "../schema/primitives.ts";
 import type { Target } from "../schema/target.ts";
-import { anchorForRows, attach, type RowSelection } from "./anchor.ts";
+import {
+  type AnchorProblem,
+  anchorForRows,
+  attach,
+  type RowSelection,
+} from "./anchor.ts";
 
 /** A published round: who published it, when, and the digest that names its input. */
 export interface Round {
@@ -36,6 +42,14 @@ export interface Round {
   readonly input_sha256: InputDigest;
   readonly thread: ThreadId;
   readonly published_at: Timestamp;
+}
+
+/**
+ * A submission as the store keeps it: with the revision it made, so an agent can tell a new finish from one it has
+ * already read. Feedback exports leave the revision out.
+ */
+export interface SubmissionRecord extends Submission {
+  readonly revision: Revision;
 }
 
 /** Everything about a review that actions change. Round inputs and thread tokens live beside it in the store. */
@@ -50,7 +64,7 @@ export interface ReviewState {
   readonly rounds: ReadonlyArray<Round>;
   readonly approvals: ReadonlyArray<Approval>;
   readonly comments: ReadonlyArray<Comment>;
-  readonly submissions: ReadonlyArray<Submission>;
+  readonly submissions: ReadonlyArray<SubmissionRecord>;
 }
 
 /** Whose move a comment waits for. */
@@ -78,7 +92,7 @@ export const currentRound = (state: ReviewState): Round | undefined =>
 /** The latest submission of the current round, if the reviewer finished it. */
 export const currentSubmission = (
   state: ReviewState,
-): Submission | undefined => {
+): SubmissionRecord | undefined => {
   const round = currentRound(state);
   return round === undefined
     ? undefined
@@ -102,6 +116,7 @@ export type ActionErrorKind =
   | "not_your_turn"
   | "resolved"
   | "bad_anchor"
+  | "changed"
   | "fingerprint"
   | "invalid";
 
@@ -122,6 +137,8 @@ type Outcome = Result.Result<ReviewState, ActionError>;
 export interface ActionContext {
   readonly input: ReviewInput | undefined;
   readonly now: Timestamp;
+  /** The revision the action makes when it commits. */
+  readonly revision: Revision;
   readonly commentId: () => CommentId;
   readonly replyId: () => ReplyId;
 }
@@ -182,6 +199,22 @@ const appendReply = (
   };
 };
 
+const ANCHOR_PROBLEMS: Readonly<Record<AnchorProblem["kind"], string>> = {
+  no_patch: "the file has no patch",
+  changed:
+    "the file changed since the page showed it. Select the lines again in the current round",
+  out_of_range: "the selected rows are outside the patch",
+  no_source_line: "select at least one line of code, not only a hunk header",
+  blank:
+    "the selected lines are blank. Include a line with code in the selection",
+};
+
+const anchorFailure = (problem: AnchorProblem, doing: string) =>
+  fail(
+    problem.kind === "changed" ? "changed" : "bad_anchor",
+    `Cannot ${doing}: ${ANCHOR_PROBLEMS[problem.kind]}.`,
+  );
+
 /** A comment on a row selection of a file in the current round. */
 export const addInlineComment = (
   state: ReviewState,
@@ -203,15 +236,7 @@ export const addInlineComment = (
     { round: round.round, input_sha256: round.input_sha256 },
     selection,
   );
-  if ("kind" in anchor) {
-    const why = {
-      no_patch: "the file has no patch to comment on",
-      out_of_range: "the selected rows are outside the patch",
-      no_source_line:
-        "select at least one line of code, not only a hunk header",
-    };
-    return fail("bad_anchor", `Cannot comment there: ${why[anchor.kind]}.`);
-  }
+  if ("kind" in anchor) return anchorFailure(anchor, "comment there");
   const comment: Comment = {
     kind: "inline",
     id: context.commentId(),
@@ -362,20 +387,31 @@ export const unapprove = (state: ReviewState, path: RepoPath): Outcome => {
   });
 };
 
-/** The reviewer finished the current round. */
+/**
+ * The reviewer finished a round. It must be the current one: a verdict on a round the reviewer has not seen would
+ * approve unread code.
+ */
 export const submit = (
   state: ReviewState,
   context: ActionContext,
+  seen: RoundNumber,
   verdict: Verdict,
   body: string,
 ): Outcome => {
   const current = withRound(state, context);
   if (Result.isFailure(current)) return Result.fail(current.failure);
-  const submission: Submission = {
-    round: current.success.round.round,
+  const { round } = current.success;
+  if (round.round !== seen)
+    return fail(
+      "changed",
+      `Round ${round.round} was published after the page showed round ${seen}. Read it before you finish.`,
+    );
+  const submission: SubmissionRecord = {
+    round: round.round,
     verdict,
     body,
     submitted_at: context.now,
+    revision: context.revision,
   };
   return Result.succeed({
     ...state,
@@ -452,13 +488,13 @@ export const reattach = (
       "not_found",
       `No file ${selection.path} in round ${round.round}.`,
     );
-  const anchor: Anchor | { kind: string } = anchorForRows(
+  const anchor: Anchor | AnchorProblem = anchorForRows(
     file,
     { round: round.round, input_sha256: round.input_sha256 },
     selection,
   );
   if ("kind" in anchor)
-    return fail("bad_anchor", "Cannot attach the comment to those rows.");
+    return anchorFailure(anchor, "attach the comment to those rows");
   return Result.succeed(
     replaceComment(state, {
       ...comment,

@@ -21,6 +21,7 @@ import type {
   Verdict,
 } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
+import * as Limits from "../schema/limits.ts";
 import type {
   CommentId,
   Fingerprint,
@@ -148,6 +149,8 @@ export type Action =
   | { readonly kind: "unapprove"; readonly path: RepoPath }
   | {
       readonly kind: "submit";
+      /** The round the reviewer read. */
+      readonly round: RoundNumber;
       readonly verdict: Verdict;
       readonly body: string;
     }
@@ -232,13 +235,18 @@ export const feedbackOf = (
     threads: view.threads,
     comments: view.state.comments,
     earlier_rounds: [],
-    submissions: view.state.submissions,
+    // The revision a submission made is the store's bookkeeping, not part of the document.
+    submissions: view.state.submissions.map(
+      ({ revision: _revision, ...submission }) => submission,
+    ),
   };
 };
 
 export class Store {
   readonly #db: DatabaseSync;
   readonly #listeners = new Set<ChangeListener>();
+  /** Changes made by the open transaction, announced only once it commits. */
+  #pending: Array<readonly [ReviewId, Revision]> = [];
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
@@ -250,18 +258,24 @@ export class Store {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       chmodSync(dirname(path), 0o700);
     }
-    const db = new DatabaseSync(path);
+    // A busy timeout lets a second process, such as a server that is about to find another one running, wait for a
+    // write in progress instead of failing.
+    const db = new DatabaseSync(path, { timeout: 5000 });
     if (path !== ":memory:") chmodSync(path, 0o600);
     db.exec("PRAGMA foreign_keys = ON");
+    // The version is read again under the write lock, so two first opens cannot both create the schema.
+    db.exec("BEGIN IMMEDIATE");
     const row = db.prepare("PRAGMA user_version").get() as {
       user_version: number;
     };
     if (row.user_version === 0) {
-      db.exec("BEGIN");
       db.exec(SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
-    } else if (row.user_version !== SCHEMA_VERSION) {
+    } else if (row.user_version === SCHEMA_VERSION) {
+      db.exec("COMMIT");
+    } else {
+      db.exec("ROLLBACK");
       db.close();
       throw new Error(
         `${path} has schema version ${row.user_version}; this version reads ${SCHEMA_VERSION}.`,
@@ -281,14 +295,24 @@ export class Store {
 
   #transaction<T>(work: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
+    this.#pending = [];
+    let value: T;
     try {
-      const value = work();
+      value = work();
       this.#db.exec("COMMIT");
-      return value;
     } catch (error) {
       this.#db.exec("ROLLBACK");
+      this.#pending = [];
       throw error;
     }
+    const changes = this.#pending;
+    this.#pending = [];
+    // Listeners run after the caller's code, never inside the transaction.
+    queueMicrotask(() => {
+      for (const [reviewId, revision] of changes)
+        for (const listener of this.#listeners) listener(reviewId, revision);
+    });
+    return value;
   }
 
   #row(id: string): ReviewRow | undefined {
@@ -401,7 +425,10 @@ export class Store {
       let existing = this.openReview(options.target);
       let created = false;
       if (existing !== undefined && options.fresh === true) {
-        this.#write(existing.state.id, { ...existing.state, closed_at: at });
+        // Closing is a change to the old review: its open pages and waiting agents must learn of it.
+        const closed = existing.state.id;
+        this.#write(closed, { ...existing.state, closed_at: at });
+        this.#notify(closed, this.#bump(closed));
         existing = undefined;
       }
       let reviewId: ReviewId;
@@ -432,6 +459,12 @@ export class Store {
       } else {
         reviewId = existing.state.id;
       }
+      if (this.#threads(reviewId).length >= Limits.MAX_THREADS) {
+        throw new ActionError(
+          "invalid",
+          `The review already has ${Limits.MAX_THREADS} threads. Start a fresh review of the target instead.`,
+        );
+      }
       const token = randomBytes(32).toString("base64url") as ThreadToken;
       const thread: Thread = {
         id: randomId<ThreadId>("thread"),
@@ -450,11 +483,13 @@ export class Store {
           JSON.stringify(thread.host),
           at,
         );
+      const joined = this.review(reviewId);
+      if (joined === undefined) throw new NoSuchReview(reviewId);
+      // The new thread joins the feedback document, so the review must still encode with it.
+      this.#check(reviewId, joined.state, joined.input);
       const revision = this.#bump(reviewId);
-      const review = this.review(reviewId);
-      if (review === undefined) throw new NoSuchReview(reviewId);
       this.#notify(reviewId, revision);
-      return { review, thread, token, created };
+      return { review: { ...joined, revision }, thread, token, created };
     });
   }
 
@@ -548,6 +583,7 @@ export class Store {
       const context = {
         input: view.input,
         now: now(),
+        revision: (row.revision + 1) as Revision,
         commentId: () => randomId<CommentId>("comment"),
         replyId: () => randomId<ReplyId>("reply"),
       };
@@ -576,7 +612,13 @@ export class Store {
           case "unapprove":
             return unapprove(state, action.path);
           case "submit":
-            return submit(state, context, action.verdict, action.body);
+            return submit(
+              state,
+              context,
+              action.round,
+              action.verdict,
+              action.body,
+            );
           case "reattach":
             return reattach(state, context, action.comment, action.selection);
           case "answer":
@@ -640,12 +682,8 @@ export class Store {
     return row.revision as Revision;
   }
 
+  /** Announces a change once the open transaction commits. A rolled-back change is never announced. */
   #notify(reviewId: ReviewId, revision: Revision): void {
-    // After the commit, from the caller's point of view: the transaction wrapper commits before it returns, and
-    // listeners that read the store see the new revision. Deliver on the next tick so a listener never runs inside
-    // the transaction.
-    queueMicrotask(() => {
-      for (const listener of this.#listeners) listener(reviewId, revision);
-    });
+    this.#pending.push([reviewId, revision]);
   }
 }

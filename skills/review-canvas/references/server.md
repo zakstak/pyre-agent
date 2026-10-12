@@ -15,9 +15,17 @@ an open page. Its code is in
 | Pages        | `http://127.0.0.1:PORT`, printed by the server and returned by `register` and `publish`           |
 
 `REVIEW_CANVAS_DATA`, `REVIEW_CANVAS_RUNTIME`, `REVIEW_CANVAS_PORT`, and
-`REVIEW_CANVAS_IDLE_MINUTES` override the defaults. The socket is the
-single-instance lock: a command that cannot connect starts a server, and a
-server that finds one answering exits.
+`REVIEW_CANVAS_IDLE_MINUTES` override the defaults. A command that cannot
+connect starts a server. A starting server takes an exclusive lock on
+`server.lock` in the runtime folder and holds it while it runs; the operating
+system releases it when the process ends. Under the lock it removes a stale
+socket and binds a new one, so two starts never both bind, and a server that
+finds another one answering exits.
+
+Before any command connects, and before a server binds, the runtime folder must
+be a real folder owned by the current user with no access for others; a looser
+folder of the user's own is tightened. A folder or socket another user owns is
+refused, because a listener there could collect inputs and thread tokens.
 
 ## Who talks to it
 

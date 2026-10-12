@@ -4,14 +4,15 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Config, Data, Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
-import { chmodSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
 import * as Assets from "./assets.ts";
 import { databasePath, idleMinutes, runtimeDir, socketPath } from "./paths.ts";
+import { checkSocket, secureRuntimeDir, StartLock } from "./runtime.ts";
 import {
   Activity,
   activityLayer,
@@ -40,18 +41,57 @@ const socketInUse = (path: string) =>
     client.once("error", () => resolve(false));
   });
 
+class RuntimeRefused extends Data.TaggedError("RuntimeRefused")<{
+  readonly message: string;
+}> {}
+
+class StartTimedOut extends Data.TaggedError("StartTimedOut")<{
+  readonly dir: string;
+}> {
+  override get message() {
+    return `Another review canvas server holds the start lock in ${this.dir} but does not answer.`;
+  }
+}
+
 /**
- * Claims the socket path: the folder is private, and a socket file nobody answers on is removed. A live server
- * keeps its socket, and this one exits, so the socket is the single-instance lock.
+ * Takes the start lock for the life of the scope. While another server holds it, this one waits: if that server
+ * answers on the socket, this one exits; if it is still starting, this one tries again.
+ */
+const startLock = (dir: string, path: string) =>
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const lock = StartLock.try(dir);
+        if (lock !== undefined) return lock;
+        if (yield* Effect.promise(() => socketInUse(path)))
+          return yield* Effect.fail(new SocketInUse({ path }));
+        yield* Effect.sleep("100 millis");
+      }
+      return yield* Effect.fail(new StartTimedOut({ dir }));
+    }),
+    (lock) => Effect.sync(() => lock.release()),
+  );
+
+/**
+ * Claims the socket path under the start lock: the folder is this user's and private, and a socket file nobody
+ * answers on is removed. The lock stays held while the server runs, so no other start can remove a live socket.
  */
 const claimSocket = Effect.gen(function* () {
   const dir = runtimeDir();
   const path = socketPath();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
-  if (yield* Effect.promise(() => socketInUse(path))) {
+  yield* Effect.try({
+    try: () => {
+      secureRuntimeDir(dir);
+      checkSocket(path);
+    },
+    catch: (error) =>
+      new RuntimeRefused({
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  });
+  yield* startLock(dir, path);
+  if (yield* Effect.promise(() => socketInUse(path)))
     return yield* Effect.fail(new SocketInUse({ path }));
-  }
   rmSync(path, { force: true });
   return path;
 });
@@ -126,8 +166,8 @@ export const run = () =>
     ),
   );
 
-if (
-  process.argv[1] !== undefined &&
-  import.meta.url === new URL(`file://${process.argv[1]}`).href
-)
-  run();
+/** Whether this module is the program Node was started with. A path is converted, not pasted into a URL. */
+export const isEntry = (moduleUrl: string, argv1: string | undefined) =>
+  argv1 !== undefined && moduleUrl === pathToFileURL(argv1).href;
+
+if (isEntry(import.meta.url, process.argv[1])) run();

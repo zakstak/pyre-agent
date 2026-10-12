@@ -140,6 +140,7 @@ const STATUS: Readonly<Record<ActionError["kind"], number>> = {
   not_your_turn: 409,
   resolved: 409,
   bad_anchor: 400,
+  changed: 409,
   fingerprint: 409,
   invalid: 400,
 };

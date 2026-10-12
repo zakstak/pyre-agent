@@ -501,12 +501,16 @@ const FeedbackFields = Schema.Struct({
 });
 type FeedbackFields = typeof FeedbackFields.Type;
 
-/** The UTF-16 code units of every note, body, blocker, quote, and anchor path, which together have a budget. */
+/**
+ * The UTF-16 code units of every note, body, blocker, quote, anchor path, and submission summary, which together have
+ * a budget.
+ */
 export const feedbackTextUnits = (
   feedback: Pick<
     FeedbackFields,
     "general_notes" | "files" | "comments" | "earlier_rounds"
-  >,
+  > &
+    Partial<Pick<FeedbackFields, "submissions">>,
 ): number => {
   const notes = (round: {
     readonly general_notes: string;
@@ -519,6 +523,8 @@ export const feedbackTextUnits = (
   let total =
     notes(feedback) +
     feedback.earlier_rounds.reduce((sum, round) => sum + notes(round), 0);
+  for (const submission of feedback.submissions ?? [])
+    total += submission.body.length;
   for (const comment of feedback.comments) {
     total += comment.body.length;
     if (comment.kind === "inline") {

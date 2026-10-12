@@ -8,6 +8,11 @@ export interface ThreadOptions {
   readonly threads: ReadonlyArray<Thread>;
   /** False on a closed review: nothing can change. */
   readonly writable: boolean;
+  /**
+   * Which rendering of the thread this is. One inline comment can show in an excerpt, a stop's file list, and the
+   * files view, and each copy needs its own form IDs so a draft and focus return to the copy the reviewer used.
+   */
+  readonly instance: string;
 }
 
 export const time = (at: string): Html =>
@@ -100,8 +105,8 @@ ${
     : turn === "resolved"
       ? html`<div class="thread-actions"><button type="button" class="quiet" data-action="reopen">Reopen</button></div>`
       : html`<form class="reply-form" data-action="reply">
-<label class="sr-only" for="reply-${comment.id}">Reply</label>
-<textarea id="reply-${comment.id}" name="body" rows="2" placeholder="${turn === "agent" ? "Add to the comment" : "Reply to the answer"}"></textarea>
+<label class="sr-only" for="reply-${options.instance}-${comment.id}">Reply</label>
+<textarea id="reply-${options.instance}-${comment.id}" name="body" rows="2" placeholder="${turn === "agent" ? "Add to the comment" : "Reply to the answer"}"></textarea>
 <div class="thread-actions">
 <button type="submit" class="quiet" data-reply="reply">Reply</button>
 <button type="button" class="${turn === "reviewer" ? "primary" : ""}" data-reply="accept" title="${turn === "reviewer" ? "The answer settles it" : "Withdraw the comment"}">${turn === "reviewer" ? "Accept" : "Withdraw"}</button>

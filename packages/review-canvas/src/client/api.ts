@@ -1,4 +1,12 @@
-/** The page's one way to change the review: an action with the revision it saw. */
+/** The page's one way to change the review: an action with the revision its markup reflects. */
+import {
+  afterEvent,
+  afterOwnAction,
+  afterRefresh,
+  initial,
+  isBehind,
+  type Revisions,
+} from "./revisions.ts";
 
 export interface Refusal {
   readonly kind: string;
@@ -16,33 +24,54 @@ export class ActionRefused extends Error {
 
 export const reviewId = (): string => document.body.dataset.review ?? "";
 
-/** The revision the page's markup reflects. A refresh moves it. */
-export const rendered = (): number =>
-  Number(document.body.dataset.revision ?? "0");
+let revisions: Revisions = initial(
+  Number(document.body.dataset.revision ?? "0"),
+);
 
-let latest = rendered();
+/** The revision the page's markup shows. */
+export const rendered = (): number => revisions.rendered;
 
-/** The newest revision the page heard of, from an action's answer or the event stream. */
-export const known = (): number => Math.max(latest, rendered());
+/** Whether the page heard of a revision its markup does not show yet. */
+export const behind = (): boolean => isBehind(revisions);
 
-export const heard = (value: number): void => {
-  latest = Math.max(latest, value);
+export const heard = (revision: number): void => {
+  revisions = afterEvent(revisions, revision);
 };
 
-/** Sends an action. On success the body's revision moves to the server's. */
-export const act = async (action: Record<string, unknown>): Promise<number> => {
+export const refreshed = (revision: number): void => {
+  revisions = afterRefresh(revisions, revision);
+};
+
+const askRefresh = () =>
+  document.dispatchEvent(new CustomEvent("review:refresh"));
+
+const send = async (action: Record<string, unknown>): Promise<number> => {
+  const sentWith = revisions.basis;
   const response = await fetch(`/reviews/${reviewId()}/actions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action, revision: known() }),
+    body: JSON.stringify({ action, revision: sentWith }),
   });
   const body = (await response.json()) as
     | { ok: true; revision: number }
     | { ok: false; error: Refusal };
-  if (!body.ok) throw new ActionRefused(body.error);
-  heard(body.revision);
-  document.dispatchEvent(new CustomEvent("review:refresh"));
+  if (!body.ok) {
+    if (body.error.revision !== undefined) heard(body.error.revision);
+    throw new ActionRefused(body.error);
+  }
+  revisions = afterOwnAction(revisions, sentWith, body.revision);
+  askRefresh();
   return body.revision;
+};
+
+// One action at a time, so each is sent on the basis the one before it left.
+let queue: Promise<unknown> = Promise.resolve();
+
+/** Sends an action after the ones before it. */
+export const act = (action: Record<string, unknown>): Promise<number> => {
+  const next = queue.then(() => send(action));
+  queue = next.catch(() => undefined);
+  return next;
 };
 
 let toastTimer: number | undefined;
@@ -66,21 +95,35 @@ export const toast = (
   );
 };
 
-/** Runs an action and reports a refusal instead of throwing. Returns whether it succeeded. */
+export type Attempt =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string };
+
+/** Runs an action and returns why it failed instead of throwing. A stale refusal starts a refresh. */
+export const attempt = async (
+  action: Record<string, unknown>,
+): Promise<Attempt> => {
+  try {
+    await act(action);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ActionRefused) {
+      if (error.refusal.kind === "stale" || error.refusal.kind === "changed")
+        askRefresh();
+      return { ok: false, message: error.message };
+    }
+    return {
+      ok: false,
+      message: "The server did not answer. Is it still running?",
+    };
+  }
+};
+
+/** Runs an action and shows a refusal. Returns whether it succeeded. */
 export const tryAct = async (
   action: Record<string, unknown>,
 ): Promise<boolean> => {
-  try {
-    await act(action);
-    return true;
-  } catch (error) {
-    if (error instanceof ActionRefused) {
-      toast(error.message, "danger");
-      if (error.refusal.kind === "stale")
-        document.dispatchEvent(new CustomEvent("review:refresh"));
-      return false;
-    }
-    toast("The server did not answer. Is it still running?", "danger");
-    return false;
-  }
+  const result = await attempt(action);
+  if (!result.ok) toast(result.message, "danger");
+  return result.ok;
 };

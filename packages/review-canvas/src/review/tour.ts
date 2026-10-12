@@ -113,8 +113,7 @@ export const tourView = (input: ReviewInput): TourView => {
           (candidate) =>
             candidate.index >= range.start &&
             candidate.index <= end &&
-            (candidate.new === note.line ||
-              (excerpt.side === "old" && candidate.old === note.line)),
+            candidate[excerpt.side] === note.line,
         );
         if (row === undefined) continue;
         notes.push({

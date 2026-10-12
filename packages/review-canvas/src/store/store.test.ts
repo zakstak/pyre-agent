@@ -11,13 +11,17 @@ import {
   InputDocument,
 } from "../schema/document.ts";
 import type { ReviewInput } from "../schema/input.ts";
+import * as Limits from "../schema/limits.ts";
 import type {
   CommentId,
   Fingerprint,
   RepoPath,
   Revision,
+  RoundNumber,
 } from "../schema/primitives.ts";
 import { fixtureBytes } from "../schema/testing.ts";
+import type { RowSelection } from "../review/anchor.ts";
+import { patchDigest } from "../review/patch.ts";
 import { ActionError, turnOf } from "../review/state.ts";
 import { feedbackOf, StaleRevision, Store } from "./store.ts";
 
@@ -31,6 +35,23 @@ const input = (): ReviewInput => {
 };
 
 const host = { kind: "claude-code" } as const;
+
+/** Rows of one file as a page showing this round's patch selects them. */
+const rows = (
+  round: ReviewInput,
+  path: string,
+  start_row: number,
+  end_row: number,
+): RowSelection => {
+  const file = round.files.find((item) => item.path === path);
+  assert.ok(file?.patch !== undefined, `no patch for ${path}`);
+  return {
+    path: path as RepoPath,
+    patch_sha256: patchDigest(file.patch),
+    start_row,
+    end_row,
+  };
+};
 
 const fails = (
   work: () => unknown,
@@ -82,11 +103,7 @@ test("a review runs from registration through a submitted round and an answered 
     id,
     {
       kind: "comment",
-      selection: {
-        path: "src/notes/store.py" as RepoPath,
-        start_row: 13,
-        end_row: 15,
-      },
+      selection: rows(first, "src/notes/store.py", 13, 15),
       body: "Lock before the rename.",
     },
     revision,
@@ -125,11 +142,25 @@ test("a review runs from registration through a submitted round and an answered 
     "fingerprint",
     /changed since the page loaded/,
   );
+  fails(
+    () =>
+      store.act(id, {
+        kind: "submit",
+        round: 2 as RoundNumber,
+        verdict: "approve",
+        body: "",
+      }),
+    "changed",
+    /Round 1 was published after the page showed round 2/,
+  );
   revision = store.act(id, {
     kind: "submit",
+    round: 1 as RoundNumber,
     verdict: "request_changes",
     body: "One lock to add.",
   });
+  // The submission records the revision it made, for agents; the exported document leaves it out.
+  assert.equal(store.review(id)?.state.submissions[0]?.revision, revision);
 
   // The agent answers on its turn, and only on its turn.
   revision = store.act(id, {
@@ -233,7 +264,7 @@ test("a review runs from registration through a submitted round and an answered 
   store.close();
 });
 
-test("a second round reattaches comments, and a fresh start carries matching approvals", () => {
+test("a second round reattaches comments, and a fresh start carries matching approvals", async () => {
   const store = Store.open(":memory:");
   const first = input();
   const { review, thread } = store.register({
@@ -245,11 +276,7 @@ test("a second round reattaches comments, and a fresh start carries matching app
   store.publish(id, thread.id, first);
   store.act(id, {
     kind: "comment",
-    selection: {
-      path: "src/notes/store.py" as RepoPath,
-      start_row: 13,
-      end_row: 15,
-    },
+    selection: rows(first, "src/notes/store.py", 13, 15),
     body: "Lock before the rename.",
   });
   store.act(id, {
@@ -292,7 +319,24 @@ test("a second round reattaches comments, and a fresh start carries matching app
   assert.match(comment.attachment.reason, /quoted lines/);
   assert.equal(comment.anchor.snapshot.round, 1);
 
+  // A page still showing round 1 cannot comment by its row numbers on round 2's patch.
+  fails(
+    () =>
+      store.act(id, {
+        kind: "comment",
+        selection: rows(first, "src/notes/store.py", 13, 15),
+        body: "Old rows",
+      }),
+    "changed",
+    /changed since the page showed it/,
+  );
+
   // Fresh start: the review closes, the new one has no comments and carries only the approval that still holds.
+  // Closing is a change to the old review, announced to its pages and agents.
+  await Promise.resolve(); // deliver the earlier transactions' announcements first
+  const before = store.review(id)?.revision ?? 0;
+  const announced: Array<[string, number]> = [];
+  store.subscribe((review, revision) => announced.push([review, revision]));
   const fresh = store.register({
     target: first.target,
     label: "Codex",
@@ -302,6 +346,12 @@ test("a second round reattaches comments, and a fresh start carries matching app
   assert.ok(fresh.created);
   assert.notEqual(fresh.review.state.id, id);
   assert.ok(store.review(id)?.state.closed_at !== undefined);
+  assert.equal(store.review(id)?.revision, before + 1);
+  await Promise.resolve();
+  assert.deepEqual(announced, [
+    [id, before + 1],
+    [fresh.review.state.id, fresh.review.revision],
+  ]);
   fails(
     () => store.act(id, { kind: "general_comment", body: "late" }),
     "closed",
@@ -332,4 +382,55 @@ test("the database file and its folder are private", () => {
   assert.equal(statSync(path).mode & 0o777, 0o600);
   // Opening again reads the same schema version.
   Store.open(path).close();
+});
+
+test("a review refuses a thread past the limit, and a refused registration changes nothing", () => {
+  const store = Store.open(":memory:");
+  const first = input();
+  const register = () =>
+    store.register({ target: first.target, label: "Thread", host });
+  const { review, thread } = register();
+  store.publish(review.state.id, thread.id, first);
+  for (let count = 1; count < Limits.MAX_THREADS; count++) register();
+  const revision = store.review(review.state.id)?.revision;
+  fails(register, "invalid", /already has 100 threads/);
+  const after = store.review(review.state.id);
+  assert.equal(after?.threads.length, Limits.MAX_THREADS);
+  assert.equal(after?.revision, revision);
+  store.close();
+});
+
+test("submission summaries count toward the feedback text budget", () => {
+  const store = Store.open(":memory:");
+  const first = input();
+  const { review, thread } = store.register({
+    target: first.target,
+    label: "Thread",
+    host,
+  });
+  const id = review.state.id;
+  store.publish(id, thread.id, first);
+  const body = "x".repeat(Limits.MAX_TEXT_UNITS);
+  const allowed = Math.floor(Limits.MAX_FEEDBACK_TEXT_UNITS / body.length);
+  for (let count = 0; count < allowed; count++)
+    store.act(id, {
+      kind: "submit",
+      round: 1 as RoundNumber,
+      verdict: "comment",
+      body,
+    });
+  const revision = store.review(id)?.revision;
+  fails(
+    () =>
+      store.act(id, {
+        kind: "submit",
+        round: 1 as RoundNumber,
+        verdict: "comment",
+        body,
+      }),
+    "invalid",
+    /exceed 2097152 UTF-16 code units/,
+  );
+  assert.equal(store.review(id)?.revision, revision);
+  store.close();
 });

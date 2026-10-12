@@ -60,9 +60,9 @@ const prose = (text: string): Html =>
     .filter((paragraph) => paragraph !== "")
     .map((paragraph) => html`<p>${paragraph}</p>`)}`;
 
-const slug = (path: string) => path.replace(/[^A-Za-z0-9]+/g, "-");
-
 interface FileContext {
+  /** The file's place in the round, which names its tables and panels: paths do not make safe IDs. */
+  readonly index: number;
   readonly file: ReviewFile;
   readonly approved: boolean;
   readonly placed: ReadonlyArray<PlacedComment>;
@@ -82,11 +82,12 @@ const fileContexts = (
   input: ReviewInput,
 ): ReadonlyMap<string, FileContext> =>
   new Map(
-    input.files.map((file) => {
+    input.files.map((file, index) => {
       const { placed, orphans } = placeComments(file, view.state.comments);
       return [
         file.path,
         {
+          index,
           file,
           approved: view.state.approvals.some(
             (approval) =>
@@ -121,7 +122,7 @@ const filePanel = (
   tableId: string,
 ): Html => {
   const { file } = context;
-  return html`<article class="panel file${context.approved ? " approved" : ""}" id="file-${slug(file.path)}" data-path="${file.path}">
+  return html`<article class="panel file${context.approved ? " approved" : ""}" id="file-${tableId}" data-path="${file.path}">
 <header class="file-head">
 <h3 class="file-path"><code>${file.path}</code>${file.old_path === undefined ? "" : html` <span class="muted small">from <code>${file.old_path}</code></span>`}</h3>
 <p class="cluster small">
@@ -166,10 +167,7 @@ ${
     ? ""
     : html`<section class="orphans">
 <h4 class="small">Comments that no longer attach</h4>
-${context.orphans.map(
-  (comment) =>
-    html`<div class="orphan"><p class="small muted">${anchorLabel(comment)} in round ${comment.anchor.snapshot.round}: ${comment.attachment.state === "orphan" ? comment.attachment.reason : ""}</p>${thread(comment, { threads: page.view.threads, writable: page.writable })}</div>`,
-)}
+${context.orphans.map((comment) => orphan(comment, page, `${tableId}-orphan`))}
 </section>`
 }
 </article>`;
@@ -187,7 +185,7 @@ const stopFiles = (stop: StopView, page: PageContext): Html =>
 <details class="file-disclosure">
 <summary><code class="file-path">${item.path}</code> ${stat(context.file)} ${context.approved ? html`<span class="chip success">Approved</span>` : ""}${context.open > 0 ? html`<span class="chip warning">${context.open} open</span>` : ""}</summary>
 ${item.note === undefined ? "" : html`<p class="small muted">${item.note}</p>`}
-<div class="file-disclosure-body">${filePanel(context, page, `s${stop.index}f${slug(item.path)}`)}</div>
+<div class="file-disclosure-body">${filePanel(context, page, `s${stop.index}f${context.index}`)}</div>
 </details>
 </li>`;
       })}</ul>
@@ -311,13 +309,40 @@ ${groups.map((group) => {
 </aside>`;
 };
 
+/** An inline comment that has no rows in this round, with where it pointed and why it no longer attaches. */
+const orphan = (
+  comment: Extract<Comment, { kind: "inline" }>,
+  page: PageContext,
+  instance: string,
+): Html =>
+  html`<div class="orphan"><p class="small muted">${anchorLabel(comment)} in round ${comment.anchor.snapshot.round}: ${comment.attachment.state === "orphan" ? comment.attachment.reason : ""}</p>
+<pre class="orphan-quote code-region"><code>${comment.anchor.quote}</code></pre>
+${thread(comment, { threads: page.view.threads, writable: page.writable, instance })}</div>`;
+
+/**
+ * Inline comments on files that left the round, such as a reverted or renamed file. No file panel shows them, so
+ * they get their own section in both views; otherwise their answers could never be read or accepted.
+ */
+const departedSection = (page: PageContext): Html => {
+  const departed = page.view.state.comments.filter(
+    (comment): comment is Extract<Comment, { kind: "inline" }> =>
+      comment.kind === "inline" && !page.files.has(comment.anchor.path),
+  );
+  return departed.length === 0
+    ? html``
+    : html`<section class="departed stack" id="departed" aria-labelledby="departed-title">
+<h2 id="departed-title">Comments on files no longer in this round</h2>
+${departed.map((comment) => orphan(comment, page, "departed"))}
+</section>`;
+};
+
 const generalSection = (page: PageContext): Html => {
   const comments = page.view.state.comments.filter(
     (comment) => comment.kind === "general",
   );
   return html`<section class="general stack" id="general" aria-labelledby="general-title">
 <h2 id="general-title">On the whole change</h2>
-${comments.length === 0 ? html`<p class="muted">No general comments yet.</p>` : comments.map((comment) => thread(comment, { threads: page.view.threads, writable: page.writable }))}
+${comments.length === 0 ? html`<p class="muted">No general comments yet.</p>` : comments.map((comment) => thread(comment, { threads: page.view.threads, writable: page.writable, instance: "general" }))}
 ${
   !page.writable
     ? ""
@@ -339,7 +364,7 @@ const finishDialog = (page: PageContext, round: number): Html => {
   ).length;
   const submission = currentSubmission(page.view.state);
   return html`<dialog id="finish" class="panel" aria-labelledby="finish-title">
-<form method="dialog" class="panel-body stack" data-action="submit">
+<form method="dialog" class="panel-body stack" data-action="submit" data-round="${round}">
 <h2 id="finish-title">Finish round ${round}</h2>
 <p class="small muted">${open} comment${open === 1 ? "" : "s"} wait${open === 1 ? "s" : ""} for the agents · ${approved} of ${page.files.size} file${page.files.size === 1 ? "" : "s"} approved${submission === undefined ? "" : html` · you finished this round before with <strong>${submission.verdict.replace("_", " ")}</strong>`}</p>
 <fieldset class="verdicts">
@@ -422,8 +447,9 @@ ${input.summary === undefined ? "" : html`<div class="summary reading">${prose(i
 </section>
 <section class="tour" id="tour-view" aria-label="Tour">${stops.map((stop) => stopArticle(stop, stops.length, page, stops))}</section>
 <section class="files stack" id="files-view" aria-label="Changed files" hidden>
-${fileEntries.map((context) => filePanel(context, page, `f${slug(context.file.path)}`))}
+${fileEntries.map((context) => filePanel(context, page, `f${context.index}`))}
 </section>
+${departedSection(page)}
 ${generalSection(page)}
 </main>
 </div>

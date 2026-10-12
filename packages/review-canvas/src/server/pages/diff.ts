@@ -2,7 +2,7 @@
 import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
 import { attachedRows } from "../../review/anchor.ts";
-import { parseRows, type Row } from "../../review/patch.ts";
+import { parseRows, patchDigest, type Row } from "../../review/patch.ts";
 import type { NoteView } from "../../review/tour.ts";
 import { type Html, html } from "../html.ts";
 import { thread, type ThreadOptions } from "./comments.ts";
@@ -51,7 +51,7 @@ const marker: Readonly<Record<Row["kind"], string>> = {
   meta: "",
 };
 
-export interface DiffOptions extends ThreadOptions {
+export interface DiffOptions extends Omit<ThreadOptions, "instance"> {
   readonly file: ReviewFile;
   /** The rows to show; the whole patch when absent. */
   readonly range?: { readonly start: number; readonly end: number } | undefined;
@@ -84,7 +84,7 @@ export const diffTable = (options: DiffOptions): Html => {
   for (const placed of comments)
     for (let at = placed.start; at <= placed.end; at++) commented.add(at);
   return html`<div class="diff-scroll" role="region" aria-label="${file.path}" tabindex="0">
-<table class="diff" data-path="${file.path}" data-table="${tableId}" data-rows="${rows.length}">
+<table class="diff" data-path="${file.path}" data-patch="${patchDigest(file.patch ?? "")}" data-table="${tableId}" data-rows="${rows.length}">
 <thead><tr><th>Old line</th><th>New line</th><th>Change</th><th>Source</th></tr></thead>
 <tbody>${shown.map((row) => {
     const note = notesAt.get(row.index);
@@ -104,7 +104,8 @@ export const diffTable = (options: DiffOptions): Html => {
       threads === undefined
         ? ""
         : html`<tr class="thread-row" data-after="${row.index}"><td colspan="4">${threads.map(
-            (placed) => thread(placed.comment, options),
+            (placed) =>
+              thread(placed.comment, { ...options, instance: tableId }),
           )}</td></tr>`
     }`;
   })}</tbody>

@@ -7,8 +7,10 @@ import {
   Fingerprint,
   integer,
   nonEmptyText,
+  PatchDigest,
   RepoPath,
   Revision,
+  RoundNumber,
   text,
 } from "../schema/primitives.ts";
 import { Target } from "../schema/target.ts";
@@ -20,6 +22,8 @@ const RequiredBody = nonEmptyText(Limits.MAX_TEXT_UNITS);
 
 export const Selection = Schema.Struct({
   path: RepoPath,
+  /** The patch the page showed, so row numbers cannot land on another version of the file. */
+  patch_sha256: PatchDigest,
   start_row: Row,
   end_row: Row,
 });
@@ -49,6 +53,7 @@ export const PageAction = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("unapprove"), path: RepoPath }),
   Schema.Struct({
     kind: Schema.Literal("submit"),
+    round: RoundNumber,
     verdict: Schema.Literals(VERDICTS),
     body: Body,
   }),

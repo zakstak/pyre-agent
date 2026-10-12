@@ -1,19 +1,47 @@
 import type { Anchor, Attachment, RoundSnapshot } from "../schema/feedback.ts";
 import type { ReviewFile } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
+import type { PatchDigest } from "../schema/primitives.ts";
 import { joinedRows, parseRows, patchDigest, type Row } from "./patch.ts";
 
-/** A selection of whole rows in one file's patch, as the page sends it. */
+/**
+ * A selection of whole rows in one file's patch, as the page sends it. Row numbers mean something only in the patch
+ * the page showed, so the selection names that patch by its digest.
+ */
 export interface RowSelection {
   readonly path: ReviewFile["path"];
+  readonly patch_sha256: PatchDigest;
   readonly start_row: number;
   readonly end_row: number;
 }
 
 export type AnchorProblem =
   | { readonly kind: "no_patch" }
+  | { readonly kind: "changed" }
   | { readonly kind: "out_of_range" }
-  | { readonly kind: "no_source_line" };
+  | { readonly kind: "no_source_line" }
+  | { readonly kind: "blank" };
+
+const isHighSurrogate = (unit: number) => unit >= 0xd800 && unit <= 0xdbff;
+const isLowSurrogate = (unit: number) => unit >= 0xdc00 && unit <= 0xdfff;
+
+/**
+ * Up to {@link Limits.MAX_CONTEXT_UNITS} units before `start`, starting on a character boundary: a cut through a
+ * surrogate pair would leave half a character, which no text field accepts.
+ */
+export const contextBefore = (text: string, start: number): string => {
+  let from = Math.max(0, start - Limits.MAX_CONTEXT_UNITS);
+  if (from > 0 && isLowSurrogate(text.charCodeAt(from))) from++;
+  return text.slice(from, start);
+};
+
+/** Up to {@link Limits.MAX_CONTEXT_UNITS} units after `end`, ending on a character boundary. */
+export const contextAfter = (text: string, end: number): string => {
+  let to = Math.min(text.length, end + Limits.MAX_CONTEXT_UNITS);
+  if (to > end && to < text.length && isHighSurrogate(text.charCodeAt(to - 1)))
+    to--;
+  return text.slice(end, to);
+};
 
 /**
  * The anchor for a row selection in a file of the given round: the selected rows as the quote, with context on each
@@ -25,6 +53,8 @@ export const anchorForRows = (
   selection: RowSelection,
 ): Anchor | AnchorProblem => {
   if (file.patch === undefined) return { kind: "no_patch" };
+  const digest = patchDigest(file.patch);
+  if (digest !== selection.patch_sha256) return { kind: "changed" };
   const rows = parseRows(file.patch);
   const { start_row, end_row } = selection;
   if (
@@ -47,6 +77,9 @@ export const anchorForRows = (
   const end_line = lines.at(-1);
   if (start_line === undefined || end_line === undefined)
     return { kind: "no_source_line" };
+  // A quote of only blank lines would match everywhere, so it could never find its place in a later round.
+  if (selected.every((row) => row.content.trim() === ""))
+    return { kind: "blank" };
   const text = joinedRows(rows);
   const first = selected[0] as Row;
   const last = selected.at(-1) as Row;
@@ -55,12 +88,12 @@ export const anchorForRows = (
   return {
     snapshot,
     path: file.path,
-    patch_sha256: patchDigest(file.patch),
+    patch_sha256: digest,
     start,
     end,
     quote: text.slice(start, end),
-    prefix: text.slice(Math.max(0, start - Limits.MAX_CONTEXT_UNITS), start),
-    suffix: text.slice(end, end + Limits.MAX_CONTEXT_UNITS),
+    prefix: contextBefore(text, start),
+    suffix: contextAfter(text, end),
     start_row,
     end_row,
     side,

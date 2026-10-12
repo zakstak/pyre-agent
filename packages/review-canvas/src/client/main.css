@@ -672,6 +672,34 @@
     border-color: var(--status-danger);
   }
 
+  /* Anything the page scrolls to lands below the sticky app bar. */
+  .stop,
+  .file,
+  .notes li,
+  .thread,
+  .general,
+  .departed {
+    scroll-margin-block-start: 4.5rem;
+  }
+
+  /* Comments on files that left the round */
+  .departed {
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--separator);
+  }
+  .orphan > * + * {
+    margin-block-start: var(--space-2);
+  }
+  .orphan-quote {
+    max-block-size: 12rem;
+  }
+  .orphan-quote code {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--size-technical);
+    white-space: pre;
+  }
+
   /* Review list */
   .review-list {
     padding: 0;

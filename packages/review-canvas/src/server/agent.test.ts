@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureBytes } from "../schema/testing.ts";
+import { patchDigest } from "../review/patch.ts";
+import { finishedSince } from "./status.ts";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
 import { Assets } from "./assets.ts";
@@ -125,6 +127,22 @@ const withServers = (
 const input = () =>
   JSON.parse(fixtureBytes("input/worktree.json").toString("utf8"));
 
+/** The digest of a fixture file's patch, as the page's table carries it. */
+const patchOf = (path: string): string =>
+  patchDigest(
+    (input().files as Array<{ path: string; patch?: string }>).find(
+      (file) => file.path === path,
+    )?.patch ?? "",
+  );
+
+/** Every id attribute on a page, with how often it appears. */
+const repeatedIds = (page: string) => {
+  const counts = new Map<string, number>();
+  for (const [, id] of page.matchAll(/\sid="([^"]+)"/g))
+    counts.set(id ?? "", (counts.get(id ?? "") ?? 0) + 1);
+  return [...counts].filter(([, count]) => count > 1);
+};
+
 test("an agent registers, publishes, and answers; a page comments, submits, and exports", () =>
   withServers(async (agent, pages) => {
     const registered = await call(agent, "POST", "/agent/register", {
@@ -197,7 +215,12 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     const commented = await action({
       action: {
         kind: "comment",
-        selection: { path: "src/notes/store.py", start_row: 13, end_row: 15 },
+        selection: {
+          path: "src/notes/store.py",
+          patch_sha256: patchOf("src/notes/store.py"),
+          start_row: 13,
+          end_row: 15,
+        },
         body: "Lock first.",
       },
       revision: 2,
@@ -258,13 +281,33 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     );
     assert.equal(waited.body.status.revision, 4);
     const submitted = await action({
-      action: { kind: "submit", verdict: "approve", body: "Ship it." },
+      action: {
+        kind: "submit",
+        round: 1,
+        verdict: "approve",
+        body: "Ship it.",
+      },
     });
     assert.equal(submitted.status, 200, submitted.text);
     const after = await call(agent, "GET", `/agent/reviews/${review}`, {
       headers: { authorization: `Bearer ${token}` },
     });
     assert.equal(after.body.status.submission.verdict, "approve");
+    const finishedAt = after.body.status.submission.revision;
+    assert.equal(finishedAt, submitted.body.revision);
+    // A finish that happened before the agent started waiting still counts; one it already read does not.
+    assert.ok(finishedSince(after.body.status, 0));
+    assert.equal(finishedSince(after.body.status, finishedAt), false);
+    // A later comment is not a new finish.
+    await action({
+      action: { kind: "general_comment", body: "One more thing." },
+    });
+    const later = await call(agent, "GET", `/agent/reviews/${review}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.ok(later.body.status.revision > finishedAt);
+    assert.equal(finishedSince(later.body.status, finishedAt), false);
+    assert.equal(later.body.status.feedback.submissions[0].revision, undefined);
 
     // Export is the feedback document, and the list page shows the review.
     const exported = await call(
@@ -274,7 +317,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     );
     assert.equal(exported.status, 200);
     assert.equal(exported.body.format, "review-canvas.feedback/1");
-    assert.equal(exported.body.comments.length, 1);
+    assert.equal(exported.body.comments.length, 2);
     assert.equal(exported.body.submissions.length, 1);
     const home = await call(pages, "GET", "/");
     assert.match(home.text, /Write notes atomically/);
@@ -351,4 +394,56 @@ test("the event stream reports the revision, then each change", () =>
     });
     assert.match(events, /event: change\ndata: \{"revision":2\}/);
     assert.match(events, /event: change\ndata: \{"revision":3\}/);
+  }));
+
+test("a comment on a file that leaves the round stays on the page, and no id repeats", () =>
+  withServers(async (agent, pages) => {
+    const registered = await call(agent, "POST", "/agent/register", {
+      body: JSON.stringify({
+        target: input().target,
+        label: "Claude Code",
+        host: { kind: "claude-code" },
+      }),
+    });
+    const { review, token } = registered.body as {
+      review: string;
+      token: string;
+    };
+    const publish = (round: unknown) =>
+      call(agent, "POST", `/agent/reviews/${review}/rounds`, {
+        body: JSON.stringify(round),
+        headers: { authorization: `Bearer ${token}` },
+      });
+    assert.equal((await publish(input())).status, 200);
+    const commented = await call(pages, "POST", `/reviews/${review}/actions`, {
+      body: JSON.stringify({
+        action: {
+          kind: "comment",
+          selection: {
+            path: "src/notes/store.py",
+            patch_sha256: patchOf("src/notes/store.py"),
+            start_row: 13,
+            end_row: 15,
+          },
+          body: "Lock before the rename.",
+        },
+      }),
+      headers: { origin: `http://127.0.0.1:${pages.port}` },
+    });
+    assert.equal(commented.status, 200, commented.text);
+    const first = await call(pages, "GET", `/reviews/${review}`);
+    assert.deepEqual(repeatedIds(first.text), []);
+
+    // Round 2 reverts store.py, so no file panel can show the comment.
+    const second = input();
+    second.files = second.files.filter(
+      (file: { path: string }) => file.path !== "src/notes/store.py",
+    );
+    second.target.changed_files = second.files.length;
+    assert.equal((await publish(second)).status, 200);
+    const page = await call(pages, "GET", `/reviews/${review}`);
+    assert.match(page.text, /Comments on files no longer in this round/);
+    assert.match(page.text, /Lock before the rename\./);
+    assert.match(page.text, /The file is not in this round\./);
+    assert.deepEqual(repeatedIds(page.text), []);
   }));
