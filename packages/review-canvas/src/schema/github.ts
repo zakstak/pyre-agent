@@ -5,6 +5,7 @@
 import * as Schema from "effect/Schema";
 import * as Limits from "./limits.ts";
 import {
+  CommitSha,
   GitHubCommentId,
   GitHubCommentUrl,
   GitHubLogin,
@@ -30,9 +31,12 @@ const postFields = {
 export const GitHubPost = Schema.Struct(postFields);
 export type GitHubPost = typeof GitHubPost.Type;
 
+const DiffSide = Schema.Literals(["LEFT", "RIGHT"]);
+
 /**
  * A review thread on a line of the diff: its first comment, the replies under it, and where GitHub placed it. The
- * diff hunk ends at the commented line, so the quote is found again by its text in the review's own patch.
+ * diff hunk is from the commit the comment was written on and ends at the commented line, so the quote is found again
+ * by its text in the review's own patch.
  */
 export const GitHubThread = Schema.Struct({
   kind: Schema.Literal("thread"),
@@ -40,9 +44,16 @@ export const GitHubThread = Schema.Struct({
   resolved: Schema.Boolean,
   path: RepoPath,
   /** LEFT is the old side of the diff, RIGHT the new. */
-  side: Schema.Literals(["LEFT", "RIGHT"]),
-  /** The first line of a multi-line comment, absent for one line. */
+  side: DiffSide,
+  /** The first line of a multi-line comment, as the diff hunk numbers it; absent for one line. */
   start_line: Schema.optionalKey(Line),
+  /** The side of start_line, when it is not side: a range from a removed line to an added one. */
+  start_side: Schema.optionalKey(DiffSide),
+  /**
+   * The line GitHub shows the thread on at the pull request's head, on side. Absent once that line changed, when
+   * GitHub calls the thread outdated. GitHub moves only this last line with the code, never the first.
+   */
+  line: Schema.optionalKey(Line),
   diff_hunk: text(Limits.MAX_PATCH_UNITS),
   replies: Schema.Array(GitHubPost).check(
     Schema.isMaxLength(Limits.MAX_GITHUB_REPLIES),
@@ -62,6 +73,8 @@ export type GitHubItem = typeof GitHubItem.Type;
 
 export const GitHubImport = Schema.Struct({
   pull_request: PullRequestUrl,
+  /** The pull request's head when GitHub read the threads: the commit their `line` numbers are on. */
+  head_sha: Schema.optionalKey(CommitSha),
   items: Schema.Array(GitHubItem).check(
     Schema.isMaxLength(Limits.MAX_COMMENTS),
   ),

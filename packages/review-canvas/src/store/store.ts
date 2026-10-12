@@ -346,8 +346,7 @@ export class Store {
 
   #row(id: string): ReviewRow | undefined {
     return this.#db.prepare("SELECT * FROM reviews WHERE id = ?").get(id) as
-      | ReviewRow
-      | undefined;
+      ReviewRow | undefined;
   }
 
   #threads(reviewId: string): ReadonlyArray<Thread> {
@@ -746,6 +745,7 @@ export class Store {
     reviewId: string,
     pullRequest: PullRequestUrl,
     items: ReadonlyArray<GitHubItem>,
+    head?: CommitSha,
   ): { readonly revision: Revision; readonly report: ImportReport } {
     return this.#importing(reviewId, undefined, (view, context) => {
       const target = view.state.target;
@@ -757,7 +757,7 @@ export class Store {
           "invalid",
           "These comments are from another pull request than the review's.",
         );
-      const outcome = importGitHub(view.state, context, items);
+      const outcome = importGitHub(view.state, context, items, head);
       if (Result.isFailure(outcome)) throw outcome.failure;
       return outcome.success;
     });

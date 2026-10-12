@@ -677,3 +677,92 @@ test("GitHub comments import once, inline ones found by their quote, and a refre
   assert.equal(store.review(id)?.state.comments[0]?.replies.length, 2);
   store.close();
 });
+
+test("a GitHub thread whose quote changed on the head is placed on the line GitHub shows it on", () => {
+  const pr = "https://github.com/example/notes/pull/8";
+  const head = "e".repeat(40);
+  // On the head, a comment line went in between the two lines the thread was written on.
+  const patch =
+    '@@ -1,3 +1,5 @@\n def save(path, notes):\n     target = Path(path)\n-    target.write_text(notes)\n+    handle = open(target, "w")\n+    # One write.\n+    handle.write(notes)\n';
+  const decoded = decodeBytes(
+    InputDocument,
+    Buffer.from(
+      JSON.stringify({
+        format: "review-canvas.input/1",
+        target: { kind: "github_pr", title: "t", url: pr, head_sha: head },
+        files_complete: false,
+        files: [
+          {
+            path: "store.py",
+            status: "modified",
+            group: "core",
+            additions: 3,
+            deletions: 1,
+            patch,
+          },
+        ],
+      }),
+    ),
+  );
+  if (Result.isFailure(decoded)) assert.fail(decoded.failure.message);
+  // The thread as GitHub gives it: written on new lines 3-4 of an earlier commit, now ending on line 5.
+  const thread = {
+    kind: "thread" as const,
+    id: "PRRC_1",
+    author: "octocat",
+    url: `${pr}#discussion_r1`,
+    body: "Close the handle.",
+    created_at: "2026-10-12T00:01:00.000Z",
+    resolved: false,
+    path: "store.py",
+    side: "RIGHT" as const,
+    start_line: 3,
+    line: 5,
+    diff_hunk:
+      '@@ -1,3 +1,4 @@\n def save(path, notes):\n     target = Path(path)\n-    target.write_text(notes)\n+    handle = open(target, "w")\n+    handle.write(notes)',
+    replies: [],
+  };
+  const imported = (headSha: string | undefined) => {
+    const store = Store.open(":memory:");
+    const { review, thread: agent } = store.register({
+      target: decoded.success.target,
+      label: "Claude Code",
+      host,
+    });
+    store.publish(review.state.id, agent.id, decoded.success);
+    store.importGitHub(
+      review.state.id,
+      pr as never,
+      [thread] as never,
+      headSha as never,
+    );
+    const comment = store.review(review.state.id)?.state.comments[0];
+    store.close();
+    assert.ok(comment !== undefined && comment.kind === "inline");
+    return comment;
+  };
+
+  const placed = imported(head);
+  assert.equal(placed.attachment.state, "attached");
+  assert.equal(
+    placed.attachment.reason,
+    "Placed on the line GitHub shows it on at this head.",
+  );
+  // It spans as many lines as the comment did, ending on GitHub's line.
+  assert.deepEqual([placed.anchor.start_line, placed.anchor.end_line], [4, 5]);
+
+  // Without the head the threads were read at, GitHub's line means nothing here: the quote alone decides, and it
+  // keeps the whole range the comment was written on.
+  for (const other of [undefined, "f".repeat(40)]) {
+    const quoted = imported(other);
+    assert.equal(quoted.attachment.state, "orphan");
+    assert.deepEqual(
+      [quoted.anchor.start_line, quoted.anchor.end_line],
+      [3, 4],
+    );
+    assert.equal(
+      quoted.anchor.quote,
+      '+    handle = open(target, "w")\n+    handle.write(notes)',
+    );
+  }
+});

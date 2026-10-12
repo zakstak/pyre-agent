@@ -84,10 +84,19 @@ export const branchHome = (root: string): BranchHome => {
   };
   const local = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (local === undefined || local === "")
-    return { kind: "none", reason: "the working tree has no branch checked out" };
-  const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+    return {
+      kind: "none",
+      reason: "the working tree has no branch checked out",
+    };
+  const upstream = git([
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ]);
   const remote = upstream?.split("/")[0] ?? "origin";
-  const branch = upstream === undefined ? local : upstream.slice(remote.length + 1);
+  const branch =
+    upstream === undefined ? local : upstream.slice(remote.length + 1);
   const url = git(["config", "--get", `remote.${remote}.url`]);
   const repo = url === undefined ? undefined : gitHubRepo(url);
   return repo === undefined
@@ -131,7 +140,10 @@ export const findPullRequest = (
   const url = answer[0]?.url;
   return typeof url === "string"
     ? { kind: "found", url }
-    : { kind: "none", reason: `no open pull request for ${found.branch} in ${found.repo}` };
+    : {
+        kind: "none",
+        reason: `no open pull request for ${found.branch} in ${found.repo}`,
+      };
 };
 
 const PULL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([0-9]+)$/;
@@ -144,6 +156,8 @@ interface Page<T> {
   readonly nodes: ReadonlyArray<T>;
 }
 
+type Side = "LEFT" | "RIGHT";
+
 interface Post {
   readonly id: string;
   readonly author: { readonly login: string } | null;
@@ -152,11 +166,18 @@ interface Post {
   readonly url: string;
 }
 
+/**
+ * A review thread. `originalStartLine` numbers the first line in the diff hunk, which is from the commit the comment
+ * was written on; `line` is the last line at the head, null once outdated. GitHub's `startLine` is not used: it is
+ * null once outdated, and is not always moved with the code while the thread is current.
+ */
 interface ThreadNode {
   readonly isResolved: boolean;
   readonly path: string;
-  readonly diffSide: "LEFT" | "RIGHT";
-  readonly startLine: number | null;
+  readonly diffSide: Side;
+  readonly startDiffSide: Side | null;
+  readonly originalStartLine: number | null;
+  readonly line: number | null;
   readonly comments: {
     readonly nodes: ReadonlyArray<Post & { readonly diffHunk: string }>;
   };
@@ -165,14 +186,14 @@ interface ThreadNode {
 const POST = "id author { login } body createdAt url";
 
 const QUERIES = {
-  reviewThreads: `isResolved path diffSide startLine comments(first: 100) { nodes { ${POST} diffHunk } }`,
+  reviewThreads: `isResolved path diffSide startDiffSide originalStartLine line comments(first: 100) { nodes { ${POST} diffHunk } }`,
   comments: POST,
   reviews: POST,
 } as const;
 
 type Connection = keyof typeof QUERIES;
 
-/** Every node of one connection of the pull request, page by page. */
+/** Every node of one connection of the pull request, page by page, and each head the pages saw. */
 const readAll = <T>(
   gh: Gh,
   pr: {
@@ -181,12 +202,14 @@ const readAll = <T>(
     readonly number: number;
   },
   connection: Connection,
-): Array<T> => {
+): { readonly nodes: Array<T>; readonly heads: Set<string> } => {
   const nodes: Array<T> = [];
+  const heads = new Set<string>();
   let after: string | null = null;
   do {
     const query = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    headRefOid
     ${connection}(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${QUERIES[connection]} } }
   } }
 }`;
@@ -203,15 +226,21 @@ const readAll = <T>(
       `number=${pr.number}`,
       ...(after === null ? [] : ["-f", `after=${after}`]),
     ];
-    const page: Page<T> = (
+    const pullRequest = (
       JSON.parse(gh(args)) as {
-        data: { repository: { pullRequest: Record<Connection, Page<T>> } };
+        data: {
+          repository: {
+            pullRequest: Record<Connection, Page<T>> & { headRefOid: string };
+          };
+        };
       }
-    ).data.repository.pullRequest[connection];
+    ).data.repository.pullRequest;
+    const page = pullRequest[connection];
+    heads.add(pullRequest.headRefOid);
     nodes.push(...page.nodes);
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (after !== null && nodes.length < Limits.MAX_COMMENTS);
-  return nodes;
+  return { nodes, heads };
 };
 
 const REFUSED = new RegExp(Limits.REFUSED_CONTROL_CHARACTERS.source, "g");
@@ -235,7 +264,8 @@ const post = (node: Post) => ({
 
 /**
  * The pull request's comments as the server imports them: review threads with their replies, conversation comments,
- * and review summaries that say something. A review with an empty summary only carries inline comments.
+ * and review summaries that say something. A review with an empty summary only carries inline comments. The head is
+ * given only when every page of threads saw the same one, so the threads' lines are all on it.
  */
 export const readComments = (url: string, gh: Gh): GitHubImport => {
   const match = PULL.exec(url);
@@ -247,26 +277,36 @@ export const readComments = (url: string, gh: Gh): GitHubImport => {
   };
   // Plain values until the schema checks and brands them below.
   const items: Array<Record<string, unknown>> = [];
-  for (const thread of readAll<ThreadNode>(gh, pr, "reviewThreads")) {
+  const threads = readAll<ThreadNode>(gh, pr, "reviewThreads");
+  for (const thread of threads.nodes) {
     const [first, ...replies] = thread.comments.nodes;
     if (first === undefined || first.diffHunk === "") continue;
+    const start = thread.originalStartLine;
     items.push({
       kind: "thread",
       ...post(first),
       resolved: thread.isResolved,
       path: thread.path,
       side: thread.diffSide,
-      ...(thread.startLine === null ? {} : { start_line: thread.startLine }),
+      ...(start === null ? {} : { start_line: start }),
+      ...(start === null ||
+      thread.startDiffSide === null ||
+      thread.startDiffSide === thread.diffSide
+        ? {}
+        : { start_side: thread.startDiffSide }),
+      ...(thread.line === null ? {} : { line: thread.line }),
       diff_hunk: cleanBody(first.diffHunk),
       replies: replies.map(post),
     });
   }
-  for (const node of readAll<Post>(gh, pr, "comments"))
+  for (const node of readAll<Post>(gh, pr, "comments").nodes)
     items.push({ kind: "conversation", ...post(node) });
-  for (const node of readAll<Post>(gh, pr, "reviews"))
+  for (const node of readAll<Post>(gh, pr, "reviews").nodes)
     if (node.body.trim() !== "") items.push({ kind: "review", ...post(node) });
+  const [head, ...others] = threads.heads;
   const decoded = Schema.decodeUnknownResult(GitHubImportSchema)({
     pull_request: url,
+    ...(head === undefined || others.length > 0 ? {} : { head_sha: head }),
     items: items.slice(0, Limits.MAX_COMMENTS),
   });
   if (Result.isFailure(decoded))

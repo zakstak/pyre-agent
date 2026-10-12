@@ -6,6 +6,7 @@ import * as Result from "effect/Result";
 import type {
   Anchor,
   Approval,
+  Attachment,
   Comment,
   Feedback,
   Reply,
@@ -14,11 +15,11 @@ import type {
 import { compareReplies } from "../schema/feedback.ts";
 import type { GitHubItem, GitHubPost, GitHubThread } from "../schema/github.ts";
 import type { ReviewFile } from "../schema/input.ts";
-import type { ReplyId, Timestamp } from "../schema/primitives.ts";
+import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
-import { anchorAt, attach } from "./anchor.ts";
-import { parseRows } from "./patch.ts";
+import { anchorAt, attach, attachedRows } from "./anchor.ts";
+import { parseRows, type Row } from "./patch.ts";
 import {
   type ActionContext,
   ActionError,
@@ -244,27 +245,29 @@ export const importFeedback = (
   });
 };
 
+const sideOf = (side: GitHubThread["side"]) =>
+  side === "LEFT" ? ("old" as const) : ("new" as const);
+
 /**
- * The anchor of a GitHub review thread: the commented lines at the end of its diff hunk, on the thread's side. A
- * comment on a blank line takes in the lines before it, since a blank quote could never be found again.
+ * The anchor of rows `from` through `end` of a patch. A span of blank lines takes in the rows before it, within its
+ * hunk, since a blank quote could never be found again.
  */
-export const gitHubAnchor = (
-  thread: GitHubThread,
+const spanAnchor = (
+  patch: string,
+  rows: ReadonlyArray<Row>,
+  path: GitHubThread["path"],
   snapshot: RoundSnapshot,
+  side: "old" | "new",
+  from: number,
+  end: number,
 ): Anchor | undefined => {
-  const side = thread.side === "LEFT" ? "old" : "new";
-  const rows = parseRows(thread.diff_hunk).filter(
-    (row) => row[side] !== undefined,
-  );
-  const last = rows.at(-1);
+  const last = rows[end];
   if (last === undefined) return undefined;
-  const firstLine = thread.start_line ?? last[side] ?? 0;
-  let from = rows.findIndex((row) => (row[side] ?? 0) >= firstLine);
-  if (from === -1) from = rows.length - 1;
-  for (; from >= 0; from--) {
-    const first = rows[from];
-    if (first === undefined) break;
-    const anchor = anchorAt(thread.diff_hunk, thread.path, snapshot, {
+  for (let at = from; at >= 0; at--) {
+    const first = rows[at];
+    if (first === undefined || first.kind === "hunk") break;
+    if (first.kind === "meta") continue;
+    const anchor = anchorAt(patch, path, snapshot, {
       start: first.offset,
       end: last.offset + last.text.length,
       side,
@@ -273,6 +276,102 @@ export const gitHubAnchor = (
     if (anchor.kind !== "blank") return undefined;
   }
   return undefined;
+};
+
+/**
+ * The anchor of a GitHub review thread: the commented lines at the end of its diff hunk, on the thread's side, from
+ * the first line the comment was written on.
+ */
+export const gitHubAnchor = (
+  thread: GitHubThread,
+  snapshot: RoundSnapshot,
+): Anchor | undefined => {
+  const side = sideOf(thread.side);
+  const rows = parseRows(thread.diff_hunk);
+  const end = rows.findLastIndex((row) => row[side] !== undefined);
+  const last = rows[end];
+  if (last === undefined) return undefined;
+  const startSide =
+    thread.start_side === undefined ? side : sideOf(thread.start_side);
+  const firstLine = thread.start_line ?? last[side] ?? 0;
+  const from = rows.findIndex(
+    (row, at) => at <= end && (row[startSide] ?? 0) >= firstLine,
+  );
+  return spanAnchor(
+    thread.diff_hunk,
+    rows,
+    thread.path,
+    snapshot,
+    side,
+    from === -1 ? end : from,
+    end,
+  );
+};
+
+/**
+ * A thread placed where GitHub shows it on the head the round shows: it ends on GitHub's line and spans as many lines
+ * on its side as the comment did, within one hunk. GitHub keeps a thread current while its last line is unchanged,
+ * so the lines above it may differ from the quote.
+ */
+const placedAnchor = (
+  thread: GitHubThread,
+  file: ReviewFile,
+  snapshot: RoundSnapshot,
+  lines: number,
+): Anchor | undefined => {
+  if (thread.line === undefined || file.patch === undefined) return undefined;
+  const side = sideOf(thread.side);
+  const rows = parseRows(file.patch);
+  const end = rows.findIndex((row) => row[side] === thread.line);
+  if (end === -1) return undefined;
+  let from = end;
+  for (let counted = 1; counted < lines;) {
+    const before = rows[from - 1];
+    if (before === undefined || before.kind === "hunk") break;
+    from--;
+    if (before[side] !== undefined) counted++;
+  }
+  return spanAnchor(file.patch, rows, thread.path, snapshot, side, from, end);
+};
+
+/**
+ * Where an imported thread goes in the round. Its quote, found again in the round's patch, places it, unless the
+ * round shows the head GitHub read and the quote is missing or ends on another line than GitHub's: then GitHub's
+ * line does.
+ */
+const gitHubPlacement = (
+  thread: GitHubThread,
+  file: ReviewFile | undefined,
+  snapshot: RoundSnapshot,
+  onHead: boolean,
+): { readonly anchor: Anchor; readonly attachment: Attachment } | undefined => {
+  const quoted = gitHubAnchor(thread, snapshot);
+  const found =
+    quoted === undefined
+      ? undefined
+      : { anchor: quoted, attachment: attach(quoted, file) };
+  if (!onHead || thread.line === undefined || file?.patch === undefined)
+    return found;
+  const side = sideOf(thread.side);
+  const rows = parseRows(file.patch);
+  const span =
+    found === undefined ? undefined : attachedRows(rows, found.attachment);
+  if (span !== undefined && rows[span.end]?.[side] === thread.line)
+    return found;
+  const lines =
+    quoted === undefined ? 1 : quoted.end_line - quoted.start_line + 1;
+  const placed = placedAnchor(thread, file, snapshot, lines);
+  return placed === undefined
+    ? found
+    : {
+        anchor: placed,
+        attachment: {
+          state: "attached",
+          reason: "Placed on the line GitHub shows it on at this head.",
+          start: placed.start,
+          end: placed.end,
+        },
+      };
 };
 
 const gitHubReply = (post: GitHubPost, id: ReplyId): Reply => ({
@@ -286,12 +385,14 @@ const gitHubReply = (post: GitHubPost, id: ReplyId): Reply => ({
 /**
  * Imports a pull request's GitHub comments: review threads become inline comments found again by their quote, and
  * conversation comments and review summaries become general ones. A comment the review already holds gets only its
- * new replies. Each arrives as the agents' turn, except a thread GitHub shows resolved.
+ * new replies. Each arrives as the agents' turn, except a thread GitHub shows resolved. `head` is the commit GitHub
+ * numbered the threads' current lines on; a round of that pull request head can place a thread by them.
  */
 export const importGitHub = (
   state: ReviewState,
   context: ActionContext,
   items: ReadonlyArray<GitHubItem>,
+  head?: CommitSha,
 ): Result.Result<
   { readonly state: ReviewState; readonly report: ImportReport },
   ActionError
@@ -300,6 +401,10 @@ export const importGitHub = (
   if (Result.isFailure(current)) return Result.fail(current.failure);
   const { round, input } = current.success;
   const snapshot = { round: round.round, input_sha256: round.input_sha256 };
+  const onHead =
+    head !== undefined &&
+    input.target.kind === "github_pr" &&
+    input.target.head_sha.toLowerCase() === head.toLowerCase();
   const files = new Map(input.files.map((file) => [file.path, file]));
   const comments: Array<Comment> = [...state.comments];
   const github = gitHubIds(comments);
@@ -336,15 +441,19 @@ export const importGitHub = (
         comments[at] = updated;
         continue;
       }
-      const anchor = gitHubAnchor(item, snapshot);
-      if (anchor === undefined) {
+      const placement = gitHubPlacement(
+        item,
+        files.get(item.path),
+        snapshot,
+        onHead,
+      );
+      if (placement === undefined) {
         skipped.push(
           `${item.url}: its diff hunk shows no line on the ${item.side === "LEFT" ? "old" : "new"} side.`,
         );
         continue;
       }
       const replies = sortedReplies(item.replies);
-      const file = files.get(item.path);
       comments.push({
         kind: "inline",
         id: context.commentId(),
@@ -360,9 +469,9 @@ export const importGitHub = (
         updated_at: (replies.at(-1)?.created_at ??
           item.created_at) as Timestamp,
         replies,
-        anchor,
+        anchor: placement.anchor,
         history: [],
-        attachment: attach(anchor, file),
+        attachment: placement.attachment,
       });
       github.add(item.id);
       for (const post of item.replies) github.add(post.id);

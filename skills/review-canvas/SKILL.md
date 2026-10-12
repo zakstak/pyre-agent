@@ -234,8 +234,11 @@ answer.
 
 `publish` also imports the comments of the pull request with `gh`: the
 target's, or the open pull request of the working tree's branch. Review threads
-arrive as inline comments found again by their quoted lines; conversation
-comments and review summaries arrive as general ones. Each is yours to answer,
+arrive as inline comments found again by their quoted lines, or, in a round of
+the pull request's current head, on the line GitHub shows them on. A thread
+whose lines changed since it was written, which GitHub calls outdated, arrives
+as an orphan. Conversation comments and review summaries arrive as general
+ones. Each is yours to answer,
 unless GitHub shows its thread resolved. A refresh adds only new comments and
 replies; `"$RC" github --session "$SESSION"` refreshes without a new round.
 Without `gh` or a pull request, the review goes on without them and the output

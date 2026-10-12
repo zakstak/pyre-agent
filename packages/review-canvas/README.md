@@ -50,7 +50,7 @@ when it is installed and signed in.
 | `src/client`    | The browser modules: tour navigation, selection and composers, live refresh              |
 | `src/cli`       | The `review-canvas` command, and reading pull request comments with `gh`                 |
 | `browser`       | Browser tests in Chromium against a real server                                          |
-| `scripts`       | The packed tarball test                                                                  |
+| `scripts`       | The packed tarball test, and the live GitHub import test                                 |
 
 ## Check
 
@@ -61,3 +61,9 @@ pnpm build
 pnpm test:browser   # needs Chromium: pnpm exec playwright install chromium
 pnpm test:pack      # installs the packed tarball with npm and serves a review from it
 ```
+
+`pnpm test:github https://github.com/OWNER/REPO/pull/NUMBER [CLONE]` imports a
+real pull request's comments, read with the signed-in `gh`, into a round built
+from a local clone, and checks that every thread GitHub calls current attaches
+on the line GitHub shows it on. It only reads from GitHub. CI does not run it,
+since it needs `gh` credentials and the pull request's commits in the clone.

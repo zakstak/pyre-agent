@@ -202,7 +202,7 @@ const GitHub = HttpRouter.add(
       const { store, id } = yield* authenticated;
       const body = yield* readJson(GitHubImport, Limits.MAX_FEEDBACK_BYTES);
       const imported = yield* attempt(() =>
-        store.importGitHub(id, body.pull_request, body.items),
+        store.importGitHub(id, body.pull_request, body.items, body.head_sha),
       );
       return ok({ ok: true, ...imported });
     }),

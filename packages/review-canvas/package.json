@@ -14,7 +14,8 @@
     "typecheck": "tsc-rs -p tsconfig.json",
     "cli": "node src/cli/main.ts",
     "test:pack": "node scripts/pack-test.ts",
-    "test:browser": "node --test 'browser/**/*.test.ts'"
+    "test:browser": "node --test 'browser/**/*.test.ts'",
+    "test:github": "node scripts/github-live-test.ts"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.2",
