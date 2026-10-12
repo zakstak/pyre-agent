@@ -427,6 +427,21 @@ export const Approval = Schema.Struct({
 });
 export type Approval = typeof Approval.Type;
 
+export const VERDICTS = ["comment", "approve", "request_changes"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+/**
+ * The reviewer finished reading a round: a verdict on the change as a whole, with an optional summary. It hands the
+ * turn to the agents, who answer every open comment of the round before they publish the next one.
+ */
+export const Submission = Schema.Struct({
+  round: RoundNumber,
+  verdict: Schema.Literals(VERDICTS),
+  body: Text,
+  submitted_at: Timestamp,
+});
+export type Submission = typeof Submission.Type;
+
 /** A file of a round, with the reviewer's notes on it. */
 export const FeedbackFile = Schema.Struct({
   path: RepoPath,
@@ -479,6 +494,10 @@ const FeedbackFields = Schema.Struct({
   earlier_rounds: Schema.Array(EarlierRound).check(
     Schema.isMaxLength(Limits.MAX_EARLIER_ROUNDS),
   ),
+  /** Every time the reviewer finished a round, oldest first. Absent means none. */
+  submissions: Schema.optionalKey(
+    Schema.Array(Submission).check(Schema.isMaxLength(Limits.MAX_SUBMISSIONS)),
+  ),
 });
 type FeedbackFields = typeof FeedbackFields.Type;
 
@@ -530,6 +549,15 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   if (later !== -1)
     return {
       path: ["approvals", later, "round"],
+      issue: "is after the feedback's round",
+    };
+
+  const submission = (feedback.submissions ?? []).findIndex(
+    (item) => item.round > feedback.round,
+  );
+  if (submission !== -1)
+    return {
+      path: ["submissions", submission, "round"],
       issue: "is after the feedback's round",
     };
 

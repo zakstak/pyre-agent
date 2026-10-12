@@ -67,9 +67,10 @@ const pythonFiles = () => {
     "tests/fixtures/feedback",
     "skills/review-canvas/assets",
   ];
+  // example-input.json is the skill's example in the new format, beside the Python example.
   return folders.flatMap((folder) =>
     readdirSync(new URL(folder, repository))
-      .filter((name) => name.endsWith(".json"))
+      .filter((name) => name.endsWith(".json") && name !== "example-input.json")
       .map((name) => `${folder}/${name}`),
   );
 };

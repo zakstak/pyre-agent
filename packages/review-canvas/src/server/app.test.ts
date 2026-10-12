@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
 import { html } from "./html.ts";
+import { activityLayer, storeLayer } from "./services.ts";
 
 interface Reply {
   readonly status: number;
@@ -63,7 +64,12 @@ const withServer = (check: (port: number) => Promise<void>) => {
   const Live = HttpRouter.serve(App({ clientDir }), {
     disableLogger: true,
     disableListenLog: true,
-  }).pipe(Layer.provide(TestAssets), Layer.provideMerge(Server));
+  }).pipe(
+    Layer.provide(TestAssets),
+    Layer.provide(storeLayer(":memory:")),
+    Layer.provide(activityLayer),
+    Layer.provideMerge(Server),
+  );
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {

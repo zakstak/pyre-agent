@@ -10,6 +10,7 @@ import {
   text,
 } from "./primitives.ts";
 import { Target, WorktreeTarget } from "./target.ts";
+import { Tour } from "./tour.ts";
 
 /** The format key of review input: what an agent publishes as a round. */
 export const INPUT_FORMAT = "review-canvas.input/1";
@@ -280,6 +281,8 @@ const inputFields = {
   summary: Schema.optionalKey(Text),
   /** True once the file list was reconciled with the target: then target.changed_files must equal the file count. */
   files_complete: Schema.Boolean,
+  /** The guided tour of this round. The server completes it with a closing stop for the files it leaves out. */
+  stops: Schema.optionalKey(Tour),
 };
 
 const ReviewInputFields = Schema.Struct({

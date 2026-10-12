@@ -1,202 +1,136 @@
 # Review input
 
-The renderer accepts UTF-8 JSON with `schema_version: 2`, a `target` object, and
-a `files` array. It rejects unknown fields and invalid types rather than
-silently dropping data. All strings are plain text, including summaries and
-patches. HTML and Markdown are not interpreted.
+A round's input is UTF-8 JSON with `"format": "review-canvas.input/1"`, a
+`target`, `files`, `files_complete`, and optionally a `summary` and `stops`. The
+server rejects unknown fields and invalid types rather than dropping data. All
+strings are plain text; HTML and Markdown are not interpreted. The schema is
+`src/schema/input.ts` and `src/schema/tour.ts` in
+[packages/review-canvas](../../../packages/review-canvas/README.md).
 
-Version 1 input, which had a `pr` object, fails with a message that names the
-version. There is no migration. Collect a new snapshot instead.
-
-Use [example-review.json](../assets/example-review.json) as a working starting
-point. For a working tree, `scripts/collect_worktree.py` writes a valid
-skeleton; see [the working tree reference](worktree.md). Run each script with
-`--help` for its command-line options.
+For a working tree, `review-canvas collect` writes a valid input with every
+file in the `core` group and no analysis; see
+[the working tree reference](worktree.md). For a PR, write the input yourself.
 
 ## Target
 
-`target.kind` is `github_pr` or `worktree`. Both kinds require `title`.
+`target.kind` is `github_pr` or `worktree`. Both require `title`.
 
-| Kind        | Required                            | Optional                                       |
-| ----------- | ----------------------------------- | ---------------------------------------------- |
-| `github_pr` | `kind`, `title`                     | `url`, `head_sha`, `base_sha`, `changed_files` |
-| `worktree`  | `kind`, `title`, `root`, `head_sha` | `branch`, `changed_files`                      |
+| Kind        | Required                            | Optional                    |
+| ----------- | ----------------------------------- | --------------------------- |
+| `github_pr` | `kind`, `title`, `url`, `head_sha`  | `base_sha`, `changed_files` |
+| `worktree`  | `kind`, `title`, `root`, `head_sha` | `branch`, `changed_files`   |
 
-- `url`, when present, must identify a PR at
-  `https://github.com/OWNER/REPO/pull/NUMBER`.
+- `url` identifies a PR at `https://github.com/OWNER/REPO/pull/NUMBER`.
 - `head_sha` and `base_sha` are full commit hashes. For a working tree,
-  `head_sha` is the `HEAD` commit that the uncommitted changes are compared
-  with.
-- `root` is the absolute path of the working tree: a POSIX path, a Windows drive
-  path, or a Windows UNC path such as `\\server\share\repo`. `branch` is the
-  checked-out branch; omit it for a detached `HEAD`.
+  `head_sha` is the `HEAD` commit the uncommitted changes are compared with.
+- `root` is the working tree's absolute POSIX path, as
+  `git rev-parse --show-toplevel` prints it. `branch` is the checked-out
+  branch; omit it for a detached `HEAD`.
 - `changed_files` records the expected file count.
 
-Inline comments need a pinned target. A `github_pr` target is pinned only when
-it has both `url` and `head_sha`. A `worktree` target is always pinned.
+The target keys the review: every thread that registers for the same PR URL or
+the same working tree root joins the same open review.
 
 ## Coverage
 
-The optional top-level `summary` explains the review's main point.
-`files_complete` describes whether the file inventory has been reconciled.
+The optional top-level `summary` explains the review's main point, in a few
+sentences. `files_complete` says whether the file inventory was reconciled;
 `true` requires `target.changed_files` to equal the number of files. Leave it
-false if access, pagination, changing commits, or truncation prevents a complete
-snapshot. A complete file inventory does not establish complete patch coverage.
+false if access, pagination, changing commits, or truncation prevents a
+complete snapshot. A complete inventory does not establish complete patch
+coverage.
 
 ## Files
 
 Each file requires:
 
-- `path`: exact repository-relative changed-file path
+- `path`: the exact repository-relative path
 - `status`: `added`, `modified`, `deleted`, `removed`, `renamed`, `copied`,
   `changed`, or `unchanged`
 - `group`: `core`, `wiring`, or `mechanical`
 - `additions` and `deletions`: non-negative integers
 
-Each file in a `worktree` target also requires `fingerprint`. It is optional for
-a `github_pr` target.
+Each file in a `worktree` target also requires `fingerprint`, 64 lowercase
+hexadecimal characters that identify one exact version of the change to the
+file. It is optional for a `github_pr` target; a file without one cannot be
+approved.
 
-- `fingerprint`: 64 lowercase hexadecimal characters that identify one exact
-  version of the change to this file. An approval stores it, and the page treats
-  the file as approved only while the fingerprint still matches. A file without
-  a fingerprint cannot be approved. `scripts/fingerprint.py` computes it:
-  SHA-256 over the path, the original path for a rename, the old and new Git
-  blob IDs, and the old and new modes.
-- `old_path`: the original path of a `renamed` or `copied` file
-- `old_mode` and `new_mode`: six-digit octal Git modes such as `100644`. The
-  page shows a mode change.
+Optional fields:
 
-`patch` is a unified diff as plain text, starting at the first `@@` hunk header.
-Omit it or use null when unavailable. The page flags absent or empty patches.
-Set `patch_complete` to true only after verifying the entire patch, or false for
-truncated or redacted patches. An omitted flag means completeness is unverified
-and produces a warning. Do not mark a patch complete just because the API
-returned some text. CR characters are kept, so a CRLF line ends in `\r`.
+- `old_path`: required for a renamed or copied file, the path it came from
+- `old_mode` and `new_mode`: six-digit octal Git modes
+- `patch`: the unified diff from its first hunk header, as text. Omit it when
+  there is none; `patch_note` then says why: `binary`, `too_large`, `symlink`,
+  `submodule`, `secret`, `no_content_change`, or `empty`. A patch whose hidden
+  characters were replaced carries `patch_note: "replaced_characters"`.
+- `patch_complete`: `true` only after the whole patch was verified: it is whole
+  hunks, and its lines add up to `additions` and `deletions`. `false` marks an
+  excerpt. Absent means unverified.
+- `summary`: what the change to this file does and why
+- `pseudocode`: the algorithm, for dense logic
+- `trace`: `{ "input", "before", "after" }`, one input through the old and new
+  paths, for surprising behavior
+- `callouts`: `[{ "tag", "text" }]`, each a genuine concern such as a race or a
+  breaking change
 
-`patch_note` names why a file has no patch, or why its patch differs from the
-bytes on disk. The renderer writes the notice text.
-
-| `patch_note`          | Patch    | Meaning                                                                                                                                                                                                                             |
-| --------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `binary`              | none     | A binary file                                                                                                                                                                                                                       |
-| `too_large`           | none     | The patch exceeds the limits below                                                                                                                                                                                                  |
-| `symlink`             | none     | A symbolic link                                                                                                                                                                                                                     |
-| `submodule`           | none     | A submodule or nested repository                                                                                                                                                                                                    |
-| `secret`              | none     | A likely secret file whose contents were left out                                                                                                                                                                                   |
-| `no_content_change`   | none     | Only the path or mode changed                                                                                                                                                                                                       |
-| `empty`               | none     | An empty file                                                                                                                                                                                                                       |
-| `replaced_characters` | required | Invalid UTF-8 bytes appear as U+FFFD, C0 control characters other than tab, LF, and CR appear as Unicode control pictures, and C1 controls, line and paragraph separators, and bidirectional formatting characters appear as U+FFFD |
-
-Optional analysis fields are:
-
-- `summary`: a terse explanation of the change and its interactions
-- `pseudocode`: a short algorithm description
-- `trace`: an object with `input`, `before`, and `after` strings
-- `callouts`: an array of objects with `tag` and `text` strings
-
-The renderer groups files as core, wiring, and mechanical. Within a group, it
-keeps the order supplied by the agent. Every supplied file and available patch
-remains accessible.
-
-Never include credentials, raw authorization responses, or secrets. The renderer
+Never include credentials, raw authorization responses, or secrets. The server
 validates structure and escapes content, but it cannot identify every secret in
 source code. Redaction and coverage claims are the agent's responsibility.
 
-## Agent replies
+## Stops: the tour
 
-The optional top-level `replies` array holds the agent's answers to feedback
-comments. The reviewer's answers live in feedback, so each file keeps one
-writer. Copy every earlier agent reply into each new round, because the page
-shows the replies of the round it renders. `scripts/reply.py carry` copies them,
-and `scripts/reply.py add` appends one validated reply.
-
-A thread is ordered by `created_at`. A reply must sort after the reply it
-answers, even when the two machines' clocks differ, so `reply.py add` stamps
-each reply at least one millisecond after the newest reply already in its
-thread. `created_at` must be a real UTC time from year 1 on; February 31 and
-`24:00:00` are refused, because JavaScript and Python would order them
-differently.
-
-`reply.py add` requires `--revision`, the feedback revision that
-`feedback_contract.py` printed, and refuses the answer if the feedback has
-changed since, because the comment may have been rewritten. It refuses an answer
-while earlier answers are missing from the round, and asks you to run `carry`
-first. It also refuses one when it is not the agent's turn: after the reviewer
-accepts, or while an earlier answer waits for the reviewer. A `fixed` answer's
-fingerprint must belong to a file in the round. `reply.py carry` refuses a round
-from another review, a source that is not the newest rendered round before the
-target, a target that already answers a thread without the earlier answers carry
-would add, a source round that is not earlier than the target in the same state
-directory, and a new round that already holds a different reply under the same
-ID. Both commands hold the review's publish lock while they write, so a render
-cannot read a half-written input, and both refuse to write an input past the 32
-MiB limit.
-
-Each reply requires:
-
-- `comment_id`: the `id` of the feedback comment it answers
-- `id`: a stable reply ID, unique in this input, of 1 to 80 letters, digits,
-  hyphens, or underscores
-- `actor`: `agent`
-- `created_at`: the UTC time in ISO 8601, such as `2026-10-10T09:00:00Z`,
-  optionally with milliseconds
-- `body`: plain text
-- `disposition`: `fixed`, `rejected`, `deferred`, or `question`
-- `comment_updated_at`: the comment's `updated_at` as the agent read it, which
-  `reply.py add` copies from the feedback. The page refuses an import whose copy
-  of that comment has another `updated_at`, because the answer would then seem
-  to answer a rewritten question.
-
-A `fixed` reply also requires `fixed_in`, either `{"fingerprint": "..."}` for
-the file version that fixes the comment or `{"commit": "..."}` with a full
-commit hash. A `deferred` reply also requires `blocker`, the reason the change
-waits. A `rejected` reply gives its reason in `body`. Other dispositions cannot
-carry `fixed_in` or `blocker`.
+`stops` is an ordered array. Each stop:
 
 ```json
 {
-  "comment_id": "3f0c2e9a-6c1d-4b8e-9a51-7d2f4c8b1e60",
-  "id": "agent-reply-1",
-  "actor": "agent",
-  "created_at": "2026-10-10T10:00:00Z",
-  "disposition": "fixed",
-  "body": "save() now flushes and fsyncs the temporary file before the rename.",
-  "fixed_in": { "fingerprint": "9c1d5e..." },
-  "comment_updated_at": "2026-10-10T09:00:00.000Z"
+  "title": "save() becomes atomic",
+  "summary": "The store writes a temporary file beside the target and renames it over the old one. A crash during the write leaves the old notes intact.",
+  "attention": { "kind": "risk", "note": "os.replace is atomic only within one filesystem." },
+  "excerpts": [{ "path": "src/notes/store.py", "side": "new", "start": 11, "end": 17, "caption": "The new save path" }],
+  "files": [{ "path": "src/notes/cli.py", "note": "Imports the new module." }],
+  "notes": [{ "path": "src/notes/store.py", "line": 13, "title": "Same directory", "body": "mkstemp in the target's directory keeps the rename on one filesystem." }],
+  "questions": ["Should a failed write remove the temporary file?"]
 }
 ```
 
+- `title`: at most 200 UTF-16 units. `summary`: text, may be empty.
+- `attention`: `null`, or `kind` of `tradeoff`, `contract`, `product`, `risk`,
+  or `accessibility` with a `note`.
+- `excerpts`: at most 10. `side` is `new` or `old`; `start` and `end` are
+  source line numbers on that side, inclusive. The server resolves them to the
+  rows the patch shows, cuts an excerpt past 60 rows, and drops one that names
+  no shown line or a file that is not in the round, with a warning that
+  `publish` prints.
+- `files`: files the stop covers without an excerpt. A file belongs to the first
+  stop that excerpts or lists it; later mentions are ignored.
+- `notes`: at most 10. Each attaches to the row of one of the stop's excerpts
+  that shows `line` on the excerpt's side. The page letters them A, B, C across
+  the stop. A note that no excerpt shows is dropped with a warning.
+- `questions`: at most 5 short questions. The reviewer can turn one into a
+  general comment with one click.
+
+At most 50 stops. Files no stop covers go in a closing stop the server adds.
+A round without `stops` gets one stop that lists every file.
+
 ## Input limits
 
-The generator rejects oversized input before producing an artifact. It never
-silently truncates it.
+The server rejects oversized input and never truncates it.
 
-- UTF-8 JSON file: at most 32 MiB
-- File inventory: at most 2,000 entries, with unique paths
-- One patch: at most 4,194,304 UTF-16 code units and 10,000 LF-delimited lines
+- UTF-8 JSON: at most 32 MiB, as written
+- Files: at most 2,000, with unique paths
+- One patch: at most 4,194,304 UTF-16 units and 10,000 LF-delimited lines
 - All patches combined: at most 50,000 lines
-- Paths and `root`: at most 4,096 UTF-16 code units
-- All paths together: small enough that feedback, which lists each path twice,
-  stays under 6 MiB before notes and comments. Feedback is limited to 8 MiB.
-- Other text fields: at most 20,000 UTF-16 code units, except callout tags,
-  which allow 100, and `branch`, which allows 1,024
+- Paths and `root`: at most 4,096 units; all paths together must leave feedback,
+  which lists each path twice, under 6 MiB before comments
+- Other text: at most 20,000 units, except callout tags and stop titles, which
+  allow 100 and 200, and `branch`, which allows 1,024
 - Callouts: at most 100 per file
-- Agent replies: at most 5,000, with unique IDs
-- Counts: integers from 0 through 1,000,000,000,000; booleans are not counts
-- Commit SHAs: full hexadecimal hashes with 40 or 64 characters
 
-Text limits count UTF-16 code units, as the page's JavaScript does, so an emoji
-counts as 2. The page refuses to save feedback over 8 MiB and says so, so notes,
-comments, and replies past that limit must be shortened.
-
-Duplicate JSON keys, unknown fields, invalid types, unsupported control
-characters, and Unicode surrogates are rejected. Hunk line numbers up to 12
-digits receive line annotations. Unsupported hunk formats remain visible as
-literal text.
+Text limits count UTF-16 code units, so an emoji counts as 2. Duplicate JSON
+keys, unknown fields, numbers with a fraction or exponent, control characters
+other than tab, LF, and CR, and unpaired surrogates are rejected.
 
 If a change exceeds these limits, report the limit and the affected coverage.
-Agree on a narrower review or make explicitly labeled partial artifacts. Keep
-each available file entry and stats where possible, and label any omitted patch.
-Set `files_complete` to false for partial inventories and `patch_complete` to
-false for excerpts. Do not claim that a partial artifact covers the whole
-change.
+Agree on a narrower review, or label partial rounds: set `files_complete` to
+false for a partial inventory and `patch_complete` to false for an excerpt. Do
+not claim that a partial round covers the whole change.

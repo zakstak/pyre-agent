@@ -99,3 +99,13 @@ export const MAX_LINE = 10 ** 12;
  */
 export const REFUSED_CONTROL_CHARACTERS =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
+
+/** New: stops in a round's tour, and what each stop may hold. */
+export const MAX_STOPS = 50;
+export const MAX_EXCERPTS_PER_STOP = 10;
+export const MAX_NOTES_PER_STOP = 10;
+export const MAX_QUESTIONS_PER_STOP = 5;
+/** New: patch rows one excerpt may show. The server clamps a longer excerpt to this many rows around its start. */
+export const MAX_EXCERPT_ROWS = 60;
+/** New: a review submission's summary. */
+export const MAX_SUBMISSIONS = 1000;
