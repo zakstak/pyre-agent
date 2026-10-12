@@ -5,7 +5,7 @@ is `pyre-market`; this repository owns the plugin source.
 
 | Plugin               | Contents                                                          | Default  |
 | -------------------- | ----------------------------------------------------------------- | -------- |
-| `pyre-agent` 2.0.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
+| `pyre-agent` 3.0.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
 | `pyre-context` 1.0.0 | Zak's startup reference context                                   | Optional |
 
 The base contains no startup hook or personal context. The optional plugin
@@ -66,6 +66,12 @@ Increase the version for every release of that plugin. Catalog entries pin an
 immutable producer revision; publish producer source before updating the catalog.
 Pyre owns machine registration, credentials and the base default. Optional
 plugins remain individually selectable.
+
+Release 3.0.0 replaces the review canvas's Python scripts with the review canvas
+server in `packages/review-canvas`. The `review-canvas` skill runs it through
+`skills/review-canvas/scripts/review-canvas`, which needs Node 26 and pnpm and
+builds the package on first use. A review started with the Python version
+cannot be converted; finish it before upgrading.
 
 Release 2.0.0 separates startup context from the earlier 1.x bundle. Install
 the new base and select `pyre-context` before removing the old marketplace.
