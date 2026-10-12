@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureBytes } from "../schema/testing.ts";
 import { patchDigest } from "../review/patch.ts";
-import { finishedSince } from "./status.ts";
+import { finishedSince, hasQuestions } from "./status.ts";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
 import { Assets } from "./assets.ts";
@@ -446,4 +446,116 @@ test("a comment on a file that leaves the round stays on the page, and no id rep
     assert.match(page.text, /Lock before the rename\./);
     assert.match(page.text, /The file is not in this round\./);
     assert.deepEqual(repeatedIds(page.text), []);
+  }));
+
+test("agents report drift and GitHub comments; pages import feedback and choose a layout", () =>
+  withServers(async (agent, pages) => {
+    const registered = await call(agent, "POST", "/agent/register", {
+      body: JSON.stringify({
+        target: input().target,
+        label: "Claude Code",
+        host: { kind: "claude-code" },
+      }),
+    });
+    const { review, token } = registered.body as {
+      review: string;
+      token: string;
+    };
+    const auth = { authorization: `Bearer ${token}` };
+    await call(agent, "POST", `/agent/reviews/${review}/rounds`, {
+      body: fixtureBytes("input/worktree.json"),
+      headers: auth,
+    });
+
+    const drift = await call(agent, "POST", `/agent/reviews/${review}/drift`, {
+      body: JSON.stringify({ paths: ["src/notes/store.py"] }),
+      headers: auth,
+    });
+    assert.equal(drift.status, 200, drift.text);
+    const status = await call(agent, "GET", `/agent/reviews/${review}`, {
+      headers: auth,
+    });
+    assert.deepEqual(status.body.status.drift.paths, ["src/notes/store.py"]);
+    assert.ok(status.body.status.files.length > 0);
+    assert.match(
+      (await call(pages, "GET", `/reviews/${review}`)).text,
+      /The code changed since this round\./,
+    );
+
+    const github = await call(
+      agent,
+      "POST",
+      `/agent/reviews/${review}/github`,
+      {
+        body: JSON.stringify({
+          pull_request: "https://github.com/example/notes/pull/7",
+          items: [
+            {
+              kind: "conversation",
+              id: "IC_1",
+              author: "octocat",
+              url: "https://github.com/example/notes/pull/7#issuecomment-1",
+              body: "Please add a test.",
+              created_at: "2026-10-12T00:00:00.000Z",
+            },
+          ],
+        }),
+        headers: auth,
+      },
+    );
+    assert.equal(github.status, 200, github.text);
+    assert.equal(github.body.report.comments, 1);
+
+    // A question asked now shows as the agents' to answer at once.
+    const origin = { origin: `http://127.0.0.1:${pages.port}` };
+    await call(pages, "POST", `/reviews/${review}/actions`, {
+      body: JSON.stringify({
+        action: {
+          kind: "general_comment",
+          body: "Why a temp file?",
+          question: true,
+        },
+      }),
+      headers: origin,
+    });
+    const asked = await call(agent, "GET", `/agent/reviews/${review}`, {
+      headers: auth,
+    });
+    assert.equal(asked.body.status.questions.length, 1);
+    assert.ok(hasQuestions(asked.body.status));
+
+    // Export, then import into the same review: everything is already here.
+    const exported = await call(
+      pages,
+      "GET",
+      `/reviews/${review}/feedback.json`,
+    );
+    const foreign = await call(pages, "POST", `/reviews/${review}/import`, {
+      body: exported.text,
+      headers: { origin: "http://evil.example" },
+    });
+    assert.equal(foreign.status, 403);
+    const imported = await call(pages, "POST", `/reviews/${review}/import`, {
+      body: exported.text,
+      headers: origin,
+    });
+    assert.equal(imported.status, 200, imported.text);
+    assert.equal(imported.body.report.comments, 0);
+    assert.equal(imported.body.report.already, 2);
+    const garbage = await call(pages, "POST", `/reviews/${review}/import`, {
+      body: '{"format":"review-canvas.feedback/1"}',
+      headers: origin,
+    });
+    assert.equal(garbage.status, 400);
+
+    // The layout cookie picks how whole files render.
+    const split = await call(pages, "GET", `/reviews/${review}`, {
+      headers: { cookie: "review-canvas-layout=split" },
+    });
+    assert.match(split.text, /<table class="diff split"/);
+    assert.match(split.text, /data-layout-toggle aria-pressed="true"/);
+    assert.doesNotMatch(
+      (await call(pages, "GET", `/reviews/${review}`)).text,
+      /<table class="diff split"/,
+    );
   }));

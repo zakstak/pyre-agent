@@ -18,6 +18,7 @@ import { compareReplies } from "../schema/feedback.ts";
 import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import type {
   CommentId,
+  CommitSha,
   Fingerprint,
   InputDigest,
   ReplyId,
@@ -65,7 +66,23 @@ export interface ReviewState {
   readonly approvals: ReadonlyArray<Approval>;
   readonly comments: ReadonlyArray<Comment>;
   readonly submissions: ReadonlyArray<SubmissionRecord>;
+  /**
+   * What an agent found when it compared the code with the current round: the files that changed since, and for a
+   * pull request the head it found. The page shows it until the next round replaces the round it describes.
+   */
+  readonly drift?: Drift | undefined;
 }
+
+export interface Drift {
+  readonly round: RoundNumber;
+  readonly checked_at: Timestamp;
+  readonly paths: ReadonlyArray<RepoPath>;
+  readonly head_sha?: CommitSha | undefined;
+}
+
+/** A question the reviewer asked now, which the agents answer without waiting for the round to finish. */
+export const isQuestion = (comment: Comment): boolean =>
+  comment.source.kind === "reviewer" && comment.source.question === true;
 
 /** Whose move a comment waits for. */
 export type Turn = "agent" | "reviewer" | "resolved";
@@ -151,7 +168,8 @@ const open = (state: ReviewState): ActionError | undefined =>
         "This review is closed. Open the newest review of its target.",
       );
 
-const withRound = (
+/** The current round and its input, on an open review that has one. */
+export const withRound = (
   state: ReviewState,
   context: ActionContext,
 ): Result.Result<{ round: Round; input: ReviewInput }, ActionError> => {
@@ -181,7 +199,7 @@ const replaceComment = (state: ReviewState, updated: Comment): ReviewState => ({
 });
 
 /** Appends a reply, keeping the conversation in its one order. A reply never goes before an earlier one. */
-const appendReply = (
+export const appendReply = (
   comment: Comment,
   reply: Reply,
   now: Timestamp,
@@ -215,12 +233,16 @@ const anchorFailure = (problem: AnchorProblem, doing: string) =>
     `Cannot ${doing}: ${ANCHOR_PROBLEMS[problem.kind]}.`,
   );
 
+const reviewerSource = (question: boolean): Comment["source"] =>
+  question ? { kind: "reviewer", question: true } : { kind: "reviewer" };
+
 /** A comment on a row selection of a file in the current round. */
 export const addInlineComment = (
   state: ReviewState,
   context: ActionContext,
   selection: RowSelection,
   body: string,
+  question = false,
 ): Outcome => {
   const current = withRound(state, context);
   if (Result.isFailure(current)) return Result.fail(current.failure);
@@ -240,7 +262,7 @@ export const addInlineComment = (
   const comment: Comment = {
     kind: "inline",
     id: context.commentId(),
-    source: { kind: "reviewer" },
+    source: reviewerSource(question),
     body,
     created_at: context.now,
     updated_at: context.now,
@@ -257,13 +279,14 @@ export const addGeneralComment = (
   state: ReviewState,
   context: ActionContext,
   body: string,
+  question = false,
 ): Outcome => {
   const current = withRound(state, context);
   if (Result.isFailure(current)) return Result.fail(current.failure);
   const comment: Comment = {
     kind: "general",
     id: context.commentId(),
-    source: { kind: "reviewer" },
+    source: reviewerSource(question),
     body,
     created_at: context.now,
     updated_at: context.now,
@@ -434,6 +457,7 @@ export const publishRound = (
   return Result.succeed({
     ...state,
     rounds: [...state.rounds, round],
+    drift: undefined,
     comments: state.comments.map((comment) =>
       comment.kind === "inline"
         ? {
@@ -482,6 +506,12 @@ export const reattach = (
   const comment = found.success;
   if (comment.kind !== "inline")
     return fail("invalid", "Only an inline comment has an anchor.");
+  // A comment that still attaches is where its replies answered it; only one that lost its place can move.
+  if (comment.attachment.state !== "orphan")
+    return fail(
+      "invalid",
+      "Only a comment that no longer attaches can be moved. Reply to it instead.",
+    );
   const file = input.files.find((item) => item.path === selection.path);
   if (file === undefined)
     return fail(
@@ -504,4 +534,33 @@ export const reattach = (
       attachment: attach(anchor, file),
     }),
   );
+};
+
+/** Records what an agent found when it compared the code with the current round. No changed path clears it. */
+export const reportDrift = (
+  state: ReviewState,
+  context: ActionContext,
+  paths: ReadonlyArray<RepoPath>,
+  head_sha: CommitSha | undefined,
+): Outcome => {
+  const current = withRound(state, context);
+  if (Result.isFailure(current)) return Result.fail(current.failure);
+  const { round } = current.success;
+  const target = state.target;
+  const headMoved =
+    head_sha !== undefined && target.kind === "github_pr"
+      ? head_sha.toLowerCase() !== target.head_sha.toLowerCase()
+      : false;
+  return Result.succeed({
+    ...state,
+    drift:
+      paths.length === 0 && !headMoved
+        ? undefined
+        : {
+            round: round.round,
+            checked_at: context.now,
+            paths: [...new Set(paths)].sort(),
+            ...(headMoved ? { head_sha } : {}),
+          },
+  });
 };

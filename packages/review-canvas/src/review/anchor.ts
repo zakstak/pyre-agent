@@ -80,22 +80,61 @@ export const anchorForRows = (
   // A quote of only blank lines would match everywhere, so it could never find its place in a later round.
   if (selected.every((row) => row.content.trim() === ""))
     return { kind: "blank" };
-  const text = joinedRows(rows);
   const first = selected[0] as Row;
   const last = selected.at(-1) as Row;
-  const start = first.offset;
-  const end = last.offset + last.text.length;
+  return anchorAt(file.patch, file.path, snapshot, {
+    start: first.offset,
+    end: last.offset + last.text.length,
+    side,
+  });
+};
+
+/**
+ * The anchor for a span of a patch's rows joined with LF, which may start or end inside a row, as an imported or
+ * found selection can. The rows and source lines are those the span touches on the given side.
+ */
+export const anchorAt = (
+  patch: string,
+  path: ReviewFile["path"],
+  snapshot: RoundSnapshot,
+  span: {
+    readonly start: number;
+    readonly end: number;
+    readonly side: "old" | "new";
+  },
+): Anchor | AnchorProblem => {
+  const rows = parseRows(patch);
+  const text = joinedRows(rows);
+  const { start, end, side } = span;
+  if (start < 0 || end <= start || end > text.length)
+    return { kind: "out_of_range" };
+  const touched = rows.filter(
+    (row) => row.offset < end && row.offset + row.text.length >= start,
+  );
+  const first = touched[0];
+  const last = touched.at(-1);
+  if (first === undefined || last === undefined || last.index > Limits.MAX_ROW)
+    return { kind: "out_of_range" };
+  const lines = touched
+    .map((row) => row[side])
+    .filter((line): line is number => line !== undefined);
+  const start_line = lines[0];
+  const end_line = lines.at(-1);
+  if (start_line === undefined || end_line === undefined)
+    return { kind: "no_source_line" };
+  const quote = text.slice(start, end);
+  if (quote.trim() === "") return { kind: "blank" };
   return {
     snapshot,
-    path: file.path,
-    patch_sha256: digest,
+    path,
+    patch_sha256: patchDigest(patch),
     start,
     end,
-    quote: text.slice(start, end),
+    quote,
     prefix: contextBefore(text, start),
     suffix: contextAfter(text, end),
-    start_row,
-    end_row,
+    start_row: first.index,
+    end_row: last.index,
     side,
     start_line,
     end_line,

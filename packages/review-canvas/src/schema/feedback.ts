@@ -137,7 +137,15 @@ const gitHubFields = {
 
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
 export const CommentSource = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("reviewer") }),
+  Schema.Struct({
+    kind: Schema.Literal("reviewer"),
+    /**
+     * True for a question the reviewer asked now: the agents answer it, and every reply after it, without waiting
+     * for the reviewer to finish the round. Absent for a review comment, which the agents read when the round is
+     * finished.
+     */
+    question: Schema.optionalKey(Schema.Literal(true)),
+  }),
   Schema.Struct({
     kind: Schema.Literal("github"),
     ...gitHubFields,
@@ -183,6 +191,7 @@ export const DISPOSITIONS = [
   "rejected",
   "deferred",
   "question",
+  "answered",
 ] as const;
 export type Disposition = (typeof DISPOSITIONS)[number];
 
@@ -201,6 +210,8 @@ const answerFields = {
     blocker: RequiredText,
   },
   question: { disposition: Schema.Literal("question"), body: RequiredText },
+  /** An explanation, for a reviewer's question that asks for no change. */
+  answered: { disposition: Schema.Literal("answered"), body: RequiredText },
 } satisfies {
   readonly [D in Disposition]: Schema.Struct.Fields & {
     readonly disposition: Schema.Literal<D>;
@@ -220,6 +231,7 @@ export const Answer = Schema.Union([
   Schema.Struct(answerFields.rejected),
   Schema.Struct(answerFields.deferred),
   Schema.Struct(answerFields.question),
+  Schema.Struct(answerFields.answered),
 ]).annotate(DISPOSITION_EXPECTED);
 export type Answer = typeof Answer.Type;
 
@@ -235,6 +247,7 @@ export const AgentReply = Schema.Union([
   Schema.Struct({ ...agentFields, ...answerFields.rejected }),
   Schema.Struct({ ...agentFields, ...answerFields.deferred }),
   Schema.Struct({ ...agentFields, ...answerFields.question }),
+  Schema.Struct({ ...agentFields, ...answerFields.answered }),
 ]).annotate(DISPOSITION_EXPECTED);
 export type AgentReply = typeof AgentReply.Type;
 

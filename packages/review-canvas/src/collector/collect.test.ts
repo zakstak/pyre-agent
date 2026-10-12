@@ -684,3 +684,54 @@ describe("Schema", () => {
     });
   });
 });
+
+describe("ContentTests", () => {
+  // New with the server: the file's whole text, so the page can show unchanged lines around its patch.
+  test("a changed text file carries its new text, which matches its patch", (t) => {
+    const f = new Fixture(t);
+    const lines = Array.from({ length: 20 }, (_, at) => `line ${at + 1}\n`);
+    f.commit({ "a.txt": lines.join(""), "gone.txt": "bye\n" });
+    lines[9] = "ten\n";
+    f.write("a.txt", lines.join(""));
+    unlinkSync(join(f.root, "gone.txt"));
+    const files = f.collect({ withContent: true });
+    assert.equal(files["a.txt"]?.new_content, lines.join(""));
+    assert.equal(files["gone.txt"]?.new_content, undefined);
+    // The written input decodes, so the text and the patch agree.
+    assert.ok(
+      f.review !== undefined &&
+        encodeDocument(WorktreeInputDocument, f.review)._tag === "Success",
+    );
+    // The library leaves the text out unless asked.
+    assert.equal(f.collect()["a.txt"]?.new_content, undefined);
+  });
+
+  test("texts give way to patches when the input runs out of room", (t) => {
+    const f = new Fixture(t);
+    const body = Array.from(
+      { length: 200 },
+      (_, at) => `line ${at + 1}\n`,
+    ).join("");
+    f.commit({ "a.txt": body, "b.txt": body });
+    f.write("a.txt", body.replace("line 100\n", "hundred\n"));
+    f.write("b.txt", body.replace("line 50\n", "fifty\n"));
+    const size = (text: string | undefined) =>
+      Buffer.byteLength(JSON.stringify(text));
+    const all = f.collect({ withContent: true });
+    // Room for both patches and one text: the first text fits, the second does not, and no patch is lost.
+    const room =
+      size(all["a.txt"]?.patch) +
+      size(all["b.txt"]?.patch) +
+      size(all["a.txt"]?.new_content);
+    const files = f.collect({
+      withContent: true,
+      limits: { inputBytes: 2 * room },
+    });
+    assert.ok(
+      files["a.txt"]?.patch !== undefined &&
+        files["b.txt"]?.patch !== undefined,
+    );
+    assert.equal(files["a.txt"]?.new_content, all["a.txt"]?.new_content);
+    assert.equal(files["b.txt"]?.new_content, undefined);
+  });
+});

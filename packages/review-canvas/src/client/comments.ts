@@ -35,9 +35,20 @@ let stash = "";
 let draftCount = 0;
 const newDraftId = () => `draft-${Date.now().toString(36)}-${draftCount++}`;
 
-const rowsOf = (table: HTMLTableElement) => [
-  ...table.querySelectorAll<HTMLTableRowElement>("tr[data-row]"),
+/**
+ * The lines of a table the reviewer can select: rows in the unified layout, halves of rows in the split layout. A
+ * context line in the split layout is two units of one row index.
+ */
+const UNIT = "[data-row][data-selectable]";
+
+const unitsOf = (table: HTMLTableElement) => [
+  ...table.querySelectorAll<HTMLElement>(UNIT),
 ];
+
+const inRange = (unit: HTMLElement, where: Selection) => {
+  const index = Number(unit.dataset.row);
+  return index >= where.start && index <= where.end;
+};
 
 /**
  * The composer the reviewer is writing in. Another composer can be on the page at the same time, waiting for its
@@ -56,8 +67,8 @@ const tableOf = (row: HTMLElement): HTMLTableElement | null =>
 
 /** Tints the rows being dragged over, or else the rows of the open composer. */
 const paintSelection = () => {
-  for (const row of document.querySelectorAll<HTMLElement>("tr.selected"))
-    row.classList.remove("selected");
+  for (const unit of document.querySelectorAll<HTMLElement>(".selected"))
+    unit.classList.remove("selected");
   const composer = composerRow();
   const where: Selection | undefined =
     dragging !== undefined
@@ -74,11 +85,8 @@ const paintSelection = () => {
           }
         : undefined;
   if (where === undefined) return;
-  for (const row of rowsOf(where.table)) {
-    const index = Number(row.dataset.row);
-    if (index >= where.start && index <= where.end)
-      row.classList.add("selected");
-  }
+  for (const unit of unitsOf(where.table))
+    if (inRange(unit, where)) unit.classList.add("selected");
 };
 
 /** Closes a composer. One that is being submitted is left for its submission to finish. */
@@ -87,32 +95,30 @@ const closeComposer = (composer: HTMLElement | null = composerRow()) => {
   paintSelection();
 };
 
+/** The table row the composer goes under: the one holding the last selected line, in document order. */
 const lastSelectedRow = (where: Selection): HTMLTableRowElement | undefined =>
-  rowsOf(where.table)
-    .filter((row) => {
-      const index = Number(row.dataset.row);
-      return index >= where.start && index <= where.end;
-    })
-    .at(-1);
+  unitsOf(where.table)
+    .filter((unit) => inRange(unit, where))
+    .at(-1)
+    ?.closest<HTMLTableRowElement>("tr") ?? undefined;
 
+/** The selected lines as the server will anchor them: old-side when only deleted lines are changed, else new-side. */
 const lineLabel = (where: Selection): string => {
-  const rows = rowsOf(where.table).filter((row) => {
-    const index = Number(row.dataset.row);
-    return (
-      index >= where.start &&
-      index <= where.end &&
-      row.dataset.selectable !== undefined
-    );
-  });
-  const hasDel = rows.some((row) => row.dataset.side === "old");
-  const hasAdd = rows.some((row) => row.dataset.side === "new");
-  const column = hasDel && !hasAdd ? 0 : 1;
-  const numbers = rows
-    .map((row) => row.cells[column]?.textContent?.replace("+", "").trim() ?? "")
-    .filter((text) => text !== "");
+  const units = unitsOf(where.table).filter((unit) => inRange(unit, where));
+  const hasDel = units.some((unit) => unit.dataset.side === "old");
+  const hasAdd = units.some((unit) => unit.dataset.side === "new");
+  const old = hasDel && !hasAdd;
+  const numbers = [
+    ...new Set(
+      units
+        .sort((a, b) => Number(a.dataset.row) - Number(b.dataset.row))
+        .map((unit) => (old ? unit.dataset.old : unit.dataset.new) ?? "")
+        .filter((text) => text !== ""),
+    ),
+  ];
   const first = numbers[0];
   const last = numbers.at(-1);
-  const side = column === 0 ? "old " : "";
+  const side = old ? "old " : "";
   return first === undefined
     ? "the selected rows"
     : first === last
@@ -149,6 +155,10 @@ const openComposer = (
   const fragment = template.content.cloneNode(true) as DocumentFragment;
   const row = fragment.querySelector<HTMLElement>(".composer-row");
   if (row === null) return;
+  // The template spans the unified layout's four columns; a split table has two, and a wider span would add columns.
+  const cell = row.querySelector("td");
+  if (cell !== null)
+    cell.colSpan = where.table.classList.contains("split") ? 2 : 4;
   row.dataset.draft = options.draft ?? newDraftId();
   row.dataset.path = where.table.dataset.path ?? "";
   row.dataset.patch = where.table.dataset.patch ?? "";
@@ -230,7 +240,8 @@ export const restoreComposers = (drafts: ReadonlyArray<ComposerDraft>) => {
     restoreComposer(draft);
 };
 
-const submitComposer = async (form: HTMLFormElement) => {
+/** Sends a composer's draft: a review comment, or with `question` a question the agents answer now. */
+const submitComposer = async (form: HTMLFormElement, question = false) => {
   const row = form.closest<HTMLElement>(".composer-row");
   if (row === null || row.dataset.submitting !== undefined) return;
   const textarea = form.querySelector<HTMLTextAreaElement>("textarea");
@@ -252,6 +263,7 @@ const submitComposer = async (form: HTMLFormElement) => {
       end_row: Number(row.dataset.end),
     },
     body,
+    ...(question ? { question: true } : {}),
   });
   // A refresh may have rebuilt this draft's composer, and the reviewer may have opened another since: finish only
   // the composer that holds this draft, wherever it is now.
@@ -298,14 +310,18 @@ const submitReply = async (
   if (done && textarea !== null) clearSent(textarea.id, body);
 };
 
-const submitGeneral = async (form: HTMLFormElement) => {
+const submitGeneral = async (form: HTMLFormElement, question = false) => {
   const textarea = form.querySelector<HTMLTextAreaElement>("textarea");
   const body = textarea?.value.trim() ?? "";
   if (body === "") {
     textarea?.focus();
     return;
   }
-  const done = await tryAct({ kind: "general_comment", body });
+  const done = await tryAct({
+    kind: "general_comment",
+    body,
+    ...(question ? { question: true } : {}),
+  });
   if (done && textarea !== null) clearSent(textarea.id, body);
 };
 
@@ -359,34 +375,118 @@ export const restoreReplyDrafts = (drafts: ReadonlyArray<ReplyDraft>) => {
   }
 };
 
+/** The comment being moved to other lines, while the reviewer picks them. */
+let reattaching: string | undefined;
+
+const stopReattaching = () => {
+  reattaching = undefined;
+  delete document.body.dataset.reattaching;
+};
+
+/**
+ * What a selection of lines does: open the composer, or, while a comment is being moved, move it there. The server
+ * refuses a move of a comment that still attaches, and a selection of another version of the patch.
+ */
+const chooseLines = (where: Selection) => {
+  if (reattaching === undefined) {
+    openComposer(where);
+    return;
+  }
+  const comment = reattaching;
+  stopReattaching();
+  paintSelection();
+  void tryAct({
+    kind: "reattach",
+    comment,
+    selection: {
+      path: where.table.dataset.path,
+      patch_sha256: where.table.dataset.patch,
+      start_row: where.start,
+      end_row: where.end,
+    },
+  }).then((done) => {
+    if (done) toast("The comment moved to the lines you chose.");
+  });
+};
+
+/** Unchanged-line gaps the reviewer opened, by table and gap, so a refresh keeps them open. */
+const openGaps = new Set<string>();
+
+const setGap = (button: HTMLElement, open: boolean) => {
+  const table = button.closest<HTMLTableElement>("table.diff");
+  const lines = table?.querySelector<HTMLElement>(
+    `[data-gap-lines="${CSS.escape(button.dataset.expand ?? "")}"]`,
+  );
+  if (table == null || lines == null) return;
+  lines.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+  const count = lines.querySelectorAll("tr").length;
+  button.textContent = open
+    ? `Hide ${count} unchanged line${count === 1 ? "" : "s"}`
+    : `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
+  const key = `${table.dataset.table}:${table.dataset.patch}:${button.dataset.expand}`;
+  if (open) openGaps.add(key);
+  else openGaps.delete(key);
+};
+
+/** Opens again the gaps the reviewer had open, where the same patch still shows them. */
+export const restoreGaps = () => {
+  for (const button of document.querySelectorAll<HTMLElement>(
+    "[data-expand]",
+  )) {
+    const table = button.closest<HTMLTableElement>("table.diff");
+    if (
+      table != null &&
+      openGaps.has(
+        `${table.dataset.table}:${table.dataset.patch}:${button.dataset.expand}`,
+      )
+    )
+      setGap(button, true);
+  }
+};
+
+/** Puts text in the general composer and focuses it, for a question to ask now. */
+const prefillGeneral = (text: string) => {
+  const textarea = document.querySelector<HTMLTextAreaElement>(
+    ".general-composer textarea",
+  );
+  if (textarea === null) return;
+  if (!textarea.value.startsWith(text))
+    textarea.value =
+      textarea.value === "" ? text : `${text}\n\n${textarea.value}`;
+  document.querySelector("#general")?.scrollIntoView({ block: "start" });
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+};
+
 export const installComments = () => {
   const writable = () => document.body.dataset.writable === "true";
 
   document.addEventListener("mousedown", (event) => {
     if (!writable() || event.button !== 0) return;
     const target = event.target instanceof Element ? event.target : null;
-    const cell = target?.closest<HTMLElement>("td.line-number, td.marker");
-    const row = cell?.closest<HTMLTableRowElement>("tr[data-selectable]");
-    const table = row?.closest<HTMLTableElement>("table.diff");
-    if (cell == null || row == null || table == null) return;
+    const gutter = target?.closest<HTMLElement>("[data-gutter]");
+    const unit = gutter?.closest<HTMLElement>(UNIT);
+    const table = unit?.closest<HTMLTableElement>("table.diff");
+    if (gutter == null || unit == null || table == null) return;
     event.preventDefault();
-    const from = Number(row.dataset.row);
+    const from = Number(unit.dataset.row);
     dragging = { table, from, end: from };
     paintSelection();
   });
   document.addEventListener("mouseover", (event) => {
     if (dragging === undefined) return;
     const target = event.target instanceof Element ? event.target : null;
-    const row = target?.closest<HTMLTableRowElement>("tr[data-selectable]");
-    if (row == null || row.closest("table.diff") !== dragging.table) return;
-    dragging.end = Number(row.dataset.row);
+    const unit = target?.closest<HTMLElement>(UNIT);
+    if (unit == null || unit.closest("table.diff") !== dragging.table) return;
+    dragging.end = Number(unit.dataset.row);
     paintSelection();
   });
   document.addEventListener("mouseup", () => {
     if (dragging === undefined) return;
     const { table, from, end } = dragging;
     dragging = undefined;
-    openComposer({
+    chooseLines({
       table,
       start: Math.min(from, end),
       end: Math.max(from, end),
@@ -399,12 +499,39 @@ export const installComments = () => {
     // Enter or Space on a line's + button: a click with no pointer, which mousedown and mouseup never saw.
     const add = target.closest<HTMLButtonElement>("button.add-comment");
     if (add !== null) {
-      const row = add.closest<HTMLTableRowElement>("tr[data-selectable]");
-      const table = row?.closest<HTMLTableElement>("table.diff");
-      if (event.detail === 0 && writable() && row != null && table != null) {
-        const at = Number(row.dataset.row);
-        openComposer({ table, start: at, end: at });
+      const unit = add.closest<HTMLElement>(UNIT);
+      const table = unit?.closest<HTMLTableElement>("table.diff");
+      if (event.detail === 0 && writable() && unit != null && table != null) {
+        const at = Number(unit.dataset.row);
+        chooseLines({ table, start: at, end: at });
       }
+      return;
+    }
+    const expand = target.closest<HTMLElement>("[data-expand]");
+    if (expand !== null) {
+      setGap(expand, expand.getAttribute("aria-expanded") !== "true");
+      return;
+    }
+    const ask = target.closest<HTMLButtonElement>("button[data-ask]");
+    if (ask !== null) {
+      const form = ask.closest("form");
+      if (form?.dataset.action === "comment") void submitComposer(form, true);
+      else if (form?.dataset.action === "general_comment")
+        void submitGeneral(form, true);
+      return;
+    }
+    const askStop = target.closest<HTMLElement>("[data-ask-stop]");
+    if (askStop !== null) {
+      prefillGeneral(`About the stop “${askStop.dataset.askStop ?? ""}”: `);
+      return;
+    }
+    const move = target.closest<HTMLElement>("[data-reattach]");
+    if (move !== null) {
+      reattaching = move.dataset.reattach;
+      document.body.dataset.reattaching = "true";
+      toast(
+        "Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.",
+      );
       return;
     }
     const cancel = target.closest("[data-cancel]");
@@ -448,24 +575,9 @@ export const installComments = () => {
       );
       return;
     }
+    // A question the tour suggests: the reviewer can ask it as it is, or edit it first.
     const question = target.closest<HTMLElement>("[data-question]");
-    if (question !== null) {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        ".general-composer textarea",
-      );
-      if (textarea !== null) {
-        const quoted = `> ${question.dataset.question ?? ""}\n\n`;
-        textarea.value = textarea.value.startsWith(quoted)
-          ? textarea.value
-          : quoted + textarea.value;
-        document.querySelector("#general")?.scrollIntoView({ block: "start" });
-        textarea.focus();
-        textarea.setSelectionRange(
-          textarea.value.length,
-          textarea.value.length,
-        );
-      }
-    }
+    if (question !== null) prefillGeneral(question.dataset.question ?? "");
   });
 
   document.addEventListener("submit", (event) => {
@@ -485,6 +597,11 @@ export const installComments = () => {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && reattaching !== undefined) {
+      stopReattaching();
+      toast("The comment stays where it was.");
+      return;
+    }
     const target =
       event.target instanceof HTMLTextAreaElement ? event.target : null;
     if (target === null) return;

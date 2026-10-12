@@ -100,6 +100,12 @@ export const MAX_LINE = 10 ** 12;
 export const REFUSED_CONTROL_CHARACTERS =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
 
+/**
+ * New: a file's whole text after the change, which lets the page show the unchanged lines between hunks. The
+ * collector leaves out a larger file's text, and the page then shows only the patch.
+ */
+export const MAX_CONTENT_UNITS = 1024 * 1024;
+
 /** New: stops in a round's tour, and what each stop may hold. */
 export const MAX_STOPS = 50;
 export const MAX_EXCERPTS_PER_STOP = 10;

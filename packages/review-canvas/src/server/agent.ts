@@ -15,8 +15,11 @@ import {
   refused,
   RequestRefused,
 } from "./json.ts";
+import { GitHubImport } from "../schema/github.ts";
+import * as Limits from "../schema/limits.ts";
 import {
   AnswerRequest,
+  DriftRequest,
   MAX_REQUEST_BYTES,
   RegisterRequest,
 } from "./requests.ts";
@@ -170,6 +173,42 @@ const Answer = HttpRouter.add(
   ),
 );
 
+/** What the agent found when it compared the code with the current round. The page shows it as a banner. */
+const Drift = HttpRouter.add(
+  "POST",
+  "/agent/reviews/:id/drift",
+  handled(
+    Effect.gen(function* () {
+      const { store, id } = yield* authenticated;
+      const body = yield* readJson(DriftRequest, MAX_REQUEST_BYTES);
+      const revision = yield* attempt(() =>
+        store.act(id, {
+          kind: "drift",
+          paths: body.paths,
+          head_sha: body.head_sha,
+        }),
+      );
+      return ok({ ok: true, revision });
+    }),
+  ),
+);
+
+/** The pull request's GitHub comments, which the agent's command read with gh. Bodies are untrusted data. */
+const GitHub = HttpRouter.add(
+  "POST",
+  "/agent/reviews/:id/github",
+  handled(
+    Effect.gen(function* () {
+      const { store, id } = yield* authenticated;
+      const body = yield* readJson(GitHubImport, Limits.MAX_FEEDBACK_BYTES);
+      const imported = yield* attempt(() =>
+        store.importGitHub(id, body.pull_request, body.items),
+      );
+      return ok({ ok: true, ...imported });
+    }),
+  ),
+);
+
 /** Every agent request counts as activity. */
 const AgentGuard = HttpRouter.middleware(
   Effect.gen(function* () {
@@ -189,5 +228,7 @@ export const AgentApi = Layer.mergeAll(
   GetStatus,
   Wait,
   Answer,
+  Drift,
+  GitHub,
   AgentGuard,
 );

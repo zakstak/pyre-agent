@@ -24,7 +24,9 @@ import type { ReviewInput } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
 import type {
   CommentId,
+  CommitSha,
   Fingerprint,
+  PullRequestUrl,
   InputDigest,
   ReplyId,
   RepoPath,
@@ -39,6 +41,7 @@ import { type Target, targetKey } from "../schema/target.ts";
 import type { Thread, ThreadHost } from "../schema/thread.ts";
 import type { RowSelection } from "../review/anchor.ts";
 import {
+  type ActionContext,
   ActionError,
   addGeneralComment,
   addInlineComment,
@@ -48,6 +51,7 @@ import {
   currentRound,
   publishRound,
   reattach,
+  reportDrift,
   reviewerReply,
   type ReviewState,
   type Round,
@@ -55,6 +59,13 @@ import {
   unapprove,
 } from "../review/state.ts";
 import { tourView } from "../review/tour.ts";
+import {
+  type ImportReport,
+  importFeedback,
+  importGitHub,
+} from "../review/imports.ts";
+import type { GitHubItem } from "../schema/github.ts";
+import { pullRequestKey } from "../schema/target.ts";
 
 const SCHEMA_VERSION = 1;
 
@@ -69,22 +80,25 @@ CREATE TABLE reviews (
 ) WITHOUT ROWID;
 CREATE INDEX reviews_by_target ON reviews (target_key, created_at);
 CREATE TABLE threads (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   review_id TEXT NOT NULL REFERENCES reviews (id),
   token_hash TEXT NOT NULL UNIQUE,
   label TEXT NOT NULL,
   host TEXT NOT NULL,
-  registered_at TEXT NOT NULL
+  registered_at TEXT NOT NULL,
+  -- A thread that answered in one review can appear in another through an imported feedback file.
+  PRIMARY KEY (review_id, id)
 ) WITHOUT ROWID;
 CREATE INDEX threads_by_review ON threads (review_id, registered_at);
 CREATE TABLE rounds (
   review_id TEXT NOT NULL REFERENCES reviews (id),
   round INTEGER NOT NULL,
-  thread_id TEXT NOT NULL REFERENCES threads (id),
+  thread_id TEXT NOT NULL,
   input_sha256 TEXT NOT NULL,
   input BLOB NOT NULL,
   published_at TEXT NOT NULL,
-  PRIMARY KEY (review_id, round)
+  PRIMARY KEY (review_id, round),
+  FOREIGN KEY (review_id, thread_id) REFERENCES threads (review_id, id)
 ) WITHOUT ROWID;
 `;
 
@@ -133,8 +147,14 @@ export type Action =
       readonly kind: "comment";
       readonly selection: RowSelection;
       readonly body: string;
+      /** Asked now: the agents answer without waiting for the round to finish. */
+      readonly question?: boolean | undefined;
     }
-  | { readonly kind: "general_comment"; readonly body: string }
+  | {
+      readonly kind: "general_comment";
+      readonly body: string;
+      readonly question?: boolean | undefined;
+    }
   | {
       readonly kind: "reply";
       readonly comment: CommentId;
@@ -164,6 +184,11 @@ export type Action =
       readonly thread: ThreadId;
       readonly comment: CommentId;
       readonly answer: Answer;
+    }
+  | {
+      readonly kind: "drift";
+      readonly paths: ReadonlyArray<RepoPath>;
+      readonly head_sha?: CommitSha | undefined;
     };
 
 export type ChangeListener = (reviewId: ReviewId, revision: Revision) => void;
@@ -596,9 +621,17 @@ export class Store {
               context,
               action.selection,
               action.body,
+              action.question === true,
             );
           case "general_comment":
-            return addGeneralComment(state, context, action.body);
+            return addGeneralComment(
+              state,
+              context,
+              action.body,
+              action.question === true,
+            );
+          case "drift":
+            return reportDrift(state, context, action.paths, action.head_sha);
           case "reply":
             return reviewerReply(
               state,
@@ -637,6 +670,92 @@ export class Store {
       const revision = this.#bump(reviewId);
       this.#notify(row.id as ReviewId, revision);
       return revision;
+    });
+  }
+
+  /** The view, context, and transaction around an import: one change that raises the revision once. */
+  #importing<T>(
+    reviewId: string,
+    seen: Revision | undefined,
+    work: (
+      view: ReviewView,
+      context: ActionContext,
+    ) => { readonly state: ReviewState; readonly report: T },
+  ): { readonly revision: Revision; readonly report: T } {
+    return this.#transaction(() => {
+      const row = this.#row(reviewId);
+      if (row === undefined) throw new NoSuchReview(reviewId);
+      if (seen !== undefined && seen !== row.revision)
+        throw new StaleRevision(row.revision as Revision);
+      const view = this.#view(row);
+      const { state, report } = work(view, {
+        input: view.input,
+        now: now(),
+        revision: (row.revision + 1) as Revision,
+        commentId: () => randomId<CommentId>("comment"),
+        replyId: () => randomId<ReplyId>("reply"),
+      });
+      this.#check(reviewId, state, view.input);
+      this.#write(reviewId, state);
+      const revision = this.#bump(reviewId);
+      this.#notify(row.id as ReviewId, revision);
+      return { revision, report };
+    });
+  }
+
+  /**
+   * Imports a feedback file of the review's target. Threads its answers name join the review without a token, so
+   * no agent can act as them.
+   */
+  importFeedback(
+    reviewId: string,
+    feedback: Feedback,
+    seen?: Revision,
+  ): { readonly revision: Revision; readonly report: ImportReport } {
+    return this.#importing(reviewId, seen, (view, context) => {
+      const known = new Set<string>(
+        this.#threads(reviewId).map((thread) => thread.id),
+      );
+      const outcome = importFeedback(view.state, context, feedback, known);
+      if (Result.isFailure(outcome)) throw outcome.failure;
+      const at = now();
+      for (const thread of outcome.success.threads) {
+        this.#db
+          .prepare(
+            "INSERT INTO threads (id, review_id, token_hash, label, host, registered_at) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            thread.id,
+            reviewId,
+            tokenHash(randomBytes(32).toString("base64url")),
+            thread.label,
+            JSON.stringify(thread.host),
+            at,
+          );
+      }
+      return outcome.success;
+    });
+  }
+
+  /** Imports the comments of the review's pull request, or of the open pull request of a working tree's branch. */
+  importGitHub(
+    reviewId: string,
+    pullRequest: PullRequestUrl,
+    items: ReadonlyArray<GitHubItem>,
+  ): { readonly revision: Revision; readonly report: ImportReport } {
+    return this.#importing(reviewId, undefined, (view, context) => {
+      const target = view.state.target;
+      if (
+        target.kind === "github_pr" &&
+        pullRequestKey(target.url) !== pullRequestKey(pullRequest)
+      )
+        throw new ActionError(
+          "invalid",
+          "These comments are from another pull request than the review's.",
+        );
+      const outcome = importGitHub(view.state, context, items);
+      if (Result.isFailure(outcome)) throw outcome.failure;
+      return outcome.success;
     });
   }
 

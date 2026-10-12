@@ -9,9 +9,17 @@ import {
 } from "effect/http";
 import { encodeDocument, FeedbackDocument } from "../schema/document.ts";
 import type { Revision, Timestamp } from "../schema/primitives.ts";
+import { LAYOUT_COOKIE } from "../review/layout.ts";
 import { feedbackOf } from "../store/store.ts";
 import { Assets } from "./assets.ts";
-import { attempt, ok, readJson, refused, RequestRefused } from "./json.ts";
+import {
+  attempt,
+  ok,
+  readDocument,
+  readJson,
+  refused,
+  RequestRefused,
+} from "./json.ts";
 import { homePage } from "./pages/home.ts";
 import { reviewPage, waitingPage } from "./pages/review.ts";
 import { MAX_REQUEST_BYTES, PageActionRequest } from "./requests.ts";
@@ -117,10 +125,14 @@ const Review = HttpRouter.add(
     const { id } = yield* HttpRouter.params;
     const view = id === undefined ? undefined : store.review(id);
     if (view === undefined) return notFound;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    // A view preference the page keeps in a cookie, so a refresh renders the layout the reviewer chose.
+    const layout =
+      request.cookies[LAYOUT_COOKIE] === "split" ? "split" : "unified";
     return htmlResponse(
       view.input === undefined
         ? waitingPage(assets, view)
-        : reviewPage(assets, view, view.input),
+        : reviewPage(assets, view, view.input, layout),
     );
   }),
 );
@@ -151,38 +163,69 @@ const Export = HttpRouter.add(
   }),
 );
 
-/** Changes a page asks for. The Origin must be this server's, so no other site can act through the browser. */
+/**
+ * The review a page change names, after the checks every page change passes: the Origin must be this server's, so
+ * no other site can act through the reviewer's browser, and the review must exist. A change counts as activity.
+ */
+const pageChange = Effect.gen(function* () {
+  const store = yield* ReviewStore;
+  const activity = yield* Activity;
+  const { address } = yield* HttpServer.HttpServer;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const origins =
+    address._tag === "UnixPathAddress"
+      ? new Set<string>()
+      : loopbackOrigins(address.port);
+  if (!origins.has(request.headers.origin ?? ""))
+    return yield* Effect.fail(
+      new RequestRefused(
+        403,
+        "origin",
+        "The request did not come from this page.",
+      ),
+    );
+  const { id } = yield* HttpRouter.params;
+  if (id === undefined || store.review(id) === undefined)
+    return yield* Effect.fail(
+      new RequestRefused(404, "not_found", `No review ${id ?? ""}.`),
+    );
+  activity.touch();
+  return { store, id };
+});
+
+/** Changes a page asks for. */
 const Actions = HttpRouter.add(
   "POST",
   "/reviews/:id/actions",
   Effect.gen(function* () {
-    const store = yield* ReviewStore;
-    const activity = yield* Activity;
-    const { address } = yield* HttpServer.HttpServer;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const origins =
-      address._tag === "UnixPathAddress"
-        ? new Set<string>()
-        : loopbackOrigins(address.port);
-    if (!origins.has(request.headers.origin ?? ""))
-      return refused(
-        new RequestRefused(
-          403,
-          "origin",
-          "The request did not come from this page.",
-        ),
-      );
-    const { id } = yield* HttpRouter.params;
-    if (id === undefined || store.review(id) === undefined)
-      return refused(
-        new RequestRefused(404, "not_found", `No review ${id ?? ""}.`),
-      );
-    activity.touch();
+    const { store, id } = yield* pageChange;
     const body = yield* readJson(PageActionRequest, MAX_REQUEST_BYTES);
     const revision = yield* attempt(() =>
       store.act(id, body.action, body.revision),
     );
     return ok({ ok: true, revision });
+  }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))),
+);
+
+/**
+ * A feedback file the reviewer chose, imported into the review. The body is the file as it is; the revision the
+ * page saw comes in the query, so a stale page learns about the change first.
+ */
+const Import = HttpRouter.add(
+  "POST",
+  "/reviews/:id/import",
+  Effect.gen(function* () {
+    const { store, id } = yield* pageChange;
+    const params = yield* HttpServerRequest.ParsedSearchParams;
+    const seen =
+      typeof params.revision === "string" && /^[0-9]+$/.test(params.revision)
+        ? (Number(params.revision) as Revision)
+        : undefined;
+    const feedback = yield* readDocument(FeedbackDocument);
+    const imported = yield* attempt(() =>
+      store.importFeedback(id, feedback, seen),
+    );
+    return ok({ ok: true, ...imported });
   }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))),
 );
 
@@ -237,6 +280,7 @@ export const App = (options: { readonly clientDir: string }) =>
     Review,
     Export,
     Actions,
+    Import,
     Events,
     HttpStaticServer.layer({
       root: `${options.clientDir}/assets`,

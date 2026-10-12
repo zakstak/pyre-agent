@@ -434,3 +434,246 @@ test("submission summaries count toward the feedback text budget", () => {
   assert.equal(store.review(id)?.revision, revision);
   store.close();
 });
+
+const opened = (store: Store) => {
+  const first = input();
+  const { review, thread, token } = store.register({
+    target: first.target,
+    label: "Claude Code",
+    host,
+  });
+  store.publish(review.state.id, thread.id, first);
+  return { id: review.state.id, thread, token, first };
+};
+
+test("a question goes to the agents at once, and they answer it", () => {
+  const store = Store.open(":memory:");
+  const { id, thread, first } = opened(store);
+  store.act(id, {
+    kind: "comment",
+    selection: rows(first, "src/notes/store.py", 13, 13),
+    body: "Why the same directory?",
+    question: true,
+  });
+  store.act(id, { kind: "general_comment", body: "Rename the module." });
+  const view = store.review(id);
+  const [asked, review] = view?.state.comments ?? [];
+  assert.ok(asked !== undefined && review !== undefined);
+  assert.deepEqual(asked.source, { kind: "reviewer", question: true });
+  assert.deepEqual(review.source, { kind: "reviewer" });
+  store.act(id, {
+    kind: "answer",
+    thread: thread.id,
+    comment: asked.id,
+    answer: {
+      disposition: "answered",
+      body: "So the rename stays on one filesystem.",
+    },
+  });
+  assert.equal(
+    turnOf(store.review(id)?.state.comments[0] ?? asked),
+    "reviewer",
+  );
+  store.close();
+});
+
+test("an agent's drift report shows until the next round, and an empty one clears it", () => {
+  const store = Store.open(":memory:");
+  const { id, thread, first } = opened(store);
+  store.act(id, {
+    kind: "drift",
+    paths: ["src/notes/store.py", "src/notes/cli.py"] as Array<RepoPath>,
+  });
+  assert.deepEqual(store.review(id)?.state.drift?.paths, [
+    "src/notes/cli.py",
+    "src/notes/store.py",
+  ]);
+  store.act(id, { kind: "drift", paths: [] });
+  assert.equal(store.review(id)?.state.drift, undefined);
+  store.act(id, {
+    kind: "drift",
+    paths: ["src/notes/cli.py"] as Array<RepoPath>,
+  });
+  store.publish(id, thread.id, first);
+  assert.equal(store.review(id)?.state.drift, undefined);
+  store.close();
+});
+
+test("only a comment that no longer attaches can be moved", () => {
+  const store = Store.open(":memory:");
+  const { id, thread, first } = opened(store);
+  store.act(id, {
+    kind: "comment",
+    selection: rows(first, "src/notes/store.py", 13, 15),
+    body: "Lock before the rename.",
+  });
+  const comment = store.review(id)?.state.comments[0];
+  assert.ok(comment !== undefined);
+  fails(
+    () =>
+      store.act(id, {
+        kind: "reattach",
+        comment: comment.id,
+        selection: rows(first, "src/notes/store.py", 16, 16),
+      }),
+    "invalid",
+    /no longer attaches/,
+  );
+  // Round 2 drops store.py, so the comment is an orphan; it can be moved to cli.py.
+  const second: ReviewInput = {
+    ...first,
+    files_complete: false,
+    files: first.files.filter((file) => file.path !== "src/notes/store.py"),
+  };
+  store.publish(id, thread.id, second);
+  store.act(id, {
+    kind: "reattach",
+    comment: comment.id,
+    selection: rows(second, "src/notes/cli.py", 1, 1),
+  });
+  const moved = store.review(id)?.state.comments[0];
+  assert.ok(moved !== undefined && moved.kind === "inline");
+  assert.equal(moved.anchor.path, "src/notes/cli.py");
+  assert.equal(moved.attachment.state, "attached");
+  assert.equal(moved.history[0]?.path, "src/notes/store.py");
+  store.close();
+});
+
+test("a feedback file imports into a fresh review once, with its answers and the approvals that still hold", () => {
+  const store = Store.open(":memory:");
+  const { id, thread, first } = opened(store);
+  store.act(id, {
+    kind: "comment",
+    selection: rows(first, "src/notes/store.py", 13, 15),
+    body: "Lock before the rename.",
+  });
+  const comment = store.review(id)?.state.comments[0];
+  assert.ok(comment !== undefined);
+  store.act(id, {
+    kind: "answer",
+    thread: thread.id,
+    comment: comment.id,
+    answer: { disposition: "rejected", body: "The rename is atomic already." },
+  });
+  store.act(id, {
+    kind: "approve",
+    path: "src/notes/cli.py" as RepoPath,
+    fingerprint:
+      "eb66c1c8de5a693b75c524a2b6ebe4763260bac93588a1bd120bafc9fd6a15b9" as Fingerprint,
+  });
+  store.act(id, {
+    kind: "submit",
+    round: 1 as RoundNumber,
+    verdict: "comment",
+    body: "",
+  });
+  const view = store.review(id);
+  assert.ok(view !== undefined);
+  const feedback = feedbackOf(view, "2026-10-12T00:00:00.000Z" as never);
+  assert.ok(feedback !== undefined);
+
+  const fresh = store.register({
+    target: first.target,
+    label: "Codex",
+    host: { kind: "codex" },
+    fresh: true,
+  });
+  const freshId = fresh.review.state.id;
+  store.publish(freshId, fresh.thread.id, first);
+  const imported = store.importFeedback(freshId, feedback);
+  assert.deepEqual(
+    {
+      comments: imported.report.comments,
+      replies: imported.report.replies,
+      already: imported.report.already,
+    },
+    { comments: 1, replies: 1, already: 0 },
+  );
+  // The fresh start carried the approval already; the import adds nothing to it.
+  assert.equal(imported.report.approvals, 0);
+  assert.match(
+    imported.report.skipped.join("\n"),
+    /Finished rounds are not imported/,
+  );
+  const after = store.review(freshId);
+  assert.ok(after !== undefined);
+  const copy = after.state.comments[0];
+  assert.ok(copy !== undefined && copy.kind === "inline");
+  assert.equal(copy.attachment.state, "attached");
+  assert.equal(copy.anchor.snapshot.input_sha256, after.round?.input_sha256);
+  // The answering thread joined the review without a token: it is listed, and no token can act as it.
+  assert.ok(after.threads.some((item) => item.id === thread.id));
+  assert.equal(turnOf(copy), "reviewer");
+
+  const again = store.importFeedback(freshId, feedback);
+  assert.equal(again.report.comments, 0);
+  assert.equal(again.report.already, 1);
+
+  // Feedback for another target is refused whole.
+  const other = {
+    ...feedback,
+    target: { ...feedback.target, root: "/elsewhere" },
+  };
+  fails(
+    () => store.importFeedback(freshId, other as typeof feedback),
+    "invalid",
+    /another target/,
+  );
+  store.close();
+});
+
+test("GitHub comments import once, inline ones found by their quote, and a refresh adds only new replies", () => {
+  const store = Store.open(":memory:");
+  const { id } = opened(store);
+  const pr = "https://github.com/example/notes/pull/7" as never;
+  const post = (n: number, kind: string, body: string) => ({
+    id: `PRRC_${n}`,
+    author: "octocat",
+    url: `https://github.com/example/notes/pull/7#${kind}${n}`,
+    body,
+    created_at: `2026-10-12T00:0${n}:00.000Z`,
+  });
+  const hunk =
+    '@@ -1,13 +1,19 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path\n \n \n def load(path):\n     return json.loads(Path(path).read_text(encoding="utf-8"))\n \n \n def save(path, notes):\n-    Path(path).write_text(json.dumps(notes), encoding="utf-8")\n+    target = Path(path)\n+    handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".notes-")';
+  const thread = {
+    kind: "thread" as const,
+    ...post(1, "discussion_r", "Why mkstemp here?"),
+    resolved: false,
+    path: "src/notes/store.py" as RepoPath,
+    side: "RIGHT" as const,
+    diff_hunk: hunk,
+    replies: [post(2, "discussion_r", "Same filesystem.")],
+  };
+  const conversation = {
+    kind: "conversation" as const,
+    ...post(3, "issuecomment-", "Looks good overall."),
+  };
+  const first = store.importGitHub(id, pr, [thread, conversation] as never);
+  assert.deepEqual(
+    [first.report.comments, first.report.replies, first.report.already],
+    [2, 1, 0],
+  );
+  const inline = store.review(id)?.state.comments[0];
+  assert.ok(inline !== undefined && inline.kind === "inline");
+  assert.equal(inline.attachment.state, "attached");
+  assert.equal(inline.anchor.start_line, 13);
+  assert.equal(turnOf(inline), "agent");
+
+  const refreshed = store.importGitHub(id, pr, [
+    {
+      ...thread,
+      replies: [...thread.replies, post(4, "discussion_r", "Thanks.")],
+    },
+    conversation,
+  ] as never);
+  assert.deepEqual(
+    [
+      refreshed.report.comments,
+      refreshed.report.replies,
+      refreshed.report.already,
+    ],
+    [0, 1, 2],
+  );
+  assert.equal(store.review(id)?.state.comments[0]?.replies.length, 2);
+  store.close();
+});

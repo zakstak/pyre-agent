@@ -13,7 +13,12 @@ import type { ReviewView } from "../../store/store.ts";
 import type { Assets } from "../assets.ts";
 import { type Html, html } from "../html.ts";
 import { anchorLabel, thread, time } from "./comments.ts";
-import { diffTable, placeComments, type PlacedComment } from "./diff.ts";
+import {
+  diffTable,
+  type Layout,
+  placeComments,
+  type PlacedComment,
+} from "./diff.ts";
 import { targetLine } from "./home.ts";
 import { page, themeToggle } from "./layout.ts";
 
@@ -75,6 +80,8 @@ interface PageContext {
   readonly input: ReviewInput;
   readonly files: ReadonlyMap<string, FileContext>;
   readonly writable: boolean;
+  /** How whole files show their patch. Excerpts are always unified. */
+  readonly layout: Layout;
 }
 
 const fileContexts = (
@@ -133,6 +140,8 @@ ${context.open > 0 ? html`<span class="chip warning">${context.open} open</span>
 ${approveButton(context, page.writable)}
 </p>
 </header>
+<details class="file-body" id="body-${tableId}-${context.approved ? "approved" : "open"}"${context.approved ? "" : " open"}>
+<summary class="file-toggle"><span class="when-closed">${context.approved ? "Approved. Show the change" : "Show the change"}</span><span class="when-open">Hide the change</span></summary>
 ${file.summary === undefined ? "" : html`<div class="file-summary">${prose(file.summary)}</div>`}
 ${
   file.callouts === undefined || file.callouts.length === 0
@@ -159,6 +168,7 @@ ${
           tableId,
           threads: page.view.threads,
           writable: page.writable,
+          layout: page.layout,
         },
       )}`
 }
@@ -170,6 +180,7 @@ ${
 ${context.orphans.map((comment) => orphan(comment, page, `${tableId}-orphan`))}
 </section>`
 }
+</details>
 </article>`;
 };
 
@@ -254,6 +265,11 @@ ${
 <ul class="cluster">${stop.questions.map((question) => html`<li><button type="button" class="quiet question" data-question="${question}">${question}</button></li>`)}</ul>
 </section>`
 }
+${
+  page.writable
+    ? html`<p><button type="button" class="quiet" data-ask-stop="${stop.title}">Ask about this stop</button></p>`
+    : ""
+}
 <footer class="stop-foot">
 ${previous === undefined ? html`<span></span>` : html`<button type="button" class="quiet" data-stop-go="${stop.index - 1}">← ${previous.title}</button>`}
 ${
@@ -317,6 +333,7 @@ const orphan = (
 ): Html =>
   html`<div class="orphan"><p class="small muted">${anchorLabel(comment)} in round ${comment.anchor.snapshot.round}: ${comment.attachment.state === "orphan" ? comment.attachment.reason : ""}</p>
 <pre class="orphan-quote code-region"><code>${comment.anchor.quote}</code></pre>
+${page.writable ? html`<p><button type="button" class="quiet" data-reattach="${comment.id}">Move to other lines</button></p>` : ""}
 ${thread(comment, { threads: page.view.threads, writable: page.writable, instance })}</div>`;
 
 /**
@@ -349,7 +366,7 @@ ${
     : html`<form class="composer general-composer" data-action="general_comment">
 <label for="general-body">Comment on the change</label>
 <textarea id="general-body" name="body" rows="3" placeholder="A question, a concern, or a direction for the agents"></textarea>
-<div class="cluster"><button type="submit">Add comment</button><span class="hint">Ctrl+Enter to add</span></div>
+<div class="cluster"><button type="submit">Add comment</button><button type="button" data-ask>Ask now</button><span class="hint">A comment waits for Finish review; a question goes to the agents now. Ctrl+Enter adds a comment.</span></div>
 </form>`
 }
 </section>`;
@@ -394,7 +411,25 @@ ${
     ? ""
     : html`<div class="notice success"><strong>Finished ${time(submission.submitted_at)}</strong> with <em>${submission.verdict.replace("_", " ")}</em>.${submission.body.trim() === "" ? "" : html` ${submission.body}`} ${waiting > 0 ? `${waiting} comment${waiting === 1 ? "" : "s"} wait${waiting === 1 ? "s" : ""} for the agents.` : ""}</div>`
 }
-${yours > 0 ? html`<div class="notice warning"><strong>${yours} answer${yours === 1 ? "" : "s"} to read.</strong> Accept each answer that settles the comment, or reply.</div>` : ""}`;
+${yours > 0 ? html`<div class="notice warning"><strong>${yours} answer${yours === 1 ? "" : "s"} to read.</strong> Accept each answer that settles the comment, or reply.</div>` : ""}
+${driftNotice(page)}`;
+};
+
+/** What an agent found changed since this round, until the next round replaces it. */
+const driftNotice = (page: PageContext): Html => {
+  const drift = page.view.state.drift;
+  if (drift === undefined || drift.round !== page.view.round?.round)
+    return html``;
+  const count = drift.paths.length;
+  return html`<div class="notice warning drift"><strong>The code changed since this round.</strong> ${
+    drift.head_sha === undefined
+      ? ""
+      : html`The pull request's head is now <code>${drift.head_sha.slice(0, 12)}</code>. `
+  }${
+    count === 0
+      ? ""
+      : html`${count} file${count === 1 ? "" : "s"} changed: ${drift.paths.slice(0, 8).map((path, at) => html`${at === 0 ? "" : ", "}<code>${path}</code>`)}${count > 8 ? ` and ${count - 8} more` : ""}. `
+  }Comments still apply to what this round shows; the agents publish a new round with the change. <span class="muted">Checked ${time(drift.checked_at)}.</span></div>`;
 };
 
 /** The page for a review that has a round. */
@@ -402,12 +437,13 @@ export const reviewPage = (
   assets: Assets["Service"],
   view: ReviewView,
   input: ReviewInput,
+  layout: Layout = "unified",
 ): Html => {
   const round = view.round;
   if (round === undefined) throw new Error("reviewPage needs a round");
   const writable = view.state.closed_at === undefined;
   const files = fileContexts(view, input);
-  const page: PageContext = { view, input, files, writable };
+  const page: PageContext = { view, input, files, writable, layout };
   const { stops } = tourView(input);
   const title = input.target.title;
   const threads = view.threads;
@@ -426,6 +462,7 @@ ${
     ? ""
     : html`<label class="sr-only" for="thread-filter">Thread</label><select id="thread-filter" data-thread-filter><option value="">All threads</option>${threads.map((thread) => html`<option value="${thread.id}">${thread.label}</option>`)}</select>`
 }
+<button type="button" class="quiet layout-toggle" data-layout-toggle aria-pressed="${layout === "split"}" title="Show whole files side by side">Side by side</button>
 ${writable ? html`<button type="button" class="primary" data-open-finish>Finish review</button>` : ""}
 ${themeToggle}
 </div>`,
@@ -443,7 +480,11 @@ ${rail(stops, page)}
 <p class="small">${targetLine(input.target)}${input.files_complete ? "" : html` <span class="chip warning">File list may be incomplete</span>`}</p>
 ${notices(page)}
 ${input.summary === undefined ? "" : html`<div class="summary reading">${prose(input.summary)}</div>`}
-<p class="small muted">Published ${time(round.published_at)} by ${threads.find((thread) => thread.id === round.thread)?.label ?? round.thread} · ${fileEntries.length} file${fileEntries.length === 1 ? "" : "s"} · ${stops.length} stop${stops.length === 1 ? "" : "s"}</p>
+<p class="small muted">Published ${time(round.published_at)} by ${threads.find((thread) => thread.id === round.thread)?.label ?? round.thread} · ${fileEntries.length} file${fileEntries.length === 1 ? "" : "s"} · ${stops.length} stop${stops.length === 1 ? "" : "s"} · <a href="/reviews/${view.state.id}/feedback.json" download>Export feedback</a>${
+      writable
+        ? html` · <label class="import-label">Import feedback<input type="file" class="sr-only" accept="application/json,.json" data-import></label>`
+        : ""
+    }</p>
 </section>
 <section class="tour" id="tour-view" aria-label="Tour">${stops.map((stop) => stopArticle(stop, stops.length, page, stops))}</section>
 <section class="files stack" id="files-view" aria-label="Changed files" hidden>
@@ -458,7 +499,7 @@ ${writable ? finishDialog(page, round.round) : ""}
 <p class="small muted">Comment on <span data-range></span></p>
 <label class="sr-only" for="composer-body">Comment</label>
 <textarea id="composer-body" name="body" rows="3" required placeholder="What should change, or what do you want to know?"></textarea>
-<div class="cluster"><button type="submit" class="primary">Add comment</button><button type="button" class="quiet" data-cancel>Cancel</button><span class="hint">Ctrl+Enter to add · Esc to cancel</span></div>
+<div class="cluster"><button type="submit" class="primary">Add comment</button><button type="button" data-ask>Ask now</button><button type="button" class="quiet" data-cancel>Cancel</button><span class="hint">Ctrl+Enter to add · Esc to cancel</span></div>
 </form></td></tr></template>
 <div class="toast" role="status" aria-live="polite" data-toast hidden></div>`,
   });

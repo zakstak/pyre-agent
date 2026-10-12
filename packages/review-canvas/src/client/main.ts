@@ -1,15 +1,25 @@
 import "./main.css";
 import "../../../../skills/internal-visual-style/assets/theme.js";
-import { behind, heard, refreshed, rendered, toast, tryAct } from "./api.ts";
+import {
+  behind,
+  heard,
+  importFeedback,
+  refreshed,
+  rendered,
+  toast,
+  tryAct,
+} from "./api.ts";
 import {
   composerDrafts,
   generalDraft,
   installComments,
   replyDrafts,
   restoreComposers,
+  restoreGaps,
   restoreGeneral,
   restoreReplyDrafts,
 } from "./comments.ts";
+import { LAYOUT_COOKIE } from "../review/layout.ts";
 import { retryDelay } from "./revisions.ts";
 import { applyHash, installTour } from "./tour.ts";
 
@@ -95,7 +105,12 @@ const installThreadFilter = () => {
  * Replaces the page's content with the server's current rendering, keeping what the reviewer was doing: the view
  * and stop in the hash, open disclosures, drafts, and the scroll position.
  */
+/** Set when the page needs the server's markup even at the same revision, as after a layout change. */
+let redraw = false;
+
 const refresh = async (): Promise<"updated" | "current" | "failed"> => {
+  const force = redraw;
+  redraw = false;
   let text: string;
   try {
     const response = await fetch(location.pathname, {
@@ -108,7 +123,8 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   }
   const fresh = new DOMParser().parseFromString(text, "text/html");
   const nextRevision = Number(fresh.body.dataset.revision ?? "0");
-  if (nextRevision <= rendered()) return "current";
+  if (nextRevision < rendered() || (nextRevision === rendered() && !force))
+    return "current";
   const previousRound = document.body.dataset.round;
   const drafts = composerDrafts();
   const general = generalDraft();
@@ -177,6 +193,7 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   restoreComposers(drafts);
   restoreGeneral(general);
   restoreReplyDrafts(replies);
+  restoreGaps();
   window.scrollTo({ top: scrollY });
   if (focused !== "")
     document.getElementById(focused)?.focus({ preventScroll: true });
@@ -269,7 +286,58 @@ const installLive = () => {
     }
   });
   document.addEventListener("review:refresh", schedule);
+  document.addEventListener("review:redraw", () => {
+    redraw = true;
+    schedule();
+  });
   open();
+};
+
+/**
+ * Whole files side by side, or unified. The choice is a cookie the server reads when it renders, so every refresh
+ * keeps it.
+ */
+const installLayout = () => {
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const toggle = target?.closest<HTMLElement>("[data-layout-toggle]");
+    if (toggle == null) return;
+    const split = toggle.getAttribute("aria-pressed") !== "true";
+    document.cookie = `${LAYOUT_COOKIE}=${split ? "split" : "unified"}; path=/; samesite=strict; max-age=31536000`;
+    toggle.setAttribute("aria-pressed", String(split));
+    document.dispatchEvent(new CustomEvent("review:redraw"));
+  });
+};
+
+/** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
+const installImport = () => {
+  document.addEventListener("change", (event) => {
+    const input =
+      event.target instanceof HTMLInputElement ? event.target : null;
+    if (input === null || !input.hasAttribute("data-import")) return;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file === undefined) return;
+    void file
+      .text()
+      .then(importFeedback)
+      .then((report) => {
+        const added = `Imported ${report.comments} comment${report.comments === 1 ? "" : "s"}, ${report.replies} repl${report.replies === 1 ? "y" : "ies"}, and ${report.approvals} approval${report.approvals === 1 ? "" : "s"}.`;
+        const already =
+          report.already === 0 ? "" : ` ${report.already} already here.`;
+        toast(
+          `${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`,
+        );
+      })
+      .catch((error: unknown) =>
+        toast(
+          error instanceof Error
+            ? `Not imported: ${error.message}`
+            : "Not imported.",
+          "danger",
+        ),
+      );
+  });
 };
 
 localizeTimes();
@@ -278,5 +346,7 @@ if (document.body.classList.contains("review")) {
   installComments();
   installFinish();
   installThreadFilter();
+  installLayout();
+  installImport();
 }
 installLive();

@@ -4,6 +4,7 @@ import { Answer, REVIEWER_ACTIONS, VERDICTS } from "../schema/feedback.ts";
 import * as Limits from "../schema/limits.ts";
 import {
   CommentId,
+  CommitSha,
   Fingerprint,
   integer,
   nonEmptyText,
@@ -34,10 +35,13 @@ export const PageAction = Schema.Union([
     kind: Schema.Literal("comment"),
     selection: Selection,
     body: RequiredBody,
+    /** Ask now: the agents answer without waiting for the round to finish. */
+    question: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
     kind: Schema.Literal("general_comment"),
     body: RequiredBody,
+    question: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
     kind: Schema.Literal("reply"),
@@ -92,3 +96,10 @@ export type AnswerRequest = typeof AnswerRequest.Type;
 
 /** The largest JSON body a page or an agent may send, other than a round's input. */
 export const MAX_REQUEST_BYTES = 1024 * 1024;
+
+/** What an agent found when it compared the code with the current round. */
+export const DriftRequest = Schema.Struct({
+  paths: Schema.Array(RepoPath).check(Schema.isMaxLength(Limits.MAX_FILES)),
+  head_sha: Schema.optionalKey(CommitSha),
+});
+export type DriftRequest = typeof DriftRequest.Type;

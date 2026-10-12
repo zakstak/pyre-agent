@@ -1,5 +1,5 @@
 /** Comment threads: the comment, every reply, and the reviewer's next move. */
-import type { Comment, Reply } from "../../schema/feedback.ts";
+import type { Comment, Disposition, Reply } from "../../schema/feedback.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { type Turn, turnOf } from "../../review/state.ts";
 import { type Html, html } from "../html.ts";
@@ -18,19 +18,21 @@ export interface ThreadOptions {
 export const time = (at: string): Html =>
   html`<time datetime="${at}" title="${at}">${at.slice(0, 16).replace("T", " ")} UTC</time>`;
 
-const DISPOSITION_LABEL = {
+const DISPOSITION_LABEL: Readonly<Record<Disposition, string>> = {
   fixed: "Fixed",
   rejected: "Not changed",
   deferred: "Deferred",
   question: "Question",
-} as const;
+  answered: "Answered",
+};
 
-const DISPOSITION_CHIP = {
+const DISPOSITION_CHIP: Readonly<Record<Disposition, string>> = {
   fixed: "success",
   rejected: "warning",
   deferred: "",
   question: "",
-} as const;
+  answered: "success",
+};
 
 const threadLabel = (threads: ReadonlyArray<Thread>, id: string) =>
   threads.find((thread) => thread.id === id)?.label ?? id;
@@ -93,7 +95,7 @@ export const thread = (comment: Comment, options: ThreadOptions): Html => {
 <p class="meta small">${
     comment.source.kind === "github"
       ? html`<strong>${comment.source.author ?? "ghost"}</strong> <span class="muted">· on <a href="${comment.source.url}" rel="noopener">GitHub</a></span>`
-      : html`<strong>You</strong>`
+      : html`<strong>You</strong>${comment.source.question === true ? html` <span class="chip">Question</span>` : ""}`
   } <span class="muted">· ${time(comment.created_at)}</span>${moved === undefined ? "" : html` <span class="muted">· moved: ${moved}</span>`}</p>
 <span class="chip ${TURN_CHIP[turn]}">${TURN_LABEL[turn]}</span>
 </header>

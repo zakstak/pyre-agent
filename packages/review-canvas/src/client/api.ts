@@ -64,12 +64,49 @@ const send = async (action: Record<string, unknown>): Promise<number> => {
   return body.revision;
 };
 
+export interface ImportReport {
+  readonly comments: number;
+  readonly replies: number;
+  readonly approvals: number;
+  readonly already: number;
+  readonly skipped: ReadonlyArray<string>;
+}
+
+const sendImport = async (text: string): Promise<ImportReport> => {
+  const sentWith = revisions.basis;
+  const response = await fetch(
+    `/reviews/${reviewId()}/import?revision=${sentWith}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: text,
+    },
+  );
+  const body = (await response.json()) as
+    | { ok: true; revision: number; report: ImportReport }
+    | { ok: false; error: Refusal };
+  if (!body.ok) {
+    if (body.error.revision !== undefined) heard(body.error.revision);
+    throw new ActionRefused(body.error);
+  }
+  revisions = afterOwnAction(revisions, sentWith, body.revision);
+  askRefresh();
+  return body.report;
+};
+
 // One action at a time, so each is sent on the basis the one before it left.
 let queue: Promise<unknown> = Promise.resolve();
 
 /** Sends an action after the ones before it. */
 export const act = (action: Record<string, unknown>): Promise<number> => {
   const next = queue.then(() => send(action));
+  queue = next.catch(() => undefined);
+  return next;
+};
+
+/** Imports a feedback file's text after the actions before it. */
+export const importFeedback = (text: string): Promise<ImportReport> => {
+  const next = queue.then(() => sendImport(text));
   queue = next.catch(() => undefined);
   return next;
 };

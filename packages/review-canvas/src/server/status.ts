@@ -4,6 +4,8 @@ import type { CommentId, Timestamp } from "../schema/primitives.ts";
 import {
   approvalHolds,
   currentSubmission,
+  type Drift,
+  isQuestion,
   type SubmissionRecord,
   type Turn,
   turnOf,
@@ -20,6 +22,15 @@ export interface Status {
   readonly submission: SubmissionRecord | undefined;
   /** Comments whose turn is the agent's: answer each before publishing the next round. */
   readonly to_answer: ReadonlyArray<CommentId>;
+  /** Of those, the reviewer's questions asked now: answer them without waiting for the round to finish. */
+  readonly questions: ReadonlyArray<CommentId>;
+  /** The current round's files and fingerprints, to compare with the code. */
+  readonly files: ReadonlyArray<{
+    readonly path: string;
+    readonly fingerprint: string | undefined;
+  }>;
+  /** What the last check found changed since the current round. */
+  readonly drift: Drift | undefined;
   readonly turns: Readonly<Record<string, Turn>>;
   /** Approved files whose fingerprint still matches the current round. */
   readonly approved: ReadonlyArray<string>;
@@ -44,6 +55,18 @@ export const statusOf = (
     to_answer: view.state.comments
       .filter((comment) => turnOf(comment) === "agent")
       .map((comment) => comment.id),
+    questions: view.state.comments
+      .filter((comment) => isQuestion(comment) && turnOf(comment) === "agent")
+      .map((comment) => comment.id),
+    files: (view.input?.files ?? []).map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+    })),
+    drift:
+      view.state.drift !== undefined &&
+      view.state.drift.round === view.round?.round
+        ? view.state.drift
+        : undefined,
     turns,
     approved:
       view.input === undefined
@@ -63,3 +86,7 @@ export const statusOf = (
  */
 export const finishedSince = (status: Status, since: number): boolean =>
   status.submission !== undefined && status.submission.revision > since;
+
+/** Whether the reviewer asked a question the agents have not answered yet. */
+export const hasQuestions = (status: Status): boolean =>
+  status.questions.length > 0;

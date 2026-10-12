@@ -22,8 +22,10 @@ import {
   InputDocument,
 } from "../schema/document.ts";
 import type { Answer } from "../schema/feedback.ts";
+import type { Target } from "../schema/target.ts";
 import { HOSTS } from "../schema/thread.ts";
-import { finishedSince, type Status } from "../server/status.ts";
+import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
+import { findPullRequest, GhFailed, readComments, runGh } from "./github.ts";
 import { call, ensureServer, expectOk, ServerError } from "./socket.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
@@ -31,16 +33,20 @@ const USAGE = `review-canvas: a local server where a reviewer walks an agent's c
 Commands
   serve                                   Run the server in the foreground (agents start it on demand).
   collect  --repo DIR --output FILE       Snapshot a working tree's uncommitted changes as review input.
-           [--title TEXT] [--include-secret PATH]...
+           [--title TEXT] [--include-secret PATH]... [--no-content]
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
            --label TEXT [--host KIND] [--session-id ID] [--fresh]
-  publish  --session DIR --input FILE     Publish the input as the review's next round.
+  publish  --session DIR --input FILE     Publish the input as the review's next round, then import the comments
+           [--no-github]                  of its pull request with gh.
+  github   --session DIR                  Import new comments of the review's pull request with gh.
   status   --session DIR                  The review: comments, whose turn each is, approvals, the verdict.
-  wait     --session DIR [--since REV]    Block until the reviewer finishes the current round.
+  wait     --session DIR [--since REV]    Block until the reviewer finishes the current round, or asks a question.
            [--timeout-minutes N]
   answer   --session DIR --comment ID     Answer a comment on the agent's turn.
-           --disposition fixed|rejected|deferred|question --body TEXT
+           --disposition fixed|rejected|deferred|question|answered --body TEXT
            [--fixed-in-commit SHA | --fixed-in-fingerprint SHA256] [--blocker TEXT]
+  check    --session DIR [--head SHA]     Compare the code with the current round, and show the reviewer what
+                                          changed since: a working tree's files, or a pull request's head.
   export   --session DIR --output FILE    Write the review's feedback document.
 
 The session folder holds session.json: the review, the thread, and its token. Keep it private.`;
@@ -116,6 +122,33 @@ const status = async (current: Session) =>
     )
   ).status;
 
+/**
+ * Imports the comments of the target's pull request, or of the open pull request of the working tree's branch. Without
+ * gh, or without a pull request, the review goes on without them, and the result says why.
+ */
+const importGitHub = async (current: Session, target: Target) => {
+  const found = findPullRequest(target, runGh);
+  if (found.kind === "none") return { skipped: found.reason };
+  let items;
+  try {
+    items = readComments(found.url, runGh);
+  } catch (error) {
+    if (error instanceof GhFailed) return { skipped: error.message };
+    throw error;
+  }
+  const reply = await expectOk<{
+    ok: true;
+    revision: number;
+    report: Record<string, unknown>;
+  }>(
+    await call("POST", `/agent/reviews/${current.review}/github`, {
+      body: JSON.stringify(items),
+      token: current.token,
+    }),
+  );
+  return { pull_request: found.url, ...reply.report };
+};
+
 const commands: Record<string, (args: Array<string>) => Promise<void>> = {
   async serve() {
     const { run } = await import("../server/main.ts");
@@ -130,6 +163,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         output: { type: "string" },
         title: { type: "string" },
         "include-secret": { type: "string", multiple: true },
+        "no-content": { type: "boolean", default: false },
       },
     });
     const repo = need(values.repo, "collect needs --repo DIR");
@@ -140,6 +174,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       const collected = collect(worktree, {
         ...(values.title === undefined ? {} : { title: values.title }),
         includeSecret: values["include-secret"] ?? [],
+        withContent: !values["no-content"],
       });
       writeOutput(output, collected.review);
       for (const line of report({ output: outputPath, collected }))
@@ -221,10 +256,14 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
   async publish(args) {
     const { values } = parseArgs({
       args,
-      options: { session: { type: "string" }, input: { type: "string" } },
+      options: {
+        session: { type: "string" },
+        input: { type: "string" },
+        "no-github": { type: "boolean", default: false },
+      },
     });
     const current = session(values.session);
-    const { bytes } = readInput(values.input);
+    const { bytes, input } = readInput(values.input);
     const reply = await expectOk<{
       ok: true;
       round: { round: number };
@@ -244,6 +283,93 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       revision: reply.revision,
       url: reply.url,
       warnings: reply.warnings,
+      github: values["no-github"]
+        ? { skipped: "--no-github" }
+        : await importGitHub(current, input.target),
+    });
+  },
+
+  async github(args) {
+    const { values } = parseArgs({
+      args,
+      options: { session: { type: "string" } },
+    });
+    const current = session(values.session);
+    const latest = await status(current);
+    const target = latest.feedback?.target;
+    if (target === undefined)
+      return fail("the review has no round yet; publish one first");
+    print({ ok: true, github: await importGitHub(current, target) });
+  },
+
+  /**
+   * Compares the code with the current round and reports what changed to the server, which shows it on the page:
+   * for a working tree, the files whose fingerprint differs, appeared, or went; for a pull request, a moved head.
+   */
+  async check(args) {
+    const { values } = parseArgs({
+      args,
+      options: { session: { type: "string" }, head: { type: "string" } },
+    });
+    const current = session(values.session);
+    const latest = await status(current);
+    const target = latest.feedback?.target;
+    if (target === undefined)
+      return fail("the review has no round yet; publish one first");
+    let paths: Array<string> = [];
+    let head: string | undefined;
+    if (target.kind === "worktree") {
+      try {
+        const collected = collect(openWorktree({ repo: target.root }));
+        const now = new Map<string, string | undefined>(
+          collected.review.files.map((file) => [file.path, file.fingerprint]),
+        );
+        const then = new Map(
+          latest.files.map((file) => [file.path, file.fingerprint]),
+        );
+        paths = [...new Set([...now.keys(), ...then.keys()])]
+          .filter((path) => now.get(path) !== then.get(path))
+          .sort();
+      } catch (error) {
+        if (error instanceof CollectError || error instanceof GitError)
+          return fail(error.message);
+        throw error;
+      }
+    } else {
+      head = values.head;
+      if (head === undefined) {
+        try {
+          head = (
+            JSON.parse(
+              runGh(["pr", "view", target.url, "--json", "headRefOid"]),
+            ) as {
+              headRefOid: string;
+            }
+          ).headRefOid;
+        } catch (error) {
+          return fail(
+            `cannot read the pull request's head; pass --head SHA (${error instanceof Error ? error.message : String(error)})`,
+          );
+        }
+      }
+    }
+    const reply = await expectOk<{ ok: true; revision: number }>(
+      await call("POST", `/agent/reviews/${current.review}/drift`, {
+        body: JSON.stringify({
+          paths,
+          ...(head === undefined ? {} : { head_sha: head }),
+        }),
+        token: current.token,
+      }),
+    );
+    print({
+      ok: true,
+      changed: paths,
+      head_moved:
+        head !== undefined && target.kind === "github_pr"
+          ? head.toLowerCase() !== target.head_sha.toLowerCase()
+          : false,
+      revision: reply.revision,
     });
   },
 
@@ -293,6 +419,16 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       ).status;
       if (latest.closed) {
         print({ ok: true, finished: false, closed: true, status: latest });
+        return;
+      }
+      // A question asked now is answered now: return without waiting for the round to finish.
+      if (hasQuestions(latest)) {
+        print({
+          ok: true,
+          finished: false,
+          questions: latest.questions,
+          status: latest,
+        });
         return;
       }
       if (finishedSince(latest, since)) {
@@ -365,9 +501,12 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       case "question":
         answer = { disposition: "question", body };
         break;
+      case "answered":
+        answer = { disposition: "answered", body };
+        break;
       default:
         return fail(
-          "--disposition must be fixed, rejected, deferred, or question",
+          "--disposition must be fixed, rejected, deferred, question, or answered",
         );
     }
     const reply = await expectOk<{ ok: true; revision: number }>(
