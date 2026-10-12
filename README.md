@@ -52,6 +52,8 @@ The base skill namespace remains `pyre-agent:`. Invoke `/pyre-agent:unslop` in
 Claude Code or `$pyre-agent:unslop` in Codex. `codex-branch-review` is available
 only in Claude Code and requires Python 3.11 and an authenticated Codex CLI.
 See its [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
+Inside T3 Code, `t3-branch-review` replaces it in both hosts: it delegates the
+review to another provider's model through T3 and needs no bridge.
 
 [Native verification](docs/verify-install.md) checks base installation without
 hooks, optional context installation, and removal of context while preserving
