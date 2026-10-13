@@ -149,7 +149,7 @@ export const CommentSource = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("github"),
     ...gitHubFields,
-    /** Whether the review thread was resolved on GitHub when it was imported. */
+    /** Whether the review thread was resolved on GitHub at the last import. */
     resolved: Schema.Boolean,
   }),
 ]).annotate({ expected: "a source whose kind is reviewer or github" });
