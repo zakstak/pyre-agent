@@ -7,9 +7,10 @@ strings are plain text; HTML and Markdown are not interpreted. The schema is
 `src/schema/input.ts` and `src/schema/tour.ts` in
 [packages/review-canvas](../../../packages/review-canvas/README.md).
 
-For a working tree, `review-canvas collect` writes a valid input with every
-file in the `core` group and no analysis; see
-[the working tree reference](worktree.md). For a PR, write the input yourself.
+`review-canvas collect` writes a valid input with every file in the `core`
+group and no analysis: for a working tree, see
+[the working tree reference](worktree.md); for a PR, `collect --pr`, from a
+local clone that holds the PR's base and head commits.
 
 ## Target
 
