@@ -89,10 +89,27 @@ const paintSelection = () => {
     if (inRange(unit, where)) unit.classList.add("selected");
 };
 
-/** Closes a composer. One that is being submitted is left for its submission to finish. */
-const closeComposer = (composer: HTMLElement | null = composerRow()) => {
+/** The + button each composer was opened from by keyboard, which gets focus back when the composer closes. */
+const openers = new WeakMap<HTMLElement, HTMLElement>();
+
+/**
+ * Closes a composer. One that is being submitted is left for its submission to finish. Focus inside it returns to the
+ * button that opened it, so a keyboard reviewer stays on the line they were on. A reviewer's own close, with Esc or
+ * Cancel, also counts focus left on the page itself, where some browsers put it after a click on a button.
+ */
+const closeComposer = (
+  composer: HTMLElement | null = composerRow(),
+  options: { readonly byReviewer?: boolean } = {},
+) => {
+  const opener = composer === null ? undefined : openers.get(composer);
+  const focused =
+    composer !== null &&
+    (composer.contains(document.activeElement) ||
+      (options.byReviewer === true &&
+        document.activeElement === document.body));
   composer?.remove();
   paintSelection();
+  if (focused && opener?.isConnected === true) opener.focus();
 };
 
 /** The table row the composer goes under: the one holding the last selected line, in document order. */
@@ -136,6 +153,7 @@ const openComposer = (
     readonly body?: string;
     readonly draft?: string;
     readonly submitting?: boolean;
+    readonly opener?: HTMLElement;
   } = {},
 ) => {
   const existing = composerRow();
@@ -166,6 +184,7 @@ const openComposer = (
   row.dataset.start = String(where.start);
   row.dataset.end = String(where.end);
   if (options.submitting === true) row.dataset.submitting = "true";
+  if (options.opener !== undefined) openers.set(row, options.opener);
   // Under the thread row that already follows the anchor row, if any.
   const after = anchorRow.nextElementSibling?.classList.contains("thread-row")
     ? anchorRow.nextElementSibling
@@ -387,9 +406,9 @@ const stopReattaching = () => {
  * What a selection of lines does: open the composer, or, while a comment is being moved, move it there. The server
  * refuses a move of a comment that still attaches, and a selection of another version of the patch.
  */
-const chooseLines = (where: Selection) => {
+const chooseLines = (where: Selection, opener?: HTMLElement) => {
   if (reattaching === undefined) {
-    openComposer(where);
+    openComposer(where, opener === undefined ? {} : { opener });
     return;
   }
   const comment = reattaching;
@@ -496,14 +515,25 @@ export const installComments = () => {
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (target === null) return;
-    // Enter or Space on a line's + button: a click with no pointer, which mousedown and mouseup never saw.
+    // Enter or Space on a line's + button: a click with no pointer, which mousedown and mouseup never saw. With Shift,
+    // it extends the open composer's lines in the same table to this one, as a drag would.
     const add = target.closest<HTMLButtonElement>("button.add-comment");
     if (add !== null) {
       const unit = add.closest<HTMLElement>(UNIT);
       const table = unit?.closest<HTMLTableElement>("table.diff");
       if (event.detail === 0 && writable() && unit != null && table != null) {
         const at = Number(unit.dataset.row);
-        chooseLines({ table, start: at, end: at });
+        const open = composerRow();
+        if (event.shiftKey && open !== null && tableOf(open) === table) {
+          chooseLines(
+            {
+              table,
+              start: Math.min(Number(open.dataset.start), at),
+              end: Math.max(Number(open.dataset.end), at),
+            },
+            openers.get(open) ?? add,
+          );
+        } else chooseLines({ table, start: at, end: at }, add);
       }
       return;
     }
@@ -536,7 +566,9 @@ export const installComments = () => {
     }
     const cancel = target.closest("[data-cancel]");
     if (cancel !== null) {
-      closeComposer(cancel.closest<HTMLElement>(".composer-row"));
+      closeComposer(cancel.closest<HTMLElement>(".composer-row"), {
+        byReviewer: true,
+      });
       return;
     }
     const replyButton = target.closest<HTMLButtonElement>("button[data-reply]");
@@ -608,7 +640,8 @@ export const installComments = () => {
     const composer = target.closest<HTMLElement>(".composer-row");
     if (event.key === "Escape" && composer !== null) {
       event.preventDefault();
-      if (composer.dataset.submitting === undefined) closeComposer(composer);
+      if (composer.dataset.submitting === undefined)
+        closeComposer(composer, { byReviewer: true });
     } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       target.form?.requestSubmit();

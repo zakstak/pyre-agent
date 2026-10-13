@@ -452,6 +452,111 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("a keyboard reviewer selects a range with Shift+Enter, and Esc returns focus to the line", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(`${agent.url}#files/src/notes/store.py`);
+    const plus = (line: number) =>
+      page.locator(
+        `#files-view table[data-path='src/notes/store.py'] tr[data-new='${line}'] button.add-comment`,
+      );
+    await plus(3).focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".composer-row").count(), 0);
+    assert.equal(
+      await plus(3).evaluate((button) => document.activeElement === button),
+      true,
+    );
+    await page.keyboard.press("Enter");
+    await plus(5).focus();
+    await page.keyboard.press("Shift+Enter");
+    assert.match(
+      (await page.locator(".composer-row [data-range]").textContent()) ?? "",
+      /src\/notes\/store\.py, lines 3–5/,
+    );
+    await page.keyboard.type("Group these imports.");
+    await page.keyboard.press("Control+Enter");
+    await page.locator("#files-view article.thread").first().waitFor();
+    const [comment] = (await agent.status()).feedback.comments;
+    assert.deepEqual(
+      [comment.anchor.start_line, comment.anchor.end_line],
+      [3, 5],
+    );
+    await page.close();
+  });
+
+  test("a narrow page folds the rail into a disclosure and shows split files unified", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+    });
+    await page
+      .context()
+      .addCookies([
+        { name: "review-canvas-layout", value: "split", url: server.origin },
+      ]);
+    await page.goto(agent.url);
+    const summary = page.locator(".rail-summary");
+    await summary.waitFor();
+    assert.equal(
+      (await summary.textContent())?.replace(/\s+/g, " "),
+      "Stop 1 of 3 · 0 of 10 approved",
+    );
+    const second = page.locator(".rail .stop-link[data-stop-go='1']");
+    assert.equal(await second.isVisible(), false);
+    await summary.click();
+    await second.click();
+    assert.equal(
+      await page.locator("article.stop:not([hidden]) h2").textContent(),
+      "The rename",
+    );
+    assert.equal(await second.isVisible(), false);
+    assert.match((await summary.textContent()) ?? "", /^Stop 2 of 3/);
+    // A live refresh brings markup rendered open; the folded rail stays folded.
+    await agent.call("POST", "/drift", { paths: ["src/notes/store.py"] });
+    await page.locator(".notice.drift").waitFor();
+    assert.equal(await second.isVisible(), false);
+    // The cookie asks for split; this width shows unified, and leaves the cookie alone.
+    await page.goto(`${agent.url}#files/src/notes/store.py`);
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#files-view table.diff") !== null &&
+        document.querySelector("table.diff.split") === null,
+    );
+    assert.equal(await page.locator(".layout-toggle").isVisible(), false);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator("#files-view table.diff.split").first().waitFor();
+    assert.equal(await summary.isVisible(), false);
+    assert.equal(await second.isVisible(), true);
+    const cookies = await page.context().cookies(server.origin);
+    assert.equal(
+      cookies.find((cookie) => cookie.name === "review-canvas-layout")?.value,
+      "split",
+    );
+    await page.close();
+  });
+
+  test("a wide page shows the rail without its script", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+    await page.goto(agent.url);
+    assert.equal(
+      await page.locator(".rail .stop-link[data-stop-go='1']").isVisible(),
+      true,
+    );
+    await context.close();
+  });
+
   test("a lost server shows a notice until it is back, and then actions work", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);

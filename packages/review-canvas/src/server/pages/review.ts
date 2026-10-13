@@ -300,7 +300,7 @@ const stopArticle = (
 <div class="stop-nav cluster">
 <button type="button" class="quiet" data-stop-go="${stop.index - 1}" ${previous === undefined ? "disabled" : ""} aria-label="Previous stop">←</button>
 <button type="button" class="quiet" data-stop-go="${stop.index + 1}" ${next === undefined ? "disabled" : ""} aria-label="Next stop">→</button>
-<span class="hint"><kbd>J</kbd> next · <kbd>K</kbd> previous</span>
+<span class="hint keys-hint"><kbd>J</kbd> next · <kbd>K</kbd> previous</span>
 </div>
 </header>
 <h2 id="stop-${stop.index + 1}-title">${stop.title}</h2>
@@ -382,7 +382,14 @@ const rail = (stops: ReadonlyArray<StopView>, page: PageContext): Html => {
     wiring: "Wiring",
     mechanical: "Mechanical",
   } as const;
+  const approved = [...page.files.values()].filter(
+    (item) => item.approved,
+  ).length;
+  // One markup for every width, rendered open, so a wide page shows it without the page script; a narrow page's script
+  // folds it into a disclosure above the tour.
   return html`<aside class="rail" aria-label="Review navigation">
+<details class="rail-disclosure" id="rail-disclosure" open>
+<summary class="rail-summary">Stop <span data-rail-stop>1</span> of ${stops.length} · ${approved} of ${page.files.size} approved</summary>
 <nav class="tour-nav" aria-label="Review tour">
 <p class="small muted rail-count"><span data-seen-count>0</span> of ${stops.length} read</p>
 <ol class="stops">${stops.map(
@@ -396,7 +403,7 @@ const rail = (stops: ReadonlyArray<StopView>, page: PageContext): Html => {
   )}</ol>
 </nav>
 <nav class="files-nav" aria-label="Changed files">
-<p class="small muted rail-count">${[...page.files.values()].filter((item) => item.approved).length} of ${page.files.size} approved</p>
+<p class="small muted rail-count">${approved} of ${page.files.size} approved</p>
 ${groups.map((group) => {
   const files = [...page.files.values()].filter(
     (item) => item.file.group === group,
@@ -414,6 +421,7 @@ ${groups.map((group) => {
       )}</ul>`;
 })}
 </nav>
+</details>
 </aside>`;
 };
 

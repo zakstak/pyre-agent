@@ -9,7 +9,7 @@ import {
 } from "effect/http";
 import { encodeDocument, FeedbackDocument } from "../schema/document.ts";
 import type { Revision, Timestamp } from "../schema/primitives.ts";
-import { LAYOUT_COOKIE } from "../review/layout.ts";
+import { LAYOUT_COOKIE, NARROW_HEADER } from "../review/layout.ts";
 import { feedbackOf } from "../store/store.ts";
 import { Assets } from "./assets.ts";
 import {
@@ -126,9 +126,13 @@ const Review = HttpRouter.add(
     const view = id === undefined ? undefined : store.review(id);
     if (view === undefined) return notFound;
     const request = yield* HttpServerRequest.HttpServerRequest;
-    // A view preference the page keeps in a cookie, so a refresh renders the layout the reviewer chose.
+    // A view preference the page keeps in a cookie, so a refresh renders the layout the reviewer chose. A page too
+    // narrow for two halves asks for the unified layout for itself, leaving the cookie as it is.
     const layout =
-      request.cookies[LAYOUT_COOKIE] === "split" ? "split" : "unified";
+      request.cookies[LAYOUT_COOKIE] === "split" &&
+      request.headers[NARROW_HEADER] !== "1"
+        ? "split"
+        : "unified";
     return htmlResponse(
       view.input === undefined
         ? waitingPage(assets, view)

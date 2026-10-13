@@ -28,6 +28,27 @@ const rememberSeen = (seen: Set<number>) => {
 let current = 0;
 let view: View = "tour";
 
+/** The width at which the rail stands beside the tour; below it, the rail folds into a disclosure. main.css agrees. */
+const wide = matchMedia("(min-width: 64rem)");
+
+const railDisclosure = () =>
+  document.querySelector<HTMLDetailsElement>(".rail-disclosure");
+
+/** Whether the reviewer opened the folded rail. The server renders it open; a narrow page starts it folded. */
+let railOpen = false;
+
+/** Keeps the rail open where it stands beside the tour, and as the reviewer left it where it folds. */
+export const syncRail = () => {
+  const disclosure = railDisclosure();
+  if (disclosure !== null) disclosure.open = wide.matches || railOpen;
+};
+
+/** After a choice in the folded rail, fold it again, so the stop or file chosen is what shows. */
+const foldRail = () => {
+  railOpen = false;
+  syncRail();
+};
+
 const isEditing = () => {
   const active = document.activeElement;
   return (
@@ -51,6 +72,10 @@ const renderRail = () => {
     if (bullet !== null)
       bullet.textContent = seen.has(index) ? "✓" : String(index + 1);
   }
+  for (const place of document.querySelectorAll<HTMLElement>(
+    "[data-rail-stop]",
+  ))
+    place.textContent = String(current + 1);
   const count = document.querySelector<HTMLElement>("[data-seen-count]");
   if (count !== null)
     count.textContent = String(
@@ -173,9 +198,16 @@ export const installTour = () => {
     heading.tabIndex = -1;
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    // The summary's own click opens or closes it; remember which, so a refresh's markup does not decide.
+    const summary = target?.closest(".rail-summary");
+    if (summary !== null && summary !== undefined) {
+      railOpen = !(railDisclosure()?.open ?? false);
+      return;
+    }
     const go = target?.closest<HTMLElement>("[data-stop-go]");
     if (go !== null && go !== undefined) {
       event.preventDefault();
+      if (go.closest(".rail") !== null) foldRail();
       showStop(Number(go.dataset.stopGo));
       return;
     }
@@ -189,6 +221,7 @@ export const installTour = () => {
     const open = target?.closest<HTMLElement>("[data-open-file]");
     if (open !== null && open !== undefined) {
       event.preventDefault();
+      if (open.closest(".rail") !== null) foldRail();
       const file = open.dataset.openFile;
       setView("files", file === undefined ? {} : { file });
     }
@@ -205,5 +238,10 @@ export const installTour = () => {
     }
   });
   window.addEventListener("hashchange", () => applyHash());
+  wide.addEventListener("change", () => {
+    railOpen = false;
+    syncRail();
+  });
+  syncRail();
   applyHash({ scroll: false, initial: true });
 };
