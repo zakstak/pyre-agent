@@ -213,7 +213,9 @@ const withAnalysis = (
 /** Text files the page cannot open unchanged lines for: their text did not fit, or was left out. */
 const withoutContent = (review: ReviewInput) =>
   review.files
-    .filter((file) => file.patch !== undefined && file.new_content === undefined)
+    .filter(
+      (file) => file.patch !== undefined && file.new_content === undefined,
+    )
     .map((file) => file.path);
 
 const commands: Record<string, (args: Array<string>) => Promise<void>> = {
