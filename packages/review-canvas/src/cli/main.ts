@@ -10,6 +10,7 @@ import { parseArgs } from "node:util";
 import {
   checkOutput,
   errorLine,
+  escaped,
   report,
   writeOutput,
 } from "../collector/output.ts";
@@ -35,6 +36,7 @@ import { findPullRequest, GhFailed, readComments, runGh } from "./github.ts";
 import { collectPullRequest } from "./pull-request.ts";
 import { PullRequestUrl } from "../schema/primitives.ts";
 import { call, ensureServer, expectOk, ServerError } from "./socket.ts";
+import { runtimeDir, socketPath } from "../server/paths.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
 
@@ -758,21 +760,55 @@ const main = async () => {
     return;
   }
   const run = need(commands[command], `unknown command ${command}\n\n${USAGE}`);
-  try {
-    // Any command that talks to the server starts it when none answers: the socket is the single-instance lock.
-    const offline =
-      ["serve", "collect", "fingerprints", "hunks"].includes(command) ||
-      rest.includes("--dry-run");
-    if (!offline) await ensureServer();
-    await run(rest);
-  } catch (error) {
-    if (error instanceof ServerError) fail(`${error.message} (${error.kind})`);
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      fail(
-        "no server answers on the socket; run register first, which starts it",
-      );
-    throw error;
-  }
+  // Any command that talks to the server starts it when none answers: the socket is the single-instance lock.
+  const offline =
+    ["serve", "collect", "fingerprints", "hunks"].includes(command) ||
+    rest.includes("--dry-run");
+  if (!offline) await ensureServer();
+  await run(rest);
 };
 
-void main();
+const SOCKET_GONE = new Set(["ENOENT", "ECONNREFUSED", "ECONNRESET", "EPIPE"]);
+
+/**
+ * An error as one line's message and kind: the server's refusal and its kind, a system error and its code, or any
+ * other error and its name. Agents read the kind; a stack trace would only bury it. Control characters are escaped,
+ * so a message cannot forge a second line.
+ */
+const described = (
+  error: unknown,
+): { readonly message: string; readonly kind: string } => {
+  const { message, kind } = classified(error);
+  return { message: escaped(message), kind };
+};
+
+const classified = (
+  error: unknown,
+): { readonly message: string; readonly kind: string } => {
+  if (error instanceof ServerError)
+    return { message: error.message, kind: error.kind };
+  if (!(error instanceof Error))
+    return { message: String(error), kind: "unknown" };
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : undefined;
+  if (code !== undefined && SOCKET_GONE.has(code))
+    return {
+      message: `no review server answers on ${socketPath()}; run the command again, which starts one. See ${runtimeDir()}/server.log.`,
+      kind: code.toLowerCase(),
+    };
+  const name =
+    "_tag" in error && typeof error._tag === "string"
+      ? error._tag
+      : error.constructor.name;
+  return {
+    message: error.message,
+    kind:
+      code?.toLowerCase() ??
+      name.replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_").toLowerCase(),
+  };
+};
+
+main().catch((error: unknown) => {
+  const { message, kind } = described(error);
+  fail(`${message} (${kind})`);
+});
