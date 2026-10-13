@@ -38,6 +38,11 @@ if stale; then
   # a second lock, so two waiters never both break one and remove the lock the next owner just took.
   lock="$package/.setup.lock"
   breaker="$lock.break"
+  # Whether the process that took the lock is gone. Without ps it cannot tell, and leaves the lock alone. ps cannot see
+  # a process in another PID namespace either, so a package folder shared across containers is not protected.
+  gone() {
+    command -v ps >/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  }
   release() {
     if [[ "$(cat "$lock/pid" 2>/dev/null)" == "$$" ]]; then
       rm -f "$lock/pid"
@@ -50,7 +55,7 @@ if stale; then
   until mkdir "$lock" 2>/dev/null; do
     owner="$(cat "$lock/pid" 2>/dev/null || true)"
     # ps, not kill -0, which also fails for a live process of another user.
-    if [[ "$owner" =~ ^[0-9]+$ ]] && ! ps -p "$owner" >/dev/null 2>&1 && mkdir "$breaker" 2>/dev/null; then
+    if [[ "$owner" =~ ^[0-9]+$ ]] && gone "$owner" && mkdir "$breaker" 2>/dev/null; then
       if [[ "$(cat "$lock/pid" 2>/dev/null)" == "$owner" ]]; then
         rm -f "$lock/pid"
         rmdir "$lock" 2>/dev/null || true
