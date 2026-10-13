@@ -35,16 +35,27 @@ export interface ImportReport {
   readonly approvals: number;
   /** Comments the review already held, by ID or GitHub ID. */
   readonly already: number;
+  /** Threads the review already held whose resolution on GitHub changed since the last import. */
+  readonly resolutions: number;
   readonly skipped: ReadonlyArray<string>;
 }
 
+/**
+ * A turn while replaying a comment's replies. `github` is a GitHub thread after its opening post or a GitHub reply:
+ * GitHub's resolution decides between the agents' turn and resolved there, and a feedback document holds only the
+ * resolution of its last import, not the one each reply was made under. Either is accepted.
+ */
+type ReplayTurn = Turn | "github";
+
 /** The turn after a reply, or undefined when the reply was not its author's to make. */
-export const nextTurn = (turn: Turn, reply: Reply): Turn | undefined => {
+const nextTurn = (turn: ReplayTurn, reply: Reply): ReplayTurn | undefined => {
+  if (turn === "github")
+    return nextTurn("agent", reply) ?? nextTurn("resolved", reply);
   switch (reply.actor) {
     case "agent":
       return turn === "agent" ? "reviewer" : undefined;
     case "github":
-      return "agent";
+      return "github";
     case "reviewer":
       if (reply.action === "reopen")
         return turn === "resolved" ? "agent" : undefined;
@@ -53,8 +64,8 @@ export const nextTurn = (turn: Turn, reply: Reply): Turn | undefined => {
   }
 };
 
-const startTurn = (source: Comment["source"]): Turn =>
-  source.kind === "github" && source.resolved ? "resolved" : "agent";
+const startTurn = (source: Comment["source"]): ReplayTurn =>
+  source.kind === "github" ? "github" : "agent";
 
 /** Every GitHub ID a review holds, on comments and replies, so an import adds each GitHub comment once. */
 const gitHubIds = (comments: ReadonlyArray<Comment>): Set<string> => {
@@ -239,6 +250,7 @@ export const importFeedback = (
       replies: replyCount,
       approvals: approvalCount,
       already,
+      resolutions: 0,
       skipped,
     },
     threads: [...threads.values()],
@@ -385,8 +397,9 @@ const gitHubReply = (post: GitHubPost, id: ReplyId): Reply => ({
 /**
  * Imports a pull request's GitHub comments: review threads become inline comments found again by their quote, and
  * conversation comments and review summaries become general ones. A comment the review already holds gets only its
- * new replies. Each arrives as the agents' turn, except a thread GitHub shows resolved. `head` is the commit GitHub
- * numbered the threads' current lines on; a round of that pull request head can place a thread by them.
+ * new replies and GitHub's current resolution. Each arrives as the agents' turn, except a thread GitHub shows
+ * resolved. `head` is the commit GitHub numbered the threads' current lines on; a round of that pull request head can
+ * place a thread by them.
  */
 export const importGitHub = (
   state: ReviewState,
@@ -412,6 +425,7 @@ export const importGitHub = (
   let commentCount = 0;
   let replyCount = 0;
   let already = 0;
+  let resolutions = 0;
   const sortedReplies = (posts: ReadonlyArray<GitHubPost>) =>
     posts
       .filter((post) => !github.has(post.id))
@@ -428,6 +442,16 @@ export const importGitHub = (
       if (existing !== undefined) {
         already++;
         let updated = existing;
+        if (
+          updated.source.kind === "github" &&
+          updated.source.resolved !== item.resolved
+        ) {
+          updated = {
+            ...updated,
+            source: { ...updated.source, resolved: item.resolved },
+          };
+          resolutions++;
+        }
         for (const post of item.replies) {
           if (github.has(post.id)) continue;
           updated = appendReply(
@@ -508,6 +532,7 @@ export const importGitHub = (
       replies: replyCount,
       approvals: 0,
       already,
+      resolutions,
       skipped,
     },
   });

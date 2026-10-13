@@ -37,7 +37,8 @@ A comment holds `id`, `kind`, `source`, `body`, `created_at`, `updated_at`, and
 `replies`. `kind` is `inline`, with an `anchor`, its `history`, and an
 `attachment`, or `general`, on the whole change. `source` is `reviewer`, or
 `github` with the comment's ID, author, URL, and resolved state, for comments
-imported from a pull request.
+imported from a pull request. The resolved state is GitHub's at the last
+import; each refresh updates it.
 
 An anchor holds the `snapshot` (round and input digest) the selection was made
 in, `path`, `patch_sha256`, `start` and `end` (zero-based UTF-16 offsets into
@@ -83,10 +84,14 @@ ID. Each has `id`, `created_at`, `actor`, and `body`.
   that asks for no change.
 - A `github` reply carries its GitHub ID, author, and URL.
 
-The last reply decides the turn. No reply: the agent's. An agent reply: the
-reviewer's. A reviewer `accept`: resolved. A reviewer `reopen` or `reply`, or a
-GitHub reply: the agent's. The server refuses an agent answer off its turn and a
-reviewer reply on a resolved comment, so one order is the only order.
+The last reply decides the turn. No reply, or a GitHub reply: the agent's, or
+resolved when GitHub shows the thread resolved. An agent reply: the
+reviewer's. A reviewer `accept`: resolved. A reviewer `reopen` or `reply`: the
+agent's, even on a thread GitHub shows resolved. The server refuses an agent
+answer off its turn and a reviewer reply on a resolved comment. An import
+replays the replies in order and refuses one off its turn. GitHub's resolution
+can change between replies, so after no reply or a GitHub reply, the import
+accepts what either state allows.
 
 ## Submissions
 

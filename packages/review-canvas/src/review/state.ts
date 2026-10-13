@@ -87,17 +87,19 @@ export const isQuestion = (comment: Comment): boolean =>
 /** Whose move a comment waits for. */
 export type Turn = "agent" | "reviewer" | "resolved";
 
+/**
+ * A GitHub thread that GitHub shows resolved is settled while nothing here followed GitHub's last word. An agent's
+ * answer still waits for the reviewer, and the reviewer's own reply or reopen outranks GitHub's flag.
+ */
 export const turnOf = (comment: Comment): Turn => {
   const last = comment.replies.at(-1);
-  if (last === undefined)
-    return comment.source.kind === "github" && comment.source.resolved
-      ? "resolved"
-      : "agent";
+  const remote = comment.source.kind === "github" && comment.source.resolved;
+  if (last === undefined) return remote ? "resolved" : "agent";
   switch (last.actor) {
     case "agent":
       return "reviewer";
     case "github":
-      return "agent";
+      return remote ? "resolved" : "agent";
     case "reviewer":
       return last.action === "accept" ? "resolved" : "agent";
   }

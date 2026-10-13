@@ -678,6 +678,115 @@ test("GitHub comments import once, inline ones found by their quote, and a refre
   store.close();
 });
 
+test("a refresh follows GitHub's resolution, unless an answer or the reviewer's own reply came after GitHub's last word", () => {
+  const pr = "https://github.com/example/notes/pull/7" as never;
+  const thread = (resolved: boolean) => ({
+    kind: "thread" as const,
+    id: "PRRC_1",
+    author: "octocat",
+    url: "https://github.com/example/notes/pull/7#discussion_r1",
+    body: "Why mkstemp here?",
+    created_at: "2026-10-12T00:01:00.000Z",
+    resolved,
+    path: "src/notes/store.py" as RepoPath,
+    side: "RIGHT" as const,
+    diff_hunk:
+      '@@ -1,13 +1,19 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path',
+    replies: [],
+  });
+  // Imports the thread as `before`, runs `between`, imports it again as `after`, and returns the turn.
+  const turnAfter = (
+    before: boolean,
+    after: boolean,
+    between: (store: Store, id: string, thread: { id: string }) => void = () => {},
+  ) => {
+    const store = Store.open(":memory:");
+    const { id, thread: agent } = opened(store);
+    store.importGitHub(id, pr, [thread(before)] as never);
+    between(store, id, agent);
+    const refreshed = store.importGitHub(id, pr, [thread(after)] as never);
+    const comment = store.review(id)?.state.comments[0];
+    assert.ok(comment !== undefined);
+    const view = store.review(id);
+    assert.ok(view !== undefined);
+    const feedback = feedbackOf(view, "2026-10-12T00:00:00.000Z" as never);
+    store.close();
+    return { turn: turnOf(comment), report: refreshed.report, feedback };
+  };
+  const answer = (store: Store, id: string, agent: { id: string }) => {
+    const comment = store.review(id)?.state.comments[0];
+    assert.ok(comment !== undefined);
+    store.act(id, {
+      kind: "answer",
+      thread: agent.id as never,
+      comment: comment.id,
+      answer: { disposition: "answered", body: "Same filesystem." },
+    });
+    return comment.id;
+  };
+
+  const resolvedLater = turnAfter(false, true);
+  assert.equal(resolvedLater.turn, "resolved");
+  assert.equal(resolvedLater.report.resolutions, 1);
+  assert.equal(resolvedLater.report.already, 1);
+  assert.equal(turnAfter(true, false).turn, "agent");
+  assert.equal(turnAfter(true, true).report.resolutions, 0);
+
+  // A thread whose last word is a GitHub reply is settled once GitHub resolves it.
+  const withReply = (resolved: boolean) => ({
+    ...thread(resolved),
+    replies: [
+      {
+        id: "PRRC_2",
+        author: "hubot",
+        url: "https://github.com/example/notes/pull/7#discussion_r2",
+        body: "Same filesystem.",
+        created_at: "2026-10-12T00:02:00.000Z",
+      },
+    ],
+  });
+  const replied = Store.open(":memory:");
+  const repliedId = opened(replied).id;
+  replied.importGitHub(repliedId, pr, [withReply(false)] as never);
+  replied.importGitHub(repliedId, pr, [withReply(true)] as never);
+  const settled = replied.review(repliedId)?.state.comments[0];
+  assert.ok(settled !== undefined);
+  assert.equal(turnOf(settled), "resolved");
+  replied.close();
+
+  // GitHub resolving a thread does not take back an answer the reviewer has not read.
+  const answered = turnAfter(false, true, answer);
+  assert.equal(answered.turn, "reviewer");
+
+  // A reviewer who reopened the comment here outranks a later resolution on GitHub.
+  const reopened = turnAfter(false, true, (store, id, agent) => {
+    const comment = answer(store, id, agent);
+    store.act(id, { kind: "reply", comment, action: "accept", body: "" });
+    store.act(id, {
+      kind: "reply",
+      comment,
+      action: "reopen",
+      body: "Not convinced.",
+    });
+  });
+  assert.equal(reopened.turn, "agent");
+
+  // An export carries the resolution of its last import, and a fresh review takes the answer made before it.
+  const store = Store.open(":memory:");
+  const fresh = opened(store);
+  assert.ok(answered.feedback !== undefined);
+  const imported = store.importFeedback(fresh.id, answered.feedback);
+  assert.deepEqual(
+    [imported.report.comments, imported.report.replies, imported.report.skipped],
+    [1, 1, []],
+  );
+  const copy = store.review(fresh.id)?.state.comments[0];
+  assert.ok(copy !== undefined && copy.source.kind === "github");
+  assert.equal(copy.source.resolved, true);
+  assert.equal(turnOf(copy), "reviewer");
+  store.close();
+});
+
 test("a GitHub thread whose quote changed on the head is placed on the line GitHub shows it on", () => {
   const pr = "https://github.com/example/notes/pull/8";
   const head = "e".repeat(40);
