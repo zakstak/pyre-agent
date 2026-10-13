@@ -34,16 +34,19 @@ const wide = matchMedia("(min-width: 64rem)");
 const railDisclosure = () =>
   document.querySelector<HTMLDetailsElement>(".rail-disclosure");
 
-/** Keeps the rail open where it stands beside the tour. A narrow page leaves it as the reviewer left it. */
+/** Whether the reviewer opened the folded rail. The server renders it open; a narrow page starts it folded. */
+let railOpen = false;
+
+/** Keeps the rail open where it stands beside the tour, and as the reviewer left it where it folds. */
 export const syncRail = () => {
   const disclosure = railDisclosure();
-  if (disclosure !== null && wide.matches) disclosure.open = true;
+  if (disclosure !== null) disclosure.open = wide.matches || railOpen;
 };
 
 /** After a choice in the folded rail, fold it again, so the stop or file chosen is what shows. */
 const foldRail = () => {
-  const disclosure = railDisclosure();
-  if (disclosure !== null && !wide.matches) disclosure.open = false;
+  railOpen = false;
+  syncRail();
 };
 
 const isEditing = () => {
@@ -195,6 +198,12 @@ export const installTour = () => {
     heading.tabIndex = -1;
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    // The summary's own click opens or closes it; remember which, so a refresh's markup does not decide.
+    const summary = target?.closest(".rail-summary");
+    if (summary !== null && summary !== undefined) {
+      railOpen = !(railDisclosure()?.open ?? false);
+      return;
+    }
     const go = target?.closest<HTMLElement>("[data-stop-go]");
     if (go !== null && go !== undefined) {
       event.preventDefault();
@@ -230,8 +239,8 @@ export const installTour = () => {
   });
   window.addEventListener("hashchange", () => applyHash());
   wide.addEventListener("change", () => {
-    const disclosure = railDisclosure();
-    if (disclosure !== null) disclosure.open = wide.matches;
+    railOpen = false;
+    syncRail();
   });
   syncRail();
   applyHash({ scroll: false, initial: true });

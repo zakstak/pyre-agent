@@ -385,9 +385,10 @@ const rail = (stops: ReadonlyArray<StopView>, page: PageContext): Html => {
   const approved = [...page.files.values()].filter(
     (item) => item.approved,
   ).length;
-  // One markup for every width: a narrow page folds it into a disclosure above the tour; a wide one keeps it open.
+  // One markup for every width, rendered open, so a wide page shows it without the page script; a narrow page's script
+  // folds it into a disclosure above the tour.
   return html`<aside class="rail" aria-label="Review navigation">
-<details class="rail-disclosure" id="rail-disclosure">
+<details class="rail-disclosure" id="rail-disclosure" open>
 <summary class="rail-summary">Stop <span data-rail-stop>1</span> of ${stops.length} · ${approved} of ${page.files.size} approved</summary>
 <nav class="tour-nav" aria-label="Review tour">
 <p class="small muted rail-count"><span data-seen-count>0</span> of ${stops.length} read</p>

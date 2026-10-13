@@ -516,6 +516,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await second.isVisible(), false);
     assert.match((await summary.textContent()) ?? "", /^Stop 2 of 3/);
+    // A live refresh brings markup rendered open; the folded rail stays folded.
+    await agent.call("POST", "/drift", { paths: ["src/notes/store.py"] });
+    await page.locator(".notice.drift").waitFor();
+    assert.equal(await second.isVisible(), false);
     // The cookie asks for split; this width shows unified, and leaves the cookie alone.
     await page.goto(`${agent.url}#files/src/notes/store.py`);
     await page.waitForFunction(
@@ -534,6 +538,23 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       "split",
     );
     await page.close();
+  });
+
+  test("a wide page shows the rail without its script", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const context = await browser.newContext({
+      javaScriptEnabled: false,
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+    await page.goto(agent.url);
+    assert.equal(
+      await page.locator(".rail .stop-link[data-stop-go='1']").isVisible(),
+      true,
+    );
+    await context.close();
   });
 
   test("a lost server shows a notice until it is back, and then actions work", async () => {

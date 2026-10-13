@@ -94,14 +94,19 @@ const openers = new WeakMap<HTMLElement, HTMLElement>();
 
 /**
  * Closes a composer. One that is being submitted is left for its submission to finish. Focus inside it returns to the
- * button that opened it, so a keyboard reviewer stays on the line they were on.
+ * button that opened it, so a keyboard reviewer stays on the line they were on. A reviewer's own close, with Esc or
+ * Cancel, also counts focus left on the page itself, where some browsers put it after a click on a button.
  */
-const closeComposer = (composer: HTMLElement | null = composerRow()) => {
+const closeComposer = (
+  composer: HTMLElement | null = composerRow(),
+  options: { readonly byReviewer?: boolean } = {},
+) => {
   const opener = composer === null ? undefined : openers.get(composer);
   const focused =
     composer !== null &&
     (composer.contains(document.activeElement) ||
-      document.activeElement === document.body);
+      (options.byReviewer === true &&
+        document.activeElement === document.body));
   composer?.remove();
   paintSelection();
   if (focused && opener?.isConnected === true) opener.focus();
@@ -561,7 +566,9 @@ export const installComments = () => {
     }
     const cancel = target.closest("[data-cancel]");
     if (cancel !== null) {
-      closeComposer(cancel.closest<HTMLElement>(".composer-row"));
+      closeComposer(cancel.closest<HTMLElement>(".composer-row"), {
+        byReviewer: true,
+      });
       return;
     }
     const replyButton = target.closest<HTMLButtonElement>("button[data-reply]");
@@ -633,7 +640,8 @@ export const installComments = () => {
     const composer = target.closest<HTMLElement>(".composer-row");
     if (event.key === "Escape" && composer !== null) {
       event.preventDefault();
-      if (composer.dataset.submitting === undefined) closeComposer(composer);
+      if (composer.dataset.submitting === undefined)
+        closeComposer(composer, { byReviewer: true });
     } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       target.form?.requestSubmit();
