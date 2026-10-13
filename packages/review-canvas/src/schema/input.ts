@@ -10,6 +10,7 @@ import {
   text,
 } from "./primitives.ts";
 import { Target, WorktreeTarget } from "./target.ts";
+import { Tour } from "./tour.ts";
 
 /** The format key of review input: what an agent publishes as a round. */
 export const INPUT_FORMAT = "review-canvas.input/1";
@@ -196,6 +197,11 @@ const fileFields = {
    */
   patch_complete: Schema.optionalKey(Schema.Boolean),
   patch_note: Schema.optionalKey(PatchNote),
+  /**
+   * The file's whole text after the change, so the page can show unchanged lines around the patch. Every context and
+   * added row of the patch must be the line of this text it names. Optional: without it the page shows the patch.
+   */
+  new_content: Schema.optionalKey(text(Limits.MAX_CONTENT_UNITS)),
   summary: Schema.optionalKey(Text),
   pseudocode: Schema.optionalKey(Text),
   trace: Schema.optionalKey(Trace),
@@ -208,6 +214,34 @@ const ReviewFileFields = Schema.Struct({
   ...fileFields,
   fingerprint: Schema.optionalKey(Fingerprint),
 });
+
+/**
+ * Where a patch and a file's text disagree: the first context or added row that is not the line of the text its
+ * new-side number names.
+ */
+export const contentMismatch = (
+  patch: string,
+  content: string,
+): string | undefined => {
+  const lines = content.split("\n");
+  const rows = patch.split("\n");
+  if (patch.endsWith("\n")) rows.pop();
+  let line = 0;
+  for (const [index, row] of rows.entries()) {
+    const header = HUNK_HEADER_NEW.exec(row);
+    if (header !== null) {
+      line = Number(header[1]);
+      continue;
+    }
+    if (!row.startsWith(" ") && !row.startsWith("+")) continue;
+    if (lines[line - 1] !== row.slice(1))
+      return `patch line ${index + 1} is not line ${line} of new_content`;
+    line++;
+  }
+  return undefined;
+};
+
+const HUNK_HEADER_NEW = /^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@/;
 
 const fileRules = Schema.makeFilter((file: typeof ReviewFileFields.Type) => {
   const moved = file.status === "renamed" || file.status === "copied";
@@ -234,6 +268,16 @@ const fileRules = Schema.makeFilter((file: typeof ReviewFileFields.Type) => {
         ? `${file.patch_note} needs a patch`
         : `${file.patch_note} is only for a file without a patch`,
     };
+  }
+  if (file.new_content !== undefined) {
+    if (file.patch === undefined)
+      return { path: ["new_content"], issue: "needs a patch to go with" };
+    const mismatch = contentMismatch(file.patch, file.new_content);
+    if (mismatch !== undefined)
+      return {
+        path: ["new_content"],
+        issue: `does not match the patch: ${mismatch}`,
+      };
   }
   if (file.patch_complete === true) {
     if (file.patch === undefined)
@@ -280,6 +324,8 @@ const inputFields = {
   summary: Schema.optionalKey(Text),
   /** True once the file list was reconciled with the target: then target.changed_files must equal the file count. */
   files_complete: Schema.Boolean,
+  /** The guided tour of this round. The server completes it with a closing stop for the files it leaves out. */
+  stops: Schema.optionalKey(Tour),
 };
 
 const ReviewInputFields = Schema.Struct({

@@ -137,7 +137,15 @@ const gitHubFields = {
 
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
 export const CommentSource = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("reviewer") }),
+  Schema.Struct({
+    kind: Schema.Literal("reviewer"),
+    /**
+     * True for a question the reviewer asked now: the agents answer it, and every reply after it, without waiting
+     * for the reviewer to finish the round. Absent for a review comment, which the agents read when the round is
+     * finished.
+     */
+    question: Schema.optionalKey(Schema.Literal(true)),
+  }),
   Schema.Struct({
     kind: Schema.Literal("github"),
     ...gitHubFields,
@@ -183,6 +191,7 @@ export const DISPOSITIONS = [
   "rejected",
   "deferred",
   "question",
+  "answered",
 ] as const;
 export type Disposition = (typeof DISPOSITIONS)[number];
 
@@ -201,6 +210,8 @@ const answerFields = {
     blocker: RequiredText,
   },
   question: { disposition: Schema.Literal("question"), body: RequiredText },
+  /** An explanation, for a reviewer's question that asks for no change. */
+  answered: { disposition: Schema.Literal("answered"), body: RequiredText },
 } satisfies {
   readonly [D in Disposition]: Schema.Struct.Fields & {
     readonly disposition: Schema.Literal<D>;
@@ -220,6 +231,7 @@ export const Answer = Schema.Union([
   Schema.Struct(answerFields.rejected),
   Schema.Struct(answerFields.deferred),
   Schema.Struct(answerFields.question),
+  Schema.Struct(answerFields.answered),
 ]).annotate(DISPOSITION_EXPECTED);
 export type Answer = typeof Answer.Type;
 
@@ -235,6 +247,7 @@ export const AgentReply = Schema.Union([
   Schema.Struct({ ...agentFields, ...answerFields.rejected }),
   Schema.Struct({ ...agentFields, ...answerFields.deferred }),
   Schema.Struct({ ...agentFields, ...answerFields.question }),
+  Schema.Struct({ ...agentFields, ...answerFields.answered }),
 ]).annotate(DISPOSITION_EXPECTED);
 export type AgentReply = typeof AgentReply.Type;
 
@@ -427,6 +440,21 @@ export const Approval = Schema.Struct({
 });
 export type Approval = typeof Approval.Type;
 
+export const VERDICTS = ["comment", "approve", "request_changes"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+
+/**
+ * The reviewer finished reading a round: a verdict on the change as a whole, with an optional summary. It hands the
+ * turn to the agents, who answer every open comment of the round before they publish the next one.
+ */
+export const Submission = Schema.Struct({
+  round: RoundNumber,
+  verdict: Schema.Literals(VERDICTS),
+  body: Text,
+  submitted_at: Timestamp,
+});
+export type Submission = typeof Submission.Type;
+
 /** A file of a round, with the reviewer's notes on it. */
 export const FeedbackFile = Schema.Struct({
   path: RepoPath,
@@ -479,15 +507,23 @@ const FeedbackFields = Schema.Struct({
   earlier_rounds: Schema.Array(EarlierRound).check(
     Schema.isMaxLength(Limits.MAX_EARLIER_ROUNDS),
   ),
+  /** Every time the reviewer finished a round, oldest first. Absent means none. */
+  submissions: Schema.optionalKey(
+    Schema.Array(Submission).check(Schema.isMaxLength(Limits.MAX_SUBMISSIONS)),
+  ),
 });
 type FeedbackFields = typeof FeedbackFields.Type;
 
-/** The UTF-16 code units of every note, body, blocker, quote, and anchor path, which together have a budget. */
+/**
+ * The UTF-16 code units of every note, body, blocker, quote, anchor path, and submission summary, which together have
+ * a budget.
+ */
 export const feedbackTextUnits = (
   feedback: Pick<
     FeedbackFields,
     "general_notes" | "files" | "comments" | "earlier_rounds"
-  >,
+  > &
+    Partial<Pick<FeedbackFields, "submissions">>,
 ): number => {
   const notes = (round: {
     readonly general_notes: string;
@@ -500,6 +536,8 @@ export const feedbackTextUnits = (
   let total =
     notes(feedback) +
     feedback.earlier_rounds.reduce((sum, round) => sum + notes(round), 0);
+  for (const submission of feedback.submissions ?? [])
+    total += submission.body.length;
   for (const comment of feedback.comments) {
     total += comment.body.length;
     if (comment.kind === "inline") {
@@ -530,6 +568,15 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   if (later !== -1)
     return {
       path: ["approvals", later, "round"],
+      issue: "is after the feedback's round",
+    };
+
+  const submission = (feedback.submissions ?? []).findIndex(
+    (item) => item.round > feedback.round,
+  );
+  if (submission !== -1)
+    return {
+      path: ["submissions", submission, "round"],
       issue: "is after the feedback's round",
     };
 

@@ -1,0 +1,91 @@
+{
+  "summary": "Synthetic working tree. save() becomes atomic; the rest is a rename, a CLI hook, and assorted files that show each kind of entry the collector writes.",
+  "stops": [
+    {
+      "title": "save() becomes atomic",
+      "summary": "The store now writes a temporary file beside the target and renames it over the old one. A crash during the write leaves the old notes intact instead of a truncated file.\n\nThe rename is the only step that changes what readers see.",
+      "attention": {
+        "kind": "risk",
+        "note": "os.replace is atomic on POSIX only when both paths are on the same filesystem. The temporary file is created in the target's directory, so this holds unless the directory is a symlink elsewhere."
+      },
+      "excerpts": [
+        {
+          "path": "src/notes/store.py",
+          "side": "new",
+          "start": 11,
+          "end": 17,
+          "caption": "The new save path"
+        }
+      ],
+      "files": [],
+      "notes": [
+        {
+          "path": "src/notes/store.py",
+          "line": 13,
+          "title": "Same directory",
+          "body": "mkstemp in target.parent keeps the rename on one filesystem."
+        },
+        {
+          "path": "src/notes/store.py",
+          "line": 16,
+          "title": "The swap",
+          "body": "replace overwrites the old notes in one step."
+        }
+      ],
+      "questions": ["Should a failed write remove the temporary file?"]
+    },
+    {
+      "title": "The CLI hook and the rename",
+      "summary": "format.py replaces render.py and the line format gains the note's date. The CLI wires the new module in.",
+      "attention": null,
+      "excerpts": [
+        {
+          "path": "src/notes/format.py",
+          "side": "new",
+          "start": 5,
+          "end": 6,
+          "caption": "The dated line"
+        }
+      ],
+      "files": [
+        {
+          "path": "src/notes/cli.py",
+          "note": "Imports format instead of render."
+        }
+      ],
+      "notes": [],
+      "questions": []
+    }
+  ],
+  "files": {
+    "src/notes/store.py": {
+      "group": "core",
+      "summary": "save() now writes a temporary file in the same directory and renames it over the old one, so a crash cannot leave half a file."
+    },
+    "src/notes/format.py": {
+      "group": "core",
+      "summary": "Renamed from render.py. The line format adds the note's date."
+    },
+    "src/notes/cli.py": {
+      "group": "wiring"
+    },
+    ".env.local": {
+      "group": "wiring"
+    },
+    "scripts/release.sh": {
+      "group": "mechanical"
+    },
+    "tests/data/windows.txt": {
+      "group": "mechanical"
+    },
+    "docs/logo.png": {
+      "group": "mechanical"
+    },
+    "docs/current": {
+      "group": "mechanical"
+    },
+    "notes/.keep": {
+      "group": "mechanical"
+    }
+  }
+}

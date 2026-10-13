@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer } from "effect";
+import { Cause, Effect, Layer, Queue, Result, Stream } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -7,9 +7,23 @@ import {
   HttpServerResponse,
   HttpStaticServer,
 } from "effect/http";
+import { encodeDocument, FeedbackDocument } from "../schema/document.ts";
+import type { Revision, Timestamp } from "../schema/primitives.ts";
+import { LAYOUT_COOKIE } from "../review/layout.ts";
+import { feedbackOf } from "../store/store.ts";
 import { Assets } from "./assets.ts";
-import { html } from "./html.ts";
-import { page } from "./page.ts";
+import {
+  attempt,
+  ok,
+  readDocument,
+  readJson,
+  refused,
+  RequestRefused,
+} from "./json.ts";
+import { homePage } from "./pages/home.ts";
+import { reviewPage, waitingPage } from "./pages/review.ts";
+import { MAX_REQUEST_BYTES, PageActionRequest } from "./requests.ts";
+import { Activity, ReviewStore } from "./services.ts";
 
 const securityHeaders = {
   "content-security-policy":
@@ -51,6 +65,10 @@ export const loopbackHosts = (port: number): ReadonlySet<string> => {
   return new Set(port === 80 ? [...names, ...withPort] : withPort);
 };
 
+/** The Origin values a page served here sends with a change. */
+export const loopbackOrigins = (port: number): ReadonlySet<string> =>
+  new Set([...loopbackHosts(port)].map((host) => `http://${host}`));
+
 /**
  * Answers only requests addressed to this server by its loopback name and port, so a page on another site that
  * rebinds its DNS name to 127.0.0.1 gets nothing. Every response carries the security headers, including the 404 or
@@ -80,29 +98,196 @@ const Guard = HttpRouter.middleware(
   { global: true },
 );
 
+const htmlResponse = (body: { readonly value: string }) =>
+  HttpServerResponse.text(body.value, {
+    contentType: "text/html; charset=utf-8",
+    headers: { "cache-control": "no-store" },
+  });
+
 const Home = HttpRouter.add(
   "GET",
   "/",
   Effect.gen(function* () {
     const assets = yield* Assets;
-    const body = html`<main class="mx-auto max-w-3xl p-8">
-      <h1 class="text-2xl font-semibold">Review canvas</h1>
-      <p class="text-muted mt-2">No reviews yet.</p>
-    </main>`;
-    return HttpServerResponse.text(
-      page(assets, { title: "Review canvas", body }).value,
-      {
-        contentType: "text/html; charset=utf-8",
-        headers: { "cache-control": "no-store" },
-      },
+    const store = yield* ReviewStore;
+    return htmlResponse(homePage(assets, store.reviews()));
+  }),
+);
+
+const notFound = HttpServerResponse.text("No such review", { status: 404 });
+
+const Review = HttpRouter.add(
+  "GET",
+  "/reviews/:id",
+  Effect.gen(function* () {
+    const assets = yield* Assets;
+    const store = yield* ReviewStore;
+    const { id } = yield* HttpRouter.params;
+    const view = id === undefined ? undefined : store.review(id);
+    if (view === undefined) return notFound;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    // A view preference the page keeps in a cookie, so a refresh renders the layout the reviewer chose.
+    const layout =
+      request.cookies[LAYOUT_COOKIE] === "split" ? "split" : "unified";
+    return htmlResponse(
+      view.input === undefined
+        ? waitingPage(assets, view)
+        : reviewPage(assets, view, view.input, {
+            layout,
+            previous:
+              view.round !== undefined && view.round.round > 1
+                ? store.round(view.state.id, view.round.round - 1)
+                : undefined,
+          }),
     );
   }),
 );
 
-/** The routes, the built browser assets under /assets, and the guard. */
+const Export = HttpRouter.add(
+  "GET",
+  "/reviews/:id/feedback.json",
+  Effect.gen(function* () {
+    const store = yield* ReviewStore;
+    const { id } = yield* HttpRouter.params;
+    const view = id === undefined ? undefined : store.review(id);
+    if (view === undefined) return notFound;
+    const feedback = feedbackOf(view, new Date().toISOString() as Timestamp);
+    if (feedback === undefined)
+      return HttpServerResponse.text("The review has no round yet", {
+        status: 409,
+      });
+    const encoded = encodeDocument(FeedbackDocument, feedback);
+    if (Result.isFailure(encoded))
+      return HttpServerResponse.text(encoded.failure.message, { status: 500 });
+    return HttpServerResponse.raw(encoded.success, {
+      contentType: "application/json; charset=utf-8",
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition": `attachment; filename="review-feedback-${view.round?.input_sha256.slice(0, 12) ?? "none"}.json"`,
+      },
+    });
+  }),
+);
+
+/**
+ * The review a page change names, after the checks every page change passes: the Origin must be this server's, so
+ * no other site can act through the reviewer's browser, and the review must exist. A change counts as activity.
+ */
+const pageChange = Effect.gen(function* () {
+  const store = yield* ReviewStore;
+  const activity = yield* Activity;
+  const { address } = yield* HttpServer.HttpServer;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const origins =
+    address._tag === "UnixPathAddress"
+      ? new Set<string>()
+      : loopbackOrigins(address.port);
+  if (!origins.has(request.headers.origin ?? ""))
+    return yield* Effect.fail(
+      new RequestRefused(
+        403,
+        "origin",
+        "The request did not come from this page.",
+      ),
+    );
+  const { id } = yield* HttpRouter.params;
+  if (id === undefined || store.review(id) === undefined)
+    return yield* Effect.fail(
+      new RequestRefused(404, "not_found", `No review ${id ?? ""}.`),
+    );
+  activity.touch();
+  return { store, id };
+});
+
+/** Changes a page asks for. */
+const Actions = HttpRouter.add(
+  "POST",
+  "/reviews/:id/actions",
+  Effect.gen(function* () {
+    const { store, id } = yield* pageChange;
+    const body = yield* readJson(PageActionRequest, MAX_REQUEST_BYTES);
+    const revision = yield* attempt(() =>
+      store.act(id, body.action, body.revision),
+    );
+    return ok({ ok: true, revision });
+  }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))),
+);
+
+/**
+ * A feedback file the reviewer chose, imported into the review. The body is the file as it is; the revision the
+ * page saw comes in the query, so a stale page learns about the change first.
+ */
+const Import = HttpRouter.add(
+  "POST",
+  "/reviews/:id/import",
+  Effect.gen(function* () {
+    const { store, id } = yield* pageChange;
+    const params = yield* HttpServerRequest.ParsedSearchParams;
+    const seen =
+      typeof params.revision === "string" && /^[0-9]+$/.test(params.revision)
+        ? (Number(params.revision) as Revision)
+        : undefined;
+    const feedback = yield* readDocument(FeedbackDocument);
+    const imported = yield* attempt(() =>
+      store.importFeedback(id, feedback, seen),
+    );
+    return ok({ ok: true, ...imported });
+  }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))),
+);
+
+const event = (revision: Revision | number) =>
+  `event: change\ndata: {"revision":${revision}}\n\n`;
+
+/**
+ * Server-sent events for an open page: the review's revision whenever it changes, and a comment every 20 seconds
+ * to keep the connection alive. The page fetches what changed. An open stream keeps the server from idling out.
+ */
+const Events = HttpRouter.add(
+  "GET",
+  "/reviews/:id/events",
+  Effect.gen(function* () {
+    const store = yield* ReviewStore;
+    const activity = yield* Activity;
+    const { id } = yield* HttpRouter.params;
+    const view = id === undefined ? undefined : store.review(id);
+    if (view === undefined || id === undefined) return notFound;
+    const changes = Stream.callback<string>((queue) =>
+      Effect.gen(function* () {
+        activity.streamOpened();
+        const unsubscribe = store.subscribe((review, revision) => {
+          if (review === id) Queue.offerUnsafe(queue, event(revision));
+        });
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            unsubscribe();
+            activity.streamClosed();
+          }),
+        );
+      }),
+    );
+    const heartbeat = Stream.tick("20 seconds").pipe(
+      Stream.map(() => ": ping\n\n"),
+    );
+    const body = Stream.make(event(view.revision)).pipe(
+      Stream.concat(Stream.merge(changes, heartbeat)),
+      Stream.encodeText,
+    );
+    return HttpServerResponse.stream(body, {
+      contentType: "text/event-stream",
+      headers: { "cache-control": "no-store", "x-accel-buffering": "no" },
+    });
+  }),
+);
+
+/** The page routes, the built browser assets under /assets, and the guard. */
 export const App = (options: { readonly clientDir: string }) =>
   Layer.mergeAll(
     Home,
+    Review,
+    Export,
+    Actions,
+    Import,
+    Events,
     HttpStaticServer.layer({
       root: `${options.clientDir}/assets`,
       prefix: "/assets",

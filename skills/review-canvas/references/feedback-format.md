@@ -1,119 +1,108 @@
-# Local feedback contract
+# The feedback document
 
-The review input uses `schema_version` 2. Saved feedback uses
-`feedback_schema_version` 3, not the input schema. Older feedback versions fail
-with a message that names the version. There is no migration. Keep an older file
-as earlier manual notes rather than assuming it can restore highlights or
-approvals.
+The server owns a review's state and exports it as one document with
+`"format": "review-canvas.feedback/1"`: `review-canvas export` writes it, and
+`GET /reviews/ID/feedback.json` on the page server serves it. `review-canvas
+status` embeds the same document under `feedback`, beside `to_answer`, the
+comments whose turn is the agent's, and `turns`, each comment's turn. The schema
+is `src/schema/feedback.ts` in
+[packages/review-canvas](../../../packages/review-canvas/README.md). Python
+review canvas feedback, with `feedback_schema_version`, is refused by name;
+there is no conversion.
 
-The strict JSON root contains target, input_sha256, exported_at, general_notes,
-files, approvals, comments and retained_reviews. The target and input digest
-describe the captured snapshot. The target is the same object as the input's
-`target`: a `github_pr` or a `worktree`. Every file entry contains path, status,
-group and notes. JSON has no patch source except selected quotes and their
-context; those may still contain private code. Keep exports within the approved
-audience and do not upload them automatically.
+The root holds `target`, `round`, `input_sha256`, `exported_at`,
+`general_notes`, `files`, `approvals`, `threads`, `comments`, `earlier_rounds`,
+and `submissions`. The target and the input digest name the round the document
+describes. Quotes and their context may contain private code: keep exports
+within the approved audience.
 
-Each approval contains path, fingerprint and approved_at. It records that the
-reviewer approved one exact version of that file. When a page loads feedback, a
-file is approved only if the stored fingerprint equals the file's current
-fingerprint. Otherwise the page shows **Changed since approval**, and the file
-needs review again. Approvals carry over between snapshots of the same review,
-so an unchanged file keeps its approval in the next round. Approvals for files
-outside the current snapshot stay in the file, so a file that returns unchanged
-is approved again. Approval is display only and blocks nothing.
+## Approvals
 
-Each comment contains a stable id, body, created_at, updated_at, anchor, history
-and attachment. An anchor contains its original snapshot (target and
-input_sha256), exact path and patch_sha256, start/end offsets, quote,
-prefix/suffix, start_row/end_row, side and start_line/end_line. Offsets are
-zero-based UTF-16 code units in the displayed patch rows joined with LF; end is
-exclusive. Row numbers are zero-based patch rows including hunk headers. `side`
-is `old` or `new`. A selection of deleted lines, alone or with context, is
-old-side; any other selection is new-side. `start_line` and `end_line` are
-source line numbers on that side, from the first to the last selected row that
-has one. A selection of only a hunk header cannot become a comment. Unicode
-context avoids split surrogate pairs. A comment needs a pinned target: a PR URL
-and head commit, or a working tree.
+Each approval holds `path`, `fingerprint`, `approved_at`, and the `round` it
+was made in. It records that the reviewer approved one exact version of the
+file. The page shows a file as approved only while its current fingerprint
+matches, so a changed file returns to the queue, and an unchanged file stays
+approved across rounds. An approval a fresh start carried from an earlier
+review names it in `carried_from`. Approval is display only and blocks nothing.
 
-A comment may also contain replies: the reviewer's answers to the agent, in
-order. Each reply contains a stable id, unique across the feedback, actor
-`reviewer`, created_at in UTC ISO 8601, body, and action. The action is
-`accept`, `reopen`, or `reply`. Body text is required except for `accept`. A
-comment with no replies omits the field. The agent's replies live in the review
-input, not in feedback. The page merges both into one thread per comment,
-ordered by time, and derives the thread state from the last reply: no reply is
-open, an agent reply waits for the reviewer, `accept` resolves the thread, and
-`reopen` or `reply` returns it to the agent. The page offers `accept` only right
-after an agent reply, and `reopen` only after an agent reply or an `accept`. A
-reviewer reply with no agent answer before it, or an `accept` or `reopen` out of
-that order, means the round's input lacks an earlier answer, and the thread
-shows that instead of a state. Two agent answers in a row mean the feedback
-lacks the reviewer reply between them; the thread says so and offers no accept
-or reopen until newer feedback is loaded. Nothing stores the state. Once a
-thread has replies, the page no longer offers to edit, reattach, or delete its
-comment, so an answer always refers to the comment it answered. The page lists
-agent answers to comments it does not hold, such as a comment deleted before the
-answer arrived.
+## Threads
 
-The original anchor remains unchanged when the current diff moves. Exact patch
-digest plus offsets attaches immediately. Otherwise the full selected quote and
-its adjacent prefix/suffix must match exactly once. Missing paths, absent
-patches, changed context and ambiguous repeated text produce an orphan. No
-rename guessing or fuzzy line matching occurs. Attachment is current derived
-state (attached/orphan, reason and current offsets), recomputed on import;
-imported attachment claims are never trusted. Manual reattachment retains the
-prior anchor in history and records the selected current snapshot. A comment
-with replies cannot be reattached or edited, because the replies answer it where
-it was; the reviewer replies instead.
+Each thread holds `id`, `label`, and `host` (`kind` of `claude-code`, `codex`,
+or `t3`, with an optional `session_id`). Tokens never appear. Every agent reply
+names its thread.
 
-Two snapshots belong to the same review when they have the same target kind and
-either the same PR URL or the same working tree root. A PR target without a URL
-matches only its own input digest. Import rejects feedback for another review.
+## Comments
 
-Import is transactional. It validates the entire file before changing the open
-page. It decodes the file as strict UTF-8, as `feedback_contract.py` does, so
-malformed bytes or a leading byte order mark reject it. Same-snapshot notes
-restore; deliberate edited values, including blanks, conflicting comment IDs,
-and comments deleted in the open tab are rejected. Reviewer replies merge by ID
-when one copy of a comment extends the other. Two copies that each hold a reply
-the other lacks are rejected, because they answered without seeing each other,
-and so is the same reply ID with different content. Approvals merge by path.
-When the page and the file both hold an approval for a file, the page keeps the
-one for the current version, or else the newer one. An approval made in the open
-tab stays. An approval cleared in the open tab rejects an import that holds an
-approval for that file. Semantically identical repeated imports are idempotent.
-Imports from another snapshot of the same review preserve earlier notes under
-retained_reviews, keeping only the files with notes and nothing of a snapshot
-without notes, while carrying approvals and resolving comments against the
-current patch. A retained snapshot whose digest matches the open page, as when
-the code returns to an earlier version, leaves the retained list, and its notes
-return to the page beside the tab's own. A tab note, a deliberate blank
-included, that differs from a returning note is a conflict. An open comment
-draft must be finished or cancelled before import. Multiple asynchronous imports
-use the newest selected file; an older read cannot replace it.
+A comment holds `id`, `kind`, `source`, `body`, `created_at`, `updated_at`, and
+`replies`. `kind` is `inline`, with an `anchor`, its `history`, and an
+`attachment`, or `general`, on the whole change. `source` is `reviewer`, or
+`github` with the comment's ID, author, URL, and resolved state, for comments
+imported from a pull request.
 
-Limits:8MiB UTF-8 JSON;2,000 unique files;2,000 approvals with unique
-paths;1,000 unique comment IDs;20,000 UTF-16 units per note/body/quote;80 units
-per context side;20 prior anchors per comment;200 reviewer replies per
-comment;50 unique retained snapshots, the newest kept when a new round adds one,
-and an import that would combine two histories past 50 rejected;2MiB aggregate
-note/body/quote text. Past 2,000 approvals, or past 8 MiB as exported, the page
-drops the oldest approvals for files outside the current snapshot. An import
-that still exceeds 8 MiB is rejected. Unknown fields, duplicate JSON keys,
-numbers written with a fraction or exponent, invalid identities/ranges, control
-characters and unpaired Unicode surrogates are rejected. Lengths and offsets
-count UTF-16 code units, and "nonempty" means more than JavaScript whitespace.
-The page's `assets/feedback.js` and the server's `scripts/feedback_contract.py`
-validate the same contract, and `tests/fixtures/feedback/` holds shared valid
-and invalid cases that both must pass. Export requests a browser download and
-displays a copy fallback; a requested download does not prove the file saved, so
-the unsaved-page warning remains.
+An anchor holds the `snapshot` (round and input digest) the selection was made
+in, `path`, `patch_sha256`, `start` and `end` (zero-based UTF-16 offsets into
+the patch rows joined with LF, end exclusive), `quote`, `prefix` and `suffix`
+(up to 80 units each), `start_row` and `end_row` (zero-based rows, counting
+hunk headers), `side`, and `start_line` and `end_line` on that side. A
+selection of deleted lines, alone or with context, is old-side; any other is
+new-side. The anchor never changes when the diff moves.
 
-The HTML embeds style, fonts, notices and scripts. Opened as a file, it has no
-fetch or upload, and feedback is only in the tab and manually selected or
-downloaded files. Served by `serve_review.py`, it saves feedback only to that
-local server, which writes the review's state directory; see
-[the server reference](server.md). It never posts comments or runs the agent.
-localStorage stores only the theme preference. Validate the original pinned
-source and comment IDs before any separately authorized batch action.
+The attachment is where the anchor lands in the current round, derived by the
+server: `attached` with current offsets, or `orphan` with a reason. The same
+patch attaches at the anchor's offsets. Another patch attaches where the quote
+is found once, or where its context picks one of several places. A missing
+file, a missing patch, a gone quote, or an ambiguous one makes an orphan. No
+rename guessing or fuzzy matching. Only an orphan can be moved by hand; the move
+keeps the earlier anchor in `history`.
+
+A reviewer comment whose source has `"question": true` was asked now: the agents
+answer it, and the replies after it, without waiting for the round to finish.
+Any other reviewer comment waits for **Finish review**.
+
+## Import
+
+The reviewer can import a feedback file of the same target from the page, such
+as an export of an earlier review. Approvals carry where the file's fingerprint
+still matches. Each comment the review lacks is added with its replies, up to
+the first reply that was not its author's turn. An inline comment is anchored
+again on the current patch where its quote is found, and stays an orphan where
+it is not. Threads its answers name join the review without a token, so no
+agent can act as them. Notes and finishes are not imported. The page reports
+what it added, what was already there, and what it left out.
+
+## Replies and turns
+
+Replies are in order: by time, then agent before GitHub before reviewer, then
+ID. Each has `id`, `created_at`, `actor`, and `body`.
+
+- A `reviewer` reply has an `action`: `accept` resolves the comment and may
+  have an empty body; `reopen` and `reply` return it to the agents.
+- An `agent` reply names its `thread` and a `disposition`: `fixed` with
+  `fixed_in` (`{ "fingerprint" }` or `{ "commit" }`), `rejected`, `deferred`
+  with a `blocker`, `question`, or `answered`, an explanation for a question
+  that asks for no change.
+- A `github` reply carries its GitHub ID, author, and URL.
+
+The last reply decides the turn. No reply: the agent's. An agent reply: the
+reviewer's. A reviewer `accept`: resolved. A reviewer `reopen` or `reply`, or a
+GitHub reply: the agent's. The server refuses an agent answer off its turn and a
+reviewer reply on a resolved comment, so one order is the only order.
+
+## Submissions
+
+Each submission holds `round`, `verdict` (`comment`, `approve`, or
+`request_changes`), `body`, and `submitted_at`. The reviewer's **Finish
+review** adds one, for the round the reviewer's page showed; the server refuses
+a finish for a round that is no longer current. The store also records the
+revision each submission made. `review-canvas status` reports it, and
+`review-canvas wait` returns when the current round has a submission newer than
+the last one the session reported.
+
+## Limits
+
+8 MiB as exported; 2,000 files and approvals with unique paths; 1,000 comments
+with unique IDs; 200 reviewer replies and 200 GitHub replies per comment; 5,000
+agent answers; 100 threads; 20 earlier anchors per comment; 50 earlier rounds;
+1,000 submissions; 20,000 UTF-16 units per body or note, 131,072 for a GitHub
+body; 2 MiB of all text together, submission summaries included. The server refuses an action that would push
+the review past a limit and says which.

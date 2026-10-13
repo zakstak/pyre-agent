@@ -61,6 +61,7 @@ import {
 import { cleanText, SECRET_TEXT, secretName } from "./patch.ts";
 import { decodeValue, WorktreeInputDocument } from "../schema/document.ts";
 import {
+  contentMismatch,
   type FileStatus,
   INPUT_FORMAT,
   type PatchNote,
@@ -68,6 +69,7 @@ import {
   type WorktreeInput,
 } from "../schema/input.ts";
 import {
+  MAX_CONTENT_UNITS,
   MAX_FILES,
   MAX_INPUT_BYTES,
   MAX_PATCH_LINES,
@@ -142,6 +144,11 @@ export interface CollectOptions {
   readonly title?: string;
   /** Likely secret files, by exact repository-relative path, whose contents the review may show. */
   readonly includeSecret?: ReadonlyArray<string>;
+  /**
+   * Include each text file's whole new text, so the page can show the unchanged lines around its patch. The command
+   * turns it on; the text fits within the same half of the input that patches use, after every patch.
+   */
+  readonly withContent?: boolean;
   readonly limits?: Partial<Limits>;
 }
 
@@ -219,7 +226,12 @@ interface Snapshot {
 }
 
 type Content =
-  | { readonly kind: "patch"; readonly data: Buffer }
+  | {
+      readonly kind: "patch";
+      readonly data: Buffer;
+      /** The new side's bytes, from which the patch was made; null for a deleted file. */
+      readonly next?: Buffer | null;
+    }
   | {
       readonly kind: "note";
       readonly note: Exclude<PatchNote, "replaced_characters">;
@@ -1345,7 +1357,8 @@ const content = (
     )
   )
     return { kind: "note", note: "binary" };
-  return textPatch(worktree, old, next);
+  const found = textPatch(worktree, old, next);
+  return found.kind === "patch" ? { ...found, next } : found;
 };
 
 type Draft = {
@@ -1358,12 +1371,15 @@ const build = (
   snapshot: Snapshot,
   include: ReadonlySet<string>,
   limits: Limits,
+  withContent = false,
 ) => {
   const stats = numstat(worktree);
   const files: Array<typeof WorktreeFile.Encoded> = [];
   const flagged: Array<string> = [];
   let totalLines = 0;
   let totalBytes = 0;
+  // Texts wait until every patch has its place: a patch matters more than the lines around another one.
+  const texts: Array<{ readonly file: Draft; readonly text: string }> = [];
   for (const entry of snapshot.entries) {
     const { path, binary } = entry;
     let counts = { additions: 0, deletions: 0 };
@@ -1422,12 +1438,28 @@ const build = (
         file.patch = patch;
         file.patch_complete = true;
         note = replaced ? "replaced_characters" : null;
+        // A text with replaced characters would no longer match the file, so it is left out.
+        if (withContent && !replaced && found.next != null) {
+          const cleaned = cleanText(found.next);
+          if (
+            !cleaned.replaced &&
+            cleaned.text.length <= MAX_CONTENT_UNITS &&
+            contentMismatch(patch, cleaned.text) === undefined
+          )
+            texts.push({ file, text: cleaned.text });
+        }
       }
     }
     if (note === "too_large") file.patch_complete = false;
     if (note === "secret") flagged.push(path);
     if (note !== null) file.patch_note = note;
     files.push(file);
+  }
+  for (const { file, text } of texts) {
+    const size = Buffer.byteLength(JSON.stringify(text));
+    if (totalBytes + size > Math.floor(limits.inputBytes / 2)) continue;
+    totalBytes += size;
+    file.new_content = text;
   }
   return { files, flagged };
 };
@@ -1523,7 +1555,13 @@ export const collect = (
           message: `a likely secret file to include is not a changed file: ${unknown.join(", ")}`,
         });
       }
-      const { files, flagged } = build(worktree, snapshot, include, limits);
+      const { files, flagged } = build(
+        worktree,
+        snapshot,
+        include,
+        limits,
+        options.withContent === true,
+      );
       // Read inside the same before-and-after check, so a file that changes during this scan is caught too.
       worktree.trace({ kind: "staged-scan" });
       const staged = stagedDifferently(worktree);

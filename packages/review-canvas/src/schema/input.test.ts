@@ -751,3 +751,20 @@ test("the input fixtures' hunk headers match their lines", () => {
     }
   }
 });
+
+test("input: a file's text must be what its patch shows", () => {
+  const base = simpleReview();
+  // a.py after the change: "new", "context".
+  const withText = (text: string) =>
+    decode(set(copy(base), ["files", 0, "new_content"], text));
+  accepted(withText("new\ncontext\n"));
+  refused(
+    withText("new\nchanged\n"),
+    /new_content: does not match the patch: patch line 4 is not line 2 of new_content/,
+  );
+  const noPatch = set(copy(base), ["files", 0, "patch"], undefined);
+  refused(
+    decode(set(noPatch, ["files", 0, "new_content"], "x")),
+    /new_content: needs a patch/,
+  );
+});

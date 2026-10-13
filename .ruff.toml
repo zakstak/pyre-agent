@@ -1,5 +1,4 @@
-# The review-canvas skill and its standard-library scripts support Python 3.10+.
-# In 3.10, UTC uses timezone.utc and fromisoformat needs Z normalized to +00:00.
+# The repository's checks run on Python 3.10+.
 target-version = "py310"
 
 # The host-specific Codex bridge explicitly requires Python 3.11+.

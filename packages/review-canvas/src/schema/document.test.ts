@@ -52,69 +52,13 @@ test("no Python review canvas file decodes as a new format, and the refusal name
         decode(fixtureBytes(`python/${name}.json`)),
         new RegExp(
           `^This is Python review canvas .*, ${field} ${version}, which this version cannot read\\. ` +
-            "Finish that review in the Python version\\.$",
+            "The Python review canvas was removed in review-canvas 4\\.0\\.0, and there is no conversion: start a new review\\.$",
         ),
         "format",
       );
     }
   }
 });
-
-const repository = new URL("../../../../", import.meta.url);
-const pythonFiles = () => {
-  const folders = [
-    "tests/fixtures",
-    "tests/fixtures/feedback",
-    "skills/review-canvas/assets",
-  ];
-  return folders.flatMap((folder) =>
-    readdirSync(new URL(folder, repository))
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => `${folder}/${name}`),
-  );
-};
-
-test(
-  "no JSON file of the Python review canvas decodes as a new format",
-  {
-    skip:
-      !existsSync(new URL("skills/review-canvas/scripts", repository)) &&
-      "the Python review canvas is gone",
-  },
-  () => {
-    const files = pythonFiles();
-    assert.ok(files.length > 60, `found ${files.length}`);
-    for (const file of files) {
-      const bytes = readFileSync(new URL(file, repository));
-      // A file that is strict UTF-8 JSON and has a Python version field must be refused by that version.
-      let value: unknown;
-      try {
-        const parsed = parseStrictJson(
-          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-            bytes,
-          ),
-        );
-        value = Result.isSuccess(parsed) ? parsed.success : undefined;
-      } catch {
-        value = undefined;
-      }
-      const versioned =
-        typeof value === "object" &&
-        value !== null &&
-        ("feedback_schema_version" in value || "schema_version" in value);
-      for (const { key, decode } of decoders) {
-        const result = decode(bytes);
-        assert.ok(Result.isFailure(result), `${file} decoded as ${key}`);
-        if (versioned)
-          assert.match(
-            result.failure.message,
-            /^This is Python review canvas/,
-            file,
-          );
-      }
-    }
-  },
-);
 
 test("an unknown format or version is refused by name", () => {
   const doc = (format: Json | undefined) =>

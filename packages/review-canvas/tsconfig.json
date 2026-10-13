@@ -18,5 +18,11 @@
     "skipLibCheck": true,
     "plugins": [{ "name": "@effect/language-service" }]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "scripts",
+    "browser",
+    "vite.config.ts",
+    "vite.node.config.ts"
+  ]
 }

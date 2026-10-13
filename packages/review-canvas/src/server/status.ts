@@ -1,0 +1,92 @@
+/** A review as an agent reads it: the feedback document, whose turn each comment waits for, and where it lives. */
+import type { Feedback } from "../schema/feedback.ts";
+import type { CommentId, Timestamp } from "../schema/primitives.ts";
+import {
+  approvalHolds,
+  currentSubmission,
+  type Drift,
+  isQuestion,
+  type SubmissionRecord,
+  type Turn,
+  turnOf,
+} from "../review/state.ts";
+import { feedbackOf, type ReviewView } from "../store/store.ts";
+
+export interface Status {
+  readonly review: string;
+  readonly url: string;
+  readonly revision: number;
+  readonly closed: boolean;
+  readonly round: number | undefined;
+  /** The reviewer's verdict on the current round, once they finished it, with the revision it made. */
+  readonly submission: SubmissionRecord | undefined;
+  /** Comments whose turn is the agent's: answer each before publishing the next round. */
+  readonly to_answer: ReadonlyArray<CommentId>;
+  /** Of those, the reviewer's questions asked now: answer them without waiting for the round to finish. */
+  readonly questions: ReadonlyArray<CommentId>;
+  /** The current round's files and fingerprints, to compare with the code. */
+  readonly files: ReadonlyArray<{
+    readonly path: string;
+    readonly fingerprint: string | undefined;
+  }>;
+  /** What the last check found changed since the current round. */
+  readonly drift: Drift | undefined;
+  readonly turns: Readonly<Record<string, Turn>>;
+  /** Approved files whose fingerprint still matches the current round. */
+  readonly approved: ReadonlyArray<string>;
+  readonly feedback: Feedback | undefined;
+}
+
+export const statusOf = (
+  view: ReviewView,
+  origin: string,
+  now: Timestamp,
+): Status => {
+  const turns = Object.fromEntries(
+    view.state.comments.map((comment) => [comment.id, turnOf(comment)]),
+  );
+  return {
+    review: view.state.id,
+    url: `${origin}/reviews/${view.state.id}`,
+    revision: view.revision,
+    closed: view.state.closed_at !== undefined,
+    round: view.round?.round,
+    submission: currentSubmission(view.state),
+    to_answer: view.state.comments
+      .filter((comment) => turnOf(comment) === "agent")
+      .map((comment) => comment.id),
+    questions: view.state.comments
+      .filter((comment) => isQuestion(comment) && turnOf(comment) === "agent")
+      .map((comment) => comment.id),
+    files: (view.input?.files ?? []).map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+    })),
+    drift:
+      view.state.drift !== undefined &&
+      view.state.drift.round === view.round?.round
+        ? view.state.drift
+        : undefined,
+    turns,
+    approved:
+      view.input === undefined
+        ? []
+        : view.state.approvals
+            .filter((approval) =>
+              approvalHolds(approval, view.input?.files ?? []),
+            )
+            .map((approval) => approval.path),
+    feedback: feedbackOf(view, now),
+  };
+};
+
+/**
+ * Whether the reviewer finished the current round after the submission an agent last read, named by the revision it
+ * made. Other changes to the review, such as a later comment, are not a finish.
+ */
+export const finishedSince = (status: Status, since: number): boolean =>
+  status.submission !== undefined && status.submission.revision > since;
+
+/** Whether the reviewer asked a question the agents have not answered yet. */
+export const hasQuestions = (status: Status): boolean =>
+  status.questions.length > 0;
