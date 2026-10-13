@@ -3,7 +3,10 @@
 A round's input is UTF-8 JSON with `"format": "review-canvas.input/1"`, a
 `target`, `files`, `files_complete`, and optionally a `summary` and `stops`. The
 server rejects unknown fields and invalid types rather than dropping data. All
-strings are plain text; HTML and Markdown are not interpreted. The schema is
+strings are plain text; HTML and Markdown are not interpreted. The page keeps
+the line breaks in the agent's prose: summaries, attention notes, captions, note
+bodies, callouts, and questions. One exception: in that prose, text between two
+backticks on one line, such as `` `fsync()` ``, shows as code. The schema is
 `src/schema/input.ts` and `src/schema/tour.ts` in
 [packages/review-canvas](../../../packages/review-canvas/README.md).
 

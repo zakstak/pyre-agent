@@ -416,6 +416,42 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator(".notice.drift").waitFor({ timeout: 10_000 });
     await page.close();
   });
+  test("agent prose keeps its line breaks and code spans, and markup in it stays text", async () => {
+    const input = fixtureInput();
+    input.stops[0].summary = "First line.\nSecond line.";
+    input.stops[0].attention.note = "Same `rename()` only.";
+    input.stops[0].notes[0].body =
+      "Watch this:\n<script>window.pwned = true</script> `<b>` and `fsync`";
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    const stop = page.locator("article.stop:not([hidden])");
+    await stop.waitFor();
+    const summary = stop.locator(".stop-summary p");
+    const lines = await summary.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return new Set([...range.getClientRects()].map((rect) => rect.top)).size;
+    });
+    assert.equal(lines, 2);
+    assert.equal(
+      await stop.locator(".attention code").textContent(),
+      "rename()",
+    );
+    const note = stop.locator(".notes li").first();
+    assert.deepEqual(await note.locator("code").allTextContents(), [
+      "<b>",
+      "fsync",
+    ]);
+    assert.match(
+      (await note.textContent()) ?? "",
+      /<script>window\.pwned = true<\/script>/,
+    );
+    assert.equal(await note.locator("script, b").count(), 0);
+    assert.equal(await page.evaluate(() => "pwned" in window), false);
+    await page.close();
+  });
+
   test("a lost server shows a notice until it is back, and then actions work", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
