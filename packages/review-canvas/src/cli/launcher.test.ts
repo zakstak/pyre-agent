@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,6 +45,67 @@ test("a command that cannot start the server fails with one line and no stack tr
   );
 });
 
+test("a file the command cannot write is reported as that, not as a missing server", (t) => {
+  const dir = scratch(t);
+  const runtime = join(dir, "run");
+  const session = join(dir, "s");
+  mkdirSync(session);
+  const env = {
+    ...process.env,
+    REVIEW_CANVAS_RUNTIME: runtime,
+    REVIEW_CANVAS_DATA: join(dir, "reviews.sqlite"),
+  };
+  const cli = (...args: Array<string>) =>
+    spawnSync(process.execPath, [join(root, "src/cli/main.ts"), ...args], {
+      encoding: "utf8",
+      env,
+      timeout: 60_000,
+    });
+  t.after(() =>
+    spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        'import { stopServer, withServerOperation } from "./src/cli/socket.ts"; await withServerOperation(stopServer);',
+      ],
+      { cwd: root, env },
+    ),
+  );
+  const registered = cli(
+    "register",
+    "--session",
+    session,
+    "--input",
+    join(root, "fixtures/input/worktree.json"),
+    "--label",
+    "Export fixture",
+  );
+  assert.equal(registered.status, 0, registered.stderr);
+  const published = cli(
+    "publish",
+    "--session",
+    session,
+    "--input",
+    join(root, "fixtures/input/worktree.json"),
+    "--no-github",
+  );
+  assert.equal(published.status, 0, published.stderr);
+  const result = cli(
+    "export",
+    "--session",
+    session,
+    "--output",
+    join(dir, "no-such-folder", "feedback.json"),
+  );
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /^Error: [^\n]*no-such-folder[^\n]* \(enoent\)\n$/,
+  );
+  assert.doesNotMatch(result.stderr, /no review server/);
+});
+
 /**
  * A package the launcher must set up, with a pnpm that records what it ran and an entry point that prints "ran".
  * Returns how to run the launcher against it.
@@ -71,12 +133,12 @@ esac
   );
   chmodSync(pnpm, 0o755);
   const lock = join(pkg, ".setup.lock");
-  const run = (env: Record<string, string> = {}) =>
+  const run = (env: Record<string, string> = {}, path = process.env["PATH"]) =>
     spawnSync("bash", [launcher], {
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PATH: `${bin}:${path ?? ""}`,
         REVIEW_CANVAS_PACKAGE: pkg,
         ...env,
       },
@@ -107,5 +169,38 @@ test("setup fails, naming the lock, while a live owner holds it, and leaves the 
   assert.equal(result.stdout, "");
   assert.ok(result.stderr.includes(lock), result.stderr);
   assert.equal(readFileSync(join(lock, "pid"), "utf8"), `${process.pid}\n`);
+  assert.equal(existsSync(join(pkg, "pnpm.log")), false);
+});
+
+test("without ps, setup cannot tell a lock is stale, and leaves it for its owner", (t) => {
+  const { pkg, lock, run } = stalePackage(t);
+  // Every tool the launcher uses but ps, as on a slim container image.
+  const tools = join(pkg, "..", "tools");
+  mkdirSync(tools);
+  for (const name of [
+    "bash",
+    "cat",
+    "dirname",
+    "find",
+    "mkdir",
+    "node",
+    "rm",
+    "rmdir",
+    "sleep",
+    "touch",
+  ]) {
+    const found = spawnSync("bash", ["-c", `command -v ${name}`], {
+      encoding: "utf8",
+    }).stdout.trim();
+    assert.ok(found !== "", `${name} not found`);
+    symlinkSync(found, join(tools, name));
+  }
+  const gone = spawnSync("true").pid;
+  mkdirSync(lock);
+  writeFileSync(join(lock, "pid"), `${gone}\n`);
+  const result = run({ REVIEW_CANVAS_SETUP_TIMEOUT: "1" }, tools);
+  assert.equal(result.status, 1, result.stderr);
+  assert.ok(result.stderr.includes(lock), result.stderr);
+  assert.equal(readFileSync(join(lock, "pid"), "utf8"), `${gone}\n`);
   assert.equal(existsSync(join(pkg, "pnpm.log")), false);
 });

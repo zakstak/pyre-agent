@@ -27,8 +27,9 @@ Without `REVIEW_CANVAS_PORT`, a server asks for the page port in `port`, the
 one the last server listened on, and takes any free port when that one is busy.
 A page left open across a restart, such as one after the idle stop, then
 reconnects on its own. A page that cannot reach the server for two tries in a
-row says so until it reconnects. `status`, `wait`, and `publish` write the
-current URL into `session.json` when it changed.
+row says so until it reconnects. A page cannot follow a server to another
+port: `status`, `wait`, and `publish` write the current URL into
+`session.json` when it changed, and the reviewer opens that URL.
 
 Before any command connects, and before a server binds, the runtime folder must
 be a real folder owned by the current user with no access for others; a looser
