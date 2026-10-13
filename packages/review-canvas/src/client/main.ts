@@ -26,6 +26,7 @@ import {
 } from "../review/layout.ts";
 import { retryDelay } from "./revisions.ts";
 import { applyHash, installTour, syncRail } from "./tour.ts";
+import { installRepositories } from "./repositories.ts";
 
 /** A page too narrow for two halves side by side, which shows the unified layout whatever the cookie says. */
 const narrow = matchMedia(NARROW_QUERY);
@@ -374,6 +375,7 @@ const installImport = () => {
 };
 
 localizeTimes();
+installRepositories();
 if (document.body.classList.contains("review")) {
   installTour();
   installComments();

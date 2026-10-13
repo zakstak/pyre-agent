@@ -57,6 +57,50 @@ secret patterns. A match omits that file's content and reports its path;
 `--include-secret PATH` explicitly allows it, while `--no-content` collects only
 patches. The detector does not recognize every possible secret format.
 
+## Repository monitoring
+
+The home page groups discovered local Git working trees into repositories.
+**Add to monitoring** accepts a repository across its discovered copies. Discovery and review registration do not add
+repositories to monitoring. Accepted repository identities persist in the review
+database. **Remove** stops monitoring a repository without deleting its reviews.
+
+Each repository has one entry, with its local clones and worktrees under
+**Checkouts**. SSH and HTTPS remotes for the same host and project identify the
+same repository. Credentials are omitted. GitHub project names are compared
+without case; other hosts keep their path case. Nonstandard ports and different
+fork owners remain separate. The `origin` remote is preferred, or the sole remote
+when there is no `origin`. Local clone sources are followed without adding their
+directories to the scan. Repositories without a usable remote use their common
+Git directory, so unrelated projects with the same folder name stay separate.
+
+Acceptance applies to all discovered copies of that repository, including copies
+found by later scans. Counts and acceptance actions refer to repositories;
+paths, branches, and working-tree status belong to individual checkouts.
+PR reviews link from the repository entry identified by their GitHub URL;
+working-tree reviews link from their checkout. Removing monitoring keeps those reviews.
+
+Filter by name, path, or branch, and select **Monitored**, **Discovered**,
+**With changes**, or **Unavailable**. Filters stay in the page URL across
+refreshes. Accepted repositories show their current branch and count of changed
+items for each checkout when you open or refresh the page. Untracked directories count as one
+item; submodule changes are excluded. This does not start background Git watchers.
+
+The default scan covers the launch repository or directory and existing `~/git` and `~/dev`
+directories. Use **Scan directories** to choose another absolute directory.
+`REVIEW_CANVAS_REPO_ROOTS` overrides the defaults with a platform-separated list
+of absolute directories (`:` on Linux and macOS). Scans descend up to four
+levels, stop at working tree roots, and skip hidden directories, symlinks, and
+build and dependency folders. Size and time limits appear in the scan details.
+The two-second scan budget includes repository identification and cancels its Git reads.
+Invalid Git markers do not hide valid repositories in deeper directories.
+Each Git status read has a timeout and output limit; failures show **Unavailable**.
+Scans and status reads do not fetch from remotes or write to repository indexes.
+
+Existing version 2 and 3 databases upgrade in place, preserving reviews and
+rounds. Earlier checkout acceptances are converted to repository identities.
+Missing accepted paths remain visible until they can be identified again.
+Earlier server builds cannot read the upgraded database.
+
 ## Layout
 
 | Folder          | What                                                                                     |

@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { request } from "node:http";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -56,7 +56,7 @@ export interface Server {
 }
 
 /** Starts a server and waits until it answers on its socket. */
-export const startServer = async (): Promise<Server> => {
+export const startServer = async (options: { readonly repositoryRoots?: ReadonlyArray<string> } = {}): Promise<Server> => {
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-browser-"));
   const runtime = join(dir, "run");
   const socketPath = join(runtime, "agent.sock");
@@ -69,6 +69,7 @@ export const startServer = async (): Promise<Server> => {
         REVIEW_CANVAS_DATA: join(dir, "data/reviews.sqlite"),
         REVIEW_CANVAS_RUNTIME: runtime,
         REVIEW_CANVAS_PORT: String(port),
+        REVIEW_CANVAS_REPO_ROOTS: (options.repositoryRoots ?? [dir]).join(delimiter),
       },
       stdio: ["ignore", "ignore", "inherit"],
     });

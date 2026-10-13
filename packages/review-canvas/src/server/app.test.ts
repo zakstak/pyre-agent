@@ -3,7 +3,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Context, Effect, Exit, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,11 @@ import { Assets, layerFromBuild } from "./assets.ts";
 import { html } from "./html.ts";
 import { inline } from "./pages/review.ts";
 import { activityLayer, storeLayer } from "./services.ts";
+import { gitEnvironment } from "../collector/git.ts";
+import { identifyRepository } from "./repositories.ts";
+import { repositoryId } from "../schema/repositories.ts";
+import { Schema } from "effect";
+import { WorktreeRoot } from "../schema/primitives.ts";
 
 interface Reply {
   readonly status: number;
@@ -52,7 +58,7 @@ const clientBuild = () => {
 };
 
 // Serves the app on a free loopback port with fixed assets, then runs the check against it.
-const withServer = (check: (port: number) => Promise<void>) => {
+const withServer = (check: (port: number) => Promise<void>, repositoryRoots: ReadonlyArray<string> = []) => {
   const clientDir = clientBuild();
   const TestAssets = Layer.succeed(Assets, {
     styles: ["/assets/main.css"],
@@ -62,7 +68,7 @@ const withServer = (check: (port: number) => Promise<void>) => {
     host: "127.0.0.1",
     port: 0,
   });
-  const Live = HttpRouter.serve(App({ clientDir }), {
+  const Live = HttpRouter.serve(App({ clientDir, repositoryRoots }), {
     disableLogger: true,
     disableListenLog: true,
   }).pipe(
@@ -102,6 +108,42 @@ test("the home page renders its assets with the security headers", () =>
     );
   }));
 
+test("discovery proposes repos without adding them, and only same-origin acceptance changes monitoring", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "review-canvas-home-repos-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = join(directory, "repo");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  mkdirSync(join(root, "subdir"));
+  const id = repositoryId((await identifyRepository(Schema.decodeSync(WorktreeRoot)(root))).identity);
+  await withServer(async (port) => {
+    const origin = `http://127.0.0.1:${port}`;
+    const act = (kind: string, path: string, from = origin) => fetch(`${origin}/repositories/actions`, {
+      method: "POST", headers: { origin: from, "content-type": "application/json" },
+      body: JSON.stringify(kind === "remove" ? { kind, id } : { kind, root: path, id }),
+    });
+    const discovered = await get(port, "/");
+    assert.match(discovered.body, /0 monitored/);
+    assert.match(discovered.body, /1 discovered/);
+    assert.match(discovered.body, /Add to monitoring/);
+    assert.equal((await act("accept", root, "https://evil.example")).status, 403);
+    assert.equal((await act("accept", join(root, "subdir"))).status, 400);
+    assert.match((await get(port, "/")).body, /0 monitored/);
+    assert.equal((await act("accept", root)).status, 200);
+    const monitored = await get(port, "/");
+    assert.match(monitored.body, /1 monitored/);
+    assert.match(monitored.body, /0 discovered/);
+    assert.match(monitored.body, /data-monitoring="monitored"/);
+    assert.match(monitored.body, />main<\/span>/);
+    assert.match(monitored.body, />Clean<\/span>/);
+    assert.equal((await act("ignore", root)).status, 400);
+    rmSync(root, { recursive: true });
+    assert.match((await get(port, "/")).body, />Unavailable<\/span>/);
+    assert.equal((await act("remove", root)).status, 200);
+    assert.match((await get(port, "/")).body, /0 monitored/);
+  }, [directory]);
+});
+
 test("a request addressed to another host is refused", () =>
   withServer(async (port) => {
     const page = await get(port, "/", `evil.example:${port}`);
@@ -114,6 +156,29 @@ test("a request addressed to another host is refused", () =>
     assert.equal((await get(port, "/", "127.0.0.1")).status, 403);
     assert.equal((await get(port, "/", `localhost:${port}`)).status, 200);
   }));
+
+test("repository acceptance and removal carry maximum-length remote identities", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "review-canvas-long-repository-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = join(directory, "repo");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  const address = "example.invalid/" + "x".repeat(8192 - "example.invalid/".length);
+  execFileSync("git", ["remote", "add", "origin", `https://${address}`], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  const id = repositoryId((await identifyRepository(Schema.decodeSync(WorktreeRoot)(root))).identity);
+  await withServer(async (port) => {
+    const origin = `http://127.0.0.1:${port}`;
+    for (const action of [{ kind: "accept", root, id }, { kind: "remove", id }]) {
+      const body = JSON.stringify(action);
+      assert.ok(Buffer.byteLength(body) > 8192);
+      const response = await fetch(`${origin}/repositories/actions`, {
+        method: "POST", headers: { origin, "content-type": "application/json" }, body,
+      });
+      assert.equal(response.status, 200, await response.text());
+      assert.match((await get(port, "/")).body, action.kind === "accept" ? /1 monitored/ : /0 monitored/);
+    }
+  }, [directory]);
+});
 
 test("the default HTTP port also accepts the bare loopback names browsers send", () => {
   assert.deepEqual([...loopbackHosts(80)].sort(), [
