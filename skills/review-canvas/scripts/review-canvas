@@ -33,20 +33,53 @@ if stale; then
     printf 'review-canvas: needs pnpm to install and build %s.\n' "$package" >&2
     exit 1
   fi
-  # One install at a time: a second command waits for the first.
+  # One install at a time: a second command waits for the first. The lock is a folder, which mkdir creates atomically,
+  # holding the owner's PID. A lock whose owner is gone, as after a killed setup, is stale and is broken. Breaking takes
+  # a second lock, so two waiters never both break one and remove the lock the next owner just took.
   lock="$package/.setup.lock"
-  for _ in $(seq 600); do
-    mkdir "$lock" 2>/dev/null && break
+  breaker="$lock.break"
+  # Whether the process that took the lock is gone. Without ps it cannot tell, and leaves the lock alone. ps cannot see
+  # a process in another PID namespace either, so a package folder shared across containers is not protected.
+  gone() {
+    command -v ps >/dev/null && ! ps -p "$1" >/dev/null 2>&1
+  }
+  release() {
+    if [[ "$(cat "$lock/pid" 2>/dev/null)" == "$$" ]]; then
+      rm -f "$lock/pid"
+      rmdir "$lock" 2>/dev/null || true
+    fi
+  }
+  # Test-only: how long to wait for another setup, in seconds.
+  limit="${REVIEW_CANVAS_SETUP_TIMEOUT:-300}"
+  waited=0
+  until mkdir "$lock" 2>/dev/null; do
+    owner="$(cat "$lock/pid" 2>/dev/null || true)"
+    # ps, not kill -0, which also fails for a live process of another user.
+    if [[ "$owner" =~ ^[0-9]+$ ]] && gone "$owner" && mkdir "$breaker" 2>/dev/null; then
+      if [[ "$(cat "$lock/pid" 2>/dev/null)" == "$owner" ]]; then
+        rm -f "$lock/pid"
+        rmdir "$lock" 2>/dev/null || true
+      fi
+      rmdir "$breaker"
+      continue
+    fi
+    if ((waited >= limit * 2)); then
+      printf 'review-canvas: another setup has held %s for %s seconds. If no other review-canvas command is installing, remove that folder (and %s, if present), then retry.\n' \
+        "$lock" "$limit" "$breaker" >&2
+      exit 1
+    fi
     sleep 0.5
+    waited=$((waited + 1))
   done
-  trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+  printf '%s\n' "$$" >"$lock/pid"
+  trap release EXIT
   if stale; then
     printf 'review-canvas: installing and building %s\n' "$package" >&2
     pnpm --dir "$package" install --frozen-lockfile >&2
     touch "$package/node_modules"
     pnpm --dir "$package" build >&2
   fi
-  rmdir "$lock" 2>/dev/null || true
+  release
   trap - EXIT
 fi
 

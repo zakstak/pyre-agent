@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.2.0"
+  version: "4.2.1"
 ---
 
 # Review canvas
@@ -32,7 +32,9 @@ RC=/path/to/this/skill/scripts/review-canvas
 
 It needs Node 26 and pnpm. On first use, and after an update, it installs and
 builds its package, which needs network access once; progress goes to stderr
-and the command's JSON to stdout. The package lives in
+and the command's JSON to stdout. One setup runs at a time: another command
+waits up to five minutes for it, then fails and names the lock folder. A
+failed command prints one line, `Error: message (kind)`, and exits 1. The package lives in
 [packages/review-canvas](../../packages/review-canvas/README.md) of the
 repository this skill ships in.
 

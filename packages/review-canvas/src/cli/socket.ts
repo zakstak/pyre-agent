@@ -26,6 +26,16 @@ export class ServerError extends Error {
   }
 }
 
+/** A request over the agent socket that failed before the server answered: no server, a dropped connection, or no answer in time. */
+export class SocketFailed extends Error {
+  readonly code: string | undefined;
+  constructor(cause: Error) {
+    super(cause.message, { cause });
+    const { code } = cause as NodeJS.ErrnoException;
+    this.code = code;
+  }
+}
+
 export const call = (
   method: "GET" | "POST",
   path: string,
@@ -67,7 +77,7 @@ export const call = (
     req.on("timeout", () =>
       req.destroy(new Error("The server did not answer in time.")),
     );
-    req.on("error", reject);
+    req.on("error", (error) => reject(new SocketFailed(error)));
     if (options.body !== undefined) req.write(options.body);
     req.end();
   });
