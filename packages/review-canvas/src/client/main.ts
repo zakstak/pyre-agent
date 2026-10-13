@@ -19,9 +19,16 @@ import {
   restoreGeneral,
   restoreReplyDrafts,
 } from "./comments.ts";
-import { LAYOUT_COOKIE } from "../review/layout.ts";
+import {
+  LAYOUT_COOKIE,
+  NARROW_HEADER,
+  NARROW_QUERY,
+} from "../review/layout.ts";
 import { retryDelay } from "./revisions.ts";
-import { applyHash, installTour } from "./tour.ts";
+import { applyHash, installTour, syncRail } from "./tour.ts";
+
+/** A page too narrow for two halves side by side, which shows the unified layout whatever the cookie says. */
+const narrow = matchMedia(NARROW_QUERY);
 
 const review = document.body.dataset.review;
 
@@ -114,7 +121,10 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   let text: string;
   try {
     const response = await fetch(location.pathname, {
-      headers: { accept: "text/html" },
+      headers: {
+        accept: "text/html",
+        ...(narrow.matches ? { [NARROW_HEADER]: "1" } : {}),
+      },
     });
     if (!response.ok) return "failed";
     text = await response.text();
@@ -189,6 +199,7 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
     heading.tabIndex = -1;
   localizeTimes();
   installThreadFilter();
+  syncRail();
   applyHash({ scroll: false });
   restoreComposers(drafts);
   restoreGeneral(general);
@@ -313,6 +324,13 @@ const installLive = () => {
  * keeps it.
  */
 const installLayout = () => {
+  // The server renders the cookie's layout; a narrow page asks again for the unified one, and a page that crosses the
+  // width asks for the layout that fits now.
+  const redraw = () => document.dispatchEvent(new CustomEvent("review:redraw"));
+  // After this script runs, once the live refresh listens for redraws.
+  if (narrow.matches && document.querySelector("table.diff.split") !== null)
+    queueMicrotask(redraw);
+  narrow.addEventListener("change", redraw);
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const toggle = target?.closest<HTMLElement>("[data-layout-toggle]");

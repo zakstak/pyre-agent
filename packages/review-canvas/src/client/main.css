@@ -14,8 +14,16 @@
     margin-inline: auto;
     padding: var(--space-5) var(--space-5) var(--space-7);
   }
-  .rail {
-    display: none;
+  /* Narrow: the rail is a disclosure above the tour, its summary the reviewer's place and the approvals. */
+  .rail-summary {
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-surface);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .rail-disclosure[open] > .rail-summary {
+    margin-block-end: var(--space-4);
   }
   @media (min-width: 64rem) {
     .layout {
@@ -23,13 +31,28 @@
       gap: var(--space-6);
     }
     .rail {
-      display: block;
       position: sticky;
       inset-block-start: 4.5rem;
       align-self: start;
       max-block-size: calc(100vh - 5.5rem);
       overflow-y: auto;
       padding-inline-end: var(--space-2);
+    }
+    /* Wide: always open, so the summary has nothing to do. The page script opens it too. */
+    .rail-summary {
+      display: none;
+    }
+  }
+  /* A touch screen has no J and K to press. */
+  @media (pointer: coarse) {
+    .keys-hint {
+      display: none;
+    }
+  }
+  /* Too narrow for two halves side by side: the page shows the unified layout, so the toggle does nothing. */
+  @media (width < 48rem) {
+    .layout-toggle {
+      display: none;
     }
   }
   .main {
