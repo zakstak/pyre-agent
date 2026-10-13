@@ -5,7 +5,7 @@ is `pyre-market`; this repository owns the plugin source.
 
 | Plugin               | Contents                                                          | Default  |
 | -------------------- | ----------------------------------------------------------------- | -------- |
-| `pyre-agent` 3.0.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
+| `pyre-agent` 3.1.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
 | `pyre-context` 1.0.0 | Zak's startup reference context                                   | Optional |
 
 The base contains no startup hook or personal context. The optional plugin
