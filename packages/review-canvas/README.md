@@ -47,6 +47,11 @@ command returns. A daemon from before this lifecycle protocol must be stopped
 manually once: the command refuses the upgrade and leaves its assets intact.
 Use `pnpm build` instead of invoking Vite directly to retain this coordination.
 
+`collect --pr URL --repo CLONE` collects a pull request from a local clone
+that holds its base and head commits. It reads the title, commits, and file list
+with `gh`, run outside the clone, and the patches and texts from the clone. It
+does not fetch; a missing commit fails with the `git fetch` command to run.
+
 Collection scans both patches and requested full-file content for recognized
 secret patterns. A match omits that file's content and reports its path;
 `--include-secret PATH` explicitly allows it, while `--no-content` collects only
@@ -57,7 +62,7 @@ patches. The detector does not recognize every possible secret format.
 | Folder          | What                                                                                     |
 | --------------- | ---------------------------------------------------------------------------------------- |
 | `src/schema`    | The input, tour, feedback, and GitHub import formats as Effect Schema, with their limits |
-| `src/collector` | The working tree collector and fingerprints                                              |
+| `src/collector` | The working tree and commit range collectors, and fingerprints                           |
 | `src/review`    | Pure review logic: patch rows, anchors, the tour view, every action, and imports         |
 | `src/store`     | SQLite through `node:sqlite`: reviews, rounds, threads, revisions, change listeners      |
 | `src/server`    | The page routes, the agent API, server-sent events, page rendering, and lifecycle        |

@@ -9,12 +9,12 @@ import {
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import type { Collected, Worktree } from "./collect.ts";
+import type { Worktree } from "./collect.ts";
 import { CollectError, type GitError } from "./errors.ts";
 import { absolute, isSystemError, isWithin, resolveLoose } from "./paths.ts";
 import * as Result from "effect/Result";
-import { encodeDocument, WorktreeInputDocument } from "../schema/document.ts";
-import type { WorktreeInput } from "../schema/input.ts";
+import { encodeDocument, InputDocument } from "../schema/document.ts";
+import type { ReviewInput } from "../schema/input.ts";
 
 /** An output path that passed checkOutput, with its folders resolved once so the check and the write agree. */
 export type Output = string & { readonly __brand: "Output" };
@@ -54,8 +54,8 @@ export const checkOutput = (worktree: Worktree, output: string): Output => {
  * Replaces output in one step with a private 0600 file, so no reader sees a partial snapshot. The document is written
  * in its format's one spelling, within its byte limit.
  */
-export const writeOutput = (output: Output, review: WorktreeInput) => {
-  const encoded = encodeDocument(WorktreeInputDocument, review);
+export const writeOutput = (output: Output, review: ReviewInput) => {
+  const encoded = encodeDocument(InputDocument, review);
   if (Result.isFailure(encoded))
     throw new CollectError({ message: encoded.failure.message });
   const temp = join(
@@ -127,7 +127,12 @@ export const report = ({
   collected,
 }: {
   readonly output: string;
-  readonly collected: Collected;
+  readonly collected: {
+    readonly review: ReviewInput;
+    readonly flagged: ReadonlyArray<string>;
+    /** Working tree paths whose staged version differs; a pull request has none. */
+    readonly staged?: ReadonlyArray<string>;
+  };
 }): ReadonlyArray<string> => {
   const notes = collected.review.files.map((file) => file.patch_note);
   const count = (note: string) =>
@@ -137,7 +142,7 @@ export const report = ({
     ...collected.flagged.map(
       (path) => `Likely secret, contents left out: ${shown(path)}`,
     ),
-    ...collected.staged.map(
+    ...(collected.staged ?? []).map(
       (path) =>
         `Staged version differs from the reviewed file, so a commit would record unreviewed content: ${shown(path)}`,
     ),

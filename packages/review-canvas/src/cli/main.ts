@@ -32,6 +32,8 @@ import type { Target } from "../schema/target.ts";
 import { HOSTS } from "../schema/thread.ts";
 import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
 import { findPullRequest, GhFailed, readComments, runGh } from "./github.ts";
+import { collectPullRequest } from "./pull-request.ts";
+import { PullRequestUrl } from "../schema/primitives.ts";
 import { call, ensureServer, expectOk, ServerError } from "./socket.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
@@ -40,6 +42,8 @@ Commands
   serve                                   Run the server in the foreground (agents start it on demand).
   collect  --repo DIR --output FILE       Snapshot a working tree's uncommitted changes as review input.
            [--title TEXT] [--include-secret PATH]... [--no-content]
+           [--pr URL]                     With --pr, snapshot that pull request instead, from the clone in --repo,
+                                          which must hold its base and head commits. Reads GitHub with gh.
   fingerprints --repo DIR --base SHA      Print each changed file's fingerprint between two commits, for the
            --head SHA                     files of a pull request's input.
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
@@ -204,6 +208,12 @@ const withAnalysis = (
   };
 };
 
+/** Text files the page cannot open unchanged lines for: their text did not fit, or was left out. */
+const withoutContent = (review: ReviewInput) =>
+  review.files
+    .filter((file) => file.patch !== undefined && file.new_content === undefined)
+    .map((file) => file.path);
+
 const commands: Record<string, (args: Array<string>) => Promise<void>> = {
   async serve() {
     const { run } = await import("../server/main.ts");
@@ -215,6 +225,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       args,
       options: {
         repo: { type: "string" },
+        pr: { type: "string" },
         output: { type: "string" },
         title: { type: "string" },
         "include-secret": { type: "string", multiple: true },
@@ -223,16 +234,52 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
     });
     const repo = need(values.repo, "collect needs --repo DIR");
     const outputPath = need(values.output, "collect needs --output FILE");
+    const options = {
+      ...(values.title === undefined ? {} : { title: values.title }),
+      includeSecret: values["include-secret"] ?? [],
+      withContent: !values["no-content"],
+    };
+    let pullRequest: PullRequestUrl | undefined;
+    if (values.pr !== undefined) {
+      const url = Schema.decodeUnknownResult(PullRequestUrl)(values.pr);
+      if (Result.isFailure(url))
+        return fail(
+          `--pr takes a pull request URL, https://github.com/OWNER/REPO/pull/NUMBER`,
+        );
+      pullRequest = url.success;
+    }
     try {
       const worktree = openWorktree({ repo });
       const output = checkOutput(worktree, outputPath);
+      if (pullRequest !== undefined) {
+        const collected = collectPullRequest(
+          worktree,
+          pullRequest,
+          runGh,
+          options,
+        );
+        mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
+        writeOutput(output, collected.review);
+        for (const line of report({ output: outputPath, collected }))
+          process.stderr.write(`${line}\n`);
+        print({
+          ok: true,
+          output: outputPath,
+          files: collected.review.files.length,
+          files_complete: collected.review.files_complete,
+          flagged: collected.flagged,
+          without_content: withoutContent(collected.review),
+          inventory_mismatch: collected.mismatch ?? null,
+          head_moved: collected.headMoved,
+          base_ref: collected.baseRef,
+          merge_base: collected.mergeBase,
+          target: collected.review.target,
+        });
+        return;
+      }
       // The session folder holds the thread's token later, so it is private.
       mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
-      const collected = collect(worktree, {
-        ...(values.title === undefined ? {} : { title: values.title }),
-        includeSecret: values["include-secret"] ?? [],
-        withContent: !values["no-content"],
-      });
+      const collected = collect(worktree, options);
       writeOutput(output, collected.review);
       for (const line of report({ output: outputPath, collected }))
         process.stderr.write(`${line}\n`);
@@ -242,12 +289,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         files: collected.review.files.length,
         flagged: collected.flagged,
         staged: collected.staged,
-        // Text files the page cannot open unchanged lines for: their text did not fit, or was left out.
-        without_content: collected.review.files
-          .filter(
-            (file) => file.patch !== undefined && file.new_content === undefined,
-          )
-          .map((file) => file.path),
+        without_content: withoutContent(collected.review),
         target: collected.review.target,
       });
     } catch (error) {
