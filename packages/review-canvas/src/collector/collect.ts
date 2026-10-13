@@ -1423,7 +1423,13 @@ const build = (
         file.deletions = lines.filter((text) => text.startsWith("-")).length;
       const lineCount = lines.length - (patch.endsWith("\n") ? 1 : 0);
       const size = Buffer.byteLength(JSON.stringify(patch));
-      if (!include.has(path) && SECRET_TEXT.test(patch)) {
+      const cleaned =
+        withContent && found.next != null ? cleanText(found.next) : undefined;
+      if (
+        !include.has(path) &&
+        (SECRET_TEXT.test(patch) ||
+          (cleaned !== undefined && SECRET_TEXT.test(cleaned.text)))
+      ) {
         note = "secret";
       } else if (
         patch.length > limits.patchUnits ||
@@ -1439,8 +1445,7 @@ const build = (
         file.patch_complete = true;
         note = replaced ? "replaced_characters" : null;
         // A text with replaced characters would no longer match the file, so it is left out.
-        if (withContent && !replaced && found.next != null) {
-          const cleaned = cleanText(found.next);
+        if (!replaced && cleaned !== undefined) {
           if (
             !cleaned.replaced &&
             cleaned.text.length <= MAX_CONTENT_UNITS &&

@@ -2,7 +2,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Config, Data, Effect, Layer } from "effect";
+import { Config, Data, Deferred, Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { chmodSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -14,6 +14,8 @@ import { App } from "./app.ts";
 import * as Assets from "./assets.ts";
 import { databasePath, idleMinutes, runtimeDir, socketPath } from "./paths.ts";
 import { checkSocket, secureRuntimeDir, StartLock } from "./runtime.ts";
+import { acquireOperationLock } from "./operation.ts";
+import { Lifecycle, LifecycleApi, lifecycleLayer } from "./lifecycle.ts";
 import {
   Activity,
   activityLayer,
@@ -101,13 +103,15 @@ const claimSocket = Effect.gen(function* () {
 const PageServer = NodeHttpServer.layerConfig(createServer, {
   host: Config.succeed("127.0.0.1"),
   port: Config.Port("REVIEW_CANVAS_PORT").pipe(Config.withDefault(0)),
+  gracefulShutdownTimeout: Config.succeed("1 second"),
 });
 
 const AgentServer = Layer.unwrap(
   Effect.map(claimSocket, (path) =>
-    NodeHttpServer.layer(createServer, { path }).pipe(
-      Layer.tap(() => Effect.sync(() => chmodSync(path, 0o600))),
-    ),
+    NodeHttpServer.layer(createServer, {
+      path,
+      gracefulShutdownTimeout: "1 second",
+    }).pipe(Layer.tap(() => Effect.sync(() => chmodSync(path, 0o600)))),
   ),
 );
 
@@ -140,7 +144,7 @@ const pageAddress = Layer.effect(
   })),
 );
 
-const Agents = HttpRouter.serve(AgentApi, {
+const Agents = HttpRouter.serve(Layer.mergeAll(AgentApi, LifecycleApi), {
   disableLogger: true,
   disableListenLog: true,
 }).pipe(Layer.provide(AgentServer));
@@ -153,6 +157,7 @@ export const Main = Layer.mergeAll(
   Layer.provide(Assets.layerFromBuild(clientDir)),
   Layer.provide(storeLayer(databasePath())),
   Layer.provideMerge(activityLayer),
+  Layer.provideMerge(lifecycleLayer),
   Layer.provide(NodeServices.layer),
 );
 
@@ -161,8 +166,39 @@ export const run = () =>
   NodeRuntime.runMain(
     Effect.scoped(
       Effect.gen(function* () {
-        const context = yield* Layer.build(Main);
-        yield* idleWatcher.pipe(Effect.provide(context));
+        // ensureServer holds the command lock until its child answers. Foreground starts take it themselves.
+        const startup =
+          process.argv[2] === "--coordinated-start"
+            ? undefined
+            : yield* Effect.promise(acquireOperationLock);
+        if (startup !== undefined)
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => startup.release()),
+          );
+        // This outer lock is released only after the inner scope closes both listeners and the store.
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const lock = StartLock.try(runtimeDir(), "lifetime.lock");
+            if (lock === undefined)
+              throw new SocketInUse({ path: socketPath() });
+            return lock;
+          }),
+          (lock) => Effect.sync(() => lock.release()),
+        );
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const context = yield* Layer.build(Main);
+            startup?.release();
+            yield* Effect.raceFirst(
+              idleWatcher,
+              Effect.flatMap(Lifecycle, ({ stopped }) =>
+                Deferred.await(stopped),
+              ),
+            ).pipe(Effect.provide(context));
+            // Flush the lifecycle response before closing the listeners.
+            yield* Effect.sleep("100 millis");
+          }),
+        );
       }),
     ),
   );

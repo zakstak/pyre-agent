@@ -8,7 +8,7 @@
     "node": ">=26"
   },
   "scripts": {
-    "build": "vite build && vite build -c vite.node.config.ts",
+    "build": "node src/cli/build.ts",
     "start": "node src/server/main.ts",
     "test": "node --test 'src/**/*.test.ts'",
     "typecheck": "tsc-rs -p tsconfig.json",

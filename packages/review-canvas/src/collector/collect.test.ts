@@ -27,6 +27,7 @@ import {
 } from "../schema/document.ts";
 import type { WorktreeInput } from "../schema/input.ts";
 import { accepted } from "../schema/testing.ts";
+import { Store } from "../store/store.ts";
 
 /** Reads written input back through the strict decoder, as the server will. */
 const readReview = (path: string): WorktreeInput =>
@@ -686,6 +687,60 @@ describe("Schema", () => {
 });
 
 describe("ContentTests", () => {
+  for (const [name, secret] of [
+    ["private key", PRIVATE_KEY],
+    ["token", GITHUB_TOKEN],
+  ] as const) {
+    test(`unchanged ${name} outside the patch is absent from serialized content`, (t) => {
+      const f = new Fixture(t);
+      const padding = Array.from(
+        { length: 20 },
+        (_, at) => `line ${at}\n`,
+      ).join("");
+      const before = `${secret}\n${padding}old\n`;
+      const after = `${secret}\n${padding}new\n`;
+      f.commit({ "config.txt": before });
+      f.write("config.txt", after);
+      const files = f.collect({ withContent: true });
+      assert.equal(files["config.txt"]?.patch, undefined);
+      assert.equal(files["config.txt"]?.patch_note, "secret");
+      assert.equal(files["config.txt"]?.new_content, undefined);
+      assert.deepEqual(f.flagged, ["config.txt"]);
+      assert.ok(f.review !== undefined);
+      const encoded = encodeDocument(WorktreeInputDocument, f.review);
+      assert.equal(encoded._tag, "Success");
+      if (encoded._tag === "Success")
+        assert.ok(!Buffer.from(encoded.success).includes(secret));
+      const database = join(f.base, "reviews.sqlite");
+      const store = Store.open(database);
+      try {
+        const registered = store.register({
+          target: f.review.target,
+          label: "Synthetic secret fixture",
+          host: { kind: "codex" },
+        });
+        store.publish(
+          registered.review.state.id,
+          registered.thread.id,
+          f.review,
+        );
+      } finally {
+        store.close();
+      }
+      assert.ok(!readFileSync(database).includes(secret));
+      // An explicit allow applies to both patch and full content.
+      assert.equal(
+        f.collect({ withContent: true, includeSecret: ["config.txt"] })[
+          "config.txt"
+        ]?.new_content,
+        after,
+      );
+      assert.deepEqual(f.flagged, []);
+      assert.equal(f.collect()["config.txt"]?.new_content, undefined);
+      assert.ok(f.collect()["config.txt"]?.patch?.includes("+new"));
+    });
+  }
+
   // New with the server: the file's whole text, so the page can show unchanged lines around its patch.
   test("a changed text file carries its new text, which matches its patch", (t) => {
     const f = new Fixture(t);

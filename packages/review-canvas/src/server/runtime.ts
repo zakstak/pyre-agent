@@ -60,8 +60,8 @@ export class StartLock {
   }
 
   /** Takes the lock, or returns undefined when another server holds it. */
-  static try(dir: string): StartLock | undefined {
-    const db = new DatabaseSync(join(dir, "server.lock"), { timeout: 0 });
+  static try(dir: string, file = "server.lock"): StartLock | undefined {
+    const db = new DatabaseSync(join(dir, file), { timeout: 0 });
     try {
       // The lock holds no data, so its journal stays in memory instead of beside it.
       db.exec("PRAGMA journal_mode = MEMORY");
