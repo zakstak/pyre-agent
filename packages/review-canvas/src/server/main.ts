@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { AgentApi } from "./agent.ts";
 import { clientDir as installedClientDir } from "./install.ts";
 import { App } from "./app.ts";
+import { repositoryRoots } from "./repositories.ts";
 import * as Assets from "./assets.ts";
 import {
   databasePath,
@@ -132,10 +133,10 @@ const pageServerOn = (port: number) =>
 const PageServer = Layer.unwrap(
   Effect.gen(function* () {
     const explicit = yield* Config.option(Config.Port("REVIEW_CANVAS_PORT"));
-    if (explicit._tag === "Some") return pageServerOn(explicit.value);
     const remembered = rememberedPort();
-    const listening =
-      remembered === undefined
+    const listening = explicit._tag === "Some"
+      ? pageServerOn(explicit.value)
+      : remembered === undefined
         ? pageServerOn(0)
         : pageServerOn(remembered).pipe(
             Layer.catchTag("ServeError", () => pageServerOn(0)),
@@ -175,7 +176,7 @@ const idleWatcher = Effect.gen(function* () {
   }
 });
 
-const Pages = HttpRouter.serve(App({ clientDir }), {
+const Pages = HttpRouter.serve(App({ clientDir, repositoryRoots: repositoryRoots() }), {
   disableLogger: true,
 }).pipe(Layer.provideMerge(PageServer));
 

@@ -3,6 +3,9 @@
  * transaction that raises the review's revision, and no state is written that the feedback schema would refuse.
  */
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+import { WorktreeRoot } from "../schema/primitives.ts";
+import { Repository, RepositoryId, repositoryId } from "../schema/repositories.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -68,10 +71,20 @@ import type { GitHubItem } from "../schema/github.ts";
 import { pullRequestKey } from "../schema/target.ts";
 
 /**
- * The database layout. Version 1 keyed threads by ID alone and was never released; a version 1 database is refused
- * with the other unknown versions.
+ * Version 4 monitors repository identities rather than checkout paths. Versions 2 and 3 upgrade in place; version 1
+ * was never released, so it is refused with other unknown versions.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
+
+const REPOSITORIES_SCHEMA = `
+CREATE TABLE monitored_repositories (
+  id TEXT PRIMARY KEY,
+  repository TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE pending_repository_migrations (
+  root TEXT PRIMARY KEY
+) WITHOUT ROWID;
+`;
 
 const SCHEMA = `
 CREATE TABLE reviews (
@@ -299,6 +312,16 @@ export class Store {
     };
     if (row.user_version === 0) {
       db.exec(SCHEMA);
+      db.exec(REPOSITORIES_SCHEMA);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      db.exec("COMMIT");
+    } else if (row.user_version === 2) {
+      db.exec(REPOSITORIES_SCHEMA);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      db.exec("COMMIT");
+    } else if (row.user_version === 3) {
+      db.exec("ALTER TABLE monitored_repositories RENAME TO pending_repository_migrations");
+      db.exec("CREATE TABLE monitored_repositories (id TEXT PRIMARY KEY, repository TEXT NOT NULL) WITHOUT ROWID");
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } else if (row.user_version === SCHEMA_VERSION) {
@@ -315,6 +338,50 @@ export class Store {
 
   close(): void {
     this.#db.close();
+  }
+
+  /** Only an explicit acceptance adds a repository; reviews and scans never do. */
+  monitoredRepositories(): ReadonlyArray<Repository> {
+    return this.#db.prepare("SELECT repository FROM monitored_repositories ORDER BY id").all()
+      .map((row) => {
+        if (typeof row.repository !== "string") throw new Error("Invalid stored repository.");
+        const decoded: unknown = JSON.parse(row.repository);
+        return Schema.decodeUnknownSync(Repository)(decoded);
+      });
+  }
+
+  monitorRepository(repository: Repository): void {
+    this.#db.prepare("INSERT INTO monitored_repositories (id, repository) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET repository = excluded.repository")
+      .run(repositoryId(repository.identity), JSON.stringify(repository));
+  }
+
+  /** A scan can refresh copies of an accepted repo, but cannot enroll a new repository identity. */
+  refreshMonitoredRepository(repository: Repository): void {
+    this.#db.prepare("UPDATE monitored_repositories SET repository = ? WHERE id = ?")
+      .run(JSON.stringify(repository), repositoryId(repository.identity));
+  }
+
+  unmonitorRepository(id: RepositoryId): void {
+    this.#db.prepare("DELETE FROM monitored_repositories WHERE id = ?").run(id);
+  }
+
+  pendingRepositoryMigrations(): ReadonlyArray<WorktreeRoot> {
+    return this.#db.prepare("SELECT root FROM pending_repository_migrations ORDER BY root").all()
+      .map((row) => Schema.decodeUnknownSync(WorktreeRoot)(row.root));
+  }
+
+  migrateAcceptedCheckout(root: WorktreeRoot, repository: Repository): void {
+    this.#transaction(() => {
+      this.monitorRepository(repository);
+      this.#db.prepare("DELETE FROM pending_repository_migrations WHERE root = ?").run(root);
+    });
+  }
+
+  resolveMigratedRepository(id: RepositoryId, repository: Repository): void {
+    this.#transaction(() => {
+      const removed = this.#db.prepare("DELETE FROM monitored_repositories WHERE id = ?").run(id);
+      if (removed.changes > 0) this.monitorRepository(repository);
+    });
   }
 
   subscribe(listener: ChangeListener): () => void {

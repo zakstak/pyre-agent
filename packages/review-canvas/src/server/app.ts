@@ -22,8 +22,10 @@ import {
 } from "./json.ts";
 import { homePage } from "./pages/home.ts";
 import { reviewPage, waitingPage } from "./pages/review.ts";
-import { MAX_REQUEST_BYTES, PageActionRequest } from "./requests.ts";
+import { MAX_REQUEST_BYTES, PageActionRequest, RepositoryActionRequest } from "./requests.ts";
 import { Activity, ReviewStore } from "./services.ts";
+import { checkoutStatus, discoverRepositories, groupRepositories, identifyRepository, mapCheckouts } from "./repositories.ts";
+import { repositoryId } from "../schema/repositories.ts";
 
 const securityHeaders = {
   "content-security-policy":
@@ -104,13 +106,54 @@ const htmlResponse = (body: { readonly value: string }) =>
     headers: { "cache-control": "no-store" },
   });
 
-const Home = HttpRouter.add(
+const Home = (roots: ReadonlyArray<string>) => HttpRouter.add(
   "GET",
   "/",
   Effect.gen(function* () {
     const assets = yield* Assets;
     const store = yield* ReviewStore;
-    return htmlResponse(homePage(assets, store.reviews()));
+    const activity = yield* Activity;
+    activity.touch();
+    const params = yield* HttpServerRequest.ParsedSearchParams;
+    const selectedRoot = typeof params.root === "string" ? params.root : "";
+    const discovery = yield* Effect.promise(() => discoverRepositories(selectedRoot === "" ? roots : [selectedRoot]));
+    // Preserve earlier explicit checkout acceptances, including paths that are currently missing.
+    for (const root of store.pendingRepositoryMigrations()) {
+      const identified = yield* Effect.promise(async () => {
+        try { return await identifyRepository(root); }
+        catch { return { identity: { kind: "unresolved" as const, root }, checkouts: [root] as const }; }
+      });
+      const merged = groupRepositories([...store.monitoredRepositories(), identified]);
+      const repository = merged.find((item) => repositoryId(item.identity) === repositoryId(identified.identity));
+      if (repository !== undefined) store.migrateAcceptedCheckout(root, repository);
+    }
+    for (const saved of store.monitoredRepositories()) {
+      if (saved.identity.kind !== "unresolved") continue;
+      const root = saved.identity.root;
+      const resolved = yield* Effect.promise(async () => {
+        try { return await identifyRepository(root); } catch { return undefined; }
+      });
+      if (resolved !== undefined) {
+        const group = groupRepositories([...store.monitoredRepositories(), resolved])
+          .find((item) => repositoryId(item.identity) === repositoryId(resolved.identity));
+        if (group !== undefined) store.resolveMigratedRepository(repositoryId(saved.identity), group);
+      }
+    }
+    const accepted = store.monitoredRepositories();
+    const groups = groupRepositories([...accepted, ...discovery.repositories]);
+    const monitored = groups.filter((repository) => accepted.some((item) => repositoryId(item.identity) === repositoryId(repository.identity)));
+    // UPDATE rather than INSERT keeps discovery incapable of accepting a new repository.
+    for (const repository of monitored) store.refreshMonitoredRepository(repository);
+    const flat = monitored.flatMap((repository) => repository.checkouts.map((root) => ({ root, repository })));
+    const statuses = yield* Effect.promise(() => mapCheckouts(flat, async ({ root, repository }) => ({
+      id: repositoryId(repository.identity), root, status: await checkoutStatus(root, repository.identity),
+    })));
+    return htmlResponse(homePage(assets, store.reviews(), {
+      discovery, monitored: monitored.map((repository) => ({ repository,
+        checkouts: statuses.filter((item) => item.id === repositoryId(repository.identity)) })), selectedRoot,
+      query: typeof params.q === "string" ? params.q : "",
+      filter: typeof params.filter === "string" ? params.filter : "all",
+    }));
   }),
 );
 
@@ -174,11 +217,9 @@ const Export = HttpRouter.add(
 );
 
 /**
- * The review a page change names, after the checks every page change passes: the Origin must be this server's, so
- * no other site can act through the reviewer's browser, and the review must exist. A change counts as activity.
+ * Every page mutation must come from this server's own Origin. An authorized request counts as activity.
  */
-const pageChange = Effect.gen(function* () {
-  const store = yield* ReviewStore;
+const pageOrigin = Effect.gen(function* () {
   const activity = yield* Activity;
   const { address } = yield* HttpServer.HttpServer;
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -194,12 +235,37 @@ const pageChange = Effect.gen(function* () {
         "The request did not come from this page.",
       ),
     );
+  activity.touch();
+});
+
+const RepositoryActions = HttpRouter.add("POST", "/repositories/actions",
+  Effect.gen(function* () {
+    yield* pageOrigin;
+    const store = yield* ReviewStore;
+    const body = yield* readJson(RepositoryActionRequest, 8_192);
+    if (body.kind === "remove") store.unmonitorRepository(body.id);
+    else {
+      const repository = yield* Effect.tryPromise({
+        try: () => identifyRepository(body.root),
+        catch: () => new RequestRefused(400, "repository", "Choose an existing, readable Git working tree root."),
+      });
+      if (repositoryId(repository.identity) !== body.id)
+        return yield* Effect.fail(new RequestRefused(409, "identity", "This checkout's repository identity changed. Scan again."));
+      const group = groupRepositories([...store.monitoredRepositories(), repository])
+        .find((item) => repositoryId(item.identity) === body.id);
+      if (group !== undefined) store.monitorRepository(group);
+    }
+    return ok({ ok: true });
+  }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))));
+
+const pageChange = Effect.gen(function* () {
+  yield* pageOrigin;
+  const store = yield* ReviewStore;
   const { id } = yield* HttpRouter.params;
   if (id === undefined || store.review(id) === undefined)
     return yield* Effect.fail(
       new RequestRefused(404, "not_found", `No review ${id ?? ""}.`),
     );
-  activity.touch();
   return { store, id };
 });
 
@@ -284,9 +350,10 @@ const Events = HttpRouter.add(
 );
 
 /** The page routes, the built browser assets under /assets, and the guard. */
-export const App = (options: { readonly clientDir: string }) =>
+export const App = (options: { readonly clientDir: string; readonly repositoryRoots?: ReadonlyArray<string> }) =>
   Layer.mergeAll(
-    Home,
+    Home(options.repositoryRoots ?? []),
+    RepositoryActions,
     Review,
     Export,
     Actions,

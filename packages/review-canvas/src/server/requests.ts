@@ -13,9 +13,11 @@ import {
   Revision,
   RoundNumber,
   text,
+  WorktreeRoot,
 } from "../schema/primitives.ts";
 import { Target } from "../schema/target.ts";
 import { ThreadHost } from "../schema/thread.ts";
+import { RepositoryId } from "../schema/repositories.ts";
 
 const Row = integer(0, Limits.MAX_ROW);
 const Body = text(Limits.MAX_TEXT_UNITS);
@@ -78,6 +80,12 @@ export const PageActionRequest = Schema.Struct({
   revision: Schema.optionalKey(Revision),
 });
 export type PageActionRequest = typeof PageActionRequest.Type;
+
+/** Discovery and review registration never imply acceptance. */
+export const RepositoryActionRequest = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("accept"), root: WorktreeRoot, id: RepositoryId }),
+  Schema.Struct({ kind: Schema.Literal("remove"), id: RepositoryId }),
+]);
 
 export const RegisterRequest = Schema.Struct({
   target: Target,

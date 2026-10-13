@@ -91,10 +91,10 @@ const fixture = (t: TestContext) => {
     node,
     helper,
     identity,
-    start: async () => {
+    start: async (port?: number) => {
       server = spawn(process.execPath, ["src/server/main.ts"], {
         cwd: pkg,
-        env,
+        env: port === undefined ? env : { ...env, REVIEW_CANVAS_PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
       });
       server.stderr?.on("data", (chunk) => {
@@ -162,8 +162,8 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
   writeFileSync(
     home,
     readFileSync(home, "utf8").replace(
-      "<h1>Reviews</h1>",
-      "<h1>Upgraded reviews</h1>",
+      ">Reviews</h2>",
+      ">Upgraded reviews</h2>",
     ),
   );
   await f.node(["src/cli/build.ts"]);
@@ -316,8 +316,14 @@ lock.release();`);
   assert.equal((await f.identity()).ok, true);
 });
 
-test("a restarted server returns on its last port, or on another one that session.json follows", async (t) => {
+test("a restarted server remembers an explicit port, or follows a new port when the old one is busy", async (t) => {
   const f = fixture(t);
+  const reservation = createServer();
+  await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  const address = reservation.address();
+  assert.ok(address !== null && typeof address === "object");
+  await new Promise<void>((resolve) => reservation.close(() => resolve()));
+  await f.start(address.port);
   const sessionDir = join(f.dir, "session");
   const cli = async (...args: Array<string>) =>
     JSON.parse((await f.node(["src/cli/main.ts", ...args])).stdout);
@@ -337,6 +343,7 @@ test("a restarted server returns on its last port, or on another one that sessio
     "Restart fixture",
   );
   const port = Number(new URL(registered.url).port);
+  assert.equal(Number(readFileSync(join(f.env.REVIEW_CANVAS_RUNTIME, "port"), "utf8")), port);
 
   await stop();
   const same = await cli("status", "--session", sessionDir);

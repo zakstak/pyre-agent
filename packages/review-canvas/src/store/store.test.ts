@@ -4,6 +4,10 @@ import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { Schema } from "effect";
+import { WorktreeRoot } from "../schema/primitives.ts";
+import { Repository, repositoryId } from "../schema/repositories.ts";
 import {
   decodeBytes,
   encodeDocument,
@@ -382,6 +386,61 @@ test("the database file and its folder are private", () => {
   assert.equal(statSync(path).mode & 0o777, 0o600);
   // Opening again reads the same schema version.
   Store.open(path).close();
+});
+
+test("monitoring requires acceptance, persists across restarts, and removal preserves reviews", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-monitoring-")), "reviews.sqlite");
+  const repository = Schema.decodeSync(Repository)({ identity: { kind: "remote", address: "github.com/owner/project" }, checkouts: ["/tmp/project"] });
+  let store = Store.open(path);
+  const first = input();
+  store.register({ target: first.target, label: "Thread", host });
+  assert.deepEqual(store.monitoredRepositories(), []);
+  store.refreshMonitoredRepository(repository);
+  assert.deepEqual(store.monitoredRepositories(), []);
+  store.resolveMigratedRepository(repositoryId(repository.identity), repository);
+  assert.deepEqual(store.monitoredRepositories(), []);
+  store.monitorRepository(repository);
+  store.monitorRepository(repository);
+  store.close();
+  store = Store.open(path);
+  assert.deepEqual(store.monitoredRepositories(), [repository]);
+  store.unmonitorRepository(repositoryId(repository.identity));
+  assert.deepEqual(store.monitoredRepositories(), []);
+  assert.equal(store.reviews().length, 1);
+  store.close();
+});
+
+test("version 2 databases upgrade with reviews and rounds intact and no automatic monitoring", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-migration-")), "reviews.sqlite");
+  const store = Store.open(path);
+  const first = input();
+  const registered = store.register({ target: first.target, label: "Thread", host });
+  store.publish(registered.review.state.id, registered.thread.id, first);
+  const before = store.review(registered.review.state.id);
+  store.close();
+  const old = new DatabaseSync(path);
+  old.exec("DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; PRAGMA user_version = 2;");
+  old.close();
+  const upgraded = Store.open(path);
+  assert.deepEqual(upgraded.review(registered.review.state.id), before);
+  assert.deepEqual(upgraded.monitoredRepositories(), []);
+  upgraded.close();
+});
+
+test("version 3 acceptance paths migrate to repository identities without discarding accepted copies", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-v3-migration-")), "reviews.sqlite");
+  Store.open(path).close();
+  const old = new DatabaseSync(path);
+  old.exec("DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; CREATE TABLE monitored_repositories (root TEXT PRIMARY KEY) WITHOUT ROWID; INSERT INTO monitored_repositories VALUES ('/tmp/project'); PRAGMA user_version = 3;");
+  old.close();
+  const upgraded = Store.open(path);
+  const root = Schema.decodeSync(WorktreeRoot)("/tmp/project");
+  assert.deepEqual(upgraded.pendingRepositoryMigrations(), [root]);
+  const repository = Schema.decodeSync(Repository)({ identity: { kind: "remote", address: "github.com/owner/project" }, checkouts: [root] });
+  upgraded.migrateAcceptedCheckout(root, repository);
+  assert.deepEqual(upgraded.pendingRepositoryMigrations(), []);
+  assert.deepEqual(upgraded.monitoredRepositories(), [repository]);
+  upgraded.close();
 });
 
 test("a review refuses a thread past the limit, and a refused registration changes nothing", () => {
