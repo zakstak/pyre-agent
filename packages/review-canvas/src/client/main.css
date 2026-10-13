@@ -680,6 +680,23 @@
     border-color: var(--status-danger);
   }
 
+  /* Lost connection: stays until the event stream opens again. */
+  .connection-lost {
+    position: fixed;
+    inset-block-start: var(--space-3);
+    inset-inline-start: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    max-width: min(40rem, calc(100vw - 2rem));
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-raised);
+    border: 1px solid var(--status-danger);
+    border-radius: var(--radius);
+  }
+  .connection-lost:empty {
+    display: none;
+  }
+
   /* Anything the page scrolls to lands below the sticky app bar. */
   .stop,
   .file,

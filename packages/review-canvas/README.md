@@ -33,7 +33,8 @@ Nothing is published to npm.
 
 The first command that needs the server starts it in the background;
 `pnpm start` runs it in the foreground instead. `REVIEW_CANVAS_PORT` sets the
-page port; without it, the system picks a free one. `REVIEW_CANVAS_DATA` and
+page port; without it, the server asks for the port the last server used, so
+open pages reconnect, and takes a free one when that port is busy. `REVIEW_CANVAS_DATA` and
 `REVIEW_CANVAS_RUNTIME` move the database and the socket, which is how the
 tests and a demo stay out of the real data. GitHub comments are read with `gh`
 when it is installed and signed in.

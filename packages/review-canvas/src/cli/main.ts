@@ -126,14 +126,25 @@ const readInput = (file: string | undefined) => {
   return { bytes, input: decoded.success };
 };
 
-const status = async (current: Session) =>
-  (
+/** Keeps session.json's URL the server's: a server that restarted can listen on another port. */
+const keepUrl = (folder: string, current: Session, url: string): Session => {
+  if (current.url === url) return current;
+  const updated = { ...current, url };
+  saveSession(folder, updated);
+  return updated;
+};
+
+const status = async (folder: string, current: Session) => {
+  const latest = (
     await expectOk<{ ok: true; status: Status }>(
       await call("GET", `/agent/reviews/${current.review}`, {
         token: current.token,
       }),
     )
   ).status;
+  keepUrl(folder, current, latest.url);
+  return latest;
+};
 
 /**
  * Imports the comments of the target's pull request, or of the open pull request of the working tree's branch. Without
@@ -408,7 +419,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       });
       return;
     }
-    const current = session(values.session);
+    const folder = sessionFolder(values.session);
+    const current = session(folder);
     const bytes = encoded.success;
     const reply = await expectOk<{
       ok: true;
@@ -423,6 +435,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         timeoutMs: 120_000,
       }),
     );
+    keepUrl(folder, current, reply.url);
     print({
       ok: true,
       round: reply.round.round,
@@ -440,8 +453,9 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       args,
       options: { session: { type: "string" } },
     });
-    const current = session(values.session);
-    const latest = await status(current);
+    const folder = sessionFolder(values.session);
+    const current = session(folder);
+    const latest = await status(folder, current);
     const target = latest.feedback?.target;
     if (target === undefined)
       return fail("the review has no round yet; publish one first");
@@ -457,8 +471,9 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       args,
       options: { session: { type: "string" }, head: { type: "string" } },
     });
-    const current = session(values.session);
-    const latest = await status(current);
+    const folder = sessionFolder(values.session);
+    const current = session(folder);
+    const latest = await status(folder, current);
     const target = latest.feedback?.target;
     if (target === undefined)
       return fail("the review has no round yet; publish one first");
@@ -524,7 +539,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       args,
       options: { session: { type: "string" } },
     });
-    print({ ok: true, status: await status(session(values.session)) });
+    const folder = sessionFolder(values.session);
+    print({ ok: true, status: await status(folder, session(folder)) });
   },
 
   /**
@@ -541,7 +557,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       },
     });
     const folder = sessionFolder(values.session);
-    const current = session(folder);
+    let current = session(folder);
     const deadline =
       Date.now() + (Number(values["timeout-minutes"]) || 60) * 60_000;
     const since =
@@ -563,6 +579,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
           ),
         )
       ).status;
+      current = keepUrl(folder, current, latest.url);
       if (latest.closed) {
         print({ ok: true, finished: false, closed: true, status: latest });
         return;
@@ -598,7 +615,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       ok: true,
       finished: false,
       timed_out: true,
-      status: latest ?? (await status(current)),
+      status: latest ?? (await status(folder, current)),
     });
   },
 
@@ -677,7 +694,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       options: { session: { type: "string" }, output: { type: "string" } },
     });
     const output = need(values.output, "export needs --output FILE");
-    const latest = await status(session(values.session));
+    const folder = sessionFolder(values.session);
+    const latest = await status(folder, session(folder));
     const feedback = need(latest.feedback, "the review has no round yet");
     const encoded = encodeDocument(FeedbackDocument, feedback);
     if (Result.isFailure(encoded)) return fail(encoded.failure.message);

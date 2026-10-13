@@ -33,6 +33,9 @@ export const runtimeDir = () => {
 
 export const socketPath = () => join(runtimeDir(), "agent.sock");
 
+/** The page port the last server listened on, which the next one asks for so open pages find it again. */
+export const portPath = () => join(runtimeDir(), "port");
+
 /** The idle time after which the server stops, in minutes. */
 export const idleMinutes = () =>
   Number(env("REVIEW_CANVAS_IDLE_MINUTES") ?? "240") || 240;

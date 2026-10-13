@@ -245,12 +245,22 @@ const installLive = () => {
   };
   let streamFailures = 0;
   let reopen: number | undefined;
+  // Errors since the stream last opened. The browser retries a dropped stream every few seconds; two failed tries in
+  // a row mean the server is gone, not a blip. The live region is in the page before it says anything.
+  let unanswered = 0;
+  const lost = document.createElement("div");
+  lost.className = "connection-lost";
+  lost.setAttribute("role", "status");
+  lost.dataset.connection = "";
+  document.body.append(lost);
   const open = () => {
     if (source !== undefined || document.hidden) return;
     const stream = new EventSource(`/reviews/${review}/events`);
     source = stream;
     stream.addEventListener("open", () => {
       streamFailures = 0;
+      unanswered = 0;
+      lost.textContent = "";
     });
     // The first event names the current revision, so a stream that reconnects catches up on what it missed.
     stream.addEventListener("change", (event) => {
@@ -263,7 +273,12 @@ const installLive = () => {
     // The browser retries a dropped stream on its own, but gives up for good on some failures, such as a server
     // that restarted on another port. Then open a new one, waiting longer each time.
     stream.addEventListener("error", () => {
-      if (stream.readyState !== EventSource.CLOSED || source !== stream) return;
+      if (source !== stream) return;
+      unanswered++;
+      if (unanswered >= 2)
+        lost.textContent =
+          "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
+      if (stream.readyState !== EventSource.CLOSED) return;
       source = undefined;
       streamFailures++;
       reopen = window.setTimeout(() => {

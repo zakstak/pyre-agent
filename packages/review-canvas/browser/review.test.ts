@@ -416,4 +416,44 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator(".notice.drift").waitFor({ timeout: 10_000 });
     await page.close();
   });
+  test("a lost server shows a notice until it is back, and then actions work", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(`${agent.url}#files/src/notes/cli.py`);
+    await page.locator("article.stop").first().waitFor({ state: "attached" });
+    const notice = page.locator("[data-connection][role='status']");
+    assert.equal(await notice.textContent(), "");
+    assert.equal(await notice.isVisible(), false);
+    await server.stop();
+    await page.waitForFunction(
+      () =>
+        (document.querySelector("[data-connection]")?.textContent ?? "") !== "",
+      undefined,
+      { timeout: 20_000 },
+    );
+    assert.match(
+      (await notice.textContent()) ?? "",
+      /Lost connection to the review server.*review-canvas status/,
+    );
+    assert.equal(await notice.isVisible(), true);
+    await server.start();
+    await page.waitForFunction(
+      () => document.querySelector("[data-connection]")?.textContent === "",
+      undefined,
+      { timeout: 20_000 },
+    );
+    const file = page.locator(
+      "#files-view article.file[data-path='src/notes/cli.py']",
+    );
+    await file.locator("[data-action='approve']").click();
+    for (
+      let at = 0;
+      at < 50 && !(await agent.status()).approved.includes("src/notes/cli.py");
+      at++
+    )
+      await page.waitForTimeout(100);
+    assert.deepEqual((await agent.status()).approved, ["src/notes/cli.py"]);
+    await page.close();
+  });
 });

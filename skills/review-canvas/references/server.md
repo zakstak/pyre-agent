@@ -12,6 +12,7 @@ an open page. Its code is in
 | Database     | `${XDG_DATA_HOME:-~/.local/share}/review-canvas/reviews.sqlite`, 0600 in a 0700 folder            |
 | Agent socket | `$XDG_RUNTIME_DIR/review-canvas/agent.sock` on Linux, `$TMPDIR/review-canvas/agent.sock` on macOS |
 | Server log   | `server.log` beside the socket                                                                    |
+| Last port    | `port` beside the socket                                                                          |
 | Pages        | `http://127.0.0.1:PORT`, printed by the server and returned by `register` and `publish`           |
 
 `REVIEW_CANVAS_DATA`, `REVIEW_CANVAS_RUNTIME`, `REVIEW_CANVAS_PORT`, and
@@ -21,6 +22,14 @@ connect starts a server. A starting server takes an exclusive lock on
 system releases it when the process ends. Under the lock it removes a stale
 socket and binds a new one, so two starts never both bind, and a server that
 finds another one answering exits.
+
+Without `REVIEW_CANVAS_PORT`, a server asks for the page port in `port`, the
+one the last server listened on, and takes any free port when that one is busy.
+A page left open across a restart, such as one after the idle stop, then
+reconnects on its own. A page that cannot reach the server for two tries in a
+row says so until it reconnects. A page cannot follow a server to another
+port: `status`, `wait`, and `publish` write the current URL into
+`session.json` when it changed, and the reviewer opens that URL.
 
 Before any command connects, and before a server binds, the runtime folder must
 be a real folder owned by the current user with no access for others; a looser

@@ -315,3 +315,45 @@ lock.release();`);
   await starting;
   assert.equal((await f.identity()).ok, true);
 });
+
+test("a restarted server returns on its last port, or on another one that session.json follows", async (t) => {
+  const f = fixture(t);
+  const sessionDir = join(f.dir, "session");
+  const cli = async (...args: Array<string>) =>
+    JSON.parse((await f.node(["src/cli/main.ts", ...args])).stdout);
+  const saved = () =>
+    JSON.parse(readFileSync(join(sessionDir, "session.json"), "utf8")).url;
+  const stop = () =>
+    f.helper(
+      'import { stopServer, withServerOperation } from "./src/cli/socket.ts"; await withServerOperation(stopServer);',
+    );
+  const registered = await cli(
+    "register",
+    "--session",
+    sessionDir,
+    "--input",
+    join(root, "fixtures/input/worktree.json"),
+    "--label",
+    "Restart fixture",
+  );
+  const port = Number(new URL(registered.url).port);
+
+  await stop();
+  const same = await cli("status", "--session", sessionDir);
+  assert.equal(same.status.url, registered.url);
+  await get(same.status.url);
+
+  // Another program took the port while the server was down.
+  await stop();
+  const squatter = createServer();
+  await new Promise<void>((resolve) =>
+    squatter.listen(port, "127.0.0.1", resolve),
+  );
+  t.after(
+    () => new Promise<void>((resolve) => squatter.close(() => resolve())),
+  );
+  const moved = await cli("status", "--session", sessionDir);
+  assert.notEqual(Number(new URL(moved.status.url).port), port);
+  assert.equal(saved(), moved.status.url);
+  await get(moved.status.url);
+});

@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.1.1"
+  version: "4.1.2"
 ---
 
 # Review canvas
@@ -292,6 +292,11 @@ that still hold. Its output says what happened:
   then `finished` is true as well.
 - `"timed_out": true`: nothing happened before the timeout. Wait again.
 - `"closed": true`: a fresh start replaced the review.
+
+The server stops after four idle hours, and the next command starts it again,
+on the same port when it is free. If the reviewer says the page lost the
+server, run `"$RC" status --session "$SESSION"`; give the reviewer its `url`
+when it differs from the one they have.
 
 A host that limits how long one command runs, such as Claude Code's ten
 minutes, needs a timeout under that limit, as above, and waiting again in a

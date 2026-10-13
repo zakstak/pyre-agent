@@ -2,9 +2,9 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Config, Data, Deferred, Effect, Layer } from "effect";
+import { Config, Context, Data, Deferred, Effect, Layer } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
-import { chmodSync, rmSync } from "node:fs";
+import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -12,7 +12,13 @@ import { AgentApi } from "./agent.ts";
 import { clientDir as installedClientDir } from "./install.ts";
 import { App } from "./app.ts";
 import * as Assets from "./assets.ts";
-import { databasePath, idleMinutes, runtimeDir, socketPath } from "./paths.ts";
+import {
+  databasePath,
+  idleMinutes,
+  portPath,
+  runtimeDir,
+  socketPath,
+} from "./paths.ts";
 import { checkSocket, secureRuntimeDir, StartLock } from "./runtime.ts";
 import { acquireOperationLock } from "./operation.ts";
 import { Lifecycle, LifecycleApi, lifecycleLayer } from "./lifecycle.ts";
@@ -99,12 +105,52 @@ const claimSocket = Effect.gen(function* () {
   return path;
 });
 
-// Loopback only. Port 0 lets the system pick a free port; the listen log prints the address.
-const PageServer = NodeHttpServer.layerConfig(createServer, {
-  host: Config.succeed("127.0.0.1"),
-  port: Config.Port("REVIEW_CANVAS_PORT").pipe(Config.withDefault(0)),
-  gracefulShutdownTimeout: Config.succeed("1 second"),
-});
+/** The port the last server remembered, or undefined when there is none or the file holds no port. */
+const rememberedPort = (): number | undefined => {
+  let text: string;
+  try {
+    text = readFileSync(portPath(), "utf8").trim();
+  } catch {
+    return undefined;
+  }
+  const port = Number(text);
+  return /^\d+$/.test(text) && port > 0 && port < 65536 ? port : undefined;
+};
+
+const pageServerOn = (port: number) =>
+  NodeHttpServer.layer(createServer, {
+    host: "127.0.0.1",
+    port,
+    gracefulShutdownTimeout: "1 second",
+  });
+
+/**
+ * Loopback only; the listen log prints the address. REVIEW_CANVAS_PORT decides the port when set. Otherwise the server
+ * asks for the port the last one listened on, so pages left open reconnect after a restart, and takes any free port
+ * when that one is busy. It remembers the port it got.
+ */
+const PageServer = Layer.unwrap(
+  Effect.gen(function* () {
+    const explicit = yield* Config.option(Config.Port("REVIEW_CANVAS_PORT"));
+    if (explicit._tag === "Some") return pageServerOn(explicit.value);
+    const remembered = rememberedPort();
+    const listening =
+      remembered === undefined
+        ? pageServerOn(0)
+        : pageServerOn(remembered).pipe(
+            Layer.catchTag("ServeError", () => pageServerOn(0)),
+          );
+    return listening.pipe(
+      Layer.tap((context) =>
+        Effect.sync(() => {
+          const { address } = Context.get(context, HttpServer.HttpServer);
+          if (address._tag !== "UnixPathAddress")
+            writeFileSync(portPath(), `${address.port}\n`, { mode: 0o600 });
+        }),
+      ),
+    );
+  }),
+);
 
 const AgentServer = Layer.unwrap(
   Effect.map(claimSocket, (path) =>
