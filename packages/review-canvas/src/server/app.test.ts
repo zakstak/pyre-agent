@@ -157,6 +157,29 @@ test("a request addressed to another host is refused", () =>
     assert.equal((await get(port, "/", `localhost:${port}`)).status, 200);
   }));
 
+test("repository acceptance and removal carry maximum-length remote identities", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "review-canvas-long-repository-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = join(directory, "repo");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  const address = "example.invalid/" + "x".repeat(8192 - "example.invalid/".length);
+  execFileSync("git", ["remote", "add", "origin", `https://${address}`], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  const id = repositoryId((await identifyRepository(Schema.decodeSync(WorktreeRoot)(root))).identity);
+  await withServer(async (port) => {
+    const origin = `http://127.0.0.1:${port}`;
+    for (const action of [{ kind: "accept", root, id }, { kind: "remove", id }]) {
+      const body = JSON.stringify(action);
+      assert.ok(Buffer.byteLength(body) > 8192);
+      const response = await fetch(`${origin}/repositories/actions`, {
+        method: "POST", headers: { origin, "content-type": "application/json" }, body,
+      });
+      assert.equal(response.status, 200, await response.text());
+      assert.match((await get(port, "/")).body, action.kind === "accept" ? /1 monitored/ : /0 monitored/);
+    }
+  }, [directory]);
+});
+
 test("the default HTTP port also accepts the bare loopback names browsers send", () => {
   assert.deepEqual([...loopbackHosts(80)].sort(), [
     "127.0.0.1",

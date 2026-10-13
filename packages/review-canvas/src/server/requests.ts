@@ -17,7 +17,7 @@ import {
 } from "../schema/primitives.ts";
 import { Target } from "../schema/target.ts";
 import { ThreadHost } from "../schema/thread.ts";
-import { RepositoryId } from "../schema/repositories.ts";
+import { MAX_REPOSITORY_ID_UNITS, RepositoryId } from "../schema/repositories.ts";
 
 const Row = integer(0, Limits.MAX_ROW);
 const Body = text(Limits.MAX_TEXT_UNITS);
@@ -86,6 +86,9 @@ export const RepositoryActionRequest = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("accept"), root: WorktreeRoot, id: RepositoryId }),
   Schema.Struct({ kind: Schema.Literal("remove"), id: RepositoryId }),
 ]);
+
+/** JSON can encode each UTF-16 unit as six ASCII bytes (\uXXXX), plus keys and punctuation. */
+export const MAX_REPOSITORY_ACTION_BYTES = 6 * (MAX_REPOSITORY_ID_UNITS + Limits.MAX_PATH_UNITS) + 128;
 
 export const RegisterRequest = Schema.Struct({
   target: Target,

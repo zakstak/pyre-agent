@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
 import { WorktreeRoot } from "../schema/primitives.ts";
-import { gitEnvironment } from "../collector/git.ts";
+import { gitEnvironment, trustedGit } from "../collector/git.ts";
 import { checkoutStatus, discoverRepositories, identifyRepository, remoteAddress } from "./repositories.ts";
 import { repositoryId } from "../schema/repositories.ts";
 
@@ -51,6 +52,62 @@ test("depth limits and missing scan roots are visible, and a narrow scan reaches
   assert.match(scan.warnings.join(" "), /Depth limit/);
   assert.match(scan.warnings.join(" "), /Could not scan/);
   assert.deepEqual((await discoverRepositories([deeper])).repositories[0]?.checkouts, [deeper]);
+});
+
+test("invalid Git markers do not hide valid repositories below them", async (t) => {
+  for (const marker of ["file", "directory"]) {
+    const base = folder(t);
+    if (marker === "file") writeFileSync(join(base, ".git"), "gitdir: missing\n");
+    else mkdirSync(join(base, ".git"));
+    const nested = init(join(base, "team", "repo"));
+    const scan = await discoverRepositories([base]);
+    assert.deepEqual(scan.repositories[0]?.checkouts, [nested]);
+    assert.match(scan.warnings.join(" "), /Could not identify/);
+  }
+});
+
+test("the scan budget includes slow identification and stops scheduling more Git work", async (t) => {
+  const base = folder(t);
+  for (let i = 0; i < 8; i++) init(join(base, `repo-${i}`));
+  const executable = trustedGit({ repo: base }).executable;
+  const bin = join(folder(t), "bin");
+  mkdirSync(bin);
+  const started = join(bin, "started");
+  const wrapper = join(bin, "git");
+  writeFileSync(wrapper, `#!${process.execPath}
+const { execFileSync } = require("node:child_process");
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args.includes("--git-common-dir")) {
+  appendFileSync(${JSON.stringify(started)}, process.pid + "\\n");
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+}
+try { process.stdout.write(execFileSync(${JSON.stringify(executable)}, args)); }
+catch (error) { process.stderr.write(error.stderr ?? ""); process.exit(error.status ?? 1); }
+`);
+  chmodSync(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${previousPath ?? ""}`;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  });
+  const before = Date.now();
+  const scan = await discoverRepositories([base]);
+  assert.ok(Date.now() - before < 4_000, "identification outlasted the overall scan budget");
+  assert.match(scan.warnings.join(" "), /time limit/);
+  const processes = readFileSync(started, "utf8").trim().split("\n");
+  assert.ok(processes.length <= 4, "queued candidates started after the scan expired");
+  // Abort can report its error before Node reaps the killed process.
+  for (const pid of processes) {
+    let running = true;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { process.kill(Number(pid), 0); }
+      catch { running = false; break; }
+      await delay(10);
+    }
+    assert.equal(running, false, "cancelled Git process did not exit");
+  }
 });
 
 test("status handles unborn and detached branches, renames, untracked items, and does not rewrite the index", async (t) => {
@@ -119,4 +176,20 @@ test("independent clones and worktrees form one repository; unrelated same-name 
   assert.deepEqual(await checkoutStatus(Schema.decodeSync(WorktreeRoot)(clone), originalIdentity), {
     kind: "unavailable", message: "This checkout now belongs to a different repository.",
   });
+});
+
+test("local clone sources with colons retain their repository identity", async (t) => {
+  const base = folder(t);
+  const root = init(join(base, "team:project"));
+  writeFileSync(join(root, "file"), "original\n");
+  git(root, "add", "file");
+  git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial");
+  git(root, "remote", "add", "origin", "git@github.com:owner/project.git");
+  const expected = (await identifyRepository(root)).identity;
+  for (const source of [root, "./team:project"]) {
+    const clone = join(base, source === root ? "absolute-copy" : "relative-copy");
+    git(base, "clone", source, clone);
+    if (source !== root) git(clone, "remote", "set-url", "origin", "../team:project");
+    assert.deepEqual((await identifyRepository(Schema.decodeSync(WorktreeRoot)(clone))).identity, expected);
+  }
 });

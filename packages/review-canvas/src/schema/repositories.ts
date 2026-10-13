@@ -10,7 +10,8 @@ export const RepositoryIdentity = Schema.Union([
 ]);
 export type RepositoryIdentity = typeof RepositoryIdentity.Type;
 
-export const RepositoryId = nonEmptyText(16384).pipe(Schema.brand("RepositoryId"));
+export const MAX_REPOSITORY_ID_UNITS = 16384;
+export const RepositoryId = nonEmptyText(MAX_REPOSITORY_ID_UNITS).pipe(Schema.brand("RepositoryId"));
 export type RepositoryId = typeof RepositoryId.Type;
 
 export const Repository = Schema.Struct({

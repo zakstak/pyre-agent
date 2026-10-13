@@ -37,18 +37,20 @@ export const repositoryRoots = (): ReadonlyArray<string> => {
     .filter((root) => root !== "/" && existsSync(root));
 };
 
-/** Bounded traversal, skipping symbolic links and stopping at each working tree's .git marker. */
+/** One scan budget covers traversal, root validation, and identity reads. Only real working trees prune the walk. */
 export const discoverRepositories = async (roots: ReadonlyArray<string>): Promise<Discovery> => {
   const candidates = new Set<WorktreeRoot>();
   const visited = new Set<string>();
   const warnings: Array<string> = [];
   const deadline = Date.now() + 2_000;
+  const signal = AbortSignal.timeout(2_000);
+  const expired = () => signal.aborted || Date.now() >= deadline;
   let entries = 0;
   let limited = false;
   const walk = async (directory: string, depth: number): Promise<void> => {
     if (visited.has(directory)) return;
     if (visited.size >= MAX_DIRECTORIES || candidates.size >= MAX_CHECKOUTS ||
-        entries >= 20_000 || Date.now() > deadline) {
+        entries >= 20_000 || expired()) {
       limited = true;
       return;
     }
@@ -56,8 +58,14 @@ export const discoverRepositories = async (roots: ReadonlyArray<string>): Promis
     try {
       const marker = await lstat(join(directory, ".git")).catch(() => undefined);
       if (marker?.isDirectory() || marker?.isFile()) {
-        candidates.add(parseRoot(directory));
-        return;
+        try {
+          candidates.add(await workingTreeRoot(parseRoot(directory), signal));
+          return;
+        } catch {
+          if (expired()) { limited = true; return; }
+          warnings.push(`Could not identify the checkout at ${directory}.`);
+          // A stale or forged marker must not hide valid repositories beneath it.
+        }
       }
       if (depth === MAX_DEPTH) {
         warnings.push(`Depth limit reached at ${directory}. Scan a narrower directory to find deeper repositories.`);
@@ -66,7 +74,7 @@ export const discoverRepositories = async (roots: ReadonlyArray<string>): Promis
       const dir = await opendir(directory);
       for await (const entry of dir) {
         entries++;
-        if (entries >= 20_000 || Date.now() > deadline || limited) {
+        if (entries >= 20_000 || expired() || limited) {
           limited = true;
           break;
         }
@@ -85,29 +93,37 @@ export const discoverRepositories = async (roots: ReadonlyArray<string>): Promis
       warnings.push(`Could not scan ${root}. Use an existing absolute directory.`);
     }
   }
-  if (limited) warnings.push("The scan reached its size or time limit. Scan a narrower directory to find more repositories.");
   const identified = await mapCheckouts([...candidates].sort(), async (root) => {
+    if (expired()) { limited = true; return undefined; }
     try {
-      return await identifyRepository(root);
+      return await identifyRepository(root, signal);
     } catch {
-      warnings.push(`Could not identify the checkout at ${root}.`);
+      if (expired()) limited = true;
+      else warnings.push(`Could not identify the checkout at ${root}.`);
       return undefined;
     }
   });
+  if (limited) warnings.push("The scan reached its size or time limit. Scan a narrower directory to find more repositories.");
   return { roots, repositories: groupRepositories(identified.filter((item) => item !== undefined)), warnings };
 };
 
 /** Uses the collector's trusted executable and environment, with bounded asynchronous reads. */
-const git = (root: string, args: ReadonlyArray<string>, ok: ReadonlyArray<number> = [0]): Promise<string> => {
+const git = (root: string, args: ReadonlyArray<string>, options: {
+  readonly ok?: ReadonlyArray<number>;
+  readonly signal?: AbortSignal | undefined;
+} = {}): Promise<string> => {
+  options.signal?.throwIfAborted();
   const executable = trustedGit({ repo: root }).executable;
   return new Promise((resolve, reject) => {
     execFile(executable, [...GIT_CONFIG, ...args], {
       cwd: root,
       env: gitEnvironment({}),
       timeout: 3_000,
+      killSignal: "SIGKILL",
       maxBuffer: 2 * 1024 * 1024,
+      signal: options.signal,
     }, (error, stdout) => {
-      if (error !== null && !(typeof error.code === "number" && ok.includes(error.code)))
+      if (error !== null && !(typeof error.code === "number" && (options.ok ?? [0]).includes(error.code)))
         reject(new Error("Repository metadata could not be read within the time and output limits."));
       else resolve(stdout);
     });
@@ -115,9 +131,9 @@ const git = (root: string, args: ReadonlyArray<string>, ok: ReadonlyArray<number
 };
 
 /** Acceptance verifies a real working tree root, so subdirectories and forged markers cannot be enrolled. */
-const workingTreeRoot = async (root: WorktreeRoot): Promise<WorktreeRoot> => {
+const workingTreeRoot = async (root: WorktreeRoot, signal?: AbortSignal): Promise<WorktreeRoot> => {
   const canonical = parseRoot(await realpath(root));
-  const top = await git(canonical, ["rev-parse", "--show-toplevel"]);
+  const top = await git(canonical, ["rev-parse", "--show-toplevel"], { signal });
   if (await realpath(top.replace(/\n$/, "")) !== canonical)
     throw new Error("Choose the repository root, not a subdirectory.");
   return canonical;
@@ -145,33 +161,38 @@ export const remoteAddress = (remote: string): string | null => {
   return `${parsed.hostname}${port === "" ? "" : `:${port}`}/${path}`;
 };
 
-export const identifyRepository = async (root: WorktreeRoot): Promise<Repository> => {
-  const canonical = await workingTreeRoot(root);
+export const identifyRepository = async (root: WorktreeRoot, signal?: AbortSignal): Promise<Repository> => {
+  const canonical = await workingTreeRoot(root, signal);
   return Schema.decodeSync(Repository)({
-    identity: await identityOf(canonical, new Set()), checkouts: [canonical],
+    identity: await identityOf(canonical, new Set(), signal), checkouts: [canonical],
   });
 };
 
-const identityOf = async (root: WorktreeRoot, visited: ReadonlySet<string>): Promise<RepositoryIdentity> => {
-  const common = parseRoot(await realpath((await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).replace(/\n$/, "")));
+const identityOf = async (root: WorktreeRoot, visited: ReadonlySet<string>, signal?: AbortSignal): Promise<RepositoryIdentity> => {
+  const common = parseRoot(await realpath((await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { signal })).replace(/\n$/, "")));
   const local = { kind: "local" as const, git_dir: common };
   if (visited.has(common) || visited.size >= 4) return local;
-  const remotes = (await git(root, ["remote"])).trim().split("\n").filter(Boolean);
+  const remotes = (await git(root, ["remote"], { signal })).trim().split("\n").filter(Boolean);
   const primary = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
-  const remote = primary === undefined ? "" : (await git(root, ["remote", "get-url", "--", primary])).replace(/\n$/, "");
+  const remote = primary === undefined ? "" : (await git(root, ["remote", "get-url", "--", primary], { signal })).replace(/\n$/, "");
   const address = remoteAddress(remote);
   if (address !== null) return { kind: "remote", address };
   // Follow local clone sources without expanding the scan to include their directories.
-  if (remote !== "" && (!remote.includes(":") || remote.startsWith("file://"))) {
+  if (remote !== "" && (isAbsolute(remote) || remote.startsWith("./") || remote.startsWith("../") ||
+      !remote.includes(":") || remote.startsWith("file://"))) {
     try {
       const path = remote.startsWith("file://") ? new URL(remote) : resolve(root, remote);
       const source = parseRoot(await realpath(path));
-      try { await workingTreeRoot(source); }
+      try { await workingTreeRoot(source, signal); }
       catch {
-        if ((await git(source, ["rev-parse", "--is-bare-repository"])).trim() !== "true") return local;
+        signal?.throwIfAborted();
+        if ((await git(source, ["rev-parse", "--is-bare-repository"], { signal })).trim() !== "true") return local;
       }
-      return await identityOf(source, new Set([...visited, common]));
-    } catch { /* A missing or unsupported clone source falls back to the common Git directory. */ }
+      return await identityOf(source, new Set([...visited, common]), signal);
+    } catch {
+      signal?.throwIfAborted();
+      // A missing or unsupported clone source falls back to the common Git directory.
+    }
   }
   return local;
 };
@@ -219,7 +240,7 @@ export const checkoutStatus = async (root: WorktreeRoot, identity?: Repository["
       changed++;
       if (record.slice(0, 2).includes("R") || record.slice(0, 2).includes("C")) i++;
     }
-    const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], [0, 1])).replace(/\n$/, "");
+    const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], { ok: [0, 1] })).replace(/\n$/, "");
     return { kind: "ready", branch: branch === "" ? null : branch, changed };
   } catch {
     return { kind: "unavailable", message: "Repository unavailable or Git status could not be read." };

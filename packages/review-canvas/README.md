@@ -91,6 +91,8 @@ directories. Use **Scan directories** to choose another absolute directory.
 of absolute directories (`:` on Linux and macOS). Scans descend up to four
 levels, stop at working tree roots, and skip hidden directories, symlinks, and
 build and dependency folders. Size and time limits appear in the scan details.
+The two-second scan budget includes repository identification and cancels its Git reads.
+Invalid Git markers do not hide valid repositories in deeper directories.
 Each Git status read has a timeout and output limit; failures show **Unavailable**.
 Scans and status reads do not fetch from remotes or write to repository indexes.
 

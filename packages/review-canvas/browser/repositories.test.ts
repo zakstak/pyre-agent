@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -75,6 +75,27 @@ test("home discovers without enrollment, accepts explicitly, preserves filters a
   await page.getByLabel("Show repositories", { exact: true }).selectOption("discovered");
   assert.equal(await page.locator("[data-repository]:visible").count(), 2);
   assert.ok(requests.every((url) => url.startsWith(server.origin + "/")));
+});
+
+test("repository action attributes preserve carriage returns through HTML parsing", { skip: !built }, async (t) => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "review-canvas-cr-repository-")));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = join(directory, "line\rbreak");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  const server = await startServer({ repositoryRoots: [directory] });
+  t.after(() => server.stop());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(server.origin);
+  const accept = page.locator("[data-repository-action='accept']");
+  assert.equal(await accept.getAttribute("data-root"), root);
+  assert.equal(await accept.getAttribute("data-id"), `local:${join(root, ".git")}`);
+  await accept.click();
+  await page.getByText("1 monitored", { exact: true }).waitFor();
+  await page.locator("[data-repository-action='remove']").click();
+  await page.getByText("0 monitored", { exact: true }).waitFor();
 });
 
 test("PR reviews belong to one repository across copies, separate from forks and hosts, and survive restart", { skip: !built }, async (t) => {

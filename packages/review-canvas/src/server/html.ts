@@ -24,6 +24,7 @@ const escapes: Readonly<Record<string, string>> = {
   ">": "&gt;",
   '"': "&quot;",
   "'": "&#39;",
+  "\r": "&#13;",
 };
 
 const render = (value: Interpolation): string => {
@@ -31,7 +32,7 @@ const render = (value: Interpolation): string => {
   if (Array.isArray(value)) return value.map(render).join("");
   if (value === null || value === undefined || value === false) return "";
   return String(value).replace(
-    /[&<>"']/g,
+    /[&<>"'\r]/g,
     (character) => escapes[character] ?? character,
   );
 };

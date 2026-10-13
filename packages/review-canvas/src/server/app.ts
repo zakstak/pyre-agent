@@ -22,7 +22,7 @@ import {
 } from "./json.ts";
 import { homePage } from "./pages/home.ts";
 import { reviewPage, waitingPage } from "./pages/review.ts";
-import { MAX_REQUEST_BYTES, PageActionRequest, RepositoryActionRequest } from "./requests.ts";
+import { MAX_REPOSITORY_ACTION_BYTES, MAX_REQUEST_BYTES, PageActionRequest, RepositoryActionRequest } from "./requests.ts";
 import { Activity, ReviewStore } from "./services.ts";
 import { checkoutStatus, discoverRepositories, groupRepositories, identifyRepository, mapCheckouts } from "./repositories.ts";
 import { repositoryId } from "../schema/repositories.ts";
@@ -242,7 +242,7 @@ const RepositoryActions = HttpRouter.add("POST", "/repositories/actions",
   Effect.gen(function* () {
     yield* pageOrigin;
     const store = yield* ReviewStore;
-    const body = yield* readJson(RepositoryActionRequest, 8_192);
+    const body = yield* readJson(RepositoryActionRequest, MAX_REPOSITORY_ACTION_BYTES);
     if (body.kind === "remove") store.unmonitorRepository(body.id);
     else {
       const repository = yield* Effect.tryPromise({
