@@ -1,19 +1,20 @@
 /**
  * Imports a real pull request's comments, read with the signed-in gh, into a review of that pull request built from a
  * local clone, and checks them against what GitHub shows: the schemas accept every comment, every thread is
- * imported, and every thread GitHub calls current attaches on the line GitHub shows it on. Outdated threads are
+ * imported, and every thread GitHub calls current attaches on the line GitHub shows it on. The round is what collect
+ * --pr writes, and its file list must match GitHub's. Outdated threads are
  * counted, attached or not. It only reads from GitHub. CI does not run it: it needs gh signed in, and the pull
  * request's base and head commits in the clone.
  *
  * Run: pnpm test:github https://github.com/OWNER/REPO/pull/NUMBER [CLONE]
  */
 import assert from "node:assert/strict";
-import * as Result from "effect/Result";
 import { readComments, runGh } from "../src/cli/github.ts";
+import { collectPullRequest } from "../src/cli/pull-request.ts";
 import { openWorktree } from "../src/collector/collect.ts";
 import { attachedRows } from "../src/review/anchor.ts";
 import { parseRows } from "../src/review/patch.ts";
-import { decodeBytes, InputDocument } from "../src/schema/document.ts";
+import type { PullRequestUrl } from "../src/schema/primitives.ts";
 import { Store } from "../src/store/store.ts";
 
 const [url, clone = process.cwd()] = process.argv.slice(2);
@@ -25,82 +26,22 @@ assert.ok(
   "usage: pnpm test:github https://github.com/OWNER/REPO/pull/NUMBER [CLONE]",
 );
 
-const { headRefOid: head, baseRefOid: base } = JSON.parse(
-  runGh(["pr", "view", url, "--json", "headRefOid,baseRefOid"]),
-) as { headRefOid: string; baseRefOid: string };
-
-const worktree = openWorktree({ repo: clone });
-const git = (...args: ReadonlyArray<string>) =>
-  worktree.git
-    .run(worktree.top, [...worktree.config, ...args])
-    .toString("utf8");
-for (const commit of [head, base])
-  try {
-    git("cat-file", "-e", `${commit}^{commit}`);
-  } catch {
-    assert.fail(
-      `${commit} is not in ${worktree.top}; fetch it first: git fetch origin pull/${pull[3]}/head`,
-    );
-  }
-
-// The round as an agent would write it: each file's patch from the merge base, as GitHub shows the pull request.
-const from = git("merge-base", base, head).trim();
-const STATUSES: Record<string, string> = {
-  A: "added",
-  C: "copied",
-  D: "removed",
-  M: "modified",
-  R: "renamed",
-  T: "changed",
-};
-const files = git("diff", "--name-status", "-z", "-M", from, head)
-  .split("\0")
-  .filter((field) => field !== "")
-  .reduce<Array<Array<string>>>((entries, field) => {
-    const last = entries.at(-1);
-    const wanted = /^[RC]/.test(last?.[0] ?? "") ? 3 : 2;
-    if (last === undefined || last.length === wanted) entries.push([field]);
-    else last.push(field);
-    return entries;
-  }, [])
-  .map(([status = "", ...paths]) => {
-    const path = paths.at(-1) ?? "";
-    const raw = git("diff", "-M", "-U3", from, head, "--", ...paths);
-    const at = raw.indexOf("\n@@");
-    const patch = at === -1 ? undefined : raw.slice(at + 1);
-    const rows = (patch ?? "").split("\n");
-    const kind = status[0] ?? "M";
-    return {
-      path,
-      ...(paths.length === 2 ? { old_path: paths[0] } : {}),
-      status: STATUSES[kind] ?? "modified",
-      group: "core",
-      additions: rows.filter((row) => row.startsWith("+")).length,
-      deletions: rows.filter((row) => row.startsWith("-")).length,
-      ...(patch === undefined ? { patch_note: "binary" } : { patch }),
-    };
-  });
-const decoded = decodeBytes(
-  InputDocument,
-  Buffer.from(
-    JSON.stringify({
-      format: "review-canvas.input/1",
-      target: {
-        kind: "github_pr",
-        title: `Live import of ${url}`,
-        url,
-        head_sha: head,
-        base_sha: from,
-        changed_files: files.length,
-      },
-      files_complete: true,
-      files,
-    }),
-  ),
+// The round as collect --pr writes it from the clone: patches from the merge base, as GitHub shows the pull request.
+const collected = collectPullRequest(
+  openWorktree({ repo: clone }),
+  url as PullRequestUrl,
+  runGh,
+  { title: `Live import of ${url}`, withContent: true },
 );
-if (Result.isFailure(decoded))
-  assert.fail(`the round is not valid input: ${decoded.failure.message}`);
-const input = decoded.success;
+const input = collected.review;
+assert.ok(input.target.kind === "github_pr");
+const head = input.target.head_sha;
+assert.equal(collected.headMoved, false, "the head moved during collection");
+assert.equal(
+  collected.mismatch,
+  undefined,
+  `the clone's files differ from GitHub's: ${JSON.stringify(collected.mismatch)}`,
+);
 
 // The comments as publish reads them, then imported as the server imports them.
 const read = readComments(url, runGh);
@@ -195,7 +136,13 @@ for (const node of shown) {
 
 console.log(
   JSON.stringify(
-    { pull_request: url, head, files: files.length, report, threads: tally },
+    {
+      pull_request: url,
+      head,
+      files: input.files.length,
+      report,
+      threads: tally,
+    },
     null,
     2,
   ),

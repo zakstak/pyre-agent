@@ -187,8 +187,11 @@ export interface TrackedEntry extends EntryBase {
   readonly untracked: false;
   /** Git's own diff skips it, as for an assume-unchanged file. */
   readonly hidden: boolean;
-  /** An absent skip-worktree entry, whose content is its staged blob. */
-  readonly fromIndex: boolean;
+  /**
+   * Its new side is the blob newBlob names, read from the object store rather than from disk: an absent skip-worktree
+   * entry, whose content is its staged blob, or a file of a commit.
+   */
+  readonly stored: boolean;
 }
 
 interface UntrackedEntry extends EntryBase {
@@ -761,7 +764,7 @@ const trackedEntry = (
   let newBlob: ObjectId | null = null;
   let size = 0;
   let binary = false;
-  let fromIndex = false;
+  let stored = false;
   if (newMode === "160000") {
     newBlob = change.newBlob ?? repositoryHead(worktree, name);
     if (newBlob === null) throw unfingerprintable(name);
@@ -773,7 +776,7 @@ const trackedEntry = (
     // A skip-worktree entry in a sparse checkout, file or link, is staged but absent from disk; its content is the index blob.
     newBlob = change.newBlob;
     size = blobSize(worktree, newBlob);
-    fromIndex = true;
+    stored = true;
   } else if (newMode === "120000") {
     newBlob = linkBlob(worktree, name);
   } else if (newMode !== null) {
@@ -798,7 +801,7 @@ const trackedEntry = (
     status,
     kind: kindOf(newMode ?? oldMode),
     hidden: change.hidden,
-    fromIndex,
+    stored,
     oldBlob,
     oldMode,
     newBlob,
@@ -1112,13 +1115,7 @@ export const hiddenStats = (
   worktree: Worktree,
   entry: Pick<
     TrackedEntry,
-    | "path"
-    | "kind"
-    | "oldMode"
-    | "oldBlob"
-    | "newMode"
-    | "newBlob"
-    | "fromIndex"
+    "path" | "kind" | "oldMode" | "oldBlob" | "newMode" | "newBlob" | "stored"
   >,
 ) => {
   const { git, top, config } = worktree;
@@ -1140,7 +1137,7 @@ export const hiddenStats = (
       writeFileSync(next, `Subproject commit ${entry.newBlob}\n`, {
         mode: 0o600,
       });
-    } else if (entry.fromIndex && entry.newBlob !== null) {
+    } else if (entry.stored && entry.newBlob !== null) {
       // An absent sparse entry's content is its staged blob; nothing is on disk.
       next = `${temp}/new`;
       writeBlob(worktree, entry.newBlob, next);
@@ -1191,8 +1188,14 @@ export const hiddenStats = (
   };
 };
 
-/** Each tracked path's additions and deletions as git diff counts them. Binary means a diff attribute or NUL bytes. */
-const numstat = ({ git, top, config }: Worktree) => {
+/**
+ * Each changed path's additions and deletions as git diff counts them between revisions: HEAD and the working tree, or
+ * two commits. Binary means a diff attribute or NUL bytes.
+ */
+const numstat = (
+  { git, top, config }: Worktree,
+  revisions: ReadonlyArray<string>,
+) => {
   const fields = records(
     git.run(top, [
       ...config,
@@ -1200,7 +1203,7 @@ const numstat = ({ git, top, config }: Worktree) => {
       "--numstat",
       "-z",
       ...DIFF_FLAGS,
-      "HEAD",
+      ...revisions,
       "--",
     ]),
   );
@@ -1343,7 +1346,7 @@ const content = (
       ? null
       : git.run(top, [...config, "cat-file", "blob", oldBlob]);
   let next: Buffer | null = null;
-  if (!entry.untracked && entry.fromIndex && entry.newBlob !== null) {
+  if (!entry.untracked && entry.stored && entry.newBlob !== null) {
     next = git.run(top, [...config, "cat-file", "blob", entry.newBlob]);
   } else if (entry.newBlob !== null) {
     const read = reading(path, () => readBlob(worktree, path, entry.size));
@@ -1365,22 +1368,22 @@ type Draft = {
   -readonly [K in keyof typeof WorktreeFile.Encoded]: (typeof WorktreeFile.Encoded)[K];
 };
 
-/** Turns an inventory into review files, and the likely secret files left out. */
+/** Turns an inventory and its line counts into review files, and the likely secret files left out. */
 const build = (
   worktree: Worktree,
-  snapshot: Snapshot,
+  entries: ReadonlyArray<Entry>,
+  stats: ReturnType<typeof numstat>,
   include: ReadonlySet<string>,
   limits: Limits,
   withContent = false,
 ) => {
-  const stats = numstat(worktree);
   const files: Array<typeof WorktreeFile.Encoded> = [];
   const flagged: Array<string> = [];
   let totalLines = 0;
   let totalBytes = 0;
   // Texts wait until every patch has its place: a patch matters more than the lines around another one.
   const texts: Array<{ readonly file: Draft; readonly text: string }> = [];
-  for (const entry of snapshot.entries) {
+  for (const entry of entries) {
     const { path, binary } = entry;
     let counts = { additions: 0, deletions: 0 };
     const stat = stats.get(path);
@@ -1531,6 +1534,21 @@ export const stagedDifferently = (worktree: Worktree): Array<string> => {
   return found.sort(byCodePoint);
 };
 
+/** Refuses a likely secret file to include that is not among the changed files. */
+const checkIncluded = (
+  include: ReadonlySet<string>,
+  entries: ReadonlyArray<Entry>,
+) => {
+  const unknown = [...include]
+    .filter((path) => !entries.some((entry) => entry.path === path))
+    .sort(byCodePoint);
+  if (unknown.length > 0) {
+    throw new CollectError({
+      message: `a likely secret file to include is not a changed file: ${unknown.join(", ")}`,
+    });
+  }
+};
+
 /** A file system error the collector did not expect, as a CollectError that names it. */
 const unexpected = (error: unknown) =>
   isSystemError(error) ? new CollectError({ message: error.message }) : error;
@@ -1550,19 +1568,11 @@ export const collect = (
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     try {
       const snapshot = inventory(worktree, limits);
-      const unknown = [...include]
-        .filter(
-          (path) => !snapshot.entries.some((entry) => entry.path === path),
-        )
-        .sort(byCodePoint);
-      if (unknown.length > 0) {
-        throw new CollectError({
-          message: `a likely secret file to include is not a changed file: ${unknown.join(", ")}`,
-        });
-      }
+      checkIncluded(include, snapshot.entries);
       const { files, flagged } = build(
         worktree,
-        snapshot,
+        snapshot.entries,
+        numstat(worktree, ["HEAD"]),
         include,
         limits,
         options.withContent === true,
@@ -1604,4 +1614,121 @@ export const collect = (
   throw new CollectError({
     message: `the working tree kept changing during ${ATTEMPTS} attempts (${reason}). Collect again when writes finish.`,
   });
+};
+
+/** The commits of a range, as full object IDs, that the repository does not hold. */
+export const missingCommits = (
+  { git, top }: Worktree,
+  commits: ReadonlyArray<string>,
+): Array<string> =>
+  commits.filter((commit) => {
+    try {
+      git.run(top, ["cat-file", "-e", `${commit}^{commit}`]);
+      return false;
+    } catch (error) {
+      if (error instanceof GitError) return true;
+      throw error;
+    }
+  });
+
+/** One change between two commits, whose sides are both blobs in the object store. */
+const committedEntry = (worktree: Worktree, change: RawChange): Entry => {
+  const listed = STATUSES.get(change.status);
+  if (listed === undefined)
+    throw new CollectError({
+      message: `unexpected Git status ${change.status} for ${change.path}`,
+    });
+  const { oldMode, newMode, oldBlob, newBlob } = change;
+  const kind = kindOf(newMode ?? oldMode);
+  const path = representable(change.path);
+  const oldPath =
+    change.oldPath === null ? null : representable(change.oldPath);
+  return {
+    untracked: false,
+    path,
+    oldPath,
+    // Git lists a change of mode alone as modified, as the working tree collector's "changed" does not.
+    status: listed === "modified" && newBlob === oldBlob ? "changed" : listed,
+    kind,
+    hidden: false,
+    stored: true,
+    oldBlob,
+    oldMode,
+    newBlob,
+    newMode,
+    size: kind === "file" && newBlob !== null ? blobSize(worktree, newBlob) : 0,
+    // Found from the bytes when they are read: content() checks them for NUL.
+    binary: false,
+    fingerprint: fileFingerprint({
+      path,
+      oldPath,
+      oldBlob,
+      newBlob,
+      oldMode,
+      newMode,
+    }),
+  };
+};
+
+export interface CollectedRange {
+  /** The merge base the files are compared with, as GitHub compares a pull request's base and head. */
+  readonly mergeBase: string;
+  readonly files: ReadonlyArray<typeof WorktreeFile.Encoded>;
+  /** Likely secret files whose contents were left out. */
+  readonly flagged: ReadonlyArray<string>;
+}
+
+/**
+ * Collects the changes from the merge base of base and head to head, which the repository must hold (see
+ * missingCommits): the pull request's "Files changed". Every side is read from the object store, never from the
+ * working tree, with the same patches, fingerprints, secret checks, limits, and whole texts as collect. Throws
+ * CollectError or GitError.
+ */
+export const collectRange = (
+  worktree: Worktree,
+  range: { readonly base: string; readonly head: string },
+  options: Omit<CollectOptions, "title"> = {},
+): CollectedRange => {
+  const { git, top, config } = worktree;
+  const limits = { ...LIMITS, ...options.limits };
+  const include = new Set(options.includeSecret ?? []);
+  let mergeBase: string;
+  try {
+    mergeBase = line(
+      git.run(top, ["merge-base", range.base, range.head]),
+    ).toString();
+  } catch (error) {
+    if (error instanceof GitError)
+      throw new CollectError({
+        message: `${range.base} and ${range.head} have no merge base`,
+      });
+    throw error;
+  }
+  const changes = rawChanges(
+    git.run(top, [
+      ...config,
+      "diff",
+      "--raw",
+      "-z",
+      "--no-abbrev",
+      ...DIFF_FLAGS,
+      mergeBase,
+      range.head,
+      "--",
+    ]),
+  );
+  if (changes.length > limits.files) throw tooMany(changes.length, limits);
+  const entries = changes
+    .map((change) => committedEntry(worktree, change))
+    .sort((a, b) => byCodePoint(a.path, b.path));
+  checkIncluded(include, entries);
+  const { files, flagged } = build(
+    worktree,
+    entries,
+    numstat(worktree, [mergeBase, range.head]),
+    include,
+    limits,
+    options.withContent === true,
+  );
+  return { mergeBase, files, flagged };
 };

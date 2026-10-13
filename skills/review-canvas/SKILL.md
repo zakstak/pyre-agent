@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.1.2"
+  version: "4.2.0"
 ---
 
 # Review canvas
@@ -87,24 +87,31 @@ See [the working tree reference](references/worktree.md).
 
 ### GitHub PR
 
-Write `"$SESSION/round-1.json"` yourself in the input format:
+Collect a PR from a local clone of its repository:
 
-1. Read the PR title, URL, base SHA, head SHA, and changed-file count.
-2. Fetch every page of changed files and every available patch. Keep each exact
-   path, status, additions, and deletions. Include binary files and renames even
-   when no patch is available.
-3. Reconcile the file inventory with the PR's changed-file count. Never fill
-   gaps with invented code. Set `files_complete` only after reconciling.
-4. Re-read both SHAs after gathering. If either changed, collect again or say in
-   the summary that consistency is unverified and set `files_complete` to false.
-5. Give each file a `fingerprint` when a local clone holds both commits, so the
-   reviewer's approvals carry over to later rounds:
-   `"$RC" fingerprints --repo /path/to/clone --base BASE_SHA --head HEAD_SHA`
-   prints them by path. Without a clone, leave them out; the page then shows
-   those files as not approvable.
-6. With the clone, add each text file's `new_content` from
-   `git show HEAD_SHA:PATH`, so the reviewer can open unchanged lines. The
-   server refuses text that does not match the patch.
+```sh
+"$RC" collect --pr https://github.com/OWNER/REPO/pull/NUMBER --repo /path/to/clone --output "$SESSION/round-1.json"
+```
+
+It reads the PR's title, commits, base branch, and file list with `gh`, and
+everything else from the clone: each file's patch from the merge base, as
+GitHub's "Files changed" shows it, with its fingerprint and whole new text, and
+the same secret checks and limits as a working tree. The clone must hold both
+the base and the head commit. The command fetches nothing: when one is missing,
+it fails, writes nothing, and prints the `git fetch` command to run. Run it,
+then collect again.
+
+Besides `flagged` and `without_content`, as for a working tree, it prints:
+
+- `files_complete`: true only when the clone's files match GitHub's list and
+  count, and the head did not move during collection.
+- `inventory_mismatch`: the paths only one side lists and both counts, when
+  they differ. Rename detection can differ between Git and GitHub; say so in
+  the summary.
+- `head_moved`: true when the head moved during collection. Collect again, or
+  say in the summary that the round may be behind.
+- `base_ref`: the branch the PR merges into. A base other than the
+  repository's default branch can mean a stacked PR; see below.
 
 ### Both targets
 
@@ -114,8 +121,9 @@ change's tests when the repository is set up for it; do not install
 dependencies only for the review. Say in the summary what you ran, or that you
 ran nothing.
 
-A PR can be one layer of a stack: its base is another PR's branch rather than
-the repository's default branch, or its description names the other layers.
+A PR can be one layer of a stack: its base, the `base_ref` that
+`collect --pr` prints, is another PR's branch rather than the repository's
+default branch, or its description names the other layers.
 Find the adjacent PRs with your GitHub tools, by their head and base branches.
 Then say in the first stop's summary that this PR is one layer, and name the
 PRs below and above it by number. Tour only this layer's files. Code from the

@@ -528,7 +528,7 @@ describe("InventoryTests", () => {
       oldBlob: subCommit,
       newMode: "100644",
       newBlob: null,
-      fromIndex: false,
+      stored: false,
     } as const;
     const stats = hiddenStats(openWorktree({ repo: f.root }), entry);
     assert.deepEqual(
