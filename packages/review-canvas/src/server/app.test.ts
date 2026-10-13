@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
 import { html } from "./html.ts";
+import { inline } from "./pages/review.ts";
 import { activityLayer, storeLayer } from "./services.ts";
 
 interface Reply {
@@ -163,6 +164,22 @@ test("html escapes interpolations unless they are markup", () => {
     "<ul><li>a</li><li>b</li></ul>",
   );
   assert.equal(html`${null}${undefined}${false}${0}`.value, "0");
+});
+
+test("agent prose shows backtick spans as code, and everything else as escaped text", () => {
+  assert.equal(inline("a `b` c").value, "a <code>b</code> c");
+  assert.equal(
+    inline("`<b>` & `x`").value,
+    "<code>&lt;b&gt;</code> &amp; <code>x</code>",
+  );
+  // A backtick without a partner on its line, or an empty pair, stays literal.
+  assert.equal(inline("a `b\nc` d").value, "a `b\nc` d");
+  assert.equal(inline("a `` b").value, "a `` b");
+  assert.equal(inline("it's `1`").value, "it&#39;s <code>1</code>");
+  assert.equal(
+    inline("<script>alert(1)</script>").value,
+    "&lt;script&gt;alert(1)&lt;/script&gt;",
+  );
 });
 
 test("assets come from the Vite manifest, and a missing build fails clearly", async () => {

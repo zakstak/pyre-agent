@@ -67,13 +67,28 @@ const PATCH_NOTE_TEXT: Readonly<
     "Hidden or reordering characters in this patch were replaced.",
 };
 
-/** Prose from the agent: paragraphs split on blank lines, shown as text. */
+/**
+ * Text from the agent, escaped, with each `code` span between single backticks on one line shown as code. A backtick
+ * without a partner stays a backtick. Line breaks stay in the text; the page's styles keep them.
+ */
+export const inline = (text: string): Html => {
+  const parts: Array<Html | string> = [];
+  let at = 0;
+  for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+    parts.push(text.slice(at, match.index), html`<code>${match[1]}</code>`);
+    at = match.index + match[0].length;
+  }
+  parts.push(text.slice(at));
+  return html`${parts}`;
+};
+
+/** Prose from the agent: paragraphs split on blank lines, shown as text with its line breaks and code spans. */
 const prose = (text: string): Html =>
   html`${text
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph !== "")
-    .map((paragraph) => html`<p>${paragraph}</p>`)}`;
+    .map((paragraph) => html`<p class="prose">${inline(paragraph)}</p>`)}`;
 
 interface FileContext {
   /** The file's place in the round, which names its tables and panels: paths do not make safe IDs. */
@@ -214,7 +229,7 @@ ${file.summary === undefined ? "" : html`<div class="file-summary">${prose(file.
 ${
   file.callouts === undefined || file.callouts.length === 0
     ? ""
-    : html`<ul class="callouts">${file.callouts.map((callout) => html`<li class="notice warning"><strong>${callout.tag}</strong> ${callout.text}</li>`)}</ul>`
+    : html`<ul class="callouts">${file.callouts.map((callout) => html`<li class="notice warning"><strong>${callout.tag}</strong> <span class="prose">${inline(callout.text)}</span></li>`)}</ul>`
 }
 ${sinceSection(context, page, tableId)}
 ${
@@ -293,7 +308,7 @@ const stopArticle = (
 ${
   stop.attention === null
     ? ""
-    : html`<div class="notice warning attention"><strong>${ATTENTION_LABEL[stop.attention.kind]}</strong> ${stop.attention.note}</div>`
+    : html`<div class="notice warning attention"><strong>${ATTENTION_LABEL[stop.attention.kind]}</strong> <span class="prose">${inline(stop.attention.note)}</span></div>`
 }
 ${stop.excerpts.map((excerpt, index) => {
   const context = page.files.get(excerpt.path);
@@ -303,7 +318,7 @@ ${stop.excerpts.map((excerpt, index) => {
   return html`<figure class="excerpt">
 <figcaption>
 <span class="excerpt-path"><code>${excerpt.path}</code>${context.approved ? html` <span class="chip success">Approved</span>` : ""}</span>
-${excerpt.caption === "" ? "" : html`<span class="excerpt-caption">${excerpt.caption}</span>`}
+${excerpt.caption === "" ? "" : html`<span class="excerpt-caption prose">${inline(excerpt.caption)}</span>`}
 <span class="muted small">${excerpt.end_row - excerpt.start_row + 1} of ${rows} rows · <a href="#files/${excerpt.path}" data-open-file="${excerpt.path}">Open file</a></span>
 </figcaption>
 ${diffTable({
@@ -320,7 +335,7 @@ ${
     ? ""
     : html`<ol class="notes">${excerpt.notes.map(
         (note) =>
-          html`<li id="${tableId}-note-${note.letter}"><span class="note-marker" aria-hidden="true">${note.letter}</span> <strong>${note.title}</strong>${note.body === "" ? "" : html` <span>${note.body}</span>`}</li>`,
+          html`<li id="${tableId}-note-${note.letter}"><span class="note-marker" aria-hidden="true">${note.letter}</span> <strong>${note.title}</strong>${note.body === "" ? "" : html` <span class="prose">${inline(note.body)}</span>`}</li>`,
       )}</ol>`
 }
 </figure>`;
@@ -331,7 +346,7 @@ ${
     ? ""
     : html`<section class="questions">
 <h3 class="small">Questions to consider</h3>
-<ul class="cluster">${stop.questions.map((question) => html`<li><button type="button" class="quiet question" data-question="${question}">${question}</button></li>`)}</ul>
+<ul class="cluster">${stop.questions.map((question) => html`<li><button type="button" class="quiet question" data-question="${question}"><span class="prose">${inline(question)}</span></button></li>`)}</ul>
 </section>`
 }
 ${

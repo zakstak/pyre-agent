@@ -166,6 +166,15 @@
     border-radius: var(--radius-chip);
   }
 
+  /* Agent prose keeps its single line breaks; it is plain text with code spans. */
+  .prose {
+    white-space: pre-line;
+  }
+  .prose code {
+    overflow-wrap: anywhere;
+    font-size: var(--size-technical);
+  }
+
   /* Overview */
   .overview {
     padding-block-end: var(--space-4);

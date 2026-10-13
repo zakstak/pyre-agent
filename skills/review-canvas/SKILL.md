@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.2.1"
+  version: "4.2.2"
 ---
 
 # Review canvas
@@ -148,7 +148,8 @@ private session folder, and leave the snapshot as the collector wrote it.
 `publish --analysis` merges the two, and the same analysis file carries into
 later rounds, whose snapshots start over. It holds a `summary`, `stops` (the
 tour), and `files`, an object keyed by path whose entries set a file's `group`,
-`summary`, `pseudocode`, `trace`, and `callouts`. See
+`summary`, `pseudocode`, `trace`, and `callouts`. Prose is plain text: its line
+breaks show, and `` `code` `` between backticks shows as code. See
 [the input reference](references/input-format.md) and
 [the example analysis](assets/example-analysis.json).
 
