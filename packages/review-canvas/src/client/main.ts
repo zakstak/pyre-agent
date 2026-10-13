@@ -277,7 +277,7 @@ const installLive = () => {
       unanswered++;
       if (unanswered >= 2)
         lost.textContent =
-          "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own.";
+          "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
       if (stream.readyState !== EventSource.CLOSED) return;
       source = undefined;
       streamFailures++;
