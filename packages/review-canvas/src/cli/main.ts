@@ -35,7 +35,13 @@ import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
 import { findPullRequest, GhFailed, readComments, runGh } from "./github.ts";
 import { collectPullRequest } from "./pull-request.ts";
 import { PullRequestUrl } from "../schema/primitives.ts";
-import { call, ensureServer, expectOk, ServerError } from "./socket.ts";
+import {
+  call,
+  ensureServer,
+  expectOk,
+  ServerError,
+  SocketFailed,
+} from "./socket.ts";
 import { runtimeDir, socketPath } from "../server/paths.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
@@ -793,7 +799,12 @@ const classified = (
     return { message: String(error), kind: "unknown" };
   const code =
     "code" in error && typeof error.code === "string" ? error.code : undefined;
-  if (code !== undefined && SOCKET_GONE.has(code))
+  // Only the socket's own failures mean the server is gone; a file this command reads or writes can fail alike.
+  if (
+    error instanceof SocketFailed &&
+    code !== undefined &&
+    SOCKET_GONE.has(code)
+  )
     return {
       message: `no review server answers on ${socketPath()}; run the command again, which starts one. See ${runtimeDir()}/server.log.`,
       kind: code.toLowerCase(),
