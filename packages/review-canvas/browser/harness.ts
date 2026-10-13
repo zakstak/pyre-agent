@@ -51,6 +51,8 @@ export interface Server {
   readonly origin: string;
   readonly register: (input: unknown, label?: string) => Promise<Agent>;
   readonly stop: () => Promise<void>;
+  /** Starts the server again after stop, on the same port, socket, and database. */
+  readonly start: () => Promise<void>;
 }
 
 /** Starts a server and waits until it answers on its socket. */
@@ -59,10 +61,9 @@ export const startServer = async (): Promise<Server> => {
   const runtime = join(dir, "run");
   const socketPath = join(runtime, "agent.sock");
   const port = await freePort();
-  const child: ChildProcess = spawn(
-    process.execPath,
-    [join(root, "src/server/main.ts")],
-    {
+  let child: ChildProcess;
+  const spawnServer = async () => {
+    child = spawn(process.execPath, [join(root, "src/server/main.ts")], {
       env: {
         ...process.env,
         REVIEW_CANVAS_DATA: join(dir, "data/reviews.sqlite"),
@@ -70,14 +71,20 @@ export const startServer = async (): Promise<Server> => {
         REVIEW_CANVAS_PORT: String(port),
       },
       stdio: ["ignore", "ignore", "inherit"],
-    },
-  );
-  for (
-    let attempt = 0;
-    attempt < 100 && !(await answers(socketPath));
-    attempt++
-  )
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    for (
+      let attempt = 0;
+      attempt < 100 && !(await answers(socketPath));
+      attempt++
+    )
+      await new Promise((resolve) => setTimeout(resolve, 100));
+  };
+  const stop = async () => {
+    child.kill("SIGTERM");
+    if (child.exitCode === null)
+      await new Promise((resolve) => child.once("exit", resolve));
+  };
+  await spawnServer();
 
   const send = (method: string, path: string, body?: unknown, token?: string) =>
     new Promise<any>((resolve, reject) => {
@@ -135,10 +142,8 @@ export const startServer = async (): Promise<Server> => {
           call("POST", "/answers", { comment, answer }),
       };
     },
-    stop: async () => {
-      child.kill("SIGTERM");
-      await new Promise((resolve) => child.once("exit", resolve));
-    },
+    stop,
+    start: spawnServer,
   };
 };
 
