@@ -691,14 +691,18 @@ test("a refresh follows GitHub's resolution, unless an answer or the reviewer's 
     path: "src/notes/store.py" as RepoPath,
     side: "RIGHT" as const,
     diff_hunk:
-      '@@ -1,13 +1,19 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path',
+      "@@ -1,13 +1,19 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path",
     replies: [],
   });
   // Imports the thread as `before`, runs `between`, imports it again as `after`, and returns the turn.
   const turnAfter = (
     before: boolean,
     after: boolean,
-    between: (store: Store, id: string, thread: { id: string }) => void = () => {},
+    between: (
+      store: Store,
+      id: string,
+      thread: { id: string },
+    ) => void = () => {},
   ) => {
     const store = Store.open(":memory:");
     const { id, thread: agent } = opened(store);
@@ -777,7 +781,11 @@ test("a refresh follows GitHub's resolution, unless an answer or the reviewer's 
   assert.ok(answered.feedback !== undefined);
   const imported = store.importFeedback(fresh.id, answered.feedback);
   assert.deepEqual(
-    [imported.report.comments, imported.report.replies, imported.report.skipped],
+    [
+      imported.report.comments,
+      imported.report.replies,
+      imported.report.skipped,
+    ],
     [1, 1, []],
   );
   const copy = store.review(fresh.id)?.state.comments[0];
