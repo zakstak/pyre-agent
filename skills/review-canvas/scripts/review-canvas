@@ -44,7 +44,7 @@ if stale; then
     printf 'review-canvas: installing and building %s\n' "$package" >&2
     pnpm --dir "$package" install --frozen-lockfile >&2
     touch "$package/node_modules"
-    pnpm --dir "$package" exec vite build >&2
+    pnpm --dir "$package" build >&2
   fi
   rmdir "$lock" 2>/dev/null || true
   trap - EXIT

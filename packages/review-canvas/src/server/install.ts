@@ -7,6 +7,17 @@ import { fileURLToPath } from "node:url";
 
 const fromSource = import.meta.url.endsWith(".ts");
 
+export const codeDir = (): string =>
+  fileURLToPath(new URL(fromSource ? "../" : "./", import.meta.url));
+
+export const dependencyFile = (): string =>
+  fileURLToPath(
+    new URL(
+      fromSource ? "../../pnpm-lock.yaml" : "../../package.json",
+      import.meta.url,
+    ),
+  );
+
 /** The built browser assets. */
 export const clientDir = (): string =>
   fileURLToPath(

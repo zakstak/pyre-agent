@@ -38,6 +38,19 @@ page port; without it, the system picks a free one. `REVIEW_CANVAS_DATA` and
 tests and a demo stay out of the real data. GitHub comments are read with `gh`
 when it is installed and signed in.
 
+Commands reuse a daemon only when its code and asset manifest match the current
+installation. `pnpm build` and the skill launcher stop the daemon and wait for
+its store to close before replacing assets; starts wait until the build ends.
+Open pages disconnect during an upgrade and can be reopened at the URL the next
+command returns. A daemon from before this lifecycle protocol must be stopped
+manually once: the command refuses the upgrade and leaves its assets intact.
+Use `pnpm build` instead of invoking Vite directly to retain this coordination.
+
+Collection scans both patches and requested full-file content for recognized
+secret patterns. A match omits that file's content and reports its path;
+`--include-secret PATH` explicitly allows it, while `--no-content` collects only
+patches. The detector does not recognize every possible secret format.
+
 ## Layout
 
 | Folder          | What                                                                                     |
