@@ -1,5 +1,5 @@
 /**
- * A changed file as one block of the review page: a header with its path, counts, fold toggle, and Viewed button, and
+ * A changed file as one block of the review page: a header with its fold toggle, path, counts, and Viewed button, and
  * a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left the round.
  */
 import type { Comment } from "../../schema/feedback.ts";
@@ -26,23 +26,30 @@ const PATCH_NOTE_TEXT: Readonly<Record<NonNullable<ReviewFile["patch_note"]>, st
 };
 
 /**
- * The one status word a header shows, only when it says more than "modified". What the file is (deleted, renamed,
- * binary, too large) comes first; then that it changed since the round before, which opens what changed; then that
- * it is new; then that it is as the round before showed it.
+ * The one status word a header shows. That the reviewer's approval lapsed comes first, then that the file changed
+ * since the round before; both open what changed between the rounds when that patch exists. Then what the file is
+ * (added, deleted, renamed, binary, too large). A file merely modified, or as the round before showed it, has none.
  */
-const statusWord = (
-  file: ReviewFile,
-  unchangedSince: number | undefined,
-  changedSince: number | undefined,
-): string | { readonly since: number } | undefined => {
-  if (file.status === "deleted" || file.status === "removed") return "deleted";
-  if (file.status === "renamed") return file.old_path === undefined ? "renamed" : `renamed from ${file.old_path}`;
-  if (file.patch_note === "binary") return "binary";
-  if (file.patch_note === "too_large") return "too large";
-  if (changedSince !== undefined) return { since: changedSince };
-  if (file.status === "added" || file.status === "copied") return file.status;
-  return unchangedSince === undefined ? undefined : `unchanged since round ${unchangedSince}`;
+type Status =
+  | { readonly kind: "word"; readonly text: string; readonly warning: boolean }
+  | { readonly kind: "since"; readonly text: string; readonly warning: boolean };
+
+const statusOf = (file: ReviewFile, lapsed: boolean, changedSince: number | undefined): Status | undefined => {
+  const since = (text: string, warning: boolean): Status =>
+    changedSince === undefined ? { kind: "word", text, warning } : { kind: "since", text, warning };
+  if (lapsed) return since("changed since you viewed it", true);
+  if (changedSince !== undefined) return since(`changed since round ${changedSince}`, false);
+  const word = (text: string): Status => ({ kind: "word", text, warning: false });
+  if (file.status === "deleted" || file.status === "removed") return word("deleted");
+  if (file.status === "renamed") return word(file.old_path === undefined ? "renamed" : `renamed from ${file.old_path}`);
+  if (file.patch_note === "binary") return word("binary");
+  if (file.patch_note === "too_large") return word("too large");
+  if (file.status === "added" || file.status === "copied") return word(file.status);
+  return undefined;
 };
+
+/** A chevron that points down while the diff shows and right while it is folded. */
+const chevron = html`<svg class="chevron" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export interface FileView {
   /** The file's place in the round, which names its table and body. */
@@ -161,9 +168,9 @@ ${thread(
 export const fileBlock = (view: FileView, page: FilePage): Html => {
   const { file } = view;
   const patch = sincePatch(view);
-  const status = statusWord(file, view.unchangedSince, patch === undefined ? undefined : page.round - 1);
+  const status = statusOf(file, view.lapsed, patch === undefined ? undefined : page.round - 1);
   // The patch between the rounds shows only where the header's word can open it.
-  const since = typeof status === "object" ? patch : undefined;
+  const since = status?.kind === "since" ? patch : undefined;
   const hasBody = file.patch !== undefined || file.patch_note !== undefined || view.orphans.length > 0;
   const body = `body-${tableId(view)}`;
   const about = aboutBlock(view);
@@ -173,21 +180,20 @@ export const fileBlock = (view: FileView, page: FilePage): Html => {
       : `${count(view.open, "comment")}${view.forYou > 0 ? ` · ${view.forYou} for you` : ""}`;
   return html`<article class="file${view.approved ? " is-viewed" : ""}" id="${fileElementId(file.path)}" data-path="${file.path}" data-file="${view.index}" data-folded="${String(view.folded)}"${view.held ? html` data-held` : ""}>
 <header class="file-head">
+${hasBody ? html`<button type="button" class="fold-toggle" data-fold aria-controls="${body}" aria-expanded="${String(!view.folded)}" aria-label="${view.folded ? "Show diff" : "Hide diff"}">${chevron}</button>` : ""}
 <h3 class="file-path" tabindex="-1"><code title="${file.path}">${pathParts(file.path)}</code></h3>
 ${view.caption === undefined || view.caption === "" ? "" : html`<span class="file-caption">${inline(view.caption)}</span>`}
 ${
   status === undefined
     ? ""
-    : typeof status === "object"
-      ? html`<button type="button" class="file-word" data-extra aria-expanded="false" aria-controls="since-${tableId(view)}">changed since round ${status.since}</button>`
-      : html`<span class="file-status">${status}</span>`
+    : status.kind === "since"
+      ? html`<button type="button" class="file-word${status.warning ? " warning" : ""}" data-extra aria-expanded="false" aria-controls="since-${tableId(view)}">${status.text}</button>`
+      : html`<span class="file-status${status.warning ? " warning" : ""}">${status.text}</span>`
 }
 ${talk === "" ? "" : html`<span class="file-talk">${talk}</span>`}
 <span class="file-end">
 ${file.patch === undefined ? "" : html`<span class="stat"><span class="added">+${file.additions}</span> <span class="deleted">−${file.deletions}</span></span>`}
-${view.lapsed ? html`<span class="file-lapsed">changed since you viewed it</span>` : ""}
 ${about === undefined ? "" : html`<button type="button" class="file-word" data-extra aria-expanded="false" aria-controls="about-${tableId(view)}">About</button>`}
-${hasBody ? html`<button type="button" class="file-word fold-toggle" data-fold aria-controls="${body}" aria-expanded="${String(!view.folded)}">${view.folded ? "Show diff" : "Hide diff"}</button>` : ""}
 ${viewedButton(view, page)}
 </span>
 </header>

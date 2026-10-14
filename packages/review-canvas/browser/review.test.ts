@@ -514,7 +514,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       () =>
         document.querySelector<HTMLElement>("article.file[data-path='long.txt'] .file-body")?.hidden === true,
     );
-    assert.equal(await file.locator("[data-fold]").textContent(), "Show diff");
+    assert.equal(await file.locator("[data-fold]").getAttribute("aria-label"), "Show diff");
     assert.equal(await file.locator("[data-action='approve']").getAttribute("aria-pressed"), "true");
     assert.equal(
       await page.locator(".toc-file[data-toc-file='long.txt'] .toc-mark").textContent(),
@@ -951,6 +951,55 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     ]);
     assert.ok(Math.abs(head - strip) <= 1, `header at ${head}, strip ends at ${strip}`);
     assert.ok(block < head, "the block scrolled under its header");
+    await page.close();
+  });
+
+  test("sidebar rows are dense, and a name too long for its row drops its whole folder before it cuts the name's end", async () => {
+    const input = fixtureInput();
+    input.files_complete = false;
+    input.files.push({
+      path: "src/notifications/a-file-name-far-too-long-for-the-contents-sidebar.ts",
+      status: "added",
+      group: "core",
+      additions: 1,
+      deletions: 0,
+      fingerprint: "4".repeat(64),
+      patch: "@@ -0,0 +1,1 @@\n+x\n",
+      new_content: "x\n",
+    });
+    input.stops[0].files.push({ path: input.files.at(-1).path });
+    const agent = await server.register(input);
+    const published = await agent.publish(input);
+    assert.equal(published.ok, true, JSON.stringify(published));
+    const page = await open(agent.url);
+    await page.locator(".toc-file").first().waitFor();
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".toc-file")].map((row) => {
+        const dir = row.querySelector<HTMLElement>(".dir");
+        const base = row.querySelector<HTMLElement>(".base");
+        const box = row.getBoundingClientRect();
+        return {
+          path: row.dataset.tocFile ?? "",
+          height: box.height,
+          fontSize: getComputedStyle(row).fontSize,
+          // A folder that shows sits on the name's line, wholly inside the row.
+          dirShown:
+            dir === null
+              ? null
+              : Math.abs(dir.getBoundingClientRect().top - (base?.getBoundingClientRect().top ?? 0)) < 1,
+          dirWhole: dir === null ? null : dir.scrollWidth <= dir.clientWidth + 1,
+          baseCut: base === null ? false : base.scrollWidth > base.clientWidth + 1,
+        };
+      }),
+    );
+    for (const row of rows) {
+      assert.equal(row.height, 28, `${row.path} is ${row.height}px tall`);
+      assert.equal(row.fontSize, "14px");
+      if (row.dirShown === true) assert.equal(row.dirWhole, true, `${row.path} shows part of its folder`);
+    }
+    const long = rows.find((row) => row.path.endsWith("contents-sidebar.ts"));
+    assert.deepEqual([long?.dirShown, long?.baseCut], [false, true]);
+    assert.ok(rows.some((row) => row.dirShown === true), "short names keep their folder");
     await page.close();
   });
 

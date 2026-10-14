@@ -49,7 +49,7 @@ export const setFolded = (article: HTMLElement, folded: boolean, keep = true) =>
   if (body !== null) body.hidden = folded;
   article.dataset.folded = String(folded);
   if (toggle !== null) {
-    toggle.textContent = folded ? "Show diff" : "Hide diff";
+    toggle.setAttribute("aria-label", folded ? "Show diff" : "Hide diff");
     toggle.setAttribute("aria-expanded", String(!folded));
   }
   if (keep && article.dataset.path !== undefined) remember(article.dataset.path, folded ? "closed" : "open");

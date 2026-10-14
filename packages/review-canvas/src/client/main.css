@@ -569,23 +569,26 @@
     list-style: none;
   }
   .toc-stops > li + li {
-    margin-block-start: 0.25rem;
+    margin-block-start: var(--space-3);
   }
-  .toc li + li {
+  .toc li li + li {
     margin-block-start: 0;
   }
-  /* Every row is a 44px target; the selection and hover fill only the middle of it. */
+  /*
+   * A dense list, like a diff's gutter: each row is 1.75rem apart, and the selection and hover fill a 1.5rem band in
+   * its middle.
+   */
   .toc-stop,
   .toc-file {
     position: relative;
     isolation: isolate;
-    min-block-size: 2.75rem;
+    min-block-size: 1.75rem;
   }
   .toc-stop::before,
   .toc-file::before {
     content: "";
     position: absolute;
-    inset: 0.3125rem 0;
+    inset: calc((1.75rem - var(--target-dense)) / 2) 0;
     z-index: -1;
     border-radius: 5px;
   }
@@ -639,35 +642,30 @@
     outline-offset: -2px;
   }
   /*
-   * A row too narrow for its name gives up the folder first, then the middle of the file name; the name's start and
-   * its extension stay. The name takes at most the whole row, and the folder whatever is left.
+   * A row shows `dir/name` when both fit, else the name alone, cut at its end; never part of the folder. The name
+   * comes first in a wrapping line laid out right to left and packed to the left, so the folder is the item that
+   * wraps, onto a second line the row clips.
    */
   .toc-name {
     display: flex;
     flex: 1 1 auto;
+    flex-flow: row-reverse wrap;
+    justify-content: flex-end;
     min-width: 0;
+    max-block-size: var(--target-dense);
+    overflow: hidden;
+    line-height: var(--target-dense);
     white-space: nowrap;
   }
   .toc-name .dir {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    flex: none;
   }
   .toc-name .base {
-    display: flex;
-    flex: 0 0 auto;
-    max-inline-size: 100%;
-    min-width: 0;
-  }
-  .toc-name .stem {
+    order: -1;
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .toc-name .tail {
-    flex: none;
   }
   .toc-name .dir,
   .toc-file.is-viewed {
@@ -843,7 +841,10 @@
   .file[data-folded="true"] + .file[data-folded="true"] {
     margin-block-start: var(--space-2);
   }
-  /* One row, whatever the file has: its controls are quiet words, and anything they open goes below the row. */
+  /*
+   * One row, whatever the file has: the fold chevron at the far left, then the path, and quiet words; anything they
+   * open goes below the row.
+   */
   .file-head {
     display: flex;
     flex-wrap: wrap;
@@ -906,14 +907,42 @@
     gap: 0 var(--space-2);
     margin-inline-start: auto;
   }
-  .file-end > .stat,
-  .file-lapsed {
+  .file-end > .stat {
     margin-inline-end: var(--space-1);
   }
-  .file-lapsed {
-    color: var(--status-warning);
+  /* A 24px chevron in a 44px target, its glyph lined up with the header's edge as GitHub's is. */
+  .fold-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+    margin-inline: -0.75rem -0.5rem;
+    padding: 0;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
   }
-  /* "About", "changed since round 1", "Show diff": muted words with 44px targets. */
+  .fold-toggle:hover {
+    color: var(--text-primary);
+    background: transparent;
+  }
+  .fold-toggle .chevron {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    transition: transform 120ms ease;
+  }
+  .fold-toggle[aria-expanded="false"] .chevron {
+    transform: rotate(-90deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fold-toggle .chevron {
+      transition: none;
+    }
+  }
+  /* "About" and "changed since round 1": muted words with 44px targets. */
   .file-word {
     gap: 0;
     min-block-size: 2.75rem;
@@ -934,8 +963,11 @@
   .file-word[aria-expanded="true"] {
     color: var(--text-primary);
   }
-  .file-word[data-extra]::after,
-  .fold-toggle::after {
+  .file-word.warning,
+  .file-status.warning {
+    color: var(--status-warning);
+  }
+  .file-word[data-extra]::after {
     content: "\00a0▾";
   }
   .file-word[aria-expanded="true"]::after {

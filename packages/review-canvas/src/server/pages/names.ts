@@ -87,17 +87,14 @@ export const pathParts = (path: string): Html => {
 };
 
 /**
- * A path for a narrow list: the last folder and the file name. When the row is too narrow, the folder gives way
- * first, then the middle of the name, so its start and its extension stay readable.
+ * A path for a narrow list: the last folder and the file name. A row too narrow for both drops the whole folder,
+ * and then cuts the name at its end; its stylesheet does both.
  */
 export const shortPath = (path: string): Html => {
   const parts = path.split("/");
-  const base = parts.at(-1) ?? path;
+  const base = html`<span class="base">${parts.at(-1) ?? path}</span>`;
   const folder = parts.at(-2);
-  const dot = base.lastIndexOf(".");
-  const split = Math.max(0, (dot > 0 ? dot : base.length) - 4);
-  const name = html`<span class="base"><span class="stem">${base.slice(0, split)}</span><span class="tail">${base.slice(split)}</span></span>`;
-  return folder === undefined ? name : html`<span class="dir">${folder}/</span>${name}`;
+  return folder === undefined ? base : html`<span class="dir">${folder}/</span>${base}`;
 };
 
 const home = homedir();
