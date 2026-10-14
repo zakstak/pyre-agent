@@ -1,86 +1,20 @@
-/**
- * The home page: the reviews, with what each needs from the reviewer, then the repositories on this machine with
- * their checkouts and reviews, and the scan form. The server builds the snapshot; the page filters it.
- */
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { Option } from "effect";
-import { AsyncResult, Atom } from "effect/reactivity";
-import { count } from "../names.ts";
-import { CONNECTION_TEXT, connectionAtom, failureText } from "../rpc.ts";
-import { Button } from "../ui/button.tsx";
+/** The home page: the reviews, filtered by a query, with what each needs from the reviewer. */
+import { FolderGit2 } from "lucide-react";
+import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { frame, SkipLink } from "../ui/page.tsx";
-import { ThemeControl } from "../ui/theme.tsx";
-import { busyAtom, homeAtom, monitoringAtom } from "./data.ts";
-import { Repositories } from "./Repositories.tsx";
+import { HomeLayout } from "./HomeLayout.tsx";
 import { Reviews } from "./Reviews.tsx";
 
-export const HomePage = () => {
-  const result = useAtomValue(homeAtom);
-  const busy = useAtomValue(busyAtom);
-  const connection = useAtomValue(connectionAtom);
-  const refresh = useAtomRefresh(homeAtom);
-  const setMonitoring = useAtomSet(monitoringAtom);
-  const snapshot = AsyncResult.value(result);
-  const failure =
-    AsyncResult.isFailure(result) && !result.waiting
-      ? failureText(result.cause, "Could not load the repositories. Rescan to try again.")
-      : undefined;
-  const rescan = () => {
-    // A rescan starts afresh, as reloading the page did: the last change's refusal goes with the old lists.
-    setMonitoring(Atom.Reset);
-    refresh();
-  };
-  return (
-    <>
-      <SkipLink />
-      <header className="border-b border-separator bg-surface text-small">
-        <div className={cn(frame({ width: "home" }), "flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 py-1")}>
-          <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
-            <h1 className="font-semibold">Review canvas</h1>
-            <span className="text-muted">
-              localhost
-              {Option.match(snapshot, {
-                onNone: () => "",
-                onSome: ({ repositories }) =>
-                  ` · ${count(repositories.filter((entry) => entry.monitored).length, "repository", "repositories")} monitored`,
-              })}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="text-muted empty:hidden" role="status" data-connection="">
-              {CONNECTION_TEXT[connection.state]}
-            </span>
-            <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
-              Rescan
-            </Button>
-          </div>
-        </div>
-      </header>
-      <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-12")}>
-        {failure === undefined ? null : (
-          <p className="mb-4 text-danger" role="alert">
-            {failure}
-          </p>
-        )}
-        {Option.match(snapshot, {
-          onNone: () =>
-            failure === undefined ? (
-              <p className="text-muted" role="status">
-                Loading…
-              </p>
-            ) : null,
-          onSome: (home) => (
-            <>
-              <Reviews reviews={home.reviews} />
-              <Repositories snapshot={home} />
-            </>
-          ),
-        })}
-      </main>
-      <footer className={cn(frame({ width: "home" }), "mb-8")}>
-        <ThemeControl />
-      </footer>
-    </>
-  );
-};
+export const HomePage = () => (
+  <HomeLayout
+    failure="Could not load the reviews. Reload the page to try again."
+    actions={
+      <a href="/repositories" className={cn(TOUCH_TARGET, "inline-flex items-center gap-1 text-small no-underline hover:underline")}>
+        <FolderGit2 aria-hidden="true" className="size-3.5" />
+        Repositories
+      </a>
+    }
+  >
+    {(home) => <Reviews reviews={home.reviews} />}
+  </HomeLayout>
+);

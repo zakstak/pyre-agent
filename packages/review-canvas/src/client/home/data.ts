@@ -9,21 +9,31 @@ import type { RepositoryId } from "../../schema/repositories.ts";
 import { epochAtom, PageClient } from "../rpc.ts";
 
 /**
- * The repository filter's text, kept in the URL as `q` as the reviewer types. Filtering never contacts the server.
- * Unlike `Atom.searchParam`, which adds a history entry half a second after each pause, it replaces the current entry
- * at once: Back leaves the page instead of undoing keystrokes, and a reload keeps what was typed.
+ * A search parameter as text, with the value its absence stands for. Unlike `Atom.searchParam`, which adds a history
+ * entry half a second after each pause, it replaces the current entry at once: Back leaves the page instead of
+ * undoing keystrokes, and a reload keeps what was typed. Writing the absent value removes the parameter.
  */
-export const queryAtom = Atom.writable(
-  () => new URLSearchParams(location.search).get("q") ?? "",
-  (context, value: string) => {
-    const params = new URLSearchParams(location.search);
-    if (value === "") params.delete("q");
-    else params.set("q", value);
-    const search = params.toString();
-    history.replaceState(history.state, "", `${location.pathname}${search === "" ? "" : `?${search}`}${location.hash}`);
-    context.setSelf(value);
-  },
-);
+const textParam = (key: string, absent: string) =>
+  Atom.writable(
+    () => new URLSearchParams(location.search).get(key) ?? absent,
+    (context, value: string) => {
+      const params = new URLSearchParams(location.search);
+      if (value === absent) params.delete(key);
+      else params.set(key, value);
+      const search = params.toString();
+      history.replaceState(history.state, "", `${location.pathname}${search === "" ? "" : `?${search}`}${location.hash}`);
+      context.setSelf(value);
+    },
+  );
+
+/** The repository filter's text on the repositories page, kept in the URL as `q`. Filtering never contacts the server. */
+export const queryAtom = textParam("q", "");
+
+/**
+ * The review query on the home page, kept in the URL as `q`; open reviews when it is absent, and an empty `q` for all.
+ * Filtering never contacts the server.
+ */
+export const reviewQueryAtom = textParam("q", "is:open");
 
 /**
  * Which repositories an older link narrows the list to, kept in the URL as `filter`. The page has no control for it:

@@ -25,7 +25,7 @@ import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
-import { Narration, NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
+import { Narration, NextStrip, ReviewBar, Title, useStickyBars, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { Departed, Finish, General, StopSection } from "./Sections.tsx";
 import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
@@ -92,7 +92,7 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   return (
     <>
       <SkipLink />
-      <TopBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
+      <ReviewBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
       <Frame>
         <header className="col-span-full pt-6">
           <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
@@ -188,7 +188,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <TopBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
+      <ReviewBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
       <Frame>
         <Title id={id} />
         <NextStrip onGo={() => void navigate.goNext()} />

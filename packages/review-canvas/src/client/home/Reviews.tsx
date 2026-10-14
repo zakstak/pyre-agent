@@ -1,20 +1,21 @@
-/** The reviews, with what each needs from the reviewer: those that need them first, closed ones last. */
+/**
+ * The reviews, with what each needs from the reviewer: those that need them first, closed ones last. A query narrows
+ * them, as on GitHub's pull request list; the standing chips write its `is:` term.
+ */
+import { useAtom } from "@effect/atom-react";
 import { Archive, CircleCheck, CircleX, Eye, FileDiff, Hourglass, type LucideIcon, MessageCircle, MessageSquare } from "lucide-react";
 import type { Verdict } from "../../schema/feedback.ts";
+import { formatQuery, hasStanding, matches, parseQuery, type Standing, standing, withoutStanding, withStanding } from "../../review/query.ts";
 import type { ReviewSummary } from "../../schema/rpc.ts";
 import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { FIELD } from "../ui/field.ts";
 import { Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Time, timeTitle } from "../ui/text.tsx";
 import { AgentVoice } from "../ui/voice.tsx";
-
-/** Whose move a review waits for, which its dot shows. */
-type Standing = "yours" | "agents" | "closed";
-
-const standing = (item: ReviewSummary): Standing =>
-  item.closed_at !== undefined ? "closed" : item.round !== undefined && !item.submitted ? "yours" : "agents";
+import { reviewQueryAtom } from "./data.ts";
 
 const STANDING_ORDER: Readonly<Record<Standing, number>> = { yours: 0, agents: 1, closed: 2 };
 
@@ -131,31 +132,75 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
   );
 };
 
+/** The standing chips, each the `is:` term it writes. */
+const CHIPS = [
+  ["open", "Open"],
+  ["yours", "Needs you"],
+  ["waiting", "Waiting"],
+  ["closed", "Closed"],
+] as const;
+
 export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSummary> }) => {
+  const [text, setText] = useAtom(reviewQueryAtom);
+  const query = parseQuery(text);
+  // Each chip counts the reviews the rest of the query leaves.
+  const rest = withoutStanding(query);
+  const left = reviews.filter((item) => matches(rest, item));
   // Newest first within each standing, as the server lists them; the sort is stable.
-  const sorted = [...reviews].sort((a, b) => STANDING_ORDER[standing(a)] - STANDING_ORDER[standing(b)]);
-  const tally: Record<Standing, number> = { yours: 0, agents: 0, closed: 0 };
-  for (const item of reviews) tally[standing(item)]++;
-  const summary = [
-    ...(tally.yours === 0 ? [] : [`${tally.yours} need${tally.yours === 1 ? "s" : ""} you`]),
-    ...(tally.agents === 0 ? [] : [`${tally.agents} waiting on agents`]),
-    ...(tally.closed === 0 ? [] : [`${tally.closed} closed`]),
-  ].join(" · ");
+  const shown = reviews
+    .filter((item) => matches(query, item))
+    .sort((a, b) => STANDING_ORDER[standing(a)] - STANDING_ORDER[standing(b)]);
   return (
     <section aria-labelledby="reviews-title">
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-        <h2 id="reviews-title" className="text-heading font-semibold">
-          Reviews
-        </h2>
-        {summary === "" ? null : <span className="text-small text-muted">{summary}</span>}
+      <h2 id="reviews-title" className="mb-3 text-heading font-semibold">
+        Reviews
+      </h2>
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-control border border-line text-small">
+          {CHIPS.map(([value, label]) => {
+            const pressed = hasStanding(query, value);
+            const term = parseQuery(`is:${value}`);
+            return (
+              <button
+                key={value}
+                type="button"
+                data-standing-filter={value}
+                aria-pressed={pressed}
+                onClick={() => setText(formatQuery(withStanding(query, value)))}
+                className={cn(
+                  TOUCH_TARGET,
+                  "h-7 px-2.5 font-medium",
+                  pressed ? "bg-selected text-ink shadow-pressed" : "bg-raised text-muted hover:bg-subtle",
+                )}
+              >
+                {label} <span className="font-normal tabular-nums">{left.filter((item) => matches(term, item)).length}</span>
+              </button>
+            );
+          })}
+        </div>
+        <label className="ml-auto min-w-0 flex-[0_1_24rem]">
+          <input
+            type="search"
+            aria-label="Filter reviews"
+            placeholder="is:open repo:ledger -author:codex"
+            value={text}
+            onChange={(event) => setText(event.currentTarget.value)}
+            className={FIELD}
+          />
+        </label>
       </div>
+      <p className="sr-only" role="status">
+        {shown.length} of {reviews.length} reviews shown
+      </p>
       {reviews.length === 0 ? (
         <p className="text-muted">
           No reviews yet. An agent starts one with <code>review-canvas register</code>.
         </p>
+      ) : shown.length === 0 ? (
+        <p className="text-muted">No reviews match.</p>
       ) : (
         <ul>
-          {sorted.map((item) => (
+          {shown.map((item) => (
             <ReviewRow key={item.id} item={item} />
           ))}
         </ul>

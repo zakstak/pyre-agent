@@ -280,6 +280,8 @@ const MARKER_GUTTER = "w-px min-w-7 px-1 text-right whitespace-nowrap text-muted
 const HALF_NUMBER_GUTTER = "inline-block min-w-12 pr-1 pl-3 text-right text-muted";
 const HALF_MARKER_GUTTER = "inline-block min-w-6 px-1 text-right text-muted";
 const SOURCE = "pr-4 whitespace-pre max-md:pr-3 max-md:pl-1";
+/** A split half keeps a long line to itself: the table is fixed, so it clips with an ellipsis instead of spilling. */
+const SPLIT_UNCHANGED = "w-1/2 overflow-hidden pr-3 text-ellipsis whitespace-pre";
 
 /** The source of a row: code in ink, a hunk header or meta row in the row's muted tone. */
 const Source = ({ row }: { readonly row: Row }) => (
@@ -328,7 +330,7 @@ const Half = ({ table, row, side }: { readonly table: TableContext; readonly row
       data-kind={row.kind}
       data-whitespace={shown === row.kind ? undefined : "hidden"}
       className={cn(
-        "group/unit relative w-1/2 pr-3 align-top whitespace-pre",
+        "group/unit relative w-1/2 overflow-hidden pr-3 align-top text-ellipsis whitespace-pre",
         side === "new" && "border-l border-separator",
         ROW_TONE[shown],
         table.commented.has(row.index) && "shadow-mark",
@@ -379,12 +381,12 @@ const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly r
 const UnchangedLine = ({ table, line }: { readonly table: TableContext; readonly line: GapLine }) =>
   table.split ? (
     <tr data-unchanged className="text-muted">
-      <td className="w-1/2 pr-3 whitespace-pre">
+      <td className={SPLIT_UNCHANGED}>
         <span className={HALF_NUMBER_GUTTER}>{line.old}</span>
         <span className={HALF_MARKER_GUTTER} />
         <code className="text-ink">{line.text}</code>
       </td>
-      <td className="w-1/2 border-l border-separator pr-3 whitespace-pre">
+      <td className={cn(SPLIT_UNCHANGED, "border-l border-separator")}>
         <span className={HALF_NUMBER_GUTTER}>{line.new}</span>
         <span className={HALF_MARKER_GUTTER} />
         <code className="text-ink">{line.text}</code>

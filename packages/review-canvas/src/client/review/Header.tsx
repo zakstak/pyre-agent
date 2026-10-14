@@ -1,56 +1,29 @@
 /**
- * The top of the review page: the bar with the target and the connection, the title with any drift and the rounds as
- * tabs, and the strip under them that names the one thing to do next. The bar and the strip stick on a wide page.
+ * The top of the review page under the bar: the title with any drift and the rounds as tabs, and the strip under them
+ * that names the one thing to do next. The bar and the strip stick on a wide page.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import { Eye, Hourglass, MessageSquare } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Target } from "../../schema/target.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { fileElementId } from "../../review/next.ts";
 import { count, targetName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
-import { CONNECTION_TEXT, connectionAtom } from "../rpc.ts";
 import { buttonVariants } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { frame } from "../ui/page.tsx";
+import { TopBar } from "../ui/page.tsx";
 import { Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
-import { toast } from "../ui/toast.tsx";
 import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
 
-const LOST =
-  "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
-
-/** The connection state: quiet while connected, a live region that speaks when the socket is lost. */
-const Connection = ({ updated }: { readonly updated: string | undefined }) => {
-  const connection = useAtomValue(connectionAtom);
-  const lost = CONNECTION_TEXT[connection.state];
-  const said = useRef("");
-  useEffect(() => {
-    if (lost === CONNECTION_TEXT.disconnected && said.current !== lost) toast(LOST, "danger");
-    said.current = lost;
-  }, [lost]);
-  return (
-    <span className="text-small text-muted">
-      {lost === "" && updated !== undefined ? (
-        <span>
-          Connected · updated <Time at={updated} />
-        </span>
-      ) : null}
-      <span data-connection role="status" title={lost === "" ? undefined : LOST} className="font-semibold text-warning">
-        {lost}
-      </span>
-    </span>
-  );
-};
-
-export const TopBar = ({
+/** The top bar of a review: the target as the page's place, a link to the pull request, and Finish while it can. */
+export const ReviewBar = ({
   target,
   updated,
   onFinish,
@@ -61,40 +34,34 @@ export const TopBar = ({
 }) => {
   const name = targetName(target);
   return (
-    <header data-topbar className="z-20 border-b border-separator bg-surface text-small md:sticky md:top-0">
-      <div className={cn(frame({ width: "review" }), "flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1 md:min-h-11")}>
-        <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
-          <a href="/" className="text-muted underline underline-offset-3">
-            Review canvas
-          </a>
-          <span aria-hidden="true" className="text-muted">
-            /
-          </span>
+    <TopBar
+      width="review"
+      updated={updated}
+      place={
+        <>
           <TargetText target={target} />
           {name.kind === "pr" ? (
             <a href={name.url} rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub" className="px-1 text-muted no-underline">
               ↗
             </a>
           ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <Connection updated={updated} />
-          {onFinish === undefined ? null : (
-            <a
-              href="#finish"
-              data-open-finish
-              onClick={(event) => {
-                event.preventDefault();
-                onFinish();
-              }}
-              className={buttonVariants({ variant: "primary", size: "sm" })}
-            >
-              Finish review
-            </a>
-          )}
-        </div>
-      </div>
-    </header>
+        </>
+      }
+    >
+      {onFinish === undefined ? null : (
+        <a
+          href="#finish"
+          data-open-finish
+          onClick={(event) => {
+            event.preventDefault();
+            onFinish();
+          }}
+          className={buttonVariants({ variant: "primary", size: "sm" })}
+        >
+          Finish review
+        </a>
+      )}
+    </TopBar>
   );
 };
 

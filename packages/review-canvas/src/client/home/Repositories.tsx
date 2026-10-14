@@ -1,17 +1,19 @@
 /**
  * The repositories on this machine: the monitored ones, each a heading over a small table of its checkouts, then
  * those found but not monitored, then the scan form. One search field narrows them by name, path, or branch; an
- * older link's `filter` still narrows them, with no control for it.
+ * older link's `filter` still narrows them, with no control for it. Rescan reads them all again.
  */
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { ChevronRight, CircleAlert, ClipboardCheck, FileDiff, GitBranch, GitPullRequest } from "lucide-react";
+import { Atom } from "effect/reactivity";
 import type { FormEvent } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Checkout, CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../../schema/rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { FIELD } from "../ui/field.ts";
 import { Stat } from "../ui/stat.tsx";
 import { failureText } from "../rpc.ts";
 import {
@@ -25,9 +27,6 @@ import {
   rootAtom,
 } from "./data.ts";
 import { count, underRoot } from "../names.ts";
-
-const FIELD =
-  "min-h-11 w-full rounded-control border border-line bg-raised px-2.5 text-small text-ink placeholder:text-muted";
 
 /** A checkout's state as the filter names it. */
 const stateOf = (status: CheckoutStatus): "changed" | "clean" | "unavailable" =>
@@ -269,6 +268,12 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
   const filter = useAtomValue(filterAtom);
   const [monitoring, change] = useAtom(monitoringAtom);
   const busy = useAtomValue(busyAtom);
+  const refresh = useAtomRefresh(homeAtom);
+  const rescan = () => {
+    // A rescan starts afresh, as reloading the page did: the last change's refusal goes with the old lists.
+    change(Atom.Reset);
+    refresh();
+  };
   const { repositories, reviews } = snapshot;
   const monitored = repositories.filter((entry) => entry.monitored);
   const discovered = repositories.filter((entry) => !entry.monitored);
@@ -288,7 +293,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
       <RepositoryRow key={entry.id} entry={entry} roots={snapshot.roots} reviews={reviews} byId={byId} busy={busy} change={change} />
     ));
   return (
-    <section aria-labelledby="repositories-title" data-repositories="" className="mt-9">
+    <section aria-labelledby="repositories-title" data-repositories="">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
         <h2 id="repositories-title" className="text-heading font-semibold">
           Repositories
@@ -306,6 +311,9 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
             className={FIELD}
           />
         </label>
+        <Button size="sm" className="self-center text-muted hover:text-ink" disabled={busy} onClick={rescan}>
+          Rescan
+        </Button>
       </div>
       <p className="sr-only" role="status">
         {shown} of {repositories.length} repositories shown
