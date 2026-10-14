@@ -227,7 +227,10 @@ test("html escapes interpolations unless they are markup", () => {
     html`<ul>${["a", "b"].map((item) => html`<li>${item}</li>`)}</ul>`.value,
     "<ul><li>a</li><li>b</li></ul>",
   );
-  assert.equal(html`${null}${undefined}${false}${0}`.value, "0");
+  assert.equal(html`${null}${undefined}${0}`.value, "0");
+  // A boolean has no text of its own, so the template refuses it.
+  // @ts-expect-error: a boolean is not an interpolation.
+  html`<button aria-pressed="${false}"></button>`;
 });
 
 test("agent prose shows backtick spans as code, and everything else as escaped text", () => {
