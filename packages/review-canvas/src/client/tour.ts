@@ -264,12 +264,16 @@ const measureBars = () => {
   const topbar = document.querySelector<HTMLElement>("header.topbar");
   const next = document.querySelector<HTMLElement>(".next");
   const top = topbar !== null && getComputedStyle(topbar).position === "sticky" ? topbar.offsetHeight : 0;
+  // A strip that wraps to a fifth of the screen, as on a phone with large text, scrolls away with the page.
+  const tall = next !== null && next.offsetHeight > window.innerHeight / 5;
+  if (next !== null) next.classList.toggle("unstuck", tall);
   const root = document.documentElement.style;
   root.setProperty("--topbar-height", `${top}px`);
-  root.setProperty("--sticky-top", `${top + (next?.offsetHeight ?? 0) + 8}px`);
+  root.setProperty("--sticky-top", `${top + (next === null || tall ? 0 : next.offsetHeight) + 8}px`);
 };
 
 const bars = new ResizeObserver(measureBars);
+window.addEventListener("resize", measureBars, { passive: true });
 
 const observeBars = () => {
   bars.disconnect();

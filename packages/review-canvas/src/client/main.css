@@ -336,6 +336,9 @@
     border: 1px solid var(--separator);
     border-radius: var(--radius);
   }
+  .next.unstuck {
+    position: static;
+  }
   .next-go {
     display: inline-flex;
     flex-wrap: wrap;
@@ -425,6 +428,13 @@
     }
     .next-stats {
       margin-inline-start: 0;
+    }
+    .next-go .next-why {
+      flex-basis: 100%;
+      padding-inline-start: 2.125rem;
+    }
+    .next-go .next-why .sep {
+      display: none;
     }
   }
 
@@ -1367,6 +1377,10 @@
   }
   .row-main {
     min-width: 0;
+  }
+  .row-title,
+  .head h1 {
+    hyphens: auto;
   }
   .row-title {
     font-weight: 600;

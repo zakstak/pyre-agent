@@ -274,10 +274,10 @@ const nextStrip = (page: PageContext): Html => {
   const text = nextText(page);
   const lead =
     text !== undefined && "target" in next
-      ? html`<a class="next-go" href="${fragment(next.target)}" data-next-go data-target="${next.target}" data-kind="${next.kind}"><span class="next-arrow" aria-hidden="true">→</span><span class="next-what">${text.what}</span> <span class="next-why">· ${text.why}</span></a>`
+      ? html`<a class="next-go" href="${fragment(next.target)}" data-next-go data-target="${next.target}" data-kind="${next.kind}"><span class="next-arrow" aria-hidden="true">→</span><span class="next-what">${text.what}</span> <span class="next-why"><span class="sep">· </span>${text.why}</span></a>`
       : next.kind === "finished"
-        ? html`<p class="next-state"><strong>You finished round ${next.round}</strong> <span class="next-why">· ${VERDICT_TEXT[next.verdict]} · the agents have the turn</span></p>`
-        : html`<p class="next-state"><strong>Closed</strong> <span class="next-why">· replaced by a fresh start</span>${page.options.replacedBy === undefined ? "" : html` · <a href="/reviews/${page.options.replacedBy}">Open the newer review</a>`}</p>`;
+        ? html`<p class="next-state"><strong>You finished round ${next.round}</strong> <span class="next-why"><span class="sep">· </span>${VERDICT_TEXT[next.verdict]} · the agents have the turn</span></p>`
+        : html`<p class="next-state"><strong>Closed</strong> <span class="next-why"><span class="sep">· </span>replaced by a fresh start</span>${page.options.replacedBy === undefined ? "" : html` · <a href="/reviews/${page.options.replacedBy}">Open the newer review</a>`}</p>`;
   return html`<section class="next" id="next" aria-label="Next">
 ${lead}
 ${text === undefined ? "" : html`<span class="keys-hint small muted" aria-hidden="true"><kbd>n</kbd> next · <kbd>j</kbd> <kbd>k</kbd> stops</span>`}

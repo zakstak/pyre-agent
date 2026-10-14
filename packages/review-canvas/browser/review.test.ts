@@ -324,6 +324,52 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("a later stop's excerpt of an earlier stop's file points back at its rows instead of repeating them", async () => {
+    const input = fixtureInput();
+    input.stops[1].excerpts.push({ path: "src/notes/store.py", side: "new", start: 14, end: 15, caption: "Again" });
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    // store.py renders once, in the stop that owns it.
+    assert.equal(await page.locator(table("src/notes/store.py")).count(), 1);
+    const back = page.locator("#stop-2 .also a");
+    assert.equal(((await back.textContent()) ?? "").trim(), "src/notes/store.py lines 14–15 ↑");
+    await back.click();
+    const lit = page.locator(`${table("src/notes/store.py")} tr.flash`);
+    assert.equal(await lit.count(), 2);
+    assert.deepEqual(await lit.evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.new)), ["14", "15"]);
+    await page.waitForFunction(() => document.querySelectorAll("tr.flash").length === 0, undefined, { timeout: 4000 });
+    await page.close();
+  });
+
+  test("Reply opens a text box in place, Esc closes it with the text kept, and the reply sends", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator(".general-composer textarea").fill("Why a rename?");
+    await page.locator(".general-composer button[data-ask]").click();
+    await page.locator("#general article.thread").waitFor();
+    const [question] = (await agent.status()).questions;
+    await agent.answer(question, { disposition: "answered", body: "Atomicity." });
+    const thread = page.locator(`#comment-${question}`);
+    await thread.locator(".reply.agent").waitFor();
+    const editor = thread.locator(".reply-editor");
+    assert.equal(await editor.isVisible(), false);
+    await thread.locator("[data-reply-open]").click();
+    assert.equal(await editor.isVisible(), true);
+    await page.keyboard.type("And on Windows?");
+    await page.keyboard.press("Escape");
+    assert.equal(await editor.isVisible(), false);
+    assert.equal(await thread.locator("[data-reply-open]").evaluate((button) => document.activeElement === button), true);
+    await page.keyboard.press("Enter");
+    assert.equal(await thread.locator("textarea").inputValue(), "And on Windows?");
+    await page.keyboard.press("Control+Enter");
+    await page.locator(`#comment-${question}[data-turn='agent']`).waitFor();
+    assert.match((await page.locator(`#comment-${question} .reply.reviewer`).textContent()) ?? "", /And on Windows\?/);
+    await page.close();
+  });
+
   test("a question asked now reaches the agent at once, and its answer shows", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
