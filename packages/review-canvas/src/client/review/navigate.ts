@@ -1,6 +1,8 @@
 /**
  * Moving through the one-scroll review page: the hash contract (`#tour/N`, `#files`, `#files/PATH`, `#ELEMENT-ID`),
- * J and K between stops, N for the next strip's target, and the scroll-spy that marks where the reviewer is.
+ * J and K between stops, N for the next strip's target, and the scroll-spy that marks where the reviewer is. In the
+ * source view a stop is a place in the guide beside the diff: moving to it scrolls the guide there and the diff to the
+ * stop's first file.
  *
  * A folded file or gap renders nothing, so revealing an element is a change of state first: the file unfolds and the
  * gap opens, and the element is there to scroll to on the next frame.
@@ -13,7 +15,7 @@ import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
 import { layoutDiff, nextStage } from "./diff-model.ts";
 import { parseHash } from "./places.ts";
-import { flashAtom, foldsAtom, gapAtom, reattachAtom, seenAtom } from "./ui.ts";
+import { flashAtom, foldsAtom, gapAtom, openNotesAtom, reattachAtom, seenAtom, type View } from "./ui.ts";
 import type { FileModel, PageModel } from "./view.ts";
 
 /** The block of the file at a path, if the round has the file. A path from the hash can be any text. */
@@ -39,6 +41,26 @@ const placeOf = (page: PageModel, id: string): { readonly path: string; readonly
 
 /** The stop a file belongs to, as the contents count it. */
 const stopOfPath = (page: PageModel, path: string) => page.stops.findIndex((stop) => stop.owns.some((owned) => owned === path));
+
+/**
+ * The last of the marks whose top passed the line under the sticky bars. At the bottom of the page, the last file that
+ * shows; above the first mark, the first when it shows.
+ */
+const markAt = (found: NodeListOf<HTMLElement>, line: number): HTMLElement | undefined => {
+  const marks = [...found];
+  const atBottom = innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
+  let current: HTMLElement | undefined;
+  for (const mark of marks) if (mark.getBoundingClientRect().top <= line) current = mark;
+  if (atBottom) {
+    const visible = marks.filter((mark) => mark.dataset.path !== undefined && mark.getBoundingClientRect().top < innerHeight);
+    current = visible.at(-1) ?? current;
+  }
+  if (current === undefined) {
+    const first = marks[0];
+    if (first !== undefined && first.getBoundingClientRect().top < innerHeight) current = first;
+  }
+  return current;
+};
 
 /** Waits until the page shows an element, for a few frames at most. */
 const shown = (id: string): Promise<HTMLElement | null> =>
@@ -68,10 +90,58 @@ const land = (element: HTMLElement) => {
   }, 1500);
 };
 
+/**
+ * Scrolls the guide's own scroller so an element of it shows, and nothing else: the page around the guide stays where
+ * it is. Only a wide page's guide scrolls on its own and carries `data-guide-scroll`; false for one in a disclosure.
+ */
+const scrollGuide = (element: HTMLElement, block: "start" | "nearest"): boolean => {
+  const scroller = element.closest<HTMLElement>("[data-guide-scroll]");
+  if (scroller === null) return false;
+  const box = scroller.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  if (block === "start") scroller.scrollTop += rect.top - box.top;
+  else if (rect.top < box.top) scroller.scrollTop += rect.top - box.top;
+  else if (rect.bottom > box.bottom) scroller.scrollTop += Math.min(rect.top - box.top, rect.bottom - box.bottom);
+  return true;
+};
+
+/** Brings a stop of the guide to the top of its scroller and focuses its heading. False when the guide does not scroll. */
+export const showGuideStop = (index: number): boolean => {
+  const stop = document.getElementById(`guide-stop-${index + 1}`);
+  if (stop === null || !scrollGuide(stop, "start")) return false;
+  stop.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+  return true;
+};
+
+/** Keeps an element of the guide in its scroller's view, moving it as little as it can. */
+export const keepInGuide = (element: HTMLElement) => {
+  scrollGuide(element, "nearest");
+};
+
 /** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
 export const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
 
-export const useNavigate = (key: RoundKey, page: PageModel) => {
+/** The file the spy marks and the stop that owns it, or the stop it marks when it marks no file. */
+export const spiedPlace = (page: PageModel, spied: string | undefined): { readonly file: string | undefined; readonly stop: number | undefined } => {
+  const file = spied?.startsWith("file:") === true ? spied.slice("file:".length) : undefined;
+  if (file !== undefined) {
+    const stop = stopOfPath(page, file);
+    return { file, stop: stop === -1 ? undefined : stop };
+  }
+  return { file: undefined, stop: spied?.startsWith("stop:") === true ? Number(spied.slice("stop:".length)) : undefined };
+};
+
+/** An excerpt's rows in a file's diff, or one note on them, as the guide links to them. */
+export interface ExcerptTarget {
+  readonly path: string;
+  readonly index: number;
+  readonly start: number;
+  readonly end: number;
+  /** The note's element ID, when the link is to one. */
+  readonly note?: string;
+}
+
+export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
   const registry = useContext(RegistryContext);
   /** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
   const tour = useRef({ stop: -1, steeringUntil: 0 });
@@ -79,6 +149,8 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
     const steer = () => {
       tour.current.steeringUntil = Date.now() + 900;
     };
+    /** Whether the page scrolled itself a moment ago, so scrolling now is not the reviewer's. */
+    const steering = () => Date.now() <= tour.current.steeringUntil;
 
     const markRead = (indexes: ReadonlyArray<number>) => {
       const seen = registry.get(seenAtom(key));
@@ -86,10 +158,17 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       if (next.length !== seen.length) registry.set(seenAtom(key), next);
     };
 
-    /** Unfolds what holds an element and opens the gap its row is in, so the element renders. */
+    /**
+     * Unfolds what holds an element and opens the gap its row is in, so the element renders. In the source view a
+     * note shows only when opened, so it opens.
+     */
     const revealState = (id: string) => {
       const place = placeOf(page, id);
       if (place === undefined) return;
+      if (view === "source" && fileAt(page, place.path)?.notes.some((note) => note.id === id) === true) {
+        const notes = registry.get(openNotesAtom);
+        if (!notes.has(id)) registry.set(openNotesAtom, new Set([...notes, id]));
+      }
       const model = fileAt(page, place.path);
       if (model === undefined) return;
       const folds = registry.get(foldsAtom(key));
@@ -118,6 +197,17 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       markRead([stop]);
       if (options.keepHash !== true) history.replaceState(null, "", `#tour/${stop + 1}`);
       if (options.scroll === false) return;
+      if (view === "source") {
+        // The guide goes to the stop and the diff to the stop's first file; the hash stays the stop's.
+        steer();
+        const guided = showGuideStop(stop);
+        const path = page.stops[stop]?.owns[0];
+        const article = path === undefined ? null : await reveal(fileElementId(path));
+        steer();
+        article?.scrollIntoView({ block: "start" });
+        if (!guided) article?.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
+        return;
+      }
       const heading = await shown(`stop-${stop + 1}-title`);
       steer();
       heading?.scrollIntoView({ block: "start" });
@@ -220,16 +310,51 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
     };
 
     /**
+     * Goes to an excerpt's rows in the diff from the guide, or to a note on them, and lights the rows for a moment.
+     * Focus goes to the note, or to the first row's line numbers.
+     */
+    const showExcerpt = async (target: ExcerptTarget) => {
+      const { path, index, start, end, note } = target;
+      const stop = stopOfPath(page, path);
+      if (stop !== -1) tour.current.stop = stop;
+      revealState(note ?? `f${index}-r${start}`);
+      // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
+      registry.set(flashAtom, { path, start, end });
+      const landing =
+        note === undefined
+          ? await new Promise<HTMLElement | null>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                  resolve(document.querySelector<HTMLElement>(`table[data-table="f${index}"] [data-row="${start}"]`)),
+                ),
+              ),
+            )
+          : await shown(note);
+      if (landing !== null) {
+        steer();
+        landing.scrollIntoView({ block: "start" });
+        const focus = landing instanceof HTMLTableRowElement && note === undefined ? (landing.cells[0] ?? landing) : landing;
+        focus.tabIndex = -1;
+        focus.focus({ preventScroll: true });
+      }
+      setTimeout(() => {
+        const now = registry.get(flashAtom);
+        if (now?.path === path && now.start === start) registry.set(flashAtom, undefined);
+      }, 2000);
+    };
+
+    /**
      * Marks where the reviewer is: the stops whose headings passed under the sticky bars are read, and, when the
      * reviewer scrolled rather than the page, the stop J and K count from. Returns the file or stop row the contents
      * mark as current.
      */
     const spy = (): string | undefined => {
+      if (view === "source") return spySource();
       const line = (document.querySelector("[data-next]")?.getBoundingClientRect().bottom ?? 0) + 12;
       const heads = page.stops.map((_, at) => document.getElementById(`stop-${at + 1}-title`));
       const passed = heads.flatMap((head, at) => (head !== null && head.getBoundingClientRect().top <= line ? [at] : []));
       if (passed.length > 0) markRead(passed);
-      if (Date.now() > tour.current.steeringUntil) {
+      if (!steering()) {
         const first = heads[0];
         tour.current.stop =
           passed.at(-1) ??
@@ -237,18 +362,7 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       }
       const end = document.querySelector("[data-end-section]");
       if (end !== null && end.getBoundingClientRect().top <= line) return undefined;
-      const marks = [...document.querySelectorAll<HTMLElement>("[data-stop] > [data-stop-head], [data-stop] article[data-path]")];
-      const atBottom = innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
-      let current: HTMLElement | undefined;
-      for (const mark of marks) if (mark.getBoundingClientRect().top <= line) current = mark;
-      if (atBottom) {
-        const visible = marks.filter((mark) => mark.dataset.path !== undefined && mark.getBoundingClientRect().top < innerHeight);
-        current = visible.at(-1) ?? current;
-      }
-      if (current === undefined) {
-        const first = marks[0];
-        if (first !== undefined && first.getBoundingClientRect().top < innerHeight) current = first;
-      }
+      const current = markAt(document.querySelectorAll<HTMLElement>("[data-stop] > [data-stop-head], [data-stop] article[data-path]"), line);
       if (current === undefined) return undefined;
       if (current.dataset.path !== undefined) return `file:${current.dataset.path}`;
       const stop = Number(current.closest<HTMLElement>("[data-stop]")?.dataset.stop ?? -1);
@@ -256,8 +370,36 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       return owned === undefined ? `stop:${stop}` : `file:${owned}`;
     };
 
+    /**
+     * The spy in the source view, where the diff is in path order: the file at the line, and the stop that owns it is
+     * read and, when the reviewer scrolled rather than the page, the stop J and K count from. Before the first file
+     * reaches the line, nothing is marked and J and K count from before the first stop.
+     */
+    const spySource = (): string | undefined => {
+      const line = (document.querySelector("[data-next]")?.getBoundingClientRect().bottom ?? 0) + 12;
+      const end = document.querySelector("[data-end-section]");
+      if (end !== null && end.getBoundingClientRect().top <= line) return undefined;
+      const articles = document.querySelectorAll<HTMLElement>("main article[data-path]");
+      // Above the first file the reviewer has read nothing yet, and J goes to the first stop.
+      const first = articles[0];
+      if (first === undefined || first.getBoundingClientRect().top > line) {
+        if (!steering()) tour.current.stop = -1;
+        return undefined;
+      }
+      const path = markAt(articles, line)?.dataset.path;
+      if (path === undefined) return undefined;
+      const stop = stopOfPath(page, path);
+      if (stop !== -1) {
+        markRead([stop]);
+        if (!steering()) tour.current.stop = stop;
+      }
+      return `file:${path}`;
+    };
+
     return {
       reveal,
+      showExcerpt,
+      steering,
       showStop,
       showFile,
       goNext,
@@ -269,10 +411,10 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       next: () => showStop(tour.current.stop + 1),
       previous: () => showStop(tour.current.stop - 1),
     };
-  }, [registry, key, page]);
+  }, [registry, key, page, view]);
 };
 
-type Navigation = ReturnType<typeof useNavigate>;
+export type Navigation = ReturnType<typeof useNavigate>;
 
 /** Goes where the hash says once the page first shows, and again whenever the hash changes. */
 export const useHash = (navigate: Navigation) => {

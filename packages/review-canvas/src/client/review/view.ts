@@ -12,8 +12,11 @@ import { answerStep, fileStep, type Next, nextStep } from "../../review/next.ts"
 import { type Progress, progress, type Standing, standingOf } from "../../review/progress.ts";
 import { currentSubmission, type Round } from "../../review/queries.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
-import { count, lineRange, threadNameOf } from "../names.ts";
+import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
 import { type InlineComment, type PlacedComment, placeComments } from "./diff-model.ts";
+
+/** The element ID of a note in the diff: by its stop, its excerpt in the stop, and its letter. */
+export const noteElementId = (stop: number, excerpt: number, letter: string): string => `s${stop}e${excerpt}-note-${letter}`;
 
 /** A note of the tour, shown in the diff under the row it explains. */
 export interface InlineNote {
@@ -123,7 +126,7 @@ const fileModels = (
       );
       const notes = excerpts.flatMap(({ excerpt, at, stop: from }) =>
         excerpt.notes.map((note) => ({
-          id: `s${from.index}e${at}-note-${note.letter}`,
+          id: noteElementId(from.index, at, note.letter),
           row: note.row,
           letter: note.letter,
           title: note.title,
@@ -285,6 +288,19 @@ export const pageModel = (
     ].reduce((a, b) => (b > a ? b : a)),
   };
 };
+
+/** Paths in path order, grouped by their folder; files at the root come first, under no folder. */
+export const byDirectory = (paths: Iterable<RepoPath>): ReadonlyArray<{ readonly dir: string; readonly paths: ReadonlyArray<RepoPath> }> => {
+  const groups = new Map<string, Array<RepoPath>>();
+  for (const path of [...paths].sort((a, b) => a.localeCompare(b))) {
+    const { dir } = splitPath(path);
+    groups.set(dir, [...(groups.get(dir) ?? []), path]);
+  }
+  return [...groups].map(([dir, grouped]) => ({ dir, paths: grouped })).sort((a, b) => (a.dir === "" ? -1 : b.dir === "" ? 1 : 0));
+};
+
+/** Paths in the order the contents list them, which the source view shows its diff in. */
+export const pathOrder = (paths: Iterable<RepoPath>): ReadonlyArray<RepoPath> => byDirectory(paths).flatMap((group) => group.paths);
 
 /** What the finish section says before the reviewer finishes. */
 export const finishState = (counts: Progress): string => {

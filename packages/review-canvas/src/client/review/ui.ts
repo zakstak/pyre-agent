@@ -63,6 +63,20 @@ export const whitespaceAtom = Atom.kvs({
   defaultValue: (): Whitespace => "show",
 });
 
+const View = Schema.Literals(["guided", "source"]);
+export type View = typeof View.Type;
+
+/**
+ * How a review reads, as the reviewer chose for every review: guided, the stops in tour order each with its files, or
+ * source, the walkthrough beside one plain diff of every file in path order. A narrow page reads guided anyway.
+ */
+export const viewAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-view",
+  schema: View,
+  defaultValue: (): View => "guided",
+});
+
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
 export const NARROW_QUERY = "(width < 48rem)";
 
@@ -83,6 +97,9 @@ export const extraAtom = Atom.family((_key: { readonly path: RepoPath; readonly 
 export const flashAtom = Atom.make<{ readonly path: string; readonly start: number; readonly end: number } | undefined>(
   undefined,
 ).pipe(Atom.keepAlive);
+
+/** The tour's notes the reviewer opened in the source view, by element ID; that view shows a note only on demand. */
+export const openNotesAtom = Atom.make<ReadonlySet<string>>(new Set<string>()).pipe(Atom.keepAlive);
 
 /** A comment the reviewer is moving to other lines: the next line selection places it instead of opening a composer. */
 export const reattachAtom = Atom.make<CommentId | undefined>(undefined).pipe(Atom.keepAlive);

@@ -383,6 +383,86 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("the source view parts the walkthrough from one plain diff of every file in path order", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator("[role='group'][aria-label='View'] button[data-view='source']").click();
+    await page.locator("[data-guide-stop]").first().waitFor();
+    await settle(page);
+    // The diff is every file once, in the contents' order, with no stops in it.
+    assert.equal(await page.locator("main [data-stop]").count(), 0);
+    assert.deepEqual(
+      await page.locator("main article[data-path]").evaluateAll((articles) => articles.map((article) => (article as HTMLElement).dataset.path)),
+      [
+        ".env.local",
+        "docs/current",
+        "docs/logo.png",
+        "notes/.keep",
+        "scripts/release.sh",
+        "src/notes/cli.py",
+        "src/notes/format.py",
+        "src/notes/legacy.py",
+        "src/notes/store.py",
+        "tests/data/windows.txt",
+      ],
+    );
+    assert.deepEqual(await page.locator("[data-guide-stop] h2").allTextContents(), ["save() becomes atomic", "The rename", "Other files"]);
+    // A note shows only when its letter on the row is pressed.
+    assert.equal(await page.locator("main [data-note]").count(), 0);
+    const marker = page.locator(`${table("src/notes/store.py")} button[data-note-marker]`);
+    assert.equal(await marker.getAttribute("aria-expanded"), "false");
+    await marker.click();
+    await page.locator("#s0e0-note-A").waitFor();
+    assert.equal(await marker.getAttribute("aria-expanded"), "true");
+    await marker.click();
+    await page.locator("#s0e0-note-A").waitFor({ state: "detached" });
+    // An excerpt's caption lights its rows and brings the first under the sticky bars.
+    const link = page.locator("#guide-stop-1 [data-excerpt-link]");
+    assert.match(await text(page, "#guide-stop-1 [data-excerpt-link]"), /^src\/notes\/store\.py · lines 11–17$/);
+    await link.click();
+    /** The new line numbers of store.py's rows painted with the highlight colour, and where the first of them is. */
+    const lit = () =>
+      page.evaluate((selector) => {
+        const probe = document.createElement("div");
+        probe.style.background = "var(--pyre-highlight)";
+        document.body.append(probe);
+        const highlight = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const rows = [...document.querySelectorAll<HTMLElement>(`${selector} tr[data-row]`)].filter(
+          (row) => getComputedStyle(row).backgroundColor === highlight,
+        );
+        // A deleted row in the range has no new line number.
+        const lines = rows.map((row) => row.querySelector("[data-ln='new']")?.textContent ?? "").filter((line) => line !== "");
+        return { lines, top: rows[0]?.getBoundingClientRect().top ?? -1 };
+      }, table("src/notes/store.py"));
+    // Focus moves once the page scrolled there.
+    await page.waitForFunction(() => document.activeElement?.closest("tr")?.querySelector("[data-ln='new']")?.textContent === "11");
+    const flashed = await lit();
+    assert.deepEqual(flashed.lines, ["11", "12", "13", "14", "15", "16", "17"]);
+    assert.ok(flashed.top > 0 && flashed.top < 450, `the first lit row is at ${flashed.top}px`);
+    // A note in the guide opens its row in the diff.
+    await page.locator("#guide-stop-1 [data-guide-note]").click();
+    await page.waitForFunction(() => document.activeElement?.id === "s0e0-note-A");
+    // J goes to the next stop: the guide marks it, and the diff shows its first file.
+    await page.keyboard.press("j");
+    assert.match(page.url(), /#tour\/2$/);
+    await page.locator("#guide-stop-2[aria-current='location']").waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.closest("[data-guide-stop]")?.id), "guide-stop-2");
+    const top = await page.locator("article[data-path='src/notes/format.py']").evaluate((article) => article.getBoundingClientRect().top);
+    assert.ok(top >= 0 && top < 300, `format.py is at ${top}px`);
+    // The choice holds across a reload, and Guided brings the stops back.
+    await page.reload();
+    await page.locator("[data-guide-stop]").first().waitFor();
+    assert.equal(await page.locator("button[data-view='source']").getAttribute("aria-pressed"), "true");
+    await page.locator("button[data-view='guided']").click();
+    await page.locator("section[data-stop]").first().waitFor();
+    assert.equal(await page.locator("[data-guide]").count(), 0);
+    assert.equal(await page.locator("main [data-note]").count(), 2);
+    await page.close();
+  });
+
   test("Reply opens a text box in place, Esc closes it with the text kept, and the reply sends", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);

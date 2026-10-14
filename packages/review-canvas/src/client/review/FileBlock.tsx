@@ -14,6 +14,7 @@ import { Inline, LineCounts, Prose } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
+import { showGuideStop } from "./navigate.ts";
 import { Orphan } from "./Thread.tsx";
 import { extraAtom, foldsAtom } from "./ui.ts";
 import { type FileModel, PATCH_NOTE_TEXT } from "./view.ts";
@@ -165,6 +166,25 @@ const Viewed = ({
   );
 };
 
+/** In the source view, where files are in path order: a link to the stop of the guide that owns the file. */
+const StopLink = ({ path }: { readonly path: string }) => {
+  const { page, view } = usePage();
+  const stop = page.stops.findIndex((item) => item.owns.some((owned) => owned === path));
+  if (view !== "source" || stop === -1) return null;
+  return (
+    <a
+      href={`#guide-stop-${stop + 1}`}
+      data-stop-link={stop}
+      onClick={(event) => {
+        if (showGuideStop(stop)) event.preventDefault();
+      }}
+      className="text-small text-muted no-underline hover:underline"
+    >
+      Stop {stop + 1}
+    </a>
+  );
+};
+
 export const FileBlock = ({ model, split }: { readonly model: FileModel; readonly split: boolean }) => {
   const { page } = usePage();
   const { file } = model;
@@ -220,6 +240,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         <h3 tabIndex={-1} className="min-w-0 text-technical font-normal">
           <FilePath path={file.path} />
         </h3>
+        <StopLink path={file.path} />
         {model.caption === undefined || model.caption === "" ? null : (
           <span title={model.caption} className="min-w-0 flex-[1_1_8rem] truncate text-small text-muted">
             <Inline text={model.caption} />

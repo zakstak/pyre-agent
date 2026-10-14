@@ -64,6 +64,45 @@ const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (p
   );
 };
 
+/** A stop's summary, as the agent wrote it. */
+export const StopProse = ({ stop }: { readonly stop: StopView }) =>
+  stop.summary.trim() === "" ? null : (
+    <div className="mt-2 max-w-reading">
+      <Prose text={stop.summary} />
+    </div>
+  );
+
+/** What the agent asks the reviewer to weigh at a stop, led by its kind. */
+export const Attention = ({ stop }: { readonly stop: StopView }) =>
+  stop.attention === null ? null : (
+    <p data-attention className="mt-3 max-w-reading border-l-2 border-warning pl-3.5">
+      <strong className="text-warning">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
+    </p>
+  );
+
+/** The questions a stop suggests, each of which starts the comment on the whole change. A closed review asks none. */
+export const Questions = ({ stop, onAsk }: { readonly stop: StopView; readonly onAsk: (question: string) => void }) => {
+  const { page } = usePage();
+  return stop.questions.length === 0 || !page.writable ? null : (
+    <div role="group" aria-label="Questions to ask" className="mt-3 flex flex-wrap gap-2">
+      {stop.questions.map((question) => (
+        <button
+          key={question}
+          type="button"
+          data-question={question}
+          onClick={() => onAsk(question)}
+          className={cn(TOUCH_TARGET, "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
+        >
+          <span aria-hidden="true" className="font-bold text-accent">
+            ?
+          </span>
+          <Inline text={question} />
+        </button>
+      ))}
+    </div>
+  );
+};
+
 /** A rule over a section of the page's one scroll, after the one before it. */
 const RULED = "mt-10 border-t border-separator pt-8";
 
@@ -105,38 +144,13 @@ export const StopSection = ({
           {viewed}/{owned.length}
         </Stat>
       </div>
-      {stop.summary.trim() === "" ? null : (
-        <div className="mt-2 max-w-reading">
-          <Prose text={stop.summary} />
-        </div>
-      )}
-      {stop.attention === null ? null : (
-        <p data-attention className="mt-3 max-w-reading border-l-2 border-warning pl-3.5">
-          <strong className="text-warning">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
-        </p>
-      )}
+      <StopProse stop={stop} />
+      <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />
       {owned.map((model) => (
         <FileBlock key={model.file.path} model={model} split={split} />
       ))}
-      {stop.questions.length === 0 || !page.writable ? null : (
-        <div role="group" aria-label="Questions to ask" className="mt-3 flex flex-wrap gap-2">
-          {stop.questions.map((question) => (
-            <button
-              key={question}
-              type="button"
-              data-question={question}
-              onClick={() => onAsk(question)}
-              className={cn(TOUCH_TARGET, "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
-            >
-              <span aria-hidden="true" className="font-bold text-accent">
-                ?
-              </span>
-              <Inline text={question} />
-            </button>
-          ))}
-        </div>
-      )}
+      <Questions stop={stop} onAsk={onAsk} />
     </section>
   );
 };

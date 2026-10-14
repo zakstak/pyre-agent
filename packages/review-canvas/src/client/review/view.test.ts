@@ -6,7 +6,7 @@ import type { RepoPath, Revision } from "../../schema/primitives.ts";
 import { splitPath, underRoot } from "../names.ts";
 import { afterOwnAction } from "./data.ts";
 import { parseHash } from "./places.ts";
-import { fileStatus, finishState } from "./view.ts";
+import { fileStatus, finishState, pathOrder } from "./view.ts";
 
 const file = (extra: Readonly<Record<string, unknown>> = {}) =>
   ({ path: "src/a.ts", status: "modified", group: "core", additions: 1, deletions: 1, ...extra }) as ReviewFile;
@@ -33,6 +33,11 @@ test("a file header shows one status word: a lapsed approval, then a change sinc
 test("the contents name a file by its folder and its file name", () => {
   assert.deepEqual(splitPath("src/jobs/webhook-retry-queue.ts"), { dir: "src/jobs/", base: "webhook-retry-queue.ts" });
   assert.deepEqual(splitPath("pnpm-lock.yaml"), { dir: "", base: "pnpm-lock.yaml" });
+});
+
+test("the source view shows files in the contents' order: root files first, then each folder's files by name", () => {
+  const paths = ["src/b/z.ts", "README.md", "src/a.ts", "src/b/a.ts", "LICENSE", "docs/x.md"].map((path) => path as RepoPath);
+  assert.deepEqual(pathOrder(paths), ["LICENSE", "README.md", "docs/x.md", "src/a.ts", "src/b/a.ts", "src/b/z.ts"]);
 });
 
 test("a checkout's path is shown under the longest scan directory that holds it", () => {

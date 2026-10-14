@@ -52,12 +52,15 @@ export const TopBar = ({
   width,
   place,
   updated,
+  controls,
   children,
 }: {
   readonly width: NonNullable<VariantProps<typeof frame>["width"]>;
   /** Where the page is, after `Review canvas /`; absent on the home page, whose heading the name is. */
   readonly place?: React.ReactNode;
   readonly updated?: string | undefined;
+  /** The page's own choices, before the connection state. */
+  readonly controls?: React.ReactNode;
   readonly children?: React.ReactNode;
 }) => (
   <header data-topbar className="z-20 border-b border-separator bg-surface text-small md:sticky md:top-0">
@@ -78,6 +81,7 @@ export const TopBar = ({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {controls}
         <Connection updated={updated} />
         {children}
       </div>

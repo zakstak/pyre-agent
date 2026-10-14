@@ -2,7 +2,7 @@
  * The top of the review page under the bar: the title with any drift and the rounds as tabs, and the strip under them
  * that names the one thing to do next. The bar and the strip stick on a wide page.
  */
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import { ArrowRight, ArrowUpRight, Check, ChevronDown } from "lucide-react";
@@ -15,20 +15,49 @@ import { count, targetName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { buttonVariants } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { TopBar } from "../ui/page.tsx";
+import { Segmented } from "../ui/segmented.tsx";
 import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
 import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
+import { viewAtom } from "./ui.ts";
 
-/** The top bar of a review: the target as the page's place and a link to the pull request. */
-export const ReviewBar = ({ target, updated }: { readonly target: Target; readonly updated: string | undefined }) => {
+/** Whether the review reads guided or as source. A narrow page reads guided, so it shows no choice. */
+export const ViewControl = () => {
+  const [view, setView] = useAtom(viewAtom);
+  return (
+    <Segmented
+      label="View"
+      attribute="data-view"
+      choices={[["guided", "Guided"], ["source", "Source"]]}
+      value={view}
+      onChange={setView}
+      className="max-md:hidden"
+    />
+  );
+};
+
+/**
+ * The top bar of a review: the target as the page's place and a link to the pull request, and the page's choices,
+ * such as the view, before the connection state.
+ */
+export const ReviewBar = ({
+  target,
+  updated,
+  children,
+}: {
+  readonly target: Target;
+  readonly updated: string | undefined;
+  readonly children?: React.ReactNode;
+}) => {
   const name = targetName(target);
   return (
     <TopBar
       width="review"
       updated={updated}
+      controls={children}
       place={
         <>
           <TargetText target={target} />

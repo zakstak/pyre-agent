@@ -2,6 +2,8 @@
  * The review page: one scroll in the order the agent's stops tell the story. Each stop is a section with the agent's
  * prose and the files it owns as whole diffs, the notes in the code; the conversation sits under the rows it is about;
  * the whole change and the finish come last. A strip under the title always names the one thing to do next.
+ *
+ * The source view parts the two: the walkthrough is a guide beside the diff, and the diff is every file in path order.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
@@ -25,11 +27,13 @@ import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
-import { Narration, NextStrip, ReviewBar, Title, useStickyBars, Who } from "./Header.tsx";
+import { Guide } from "./Guide.tsx";
+import { Narration, NextStrip, ReviewBar, Title, useStickyBars, ViewControl, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
+import { FileBlock } from "./FileBlock.tsx";
 import { Departed, Finish, General, StopSection } from "./Sections.tsx";
-import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
-import { type PageModel, pageModel } from "./view.ts";
+import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom, type View, viewAtom } from "./ui.ts";
+import { type PageModel, pageModel, pathOrder } from "./view.ts";
 
 /** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
 const ImportFeedback = () => {
@@ -75,9 +79,20 @@ const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round
   </footer>
 );
 
-/** The page under the top bar: the contents beside the review on a wide page, everything else across both. */
-const Frame = ({ children }: { readonly children: React.ReactNode }) => (
-  <div className={cn(frame({ width: "review" }), "grid grid-cols-1 gap-x-8 lg:grid-cols-[15rem_minmax(0,1fr)]")}>{children}</div>
+/**
+ * The page under the top bar: the contents beside the review on a wide page, everything else across both. The source
+ * view's guide is wider than the contents: it holds prose and code.
+ */
+const Frame = ({ view = "guided", children }: { readonly view?: View; readonly children: React.ReactNode }) => (
+  <div
+    className={cn(
+      frame({ width: "review" }),
+      "grid grid-cols-1 gap-x-8",
+      view === "source" ? "lg:grid-cols-[24rem_minmax(0,1fr)]" : "lg:grid-cols-[15rem_minmax(0,1fr)]",
+    )}
+  >
+    {children}
+  </div>
 );
 
 /** A review no thread has published a round to yet: the title, one sentence, and the footer. */
@@ -155,14 +170,16 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
 
 const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
   const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
-  const navigate = useNavigate(key, page);
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
+  const [chosen] = useAtom(viewAtom);
   const narrow = useMedia(NARROW_QUERY);
   const split = layout === "split" && !narrow;
+  const view: View = narrow ? "guided" : chosen;
+  const navigate = useNavigate(key, page, view);
   useStickyBars();
-  const context = useMemo(() => ({ id, page }), [id, page]);
+  const context = useMemo(() => ({ id, page, view }), [id, page, view]);
 
   useEffect(() => {
     document.title = `${page.input.target.title} · Review canvas`;
@@ -185,33 +202,51 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
     area.setSelectionRange(next.length, next.length);
   };
 
+  /** Goes to a file from the contents or the guide, and names it in the hash. */
+  const showFile = (path: RepoPath) => {
+    history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
+    void navigate.showFile(path);
+  };
+
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <ReviewBar target={page.snapshot.state.target} updated={page.updated} />
-      <Frame>
+      <ReviewBar target={page.snapshot.state.target} updated={page.updated}>
+        <ViewControl />
+      </ReviewBar>
+      <Frame view={view}>
         <Title id={id} />
         <NextStrip
           onGo={() => void navigate.goNext()}
           onStep={(step) => void navigate.goStep(step)}
           onFinish={() => void navigate.goFinish()}
         />
-        <Contents onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
-          history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
-          void navigate.showFile(path);
-        }} />
+        {view === "source" ? (
+          <Guide onFile={showFile} onExcerpt={(target) => void navigate.showExcerpt(target)} onAsk={ask} steering={navigate.steering} />
+        ) : (
+          <Contents onStop={(index) => void navigate.showStop(index)} onFile={showFile} />
+        )}
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
-          {page.input.summary === undefined ? null : (
-            <div className="max-w-reading">
-              <Narration className="mb-1.5">
-                · Round {page.round.round} · published <Time at={page.round.published_at} />
-              </Narration>
-              <Prose text={page.input.summary} />
-            </div>
+          {view === "source" ? (
+            pathOrder(page.files.keys()).map((path) => {
+              const model = page.files.get(path);
+              return model === undefined ? null : <FileBlock key={path} model={model} split={split} />;
+            })
+          ) : (
+            <>
+              {page.input.summary === undefined ? null : (
+                <div className="max-w-reading">
+                  <Narration className="mb-1.5">
+                    · Round {page.round.round} · published <Time at={page.round.published_at} />
+                  </Narration>
+                  <Prose text={page.input.summary} />
+                </div>
+              )}
+              {page.stops.map((stop) => (
+                <StopSection key={stop.index} stop={stop} split={split} ruled={stop.index > 0 || page.input.summary !== undefined} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
+              ))}
+            </>
           )}
-          {page.stops.map((stop) => (
-            <StopSection key={stop.index} stop={stop} split={split} ruled={stop.index > 0 || page.input.summary !== undefined} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
-          ))}
           <Departed />
           <General textarea={general} />
           <Finish key={page.writable ? "open" : "closed"} />

@@ -1,6 +1,7 @@
 /**
  * A file's patch as a table, unified or split, with the comment threads under the rows they end on, the tour's notes,
- * the unchanged lines between hunks behind a control, and the composer under the rows the reviewer selects.
+ * the unchanged lines between hunks behind a control, and the composer under the rows the reviewer selects. In the
+ * source view a note shows only when the reviewer presses its letter on the row.
  *
  * Every line a reviewer can select is a unit: a table row in the unified layout, one half of a row in the split
  * layout. Dragging the line numbers selects units; the + button selects one, and with Shift extends the open
@@ -31,7 +32,7 @@ import {
   type Segment,
 } from "./diff-model.ts";
 import { ThreadView } from "./Thread.tsx";
-import { type Draft, draftsAtom, flashAtom, gapAtom, reattachAtom, whitespaceAtom } from "./ui.ts";
+import { type Draft, draftsAtom, flashAtom, gapAtom, openNotesAtom, reattachAtom, whitespaceAtom } from "./ui.ts";
 import type { FileModel, InlineNote } from "./view.ts";
 
 /** A drag over the line numbers of one file, from the row it started on to the row under the pointer. */
@@ -89,7 +90,7 @@ const MARKER: Readonly<Record<Row["kind"], string>> = { add: "+", del: "−", co
 /** What the marker means, for a reader who hears the table instead of seeing its colours. */
 const SPOKEN: Readonly<Record<Row["kind"], string>> = { add: "Added", del: "Deleted", context: "", hunk: "", meta: "" };
 
-const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
+export const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
   <>
     <span aria-hidden="true" className={cn("inline-block w-[1em] text-center", MARKER_TONE[kind])}>
       {MARKER[kind]}
@@ -102,15 +103,40 @@ const ROW_BODY = "sticky left-0 box-border max-w-[100cqi] px-3 py-1.5 pl-11";
 
 const UNDER = "bg-surface p-0 font-sans text-small leading-[1.45] whitespace-normal";
 
-const NoteMarker = ({ notes }: { readonly notes: ReadonlyArray<InlineNote> | undefined }) =>
-  notes === undefined || notes.length === 0 ? null : (
-    <span
-      aria-hidden="true"
-      className="mr-0.5 inline-grid h-4.5 min-w-4.5 place-items-center rounded-full border border-current px-0.5 align-[0.125rem] font-mono text-xs leading-none font-bold text-accent max-md:hidden"
+const NOTE_MARKER =
+  "mr-0.5 inline-grid h-4.5 min-w-4.5 place-items-center rounded-full border border-current px-0.5 align-[0.125rem] font-mono text-xs leading-none font-bold text-accent max-md:hidden";
+
+/**
+ * The letters of the notes on a row. Where notes show on demand, it is the button that shows and hides them; pressing
+ * it starts no selection.
+ */
+const NoteMarker = ({ table, index }: { readonly table: TableContext; readonly index: number }) => {
+  const notes = table.notesAt.get(index);
+  if (notes === undefined || notes.length === 0) return null;
+  const letters = notes.map((note) => note.letter).join("");
+  if (table.openNotes === undefined)
+    return (
+      <span aria-hidden="true" className={NOTE_MARKER}>
+        {letters}
+      </span>
+    );
+  const open = notes.every((note) => table.openNotes?.has(note.id) === true);
+  return (
+    <button
+      type="button"
+      data-note-marker
+      aria-expanded={open}
+      aria-controls={notes.map((note) => note.id).join(" ")}
+      aria-label={`Note ${letters}`}
+      title={notes.map((note) => note.title).join(" · ")}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={() => table.toggleNotes(notes, !open)}
+      className={cn(NOTE_MARKER, "cursor-pointer", open ? "border-accent bg-accent text-on-accent" : "hover:bg-subtle")}
     >
-      {notes.map((note) => note.letter).join("")}
-    </span>
+      {letters}
+    </button>
   );
+};
 
 const NoteRow = ({ note, columns }: { readonly note: InlineNote; readonly columns: number }) => (
   <tr id={note.id} data-note className="scroll-my-(--scroll-top)">
@@ -147,6 +173,9 @@ interface TableContext {
   /** Hunk headers a gap's control shows instead of a row of their own. */
   readonly absorbed: ReadonlySet<number>;
   readonly notesAt: ReadonlyMap<number, ReadonlyArray<InlineNote>>;
+  /** Where notes show only on demand, the IDs of those the reviewer opened; undefined where every note shows. */
+  readonly openNotes: ReadonlySet<string> | undefined;
+  readonly toggleNotes: (notes: ReadonlyArray<InlineNote>, open: boolean) => void;
   readonly threadsAt: ReadonlyMap<number, ReadonlyArray<PlacedComment>>;
   readonly drafts: ReadonlyArray<Draft>;
   readonly select: (row: Row, event: React.MouseEvent | React.KeyboardEvent, opener: string) => void;
@@ -224,7 +253,9 @@ const gutterProps = (table: TableContext, row: Row) =>
 /** Notes on the rows, then the threads that end there, then the composer anchored there. */
 const Extras = ({ table, indexes }: { readonly table: TableContext; readonly indexes: ReadonlyArray<number> }) => {
   const unique = [...new Set(indexes)];
-  const notes = unique.flatMap((index) => table.notesAt.get(index) ?? []);
+  const notes = unique
+    .flatMap((index) => table.notesAt.get(index) ?? [])
+    .filter((note) => table.openNotes === undefined || table.openNotes.has(note.id));
   const placed = unique.flatMap((index) => table.threadsAt.get(index) ?? []);
   const drafts = table.drafts.filter((draft) => unique.includes(draft.end));
   return (
@@ -306,7 +337,7 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
           <LineNumbers old={row.old} fresh={row.new} deleted={row.kind === "del"} />
         </td>
         <td {...gutterProps(table, row)} className={cn("relative select-none", MARKER_GUTTER, gutterProps(table, row).className)}>
-          <NoteMarker notes={table.notesAt.get(row.index)} />
+          <NoteMarker table={table} index={row.index} />
           <Marker kind={shown} />
         </td>
         <td className={SOURCE}>
@@ -342,7 +373,7 @@ const Half = ({ table, row, side }: { readonly table: TableContext; readonly row
         {row[side] ?? ""}
       </span>
       <span {...gutterProps(table, row)} className={cn("select-none", HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
-        {side === "new" || row.kind === "del" ? <NoteMarker notes={table.notesAt.get(row.index)} /> : null}
+        {side === "new" || row.kind === "del" ? <NoteMarker table={table} index={row.index} /> : null}
         <Marker kind={shown} />
       </span>
       <Source row={row} />
@@ -563,7 +594,8 @@ export const DiffTable = ({
   readonly split: boolean;
   readonly patch?: string;
 }) => {
-  const { page } = usePage();
+  const { page, view } = usePage();
+  const [openNotes, setOpenNotes] = useAtom(openNotesAtom);
   const readOnly = patch !== undefined;
   const source = patch ?? model.file.patch ?? "";
   const split = wantSplit && !readOnly;
@@ -606,6 +638,16 @@ export const DiffTable = ({
     absorbed,
     commented: new Set(model.placed.flatMap((item) => Array.from({ length: item.end - item.start + 1 }, (_, at) => item.start + at))),
     notesAt: readOnly ? new Map() : groupBy(model.notes, (note) => note.row),
+    openNotes: view === "source" ? openNotes : undefined,
+    toggleNotes: (notes, open) =>
+      setOpenNotes((now) => {
+        const next = new Set(now);
+        for (const note of notes) {
+          if (open) next.add(note.id);
+          else next.delete(note.id);
+        }
+        return next;
+      }),
     threadsAt: readOnly ? new Map() : groupBy(model.placed, (item) => item.end),
     drafts,
     select,
