@@ -43,8 +43,8 @@ Install `pyre-agent@pyre-market` and inspect its skill inventory. It must have
 no startup hook. Select `pyre-context@pyre-market` if startup preferences are
 wanted. Review and trust its hook in Codex `/hooks`, then start a new session.
 Ask the model for the `Pyre Context release` value without files or tools. The
-initial optional release reports `1.0.0`.
+current optional release reports `1.0.1`.
 
 Report Git-backed acquisition, component discovery, hook trust and model
 acceptance separately. A local fixture check does not prove the Gitea route or
-T3 UI. Removing the optional plugin must leave base skills available.
+host UI. Removing the optional plugin must leave base skills available.

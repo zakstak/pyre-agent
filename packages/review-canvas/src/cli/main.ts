@@ -56,7 +56,7 @@ Commands
            --head SHA                     files of a pull request's input.
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
            --label TEXT [--host KIND] [--session-id ID] [--fresh]
-                                          KIND is claude-code (the default), codex, or t3.
+                                          KIND is claude-code (the default) or codex.
   publish  --session DIR --input FILE     Publish the input as the review's next round, then import the comments
            [--analysis FILE] [--no-github] of its pull request with gh. --analysis merges a kept analysis file:
            [--dry-run]                    summary, stops, and files by path. --dry-run validates and prints

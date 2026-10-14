@@ -5,13 +5,12 @@ Reusable engineering skills for Codex and Claude Code. The production catalog is
 
 | Plugin               | Contents                                                          | Default  |
 | -------------------- | ----------------------------------------------------------------- | -------- |
-| `pyre-agent` 3.1.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
-| `pyre-context` 1.0.0 | Zak's startup reference context                                   | Optional |
+| `pyre-agent` 4.0.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
+| `pyre-context` 1.0.1 | Zak's startup reference context                                   | Optional |
 
 The base contains no startup hook or personal context. The optional plugin lives
 in `plugins/pyre-context/` and includes its context and hook resources. Each
-host installs, loads, updates and removes the selected plugin files. T3 Code
-uses the plugin support of its selected provider.
+host installs, loads, updates and removes the selected plugin files.
 
 ## Install from pyre-market
 
@@ -54,8 +53,6 @@ Claude Code or `$pyre-agent:unslop` in Codex. `codex-branch-review` is available
 only in Claude Code and requires Python 3.11 and an authenticated Codex CLI. See
 its
 [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
-Inside T3 Code, `t3-branch-review` replaces it in both hosts: it delegates the
-review to another provider's model through T3 and needs no bridge.
 
 [Native verification](docs/verify-install.md) checks base installation without
 hooks, optional context installation, and removal of context while preserving
