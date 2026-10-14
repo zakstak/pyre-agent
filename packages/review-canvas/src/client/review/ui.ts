@@ -1,7 +1,7 @@
 /**
- * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout across
- * visits, and in memory the gaps opened, the drafts, and whether a comment is being moved. None of it is the
- * review's state; the server never sees it.
+ * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout and
+ * whether whitespace changes show across visits, and in memory the gaps opened, the drafts, and whether a comment is
+ * being moved. None of it is the review's state; the server never sees it.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -50,6 +50,17 @@ export const layoutAtom = Atom.kvs({
   schema: Layout,
   // Before this page rendered in the browser, the choice was a cookie of the same name that the server read.
   defaultValue: (): Layout => (/(?:^|;\s*)review-canvas-layout=split(?:;|$)/.test(document.cookie) ? "split" : "unified"),
+});
+
+const Whitespace = Schema.Literals(["show", "hide"]);
+export type Whitespace = typeof Whitespace.Type;
+
+/** Whether changes of whitespace alone show as changes, as the reviewer chose for every review. */
+export const whitespaceAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-whitespace",
+  schema: Whitespace,
+  defaultValue: (): Whitespace => "show",
 });
 
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */

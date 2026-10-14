@@ -181,9 +181,10 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
     /** Lights the rows a later stop points back at, for a moment, after bringing the first into view. */
     const flash = async (path: string, index: number, start: number, end: number) => {
       revealState(`f${index}-r${start}`);
+      // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
+      registry.set(flashAtom, { path, start, end });
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       document.querySelector(`table[data-table="f${index}"] [data-row="${start}"]`)?.scrollIntoView({ block: "center" });
-      registry.set(flashAtom, { path, start, end });
       setTimeout(() => {
         const now = registry.get(flashAtom);
         if (now?.path === path && now.start === start) registry.set(flashAtom, undefined);

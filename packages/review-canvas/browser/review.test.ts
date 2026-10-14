@@ -438,6 +438,23 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("hiding whitespace keeps across reloads", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(`${agent.url}#files`);
+    const box = page.locator("input[data-whitespace]");
+    assert.equal(await box.isChecked(), false);
+    await page.getByLabel("Hide whitespace").check();
+    assert.equal(await page.evaluate(() => localStorage.getItem("review-canvas-whitespace")), JSON.stringify("hide"));
+    await page.reload();
+    await box.waitFor();
+    assert.equal(await box.isChecked(), true);
+    await box.uncheck();
+    assert.equal(await page.evaluate(() => localStorage.getItem("review-canvas-whitespace")), JSON.stringify("show"));
+    await page.close();
+  });
+
   test("side by side keeps across reloads, and a comment on a new half anchors to its line", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
@@ -835,8 +852,8 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const context = Number(await first.getAttribute("data-context"));
     assert.ok(folded > 0 && context === 3, `${folded} folded, ${context} unchanged`);
     const control = gapTable.locator(`tbody[data-gap='${key}'] button`);
-    // The words, without the aria-hidden arrow after them.
-    const label = () => control.evaluate((button) => button.firstChild?.textContent ?? "");
+    // The control is an icon in the gutter; its words are its label.
+    const label = async () => (await control.getAttribute("aria-label")) ?? "";
     assert.equal(await label(), `Show ${folded + context} more lines`);
     // No two controls sit next to each other.
     const adjacent = await gapTable.evaluate((element) =>

@@ -9,8 +9,9 @@
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Equal } from "effect";
 import { Atom } from "effect/reactivity";
+import { FoldVertical, UnfoldVertical } from "lucide-react";
 import { Fragment, useContext, useEffect, useMemo } from "react";
-import type { Row } from "../../review/patch.ts";
+import { type Row, whitespaceOnly } from "../../review/patch.ts";
 import { lineRange } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -30,7 +31,7 @@ import {
   type Segment,
 } from "./diff-model.ts";
 import { ThreadView } from "./Thread.tsx";
-import { type Draft, draftsAtom, flashAtom, gapAtom, reattachAtom } from "./ui.ts";
+import { type Draft, draftsAtom, flashAtom, gapAtom, reattachAtom, whitespaceAtom } from "./ui.ts";
 import type { FileModel, InlineNote } from "./view.ts";
 
 /** A drag over the line numbers of one file, from the row it started on to the row under the pointer. */
@@ -70,17 +71,17 @@ const ROW_TONE: Readonly<Record<Row["kind"], string>> = {
   add: "bg-diff-addition",
   del: "bg-diff-deletion",
   context: "",
-  hunk: "bg-surface text-accent",
+  hunk: "bg-surface text-muted",
   meta: "bg-surface text-muted",
 };
 
-/** The line numbers and marker of an added or deleted row, at full strength, as the row's counts are. */
-const GUTTER_TONE: Readonly<Record<Row["kind"], string>> = {
-  add: "text-success",
-  del: "text-danger",
-  context: "text-muted",
-  hunk: "text-muted",
-  meta: "text-muted",
+/** The marker alone carries a change's colour; the line numbers stay muted. */
+const MARKER_TONE: Readonly<Record<Row["kind"], string>> = {
+  add: "font-semibold text-success",
+  del: "font-semibold text-danger",
+  context: "",
+  hunk: "",
+  meta: "",
 };
 
 const MARKER: Readonly<Record<Row["kind"], string>> = { add: "+", del: "−", context: " ", hunk: "", meta: "" };
@@ -90,7 +91,7 @@ const SPOKEN: Readonly<Record<Row["kind"], string>> = { add: "Added", del: "Dele
 
 const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
   <>
-    <span aria-hidden="true" className="inline-block w-[1em] text-center">
+    <span aria-hidden="true" className={cn("inline-block w-[1em] text-center", MARKER_TONE[kind])}>
       {MARKER[kind]}
     </span>
     {SPOKEN[kind] === "" ? null : <span className="sr-only">{SPOKEN[kind]}</span>}
@@ -141,6 +142,10 @@ interface TableContext {
   readonly selected: { readonly start: number; readonly end: number } | undefined;
   readonly flash: { readonly start: number; readonly end: number } | undefined;
   readonly commented: ReadonlySet<number>;
+  /** Rows whose change is whitespace only, when the reviewer hides such changes; else none. */
+  readonly quiet: ReadonlySet<number>;
+  /** Hunk headers a gap's control shows instead of a row of their own. */
+  readonly absorbed: ReadonlySet<number>;
   readonly notesAt: ReadonlyMap<number, ReadonlyArray<InlineNote>>;
   readonly threadsAt: ReadonlyMap<number, ReadonlyArray<PlacedComment>>;
   readonly drafts: ReadonlyArray<Draft>;
@@ -155,6 +160,24 @@ const lit = (table: TableContext, row: Row) =>
     : table.flash !== undefined && row.index >= table.flash.start && row.index <= table.flash.end
       ? "!bg-highlight"
       : undefined;
+
+/** Whether a row holds something that must not vanish: a thread, a note, a draft, or a flash. */
+const anchored = (table: TableContext, index: number) =>
+  table.commented.has(index) ||
+  table.notesAt.has(index) ||
+  table.drafts.some((draft) => index >= draft.start && index <= draft.end) ||
+  (table.flash !== undefined && index >= table.flash.start && index <= table.flash.end);
+
+/**
+ * How a row shows. A whitespace-only change the reviewer hides shows as unchanged: its addition always, its deletion
+ * in the split layout or when something is anchored on it as it is, and otherwise not at all.
+ */
+const look = (table: TableContext, row: Row): Row["kind"] | "hidden" => {
+  if (!table.quiet.has(row.index)) return row.kind;
+  if (row.kind === "add") return "context";
+  if (anchored(table, row.index)) return row.kind;
+  return table.split ? "context" : "hidden";
+};
 
 const Plus = ({ table, row, side }: { readonly table: TableContext; readonly row: Row; readonly side: "old" | "new" | "unified" }) => {
   const id = plusId(table.id, row.index, side);
@@ -239,10 +262,10 @@ const Extras = ({ table, indexes }: { readonly table: TableContext; readonly ind
  */
 const LineNumbers = ({ old, fresh, deleted = false }: { readonly old: number | undefined; readonly fresh: number | undefined; readonly deleted?: boolean }) => (
   <>
-    <span data-ln="old" className={cn("inline-block min-w-11 pl-1 max-md:min-w-[2ch] max-md:pl-0", !deleted && "max-md:hidden")}>
+    <span data-ln="old" className={cn("inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0", !deleted && "max-md:hidden")}>
       {old ?? ""}
     </span>
-    <span data-ln="new" className={cn("inline-block min-w-11 pl-1 max-md:min-w-[2ch] max-md:pl-0", deleted && "max-md:hidden")}>
+    <span data-ln="new" className={cn("inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0", deleted && "max-md:hidden")}>
       {fresh ?? ""}
     </span>
   </>
@@ -252,32 +275,40 @@ const LineNumbers = ({ old, fresh, deleted = false }: { readonly old: number | u
  * The gutters: line numbers, then the change marker. In the unified layout each is a cell, and both narrow on a
  * narrow page; in the split layout each is a box at the start of its half.
  */
-const NUMBER_GUTTER = "w-px pr-1 pl-7 text-right whitespace-nowrap max-md:pr-0.5 max-md:pl-0";
-const MARKER_GUTTER = "w-px min-w-9 px-1 text-right whitespace-nowrap max-md:min-w-0 max-md:px-0 max-md:text-center";
-const HALF_NUMBER_GUTTER = "inline-block min-w-14 pr-1 pl-7 text-right";
-const HALF_MARKER_GUTTER = "inline-block min-w-7 px-1 text-right";
+const NUMBER_GUTTER = "w-px pr-1 pl-3 text-right whitespace-nowrap text-muted max-md:pr-0.5 max-md:pl-0";
+const MARKER_GUTTER = "w-px min-w-7 px-1 text-right whitespace-nowrap text-muted max-md:min-w-0 max-md:px-0 max-md:text-center";
+const HALF_NUMBER_GUTTER = "inline-block min-w-12 pr-1 pl-3 text-right text-muted";
+const HALF_MARKER_GUTTER = "inline-block min-w-6 px-1 text-right text-muted";
 const SOURCE = "pr-4 whitespace-pre max-md:pr-3 max-md:pl-1";
+
+/** The source of a row: code in ink, a hunk header or meta row in the row's muted tone. */
+const Source = ({ row }: { readonly row: Row }) => (
+  <code className={row.kind === "hunk" || row.kind === "meta" ? "text-technical" : "text-ink"}>{row.content}</code>
+);
 
 const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row: Row }) => {
   const unit = table.selectable && changeable(row);
+  const shown = look(table, row);
+  if (shown === "hidden") return null;
   return (
     <>
       <tr
         id={`${table.id}-r${row.index}`}
         {...unitProps(table, row)}
         data-kind={row.kind}
-        className={cn("group/unit scroll-my-(--sticky-top)", ROW_TONE[row.kind], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
+        data-whitespace={shown === row.kind ? undefined : "hidden"}
+        className={cn("group/unit scroll-my-(--sticky-top)", ROW_TONE[shown], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
       >
-        <td {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], NUMBER_GUTTER, gutterProps(table, row).className)}>
+        <td {...gutterProps(table, row)} className={cn("relative select-none", NUMBER_GUTTER, gutterProps(table, row).className)}>
           {unit ? <Plus table={table} row={row} side="unified" /> : null}
           <LineNumbers old={row.old} fresh={row.new} deleted={row.kind === "del"} />
         </td>
-        <td {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], MARKER_GUTTER, gutterProps(table, row).className)}>
+        <td {...gutterProps(table, row)} className={cn("relative select-none", MARKER_GUTTER, gutterProps(table, row).className)}>
           <NoteMarker notes={table.notesAt.get(row.index)} />
-          <Marker kind={row.kind} />
+          <Marker kind={shown} />
         </td>
         <td className={SOURCE}>
-          <code className="text-ink">{row.content}</code>
+          <Source row={row} />
         </td>
       </tr>
       <Extras table={table} indexes={[row.index]} />
@@ -288,33 +319,37 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
 const Half = ({ table, row, side }: { readonly table: TableContext; readonly row: Row | undefined; readonly side: "old" | "new" }) => {
   if (row === undefined) return <td data-half={side} className="w-1/2 bg-surface" />;
   const unit = table.selectable && changeable(row);
+  // A half is never hidden: the split layout shows a whitespace-only deletion as the old side of an unchanged pair.
+  const shown = look(table, row) === "context" ? "context" : row.kind;
   return (
     <td
       {...unitProps(table, row)}
       data-half={side}
       data-kind={row.kind}
+      data-whitespace={shown === row.kind ? undefined : "hidden"}
       className={cn(
         "group/unit relative w-1/2 pr-3 align-top whitespace-pre",
         side === "new" && "border-l border-separator",
-        ROW_TONE[row.kind],
+        ROW_TONE[shown],
         table.commented.has(row.index) && "shadow-mark",
         lit(table, row),
       )}
     >
-      <span {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], HALF_NUMBER_GUTTER, gutterProps(table, row).className)}>
+      <span {...gutterProps(table, row)} className={cn("relative select-none", HALF_NUMBER_GUTTER, gutterProps(table, row).className)}>
         {unit ? <Plus table={table} row={row} side={side} /> : null}
         {row[side] ?? ""}
       </span>
-      <span {...gutterProps(table, row)} className={cn("select-none", GUTTER_TONE[row.kind], HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
+      <span {...gutterProps(table, row)} className={cn("select-none", HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
         {side === "new" || row.kind === "del" ? <NoteMarker notes={table.notesAt.get(row.index)} /> : null}
-        <Marker kind={row.kind} />
+        <Marker kind={shown} />
       </span>
-      <code className="text-ink">{row.content}</code>
+      <Source row={row} />
     </td>
   );
 };
 
-const RowsOf = ({ table, rows }: { readonly table: TableContext; readonly rows: ReadonlyArray<Row> }) => {
+const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly rows: ReadonlyArray<Row> }) => {
+  const rows = all.filter((row) => !table.absorbed.has(row.index));
   if (!table.split) return rows.map((row) => <UnifiedRow key={row.index} table={table} row={row} />);
   return pairRows(rows).map((pair) => {
     if (pair.whole !== undefined)
@@ -322,7 +357,7 @@ const RowsOf = ({ table, rows }: { readonly table: TableContext; readonly rows: 
         <Fragment key={`w${pair.whole.index}`}>
           <tr data-row={pair.whole.index} data-kind={pair.whole.kind} className={ROW_TONE[pair.whole.kind]}>
             <td colSpan={2} className="px-3 whitespace-pre">
-              <code>{pair.whole.content}</code>
+              <code className="text-technical">{pair.whole.content}</code>
             </td>
           </tr>
           <Extras table={table} indexes={[pair.whole.index]} />
@@ -374,29 +409,65 @@ const GapPartRows = ({ table, part }: { readonly table: TableContext; readonly p
     part.lines.map((line) => <UnchangedLine key={line.new} table={table} line={line} />)
   );
 
-/** One control for hidden lines next to each other: the folded rows first, then the unchanged lines, then none. */
-const GapGroup = ({ table, gap }: { readonly table: TableContext; readonly gap: Extract<Segment, { kind: "gap" }> }) => {
+/**
+ * One control for hidden lines next to each other: the folded rows first, then the unchanged lines, then none. It sits
+ * in the line-number gutter, and beside it the header of the hunk that follows, which then has no row of its own.
+ */
+const GapGroup = ({
+  table,
+  gap,
+  header,
+}: {
+  readonly table: TableContext;
+  readonly gap: Extract<Segment, { kind: "gap" }>;
+  readonly header: Row | undefined;
+}) => {
   const [stage, setStage] = useAtom(gapAtom({ path: table.model.file.path, digest: table.model.digest, gap: gap.key }));
   // A gap with only one kind of hidden line has no first stage.
   const shown = stage === 1 && (gap.folded === 0 || gap.context === 0) ? 2 : stage;
+  const label = gapLabel(shown, gap);
+  const Icon = shown === 2 ? FoldVertical : UnfoldVertical;
+  const button = (
+    <button
+      type="button"
+      data-expand={gap.key}
+      data-folded={gap.folded}
+      data-context={gap.context}
+      aria-expanded={shown === 2}
+      aria-label={label}
+      title={label}
+      onClick={() => setStage(nextStage(shown, gap))}
+      className={cn(TOUCH_TARGET, "inline-grid h-6 w-full place-items-center align-top text-muted hover:text-ink")}
+    >
+      <Icon aria-hidden="true" className="size-3.5" />
+    </button>
+  );
+  const words =
+    header === undefined ? (
+      <span className="font-sans text-small text-muted">{label}</span>
+    ) : (
+      <code className="text-technical text-muted">{header.content}</code>
+    );
+  // The header's row ID stays on the row that shows it, so links to the hunk still land.
+  const anchor = header === undefined ? {} : { id: `${table.id}-r${header.index}`, "data-row": header.index };
   const toggle = (
     <tbody data-gap={gap.key}>
-      <tr>
-        <td colSpan={table.columns} className="bg-surface p-0">
-          <button
-            type="button"
-            data-expand={gap.key}
-            data-folded={gap.folded}
-            data-context={gap.context}
-            aria-expanded={shown === 2}
-            onClick={() => setStage(nextStage(shown, gap))}
-            className={cn(TOUCH_TARGET, "sticky left-0 h-7 px-12 font-sans text-small font-medium text-link hover:underline")}
-          >
-            {gapLabel(shown, gap)}
-            <span aria-hidden="true"> {shown === 2 ? "▴" : "▾"}</span>
-          </button>
-        </td>
-      </tr>
+      {table.split ? (
+        <tr {...anchor} className="h-6 scroll-my-(--sticky-top) bg-surface">
+          <td colSpan={2} className="pr-3 whitespace-pre">
+            <span className={cn(HALF_NUMBER_GUTTER, "align-top")}>{button}</span>
+            <span className={HALF_MARKER_GUTTER} />
+            {words}
+          </td>
+        </tr>
+      ) : (
+        <tr {...anchor} className="h-6 scroll-my-(--sticky-top) bg-surface">
+          <td className={NUMBER_GUTTER}>{button}</td>
+          <td className={MARKER_GUTTER} />
+          <td className={SOURCE}>{words}</td>
+        </tr>
+      )}
+      {header === undefined ? null : <Extras table={table} indexes={[header.index]} />}
     </tbody>
   );
   return gap.parts.map((part, at) => {
@@ -505,6 +576,19 @@ export const DiffTable = ({
   const flash = useAtomValue(flashOf(model.file.path));
   const { dragged, select, startDrag, hover } = useSelection(model, id, layout.rows, split, readOnly);
   const editable = drafts.find((draft) => !draft.submitting);
+  const whitespace = useAtomValue(whitespaceAtom);
+  const quiet = useMemo(() => (whitespace === "hide" ? whitespaceOnly(layout.rows) : new Set<number>()), [layout, whitespace]);
+  // A gap's control shows the header of the hunk right after it.
+  const headers = useMemo(
+    () =>
+      layout.segments.map((segment, at) => {
+        const next = layout.segments[at + 1];
+        const first = segment.kind === "gap" && next?.kind === "rows" ? next.rows[0] : undefined;
+        return first?.kind === "hunk" ? first : undefined;
+      }),
+    [layout],
+  );
+  const absorbed = useMemo(() => new Set(headers.flatMap((header) => (header === undefined ? [] : [header.index]))), [headers]);
 
   const table: TableContext = {
     model,
@@ -516,6 +600,8 @@ export const DiffTable = ({
     reattaching: reattaching !== undefined,
     selected: dragged ?? (editable === undefined ? undefined : { start: editable.start, end: editable.end }),
     flash: readOnly ? undefined : flash,
+    quiet,
+    absorbed,
     commented: new Set(model.placed.flatMap((item) => Array.from({ length: item.end - item.start + 1 }, (_, at) => item.start + at))),
     notesAt: readOnly ? new Map() : groupBy(model.notes, (note) => note.row),
     threadsAt: readOnly ? new Map() : groupBy(model.placed, (item) => item.end),
@@ -554,7 +640,7 @@ export const DiffTable = ({
               <RowsOf table={table} rows={segment.rows} />
             </tbody>
           ) : (
-            <GapGroup key={at} table={table} gap={segment} />
+            <GapGroup key={at} table={table} gap={segment} header={headers[at]} />
           ),
         )}
       </table>

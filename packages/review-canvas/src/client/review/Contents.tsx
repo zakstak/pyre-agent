@@ -1,6 +1,6 @@
 /**
  * The contents: the walkthrough's stops, then every file of the round by folder, each list marking where the reviewer
- * is and what they read and viewed, with the diff layout under them. A wide page keeps them beside the review; a narrower one folds them into a disclosure.
+ * is and what they read and viewed, with the diff layout and the whitespace choice under them. A wide page keeps them beside the review; a narrower one folds them into a disclosure.
  */
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Check, MessageSquare } from "lucide-react";
@@ -14,7 +14,7 @@ import { useMedia } from "../ui/media.ts";
 import { Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
 import { spiedAtom } from "./navigate.ts";
-import { layoutAtom, seenAtom, WIDE_QUERY } from "./ui.ts";
+import { layoutAtom, seenAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
 
 const KICKER = "text-technical font-semibold tracking-wide text-muted uppercase";
 
@@ -39,6 +39,7 @@ export const Contents = ({
   const current = useAtomValue(spiedAtom);
   const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
   const [layout, setLayout] = useAtom(layoutAtom);
+  const [whitespace, setWhitespace] = useAtom(whitespaceAtom);
   const wide = useMedia(WIDE_QUERY);
   const [open, setOpen] = useState(false);
   const viewed = page.progress.viewed.size;
@@ -130,10 +131,10 @@ export const Contents = ({
       </ul>
     </nav>
   );
-  // The layout switch alone: the strip already counts what was viewed.
+  // The diff choices alone: the strip already counts what was viewed. A page too narrow for split hides the switch.
   const foot = (
-    <div className={cn("text-small", wide ? "mt-auto pt-3 pb-4" : "mt-4 pt-4 max-md:hidden")}>
-      <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line">
+    <div className={cn("text-small", wide ? "mt-auto pt-3 pb-4" : "mt-4 pt-4")}>
+      <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line max-md:hidden">
         {([["unified", "Unified"], ["split", "Split"]] as const).map(([choice, label]) => (
           <button
             key={choice}
@@ -151,6 +152,16 @@ export const Contents = ({
           </button>
         ))}
       </div>
+      <label className="mt-2 flex w-fit items-center gap-2 text-small max-md:mt-0">
+        <input
+          type="checkbox"
+          data-whitespace
+          checked={whitespace === "hide"}
+          onChange={(event) => setWhitespace(event.currentTarget.checked ? "hide" : "show")}
+          className="size-4 accent-accent"
+        />
+        Hide whitespace
+      </label>
     </div>
   );
   return (
