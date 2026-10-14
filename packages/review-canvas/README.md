@@ -2,16 +2,17 @@
 
 A local server where a reviewer walks an agent's change as a guided tour,
 comments on lines or asks questions, approves files, and finishes with a
-verdict, and where the agent answers. An Effect v4 server renders every page as
-HTML, keeps every review in SQLite, and serves the browser assets that Vite
-builds with Tailwind and the shared
-[internal visual style](../../skills/internal-visual-style/). The
+verdict, and where the agent answers. An Effect v4 server keeps every review in
+SQLite and serves a React app that Vite builds with Tailwind and the shared
+[internal visual style](../../skills/internal-visual-style/)'s tokens. The app
+reads and changes reviews through Effect RPCs over one WebSocket, and holds its
+state in Effect atoms. The
 [review-canvas skill](../../skills/review-canvas/SKILL.md) tells an agent how to
 use it.
 
 Pages listen on 127.0.0.1 only and answer only requests addressed to
-`127.0.0.1` or `localhost` on the server's port. Agents use a Unix socket in a
-private runtime folder.
+`127.0.0.1` or `localhost` on the server's port; the RPC socket also needs the
+server's own Origin. Agents use a Unix socket in a private runtime folder.
 
 ## Use
 
@@ -105,12 +106,12 @@ Earlier server builds cannot read the upgraded database.
 
 | Folder          | What                                                                                     |
 | --------------- | ---------------------------------------------------------------------------------------- |
-| `src/schema`    | The input, tour, feedback, and GitHub import formats as Effect Schema, with their limits |
+| `src/schema`    | The input, tour, feedback, GitHub import, and page RPC formats as Effect Schema          |
 | `src/collector` | The working tree and commit range collectors, and fingerprints                           |
 | `src/review`    | Pure review logic: patch rows, anchors, the tour view, every action, and imports         |
 | `src/store`     | SQLite through `node:sqlite`: reviews, rounds, threads, revisions, change listeners      |
-| `src/server`    | The page routes, the agent API, server-sent events, page rendering, and lifecycle        |
-| `src/client`    | The browser modules: tour navigation, selection and composers, live refresh              |
+| `src/server`    | The page RPCs, the page shell and assets, the agent API, and lifecycle                   |
+| `src/client`    | The React app: the home and review pages, their atoms, and the pure view model           |
 | `src/cli`       | The `review-canvas` command, and reading pull request comments with `gh`                 |
 | `browser`       | Browser tests in Chromium against a real server                                          |
 | `scripts`       | The packed tarball test, and the live GitHub import test                                 |

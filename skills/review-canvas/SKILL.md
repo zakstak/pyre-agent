@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.2.2"
+  version: "4.3.0"
 ---
 
 # Review canvas
