@@ -16,7 +16,8 @@ import type { Round } from "../../review/queries.ts";
 import { count, threadName } from "../names.ts";
 import { type CallError, failureText } from "../rpc.ts";
 import { useMedia } from "../ui/media.ts";
-import { Message, SkipLink } from "../ui/page.tsx";
+import { cn } from "../ui/cn.ts";
+import { frame, Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Prose, Time } from "../ui/text.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
@@ -57,9 +58,12 @@ const ImportFeedback = () => {
   );
 };
 
-/** The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. */
+/**
+ * The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. It
+ * sits in the frame but outside its grid, so the contents, which stick within the grid, end where the review ends.
+ */
 const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round: boolean; readonly writable: boolean }) => (
-  <footer className="mt-16 flex flex-wrap items-center gap-x-6 gap-y-2 text-small text-muted">
+  <footer className={cn(frame({ width: "review" }), "mt-12 flex flex-wrap items-center gap-x-6 gap-y-2 pb-16 text-small text-muted")}>
     <ThemeControl />
     {round ? (
       <a href={`/reviews/${id}/feedback.json`} download className="underline underline-offset-3">
@@ -71,8 +75,9 @@ const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round
   </footer>
 );
 
+/** The page under the top bar: the contents beside the review on a wide page, everything else across both. */
 const Frame = ({ children }: { readonly children: React.ReactNode }) => (
-  <div className="mx-auto grid max-w-[96rem] grid-cols-1 gap-x-8 px-5 pb-16 lg:grid-cols-[15.5rem_minmax(0,1fr)]">{children}</div>
+  <div className={cn(frame({ width: "review" }), "grid grid-cols-1 gap-x-8 lg:grid-cols-[15rem_minmax(0,1fr)]")}>{children}</div>
 );
 
 /** A review no thread has published a round to yet: the title, one sentence, and the footer. */
@@ -89,7 +94,7 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
       <SkipLink />
       <TopBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
       <Frame>
-        <header className="col-span-full pt-5">
+        <header className="col-span-full pt-6">
           <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3.5 text-small text-muted">
             {first === undefined ? null : (
@@ -100,13 +105,11 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
             <TargetText target={snapshot.state.target} />
           </p>
         </header>
-        <main id="main" tabIndex={-1} className="col-span-full pt-8">
+        <main id="main" tabIndex={-1} className="col-span-full pt-6">
           <p className="max-w-reading">Waiting for {who}’s first round. This page updates itself.</p>
         </main>
-        <div className="col-span-full">
-          <Footer id={snapshot.state.id} round={false} writable={false} />
-        </div>
       </Frame>
+      <Footer id={snapshot.state.id} round={false} writable={false} />
     </>
   );
 };
@@ -193,9 +196,9 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
           history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
           void navigate.showFile(path);
         }} />
-        <main id="main" tabIndex={-1} className="min-w-0 pt-8 outline-none">
+        <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {page.input.summary === undefined ? null : (
-            <div className="mb-10">
+            <div className="mb-10 max-w-reading">
               <Prose text={page.input.summary} />
             </div>
           )}
@@ -206,10 +209,8 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
           <General textarea={general} />
           <Finish key={page.writable ? "open" : "closed"} />
         </main>
-        <div className="col-span-full">
-          <Footer id={id} round writable={page.writable} />
-        </div>
       </Frame>
+      <Footer id={id} round writable={page.writable} />
     </ReviewContext.Provider>
   );
 };

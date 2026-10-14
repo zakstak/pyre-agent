@@ -80,7 +80,7 @@ const By = ({ children }: { readonly children: React.ReactNode }) => (
 );
 
 const Body = ({ text }: { readonly text: string }) => (
-  <p className="mt-1 max-w-reading whitespace-pre-wrap break-words text-ink">{text}</p>
+  <p className="mt-1 whitespace-pre-wrap break-words text-ink">{text}</p>
 );
 
 const ReplyItem = ({ item }: { readonly item: Reply }) => {
@@ -305,7 +305,7 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
       aria-label="Comment"
       tabIndex={-1}
       className={cn(
-        "scroll-mt-(--sticky-top) border-l-2 py-1 pl-3 [&+&]:mt-3",
+        "scroll-mt-(--sticky-top) border-l-2 py-2 pr-4 pl-3 [&+&]:mt-3",
         turn === "reviewer" ? "border-action" : turn === "resolved" ? "border-separator" : "border-accent",
       )}
     >

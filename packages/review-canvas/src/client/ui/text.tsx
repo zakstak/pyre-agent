@@ -14,7 +14,10 @@ export const Inline = ({ text }: { readonly text: string }) => {
   return <>{parts}</>;
 };
 
-/** Prose from the agent: paragraphs split on blank lines, each keeping its line breaks and code spans. */
+/**
+ * Prose from the agent: paragraphs split on blank lines, each keeping its line breaks and code spans. It fills where it
+ * sits; prose on the page's canvas sits in a reading measure, prose in a card fills the card.
+ */
 export const Prose = ({ text, className }: { readonly text: string; readonly className?: string }) => (
   <>
     {text
@@ -22,7 +25,7 @@ export const Prose = ({ text, className }: { readonly text: string; readonly cla
       .map((paragraph) => paragraph.trim())
       .filter((paragraph) => paragraph !== "")
       .map((paragraph, at) => (
-        <p key={at} className={cn("max-w-reading whitespace-pre-line [&+&]:mt-2", className)}>
+        <p key={at} className={cn("whitespace-pre-line [&+&]:mt-2", className)}>
           <Inline text={paragraph} />
         </p>
       ))}

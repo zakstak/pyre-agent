@@ -8,7 +8,8 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { count } from "../names.ts";
 import { CONNECTION_TEXT, connectionAtom, failureText } from "../rpc.ts";
 import { Button } from "../ui/button.tsx";
-import { SkipLink } from "../ui/page.tsx";
+import { cn } from "../ui/cn.ts";
+import { frame, SkipLink } from "../ui/page.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
 import { busyAtom, homeAtom, monitoringAtom } from "./data.ts";
 import { Repositories } from "./Repositories.tsx";
@@ -33,28 +34,30 @@ export const HomePage = () => {
   return (
     <>
       <SkipLink />
-      <header className="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-5 py-1 text-small max-md:px-4">
-        <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
-          <h1 className="font-semibold">Review canvas</h1>
-          <span className="text-muted">
-            localhost
-            {Option.match(snapshot, {
-              onNone: () => "",
-              onSome: ({ repositories }) =>
-                ` · ${count(repositories.filter((entry) => entry.monitored).length, "repository", "repositories")} monitored`,
-            })}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-muted empty:hidden" role="status" data-connection="">
-            {CONNECTION_TEXT[connection.state]}
-          </span>
-          <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
-            Rescan
-          </Button>
+      <header className="border-b border-separator bg-surface text-small">
+        <div className={cn(frame({ width: "home" }), "flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 py-1")}>
+          <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
+            <h1 className="font-semibold">Review canvas</h1>
+            <span className="text-muted">
+              localhost
+              {Option.match(snapshot, {
+                onNone: () => "",
+                onSome: ({ repositories }) =>
+                  ` · ${count(repositories.filter((entry) => entry.monitored).length, "repository", "repositories")} monitored`,
+              })}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="text-muted empty:hidden" role="status" data-connection="">
+              {CONNECTION_TEXT[connection.state]}
+            </span>
+            <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
+              Rescan
+            </Button>
+          </div>
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="mx-auto box-content max-w-work px-5 pt-10 pb-12 max-md:px-4">
+      <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-12")}>
         {failure === undefined ? null : (
           <p className="mb-4 text-danger" role="alert">
             {failure}
@@ -75,7 +78,7 @@ export const HomePage = () => {
           ),
         })}
       </main>
-      <footer className="mx-auto mb-8 box-content max-w-work px-5 max-md:px-4">
+      <footer className={cn(frame({ width: "home" }), "mb-8")}>
         <ThemeControl />
       </footer>
     </>

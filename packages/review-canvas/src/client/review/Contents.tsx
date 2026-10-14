@@ -109,9 +109,10 @@ export const Contents = ({
       </ol>
     </nav>
   );
+  // The layout switch alone: the strip already counts what was viewed.
   const foot = (
-    <div className="mt-4 flex items-center justify-between border-t border-separator pt-4 text-small">
-      <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line max-md:hidden">
+    <div className={cn("border-t border-separator text-small", wide ? "mt-auto pt-3 pb-4" : "mt-4 pt-4 max-md:hidden")}>
+      <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line">
         {([["unified", "Unified"], ["split", "Split"]] as const).map(([choice, label]) => (
           <button
             key={choice}
@@ -129,16 +130,13 @@ export const Contents = ({
           </button>
         ))}
       </div>
-      <span className="text-muted">
-        {viewed} / {total}
-      </span>
     </div>
   );
   return (
-    <div data-contents className="min-w-0 lg:sticky lg:top-(--sticky-top) lg:mt-6 lg:max-h-[calc(100vh-var(--sticky-top)-1rem)] lg:self-start lg:overflow-y-auto">
+    <div data-contents className="min-w-0 lg:sticky lg:top-(--sticky-top) lg:flex lg:h-[calc(100vh-var(--sticky-top))] lg:flex-col lg:self-start lg:pt-6">
       {wide ? (
         <>
-          {list}
+          <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
           {foot}
         </>
       ) : (

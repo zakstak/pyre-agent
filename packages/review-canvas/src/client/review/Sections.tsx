@@ -81,7 +81,7 @@ export const StopSection = ({
     <section
       id={`stop-${stop.index + 1}`}
       data-stop={stop.index}
-      className="mt-10 scroll-mt-(--sticky-top) border-t border-separator pt-6 first:mt-0"
+      className="mt-12 scroll-mt-(--sticky-top) first:mt-0"
     >
       <div data-stop-head className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`stop-${stop.index + 1}-title`} tabIndex={-1} className="scroll-mt-(--sticky-top) text-heading font-semibold">
@@ -94,7 +94,7 @@ export const StopSection = ({
         </span>
       </div>
       {stop.summary.trim() === "" ? null : (
-        <div className="mt-2">
+        <div className="mt-2 max-w-reading">
           <Prose text={stop.summary} />
         </div>
       )}
@@ -129,7 +129,10 @@ export const StopSection = ({
   );
 };
 
-const END_SECTION = "mt-12 scroll-mt-(--sticky-top) border-t border-separator pt-6";
+const END_SECTION = "mt-12 scroll-mt-(--sticky-top)";
+
+/** The finish as a card, open or finished, so the page ends on something to act on. */
+const FINISH_CARD = cn(END_SECTION, "rounded-panel border border-separator bg-surface p-5");
 
 /**
  * Inline comments on files that left the round, such as a reverted or renamed file. No file block shows them, so
@@ -169,7 +172,7 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
       {page.general.length === 0 ? null : (
         <div className="mt-3 flex flex-col gap-3">
           {page.general.map((comment) => (
-            <div key={comment.id} className="rounded-panel border border-separator bg-surface px-3 py-2">
+            <div key={comment.id} className="rounded-panel border border-separator bg-surface px-4 py-3">
               <ThreadView comment={comment} />
             </div>
           ))}
@@ -262,11 +265,11 @@ export const Finish = () => {
   const submission = page.snapshot.state.submissions.findLast((item) => item.round === page.round.round);
   if (submission !== undefined && !behind)
     return (
-      <section id="finish" ref={section} data-end-section data-round={page.round.round} className={END_SECTION}>
+      <section id="finish" ref={section} data-end-section data-round={page.round.round} className={FINISH_CARD}>
         <h2 id="finish-title" ref={heading} tabIndex={-1} className="text-heading font-semibold">
           Round {page.round.round} finished · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
         </h2>
-        <p data-submission className="mt-2 max-w-reading">
+        <p data-submission className="mt-2">
           You {VERDICT_DONE[submission.verdict]} at <Time at={submission.submitted_at} />
           {submission.body.trim() === "" ? "." : `: ${submission.body}`}
         </p>
@@ -278,7 +281,7 @@ export const Finish = () => {
       ref={section}
       data-end-section
       data-round={shownRound}
-      className={END_SECTION}
+      className={FINISH_CARD}
       onFocus={() => setEngaged(true)}
       onBlur={(event) => {
         const next = event.relatedTarget;
@@ -294,7 +297,7 @@ export const Finish = () => {
       <p className="mt-1 text-small text-muted">{finishState(page.progress)}</p>
       <form
         data-round={shownRound}
-        className="mt-3"
+        className="mt-4"
         onSubmit={async (event) => {
           event.preventDefault();
           const outcome = await run(() =>

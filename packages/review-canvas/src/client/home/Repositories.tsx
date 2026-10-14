@@ -138,7 +138,7 @@ const RepositoryRow = ({
     <li
       data-repository=""
       data-monitoring={entry.monitored ? "monitored" : "discovered"}
-      className="px-3.5 py-3"
+      className="px-4 py-3"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <h3 className="min-w-0 text-reading font-semibold wrap-anywhere" title={entry.full_name}>

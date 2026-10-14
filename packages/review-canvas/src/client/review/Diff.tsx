@@ -203,7 +203,7 @@ const Extras = ({ table, indexes }: { readonly table: TableContext; readonly ind
       {placed.length === 0 ? null : (
         <tr>
           <td colSpan={table.columns} className={UNDER}>
-            <div className={cn(ROW_BODY, "pt-2 pb-2.5")}>
+            <div className={cn(ROW_BODY, "py-1")}>
               {placed.map((item) => (
                 <ThreadView key={item.comment.id} comment={item.comment} />
               ))}

@@ -1,4 +1,16 @@
-/** What every page has: the skip link, and the message a page shows when it has nothing else to show. */
+/**
+ * What every page has: the frame its contents align to, the skip link, and the message a page shows when it has
+ * nothing else to show.
+ */
+import { cva } from "class-variance-authority";
+
+/**
+ * The one column a page's contents align to, centred with its gutters: the top bar's row, the body, and the footer.
+ * A review is wide enough for the contents beside the diffs; the home page is a list.
+ */
+export const frame = cva("mx-auto px-6 max-md:px-4", {
+  variants: { width: { review: "max-w-[96rem]", home: "max-w-[64rem]" } },
+});
 
 export const SkipLink = () => (
   <a

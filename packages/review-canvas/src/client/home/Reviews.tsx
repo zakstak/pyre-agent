@@ -43,7 +43,7 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
   return (
     <li
       data-standing={state}
-      className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 px-3.5 py-3 max-md:grid-cols-[1.25rem_minmax(0,1fr)]"
+      className="grid grid-cols-[1.25rem_minmax(0,1fr)_18rem] gap-x-3 gap-y-0.5 px-4 py-3 max-md:grid-cols-[1.25rem_minmax(0,1fr)]"
     >
       <span
         role="img"

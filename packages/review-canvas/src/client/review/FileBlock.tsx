@@ -73,7 +73,7 @@ const About = ({ model, id }: { readonly model: FileModel; readonly id: string }
     <div id={id} className="flex flex-col gap-2 border-b border-separator bg-surface px-4 py-3">
       {file.summary === undefined ? null : <Prose text={file.summary} />}
       {(file.callouts ?? []).map((callout, at) => (
-        <p key={at} className="max-w-reading">
+        <p key={at}>
           <strong>{callout.tag}.</strong> <Inline text={callout.text} />
         </p>
       ))}
@@ -189,7 +189,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
       data-path={file.path}
       data-folded={folded}
       data-viewed={model.approved}
-      className="mt-4 scroll-mt-(--sticky-top) rounded-panel border border-separator bg-surface"
+      className="mt-3 scroll-mt-(--sticky-top) rounded-panel first-of-type:mt-4 border border-separator bg-surface"
     >
       <header
         data-file-head
