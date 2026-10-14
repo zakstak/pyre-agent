@@ -29,9 +29,9 @@ const needs = (item: ReviewSummary): { readonly text: string; readonly yours: bo
   if (item.round === undefined) return { text: "Waiting for the first round", yours: false };
   // As on the review page: a finished round is the agents' turn, whatever waits after it.
   if (item.verdict !== undefined) return { text: `Round ${item.round} finished · ${VERDICT_TEXT[item.verdict]}`, yours: false };
-  if (item.for_you > 0) return { text: `${count(item.for_you, "answer")} to read`, yours: true };
-  if (item.drift !== undefined) return { text: `${count(item.drift, "file")} changed since the round`, yours: true };
-  const left = (item.round_files ?? 0) - (item.viewed ?? 0);
+  const progress = item.progress;
+  if (progress !== undefined && progress.forYou > 0) return { text: `${count(progress.forYou, "answer")} to read`, yours: true };
+  const left = progress === undefined ? 0 : progress.viewable - progress.viewed;
   return left > 0
     ? { text: `${count(left, "file")} to review`, yours: true }
     : { text: `Finish round ${item.round}`, yours: true };
@@ -48,7 +48,7 @@ const reviewRow = (item: ReviewSummary): Html => {
 </div>
 <div class="row-side">
 ${need === undefined ? "" : html`<p class="row-need${need.yours ? " yours" : ""}">${need.text}</p>`}
-<p class="row-when">${item.round === undefined || item.closed_at !== undefined ? "" : html`${item.viewed ?? 0} of ${item.round_files ?? 0} viewed · `}${item.closed_at !== undefined ? time(item.closed_at) : item.published_at === undefined ? html`started ${time(item.created_at)}` : time(item.published_at)}</p>
+<p class="row-when">${item.progress === undefined || item.closed_at !== undefined ? "" : html`${item.progress.viewed} of ${item.progress.viewable} viewed · `}${item.drift === undefined || item.closed_at !== undefined || item.verdict !== undefined ? "" : html`${count(item.drift, "file")} changed since the round · `}${item.closed_at !== undefined ? time(item.closed_at) : item.published_at === undefined ? html`started ${time(item.created_at)}` : time(item.published_at)}</p>
 </div>
 </li>`;
 };
@@ -171,7 +171,7 @@ export const homePage = (
   page(assets, {
     title: "Review canvas",
     bodyClass: "home",
-    topbar: html`<p class="brand"><strong>Review canvas</strong> <span class="muted">localhost · ${count(repositoryView.monitored.length, "repository", "repositories")} monitored</span></p><div class="topbar-actions"><button type="button" class="small-button quiet" data-repository-refresh disabled>Rescan</button></div>`,
+    topbar: html`<div class="brand"><h1 class="brand-name">Review canvas</h1> <span class="muted">localhost · ${count(repositoryView.monitored.length, "repository", "repositories")} monitored</span></div><div class="topbar-actions"><button type="button" class="small-button quiet" data-repository-refresh disabled>Rescan</button></div>`,
     body: html`<main id="main" class="home-main" tabindex="-1">
 ${reviewsSection(reviews)}
 ${repositories(repositoryView, reviews)}

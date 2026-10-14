@@ -3,7 +3,7 @@
  * J and K between stops, N for the next strip's target, the contents sidebar with its scroll-spy, and read-stop
  * memory.
  */
-import { forgetFold, reveal, setFolded } from "./folds.ts";
+import { reveal, setExtra, setFolded } from "./folds.ts";
 import { parseHash } from "./places.ts";
 
 const storageKey = () =>
@@ -38,8 +38,8 @@ const renderRead = (seen = seenStops()) => {
     link.classList.toggle("read", seen.has(Number(link.dataset.stopLink)));
 };
 
-/** The stop J and K move from: the last one moved to, or the one scrolled to. */
-let current = 0;
+/** The stop J and K move from: the last one moved to, or the one scrolled to; -1 above the first stop. */
+let current = -1;
 /** Until this time, scrolling is the page's own, and does not move `current`. */
 let steering = 0;
 
@@ -205,32 +205,64 @@ const spyLine = () => (document.querySelector(".next")?.getBoundingClientRect().
 
 let spyQueued = false;
 
+/** The contents row a mark stands for: a file's row, or for a stop heading its first file's. */
+const tocRow = (mark: HTMLElement): HTMLElement | null =>
+  mark.matches("article.file")
+    ? document.querySelector<HTMLElement>(`[data-toc-file="${CSS.escape(mark.dataset.path ?? "")}"]`)
+    : document.querySelector<HTMLElement>(
+        `.toc-stop[data-stop-link="${mark.closest<HTMLElement>("section.stop")?.dataset.stop ?? ""}"] + .toc-files a`,
+      );
+
 /**
- * Marks the contents row of the file in view, and the stops scrolled past as read. A stop heading in view marks its
- * first file. Scrolling by the reviewer also moves the stop J and K count from.
+ * Marks the contents row of the file in view: the last stop heading or file whose top passed the line under the
+ * sticky bars. Above the first one, the first one while it is on screen; at the bottom of the page, where the last
+ * files can never reach the line, the last file whose top is on screen; past the last file, at the whole change and
+ * the finish, nothing. Also marks the stops scrolled past as read, squares the corners of a file header that sticks,
+ * and, when the reviewer scrolled, moves the stop J and K count from.
  */
 export const spy = () => {
   const line = spyLine();
-  const marks = [
-    ...document.querySelectorAll<HTMLElement>("section.stop > h2, section.stop article.file"),
-  ];
-  let at: HTMLElement | undefined;
-  for (const mark of marks) {
-    if (mark.getBoundingClientRect().top <= line) at = mark;
-    else break;
-  }
+  const bottom = window.innerHeight;
+  const marks = [...document.querySelectorAll<HTMLElement>("section.stop > .stop-head, section.stop article.file")];
+  const tops = marks.map((mark) => mark.getBoundingClientRect().top);
+  let index = -1;
+  tops.forEach((top, at) => {
+    if (top <= line) index = at;
+  });
+  const end = document.querySelector<HTMLElement>(".end-section");
+  const pastFiles = end !== null && end.getBoundingClientRect().top <= line;
+  const atBottom = window.scrollY + bottom >= document.documentElement.scrollHeight - 2;
+  if (atBottom && !pastFiles)
+    tops.forEach((top, at) => {
+      if (top < bottom && marks[at]?.matches("article.file") === true) index = Math.max(index, at);
+    });
+  if (index === -1 && (tops[0] ?? Infinity) < bottom) index = 0;
+  const at = pastFiles ? undefined : marks[index];
+
+  const headings = stops().map((stop) => stop.querySelector("h2")?.getBoundingClientRect().top ?? Infinity);
   const passed = stops()
-    .filter((stop) => (stop.querySelector("h2")?.getBoundingClientRect().top ?? Infinity) <= line)
+    .filter((_, at) => (headings[at] ?? Infinity) <= line)
     .map((stop) => Number(stop.dataset.stop));
   if (passed.length > 0) markRead(passed);
-  const stop = at?.closest<HTMLElement>("section.stop");
-  if (stop != null && performance.now() > steering) current = Number(stop.dataset.stop);
-  const link =
-    at === undefined
-      ? null
-      : at.matches("h2")
-        ? document.querySelector<HTMLElement>(`.toc-stop[data-stop-link="${stop?.dataset.stop}"] + .toc-files a`)
-        : document.querySelector<HTMLElement>(`[data-toc-file="${CSS.escape(at.dataset.path ?? "")}"]`);
+  if (performance.now() > steering) {
+    // Above every stop heading, the first stop is current only once its heading is on screen; J then goes to stop 2,
+    // and from higher up J goes to stop 1.
+    const last = passed.at(-1);
+    current = last ?? ((headings[0] ?? Infinity) < bottom ? 0 : -1);
+  }
+
+  for (const article of document.querySelectorAll<HTMLElement>("article.file[data-folded='false']")) {
+    const head = article.querySelector<HTMLElement>(":scope > .file-head");
+    if (head === null) continue;
+    const box = article.getBoundingClientRect();
+    const stuck =
+      getComputedStyle(head).position === "sticky" &&
+      box.top < head.getBoundingClientRect().top - 0.5 &&
+      box.bottom > head.getBoundingClientRect().bottom;
+    article.classList.toggle("is-stuck", stuck);
+  }
+
+  const link = at === undefined ? null : tocRow(at);
   for (const other of document.querySelectorAll<HTMLElement>(".toc-file[aria-current]"))
     if (other !== link) other.removeAttribute("aria-current");
   if (link === null || link.hasAttribute("aria-current")) return;
@@ -324,6 +356,11 @@ export const installTour = () => {
       if (article !== null) setFolded(article, article.dataset.folded !== "true");
       return;
     }
+    const extra = target.closest<HTMLElement>("[data-extra]");
+    if (extra !== null) {
+      setExtra(extra, extra.getAttribute("aria-expanded") !== "true");
+      return;
+    }
     const round = target.closest<HTMLElement>("[data-round-toggle]");
     if (round !== null) {
       const open = round.getAttribute("aria-expanded") !== "true";
@@ -336,9 +373,6 @@ export const installTour = () => {
       highlight(back);
       return;
     }
-    // Marking a file viewed folds it, whatever the reviewer chose before.
-    const approve = target.closest<HTMLElement>("[data-action='approve']");
-    if (approve !== null) forgetFold(approve.dataset.path ?? "");
   });
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || isEditing()) return;

@@ -194,7 +194,7 @@ const Review = HttpRouter.add(
             replacedBy:
               view.state.closed_at === undefined
                 ? undefined
-                : store.reviews().find((item) => item.carry_from === view.state.id)?.id,
+                : store.replacedBy(view.state.id),
           }),
     );
   }),

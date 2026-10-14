@@ -87,6 +87,12 @@ export interface DiffOptions extends Omit<ThreadOptions, "instance"> {
   readonly readOnly?: boolean | undefined;
 }
 
+/**
+ * The unified layout's columns: the line numbers (old and new in one gutter cell, so a narrow page can show one of
+ * them and keep the + button), the change marker, and the source.
+ */
+export const UNIFIED_COLUMNS = 3;
+
 /** A run of hidden rows shorter than this shows instead: a fold for two lines costs more than it saves. */
 const MIN_FOLD = 4;
 
@@ -205,7 +211,7 @@ export const diffTable = (options: DiffOptions): Html => {
   const readOnly = options.readOnly === true;
   const layout: Layout = readOnly ? "unified" : (options.layout ?? "unified");
   const selectable = (row: Row) => !readOnly && changeable(row);
-  const columns = layout === "split" ? 2 : 4;
+  const columns = layout === "split" ? 2 : UNIFIED_COLUMNS;
   const threadsEndingAt = new Map<number, Array<PlacedComment>>();
   for (const placed of comments) {
     const list = threadsEndingAt.get(placed.end) ?? [];
@@ -251,9 +257,12 @@ export const diffTable = (options: DiffOptions): Html => {
     }`;
   };
 
+  const numbers = (old: number | undefined, fresh: number | undefined): Html =>
+    html`<span class="ln-old">${old ?? ""}</span><span class="ln-new">${fresh ?? ""}</span>`;
+
   const unifiedRow = (row: Row, plus: boolean): Html =>
     html`<tr id="${tableId}-r${row.index}" class="${rowClass[row.kind]}${mark(row)}"${selectable(row) ? unitData(row) : html` data-row="${row.index}"`}>
-<td class="line-number" data-gutter>${selectable(row) && plus ? addButton(row) : ""}${row.old ?? ""}</td><td class="line-number" data-gutter>${row.new ?? ""}</td><td class="marker" data-gutter>${noteMarker(notesAt.get(row.index))}<span aria-hidden="true">${marker[row.kind]}</span></td><td class="source"><code>${row.content}</code></td></tr>${extras([row.index])}`;
+<td class="line-number" data-gutter>${selectable(row) && plus ? addButton(row) : ""}${numbers(row.old, row.new)}</td><td class="marker" data-gutter>${noteMarker(notesAt.get(row.index))}<span aria-hidden="true">${marker[row.kind]}</span></td><td class="source"><code>${row.content}</code></td></tr>${extras([row.index])}`;
 
   const half = (row: Row | undefined, side: "old" | "new", plus: boolean): Html =>
     row === undefined
@@ -275,60 +284,94 @@ export const diffTable = (options: DiffOptions): Html => {
       ? splitRows(piece, plus)
       : html`${piece.map((row) => unifiedRow(row, plus))}`;
 
-  const toggle = (key: string, count: number, noun: string): Html =>
-    html`<tbody class="gap"><tr class="gap-toggle"><td colspan="${columns}"><button type="button" class="quiet expand" data-expand="${key}" data-count="${count}" data-noun="${noun}" aria-expanded="false">Show ${count} ${noun} line${count === 1 ? "" : "s"}</button></td></tr></tbody>`;
-
-  // A piece of the patch: runs of shown rows, and runs of folded rows behind their toggle.
-  const body = (piece: ReadonlyArray<Row>): Html => {
-    const runs: Array<{ shown: boolean; rows: Array<Row> }> = [];
+  // The patch in document order: rows that show, runs of folded rows, and the unchanged lines between hunks.
+  type Piece =
+    | { readonly kind: "shown"; readonly rows: ReadonlyArray<Row> }
+    | { readonly kind: "folded"; readonly key: string; readonly rows: ReadonlyArray<Row> }
+    | { readonly kind: "context"; readonly key: string; readonly gap: Gap };
+  const pieces: Array<Piece> = [];
+  const cut = (piece: ReadonlyArray<Row>) => {
+    let run: Array<Row> = [];
+    let shown = true;
+    const flush = () => {
+      const first = run[0];
+      if (first !== undefined)
+        pieces.push(shown ? { kind: "shown", rows: run } : { kind: "folded", key: `r${first.index}`, rows: run });
+      run = [];
+    };
     for (const row of piece) {
-      const shown = visible.has(row.index);
-      const last = runs.at(-1);
-      if (last !== undefined && last.shown === shown) last.rows.push(row);
-      else runs.push({ shown, rows: [row] });
+      if (visible.has(row.index) !== shown) {
+        flush();
+        shown = visible.has(row.index);
+      }
+      run.push(row);
     }
-    return html`${runs.map((run) =>
-      run.shown
-        ? html`<tbody>${rowsHtml(run.rows, true)}</tbody>`
-        : html`${toggle(`r${run.rows[0]?.index ?? 0}`, run.rows.length, "more")}<tbody class="gap-lines folded" data-gap-lines="r${run.rows[0]?.index ?? 0}" hidden>${rowsHtml(run.rows, false)}</tbody>`,
-    )}`;
+    flush();
   };
-
-  const gapBody = (gap: Gap, at: number): Html => {
-    const line = (item: Gap["lines"][number]): Html =>
-      layout === "split"
-        ? html`<tr class="unchanged"><td class="half old context"><span class="ln">${item.old}</span><span class="mk"></span><code>${item.text}</code></td><td class="half new context"><span class="ln">${item.new}</span><span class="mk"></span><code>${item.text}</code></td></tr>`
-        : html`<tr class="unchanged"><td class="line-number">${item.old}</td><td class="line-number">${item.new}</td><td class="marker"></td><td class="source"><code>${item.text}</code></td></tr>`;
-    return html`${toggle(String(at), gap.lines.length, "unchanged")}<tbody class="gap-lines" data-gap-lines="${at}" hidden>${gap.lines.map(line)}</tbody>`;
-  };
-
   const found =
     !readOnly && file.patch !== undefined && file.new_content !== undefined
       ? gaps(file.patch, file.new_content)
       : [];
   // With the file's text, the patch is cut into a piece per hunk, so the unchanged lines go between them.
-  const segments: Array<Html> = [];
-  if (found.length === 0) {
-    segments.push(body(rows));
-  } else {
-    const starts = rows
-      .filter((row) => row.kind === "hunk")
-      .map((row) => row.index);
-    if ((starts[0] ?? 0) > 0) segments.push(body(rows.slice(0, starts[0])));
+  if (found.length === 0) cut(rows);
+  else {
+    const starts = rows.filter((row) => row.kind === "hunk").map((row) => row.index);
+    if ((starts[0] ?? 0) > 0) cut(rows.slice(0, starts[0]));
     starts.forEach((start, hunk) => {
       const at = found.findIndex((gap) => gap.before === start);
       const gap = found[at];
-      if (gap !== undefined) segments.push(gapBody(gap, at));
-      segments.push(body(rows.slice(start, starts[hunk + 1] ?? rows.length)));
+      if (gap !== undefined) pieces.push({ kind: "context", key: String(at), gap });
+      cut(rows.slice(start, starts[hunk + 1] ?? rows.length));
     });
     const at = found.findIndex((gap) => gap.before === -1);
     const trailing = found[at];
-    if (trailing !== undefined) segments.push(gapBody(trailing, at));
+    if (trailing !== undefined) pieces.push({ kind: "context", key: String(at), gap: trailing });
   }
 
-  return html`<div class="diff-scroll" role="region" aria-label="${file.path}" tabindex="0">
+  const contextLine = (item: Gap["lines"][number]): Html =>
+    layout === "split"
+      ? html`<tr class="unchanged"><td class="half old context"><span class="ln">${item.old}</span><span class="mk"></span><code>${item.text}</code></td><td class="half new context"><span class="ln">${item.new}</span><span class="mk"></span><code>${item.text}</code></td></tr>`
+      : html`<tr class="unchanged"><td class="line-number">${numbers(item.old, item.new)}</td><td class="marker"></td><td class="source"><code>${item.text}</code></td></tr>`;
+
+  /**
+   * Hidden lines next to each other are one gap with one control, whatever hides them. Its first activation shows the
+   * folded rows of the patch, its second the unchanged lines around them; it sits where the lines still hidden after
+   * the first one are, so it never ends up away from them.
+   */
+  const gapGroup = (group: ReadonlyArray<Extract<Piece, { kind: "folded" | "context" }>>): Html => {
+    const first = group[0];
+    if (first === undefined) return html``;
+    const folded = group.reduce((sum, piece) => sum + (piece.kind === "folded" ? piece.rows.length : 0), 0);
+    const context = group.reduce((sum, piece) => sum + (piece.kind === "context" ? piece.gap.lines.length : 0), 0);
+    const total = folded + context;
+    const toggle = html`<tbody class="gap"><tr class="gap-toggle"><td colspan="${columns}"><button type="button" class="quiet expand" data-expand="${first.key}" data-folded="${folded}" data-context="${context}" aria-expanded="false">Show ${total} more line${total === 1 ? "" : "s"}</button></td></tr></tbody>`;
+    const at = Math.max(0, group.findIndex((piece) => piece.kind === "context"));
+    return html`${group.map(
+      (piece, index) =>
+        html`${index === at ? toggle : ""}${
+          piece.kind === "folded"
+            ? html`<tbody class="gap-lines folded" data-gap-lines="${piece.key}" data-gap="${first.key}" hidden>${rowsHtml(piece.rows, false)}</tbody>`
+            : html`<tbody class="gap-lines" data-gap-lines="${piece.key}" data-gap="${first.key}" hidden>${piece.gap.lines.map(contextLine)}</tbody>`
+        }`,
+    )}`;
+  };
+
+  const segments: Array<Html> = [];
+  let hidden: Array<Extract<Piece, { kind: "folded" | "context" }>> = [];
+  for (const piece of pieces) {
+    if (piece.kind !== "shown") {
+      hidden.push(piece);
+      continue;
+    }
+    segments.push(gapGroup(hidden));
+    hidden = [];
+    segments.push(html`<tbody>${rowsHtml(piece.rows, true)}</tbody>`);
+  }
+  segments.push(gapGroup(hidden));
+
+  return html`<div class="diff-scroll" role="group" aria-label="Diff of ${file.path}" tabindex="0">
 <table class="diff ${layout}" data-path="${file.path}" data-patch="${patchDigest(file.patch ?? "")}" data-table="${tableId}" data-rows="${rows.length}">
-<thead>${layout === "split" ? html`<tr><th>Old</th><th>New</th></tr>` : html`<tr><th>Old line</th><th>New line</th><th>Change</th><th>Source</th></tr>`}</thead>
+<thead>${layout === "split" ? html`<tr><th>Old</th><th>New</th></tr>` : html`<tr><th>Line</th><th>Change</th><th>Source</th></tr>`}</thead>
 ${segments}
 </table>
 </div>`;

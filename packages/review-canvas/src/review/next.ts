@@ -5,19 +5,9 @@
  */
 import type { Comment, Verdict } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
-import type {
-  CommentId,
-  RepoPath,
-  RoundNumber,
-  ThreadId,
-} from "../schema/primitives.ts";
-import {
-  approvalHolds,
-  currentRound,
-  currentSubmission,
-  type ReviewState,
-  turnOf,
-} from "./state.ts";
+import type { CommentId, RepoPath, RoundNumber, ThreadId } from "../schema/primitives.ts";
+import { progress, standingOf } from "./progress.ts";
+import { currentSubmission, type ReviewState, type Round } from "./state.ts";
 import type { StopView } from "./tour.ts";
 
 /** A file's block on the review page. A path is a valid ID, and `#files/PATH` then works without the page script. */
@@ -25,9 +15,6 @@ export const fileElementId = (path: string): string => `files/${path}`;
 
 /** A comment's thread on the review page. Each comment renders once. */
 export const commentElementId = (id: string): string => `comment-${id}`;
-
-/** The line that says what changed since the round. */
-export const DRIFT_ELEMENT_ID = "drift";
 
 /** The finish section at the end of the page. */
 export const FINISH_ELEMENT_ID = "finish";
@@ -56,12 +43,6 @@ export type Next =
       readonly target: string;
     }
   | {
-      /** An agent found the code changed since this round. */
-      readonly kind: "drift";
-      readonly files: number;
-      readonly target: string;
-    }
-  | {
       /** The first file in walkthrough order the reviewer has not viewed. */
       readonly kind: "file";
       readonly path: RepoPath;
@@ -75,7 +56,7 @@ export type Next =
       /** Everything is read and viewed: finish the round. */
       readonly kind: "finish";
       readonly round: RoundNumber;
-      /** Comments that wait for the agents, which finishing hands over. */
+      /** Comments that wait for an agent. */
       readonly waiting: number;
       readonly target: string;
     }
@@ -97,9 +78,6 @@ const placeOf = (comment: Comment): CommentPlace =>
         end: comment.anchor.end_line,
       };
 
-const oldestFirst = (a: Comment, b: Comment) =>
-  a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
-
 /** Files in walkthrough order: the stops in order, each stop's owned files in its order, with the stop's number. */
 export const walkthroughOrder = (
   stops: ReadonlyArray<StopView>,
@@ -109,29 +87,57 @@ export const walkthroughOrder = (
   );
 
 /**
- * What the reviewer should do next, in priority order: read the oldest answer that waits for them; look at a drift
- * an agent found in this round; view the first file in walkthrough order whose approval does not hold (files without
- * a fingerprint cannot be viewed, so they are skipped); otherwise finish the round. A closed review, and a round the
- * reviewer already finished, have nothing next.
+ * The comments in the order the page shows them: by file in walkthrough order, within a file by the row the thread
+ * sits under, with comments whose lines left the round at the end of their file; then comments on files that left
+ * the round; then the comments on the whole change. Ties go to the older comment.
+ */
+const pageOrder = (
+  input: ReviewInput,
+  stops: ReadonlyArray<StopView>,
+): ((a: Comment, b: Comment) => number) => {
+  const files = new Map(walkthroughOrder(stops).map((item, at) => [item.path, at]));
+  const departed = files.size;
+  const place = (comment: Comment): readonly [number, number] => {
+    if (comment.kind === "general") return [departed + 1, 0];
+    const file = files.get(comment.anchor.path);
+    if (file === undefined || !input.files.some((item) => item.path === comment.anchor.path))
+      return [departed, 0];
+    return [
+      file,
+      comment.attachment.state === "attached" ? comment.attachment.end : Number.POSITIVE_INFINITY,
+    ];
+  };
+  return (a, b) => {
+    const [fileA, rowA] = place(a);
+    const [fileB, rowB] = place(b);
+    if (fileA !== fileB) return fileA - fileB;
+    if (rowA !== rowB) return rowA < rowB ? -1 : 1;
+    return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
+  };
+};
+
+/**
+ * What the reviewer should do next, in priority order: read the answers that wait for them, in the order the page
+ * shows them; view the first file in walkthrough order whose approval does not hold (files without a fingerprint
+ * cannot be viewed, so they are skipped); otherwise finish the round. A closed review, and a round the reviewer
+ * already finished, have nothing next. Drift is not a step: nothing on the page acts on it, so the page says it in a
+ * line of its own.
  */
 export const nextStep = (
   state: ReviewState,
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
+  round: Round,
 ): Next => {
   if (state.closed_at !== undefined) return { kind: "closed" };
-  const round = currentRound(state);
   const submission = currentSubmission(state);
-  if (round !== undefined && submission !== undefined)
-    return {
-      kind: "finished",
-      round: round.round,
-      verdict: submission.verdict,
-    };
+  if (submission !== undefined)
+    return { kind: "finished", round: round.round, verdict: submission.verdict };
 
+  const standing = standingOf(state);
   const toRead = state.comments
-    .filter((comment) => turnOf(comment) === "reviewer")
-    .toSorted(oldestFirst);
+    .filter((comment) => standing(comment) === "reviewer")
+    .toSorted(pageOrder(input, stops));
   const first = toRead[0];
   if (first !== undefined) {
     const last = first.replies.at(-1);
@@ -146,29 +152,13 @@ export const nextStep = (
     };
   }
 
-  const drift = state.drift;
-  if (
-    drift !== undefined &&
-    round !== undefined &&
-    drift.round === round.round
-  )
-    return {
-      kind: "drift",
-      files: drift.paths.length,
-      target: DRIFT_ELEMENT_ID,
-    };
-
-  const files = new Map(input.files.map((file) => [file.path, file]));
-  const unviewed = walkthroughOrder(stops).filter((item) => {
-    const file = files.get(item.path);
-    return (
-      file?.fingerprint !== undefined &&
-      !state.approvals.some(
-        (approval) =>
-          approval.path === item.path && approvalHolds(approval, [file]),
-      )
-    );
-  });
+  const counts = progress(state, input);
+  const viewable = new Set(
+    input.files.filter((file) => file.fingerprint !== undefined).map((file) => file.path),
+  );
+  const unviewed = walkthroughOrder(stops).filter(
+    (item) => viewable.has(item.path) && !counts.viewed.has(item.path),
+  );
   const file = unviewed[0];
   if (file !== undefined)
     return {
@@ -181,9 +171,8 @@ export const nextStep = (
 
   return {
     kind: "finish",
-    round: round?.round ?? (1 as RoundNumber),
-    waiting: state.comments.filter((comment) => turnOf(comment) === "agent")
-      .length,
+    round: round.round,
+    waiting: counts.waiting,
     target: FINISH_ELEMENT_ID,
   };
 };

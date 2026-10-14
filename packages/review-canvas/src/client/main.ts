@@ -18,7 +18,7 @@ import {
   restoreGeneral,
   restoreReplyDrafts,
 } from "./comments.ts";
-import { restoreFolds, restoreGaps } from "./folds.ts";
+import { openFiles, restoreFolds, restoreGaps } from "./folds.ts";
 import {
   LAYOUT_COOKIE,
   NARROW_HEADER,
@@ -172,8 +172,11 @@ const installFinish = () => {
       verdict: String(data.get("verdict") ?? "comment"),
       body: String(data.get("body") ?? ""),
     }).then((done) => {
-      if (done) toast("Review finished. The agents have the turn.");
-      else catchUpFinish();
+      if (done) {
+        toast("Review finished. The agents have the turn.");
+        // The form goes when the refresh shows the finish; its heading keeps the reviewer in the section.
+        finishSection()?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+      } else catchUpFinish();
     });
   });
 };
@@ -195,18 +198,30 @@ const NAMING = [
   "data-toc-file",
 ];
 
-/** What the reviewer is focused on, as a refresh can find it again: an ID, or a control inside an element with one. */
+/**
+ * What the reviewer is focused on, as a refresh can find it again: an ID, or a control inside an element with one,
+ * and the elements with IDs around it, outermost last, for when the control itself is gone.
+ */
 interface FocusKey {
   readonly id: string;
   readonly match?: string;
   readonly index?: number;
+  readonly around: ReadonlyArray<string>;
 }
+
+const idsAround = (element: Element): ReadonlyArray<string> => {
+  const ids: Array<string> = [];
+  for (let at = element.parentElement?.closest("[id]"); at != null; at = at.parentElement?.closest("[id]"))
+    ids.push(at.id);
+  return ids;
+};
 
 const focusKey = (): FocusKey | undefined => {
   const element = document.activeElement;
   if (!(element instanceof HTMLElement) || element === document.body)
     return undefined;
-  if (element.id !== "") return { id: element.id };
+  const around = idsAround(element);
+  if (element.id !== "") return { id: element.id, around };
   const anchor = element.parentElement?.closest<HTMLElement>("[id]");
   if (anchor == null) return undefined;
   const match = NAMING.filter((name) => element.hasAttribute(name))
@@ -216,24 +231,52 @@ const focusKey = (): FocusKey | undefined => {
     id: anchor.id,
     match,
     index: [...anchor.querySelectorAll(FOCUSABLE)].indexOf(element),
+    around,
   };
 };
 
+const shown = (element: Element) => element.closest("[hidden]") === null;
+
+/**
+ * Where focus goes when what had it is gone or hidden, as after Accept, a sent reply, Withdraw, Reopen, or a finish:
+ * a thread's next action, or the thread itself; a section's heading; or the element, when it takes focus.
+ */
+const focusWithin = (container: HTMLElement): HTMLElement | null => {
+  if (container.matches("article.thread"))
+    return (
+      [...container.querySelectorAll<HTMLElement>(".thread-actions button")].find(shown) ?? container
+    );
+  if (container.hasAttribute("tabindex")) return container;
+  return container.querySelector<HTMLElement>(":scope > h2[tabindex], :scope > .stop-head > h2[tabindex]");
+};
+
+/** Focuses an element after a refresh, or else the nearest thing around it that the reviewer can act on. */
 const restoreFocus = (key: FocusKey | undefined) => {
   if (key === undefined) return;
   const anchor = document.getElementById(key.id);
-  if (anchor === null) return;
-  if (key.index === undefined) {
-    anchor.focus({ preventScroll: true });
-    return;
-  }
   const found =
-    (key.match === undefined || key.match === ""
+    anchor === null
       ? null
-      : anchor.querySelector<HTMLElement>(key.match)) ??
-    anchor.querySelectorAll<HTMLElement>(FOCUSABLE)[key.index] ??
-    null;
-  found?.focus({ preventScroll: true });
+      : key.index === undefined
+        ? anchor
+        : ((key.match === undefined || key.match === ""
+            ? null
+            : anchor.querySelector<HTMLElement>(key.match)) ??
+          (key.match === undefined || key.match === ""
+            ? (anchor.querySelectorAll<HTMLElement>(FOCUSABLE)[key.index] ?? null)
+            : null));
+  if (found !== null && shown(found)) {
+    found.focus({ preventScroll: true });
+    if (document.activeElement === found) return;
+  }
+  for (const id of [key.id, ...key.around]) {
+    const container = document.getElementById(id);
+    if (container === null || !shown(container)) continue;
+    const target = focusWithin(container);
+    if (target === null) continue;
+    target.focus({ preventScroll: true });
+    if (document.activeElement === target) return;
+  }
 };
 
 /** Set when the page needs the server's markup even at the same revision, as after a layout change. */
@@ -278,7 +321,7 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   const drafts = composerDrafts();
   const general = generalDraft();
   const replies = replyDrafts();
-  const open = new Set(
+  const disclosures = new Set(
     [
       ...document.querySelectorAll<HTMLDetailsElement>(
         "details[open]:not(.contents-disclosure)",
@@ -292,6 +335,7 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   );
   const scrollY = window.scrollY;
   const focused = focusKey();
+  const open = openFiles();
   // A new round while the reviewer is choosing a verdict or writing a summary: keep that section until they leave it.
   const finish = finishSection();
   const engaged =
@@ -336,11 +380,11 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   )) {
     const key =
       details.id || details.querySelector("summary")?.textContent?.trim() || "";
-    if (open.has(key)) details.open = true;
+    if (disclosures.has(key)) details.open = true;
   }
   localizeTimes();
   syncTheme();
-  restoreFolds();
+  restoreFolds(open);
   restoreGaps();
   afterRefresh();
   restoreComposers(drafts);
@@ -526,6 +570,8 @@ localizeTimes();
 installTheme();
 installRepositories();
 if (document.body.classList.contains("review")) {
+  // The reviewer's folds come back before the hash is applied, so a hash or the strip still opens what it points at.
+  restoreFolds();
   installTour();
   installComments();
   installFinish();

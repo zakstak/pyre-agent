@@ -8,7 +8,8 @@ import {
   nextStep,
   walkthroughOrder,
 } from "./next.ts";
-import type { ReviewState } from "./state.ts";
+import { progress, standingOf } from "./progress.ts";
+import type { ReviewState, Round } from "./state.ts";
 import { tourView } from "./tour.ts";
 
 const patch = "@@ -0,0 +1,2 @@\n+one\n+two\n";
@@ -103,103 +104,152 @@ test("walkthrough order is each stop's owned files in its order, then the closin
   );
 });
 
-test("the oldest answer to read comes first, with how many more follow", () => {
-  const orphan = {
+const [round] = state().rounds;
+
+const next = (extra: Record<string, unknown> = {}) => nextStep(state(extra), input, stops, round as Round);
+
+/** An inline comment on b.ts, attached at a patch offset, or orphaned when the offset is undefined. */
+const inline = (id: string, minute: number, offset: number | undefined, replies: Array<unknown>, path = "b.ts"): Comment =>
+  ({
     kind: "inline",
-    id: "c-orphan",
+    id,
     source: { kind: "reviewer" },
     body: "Floor?",
-    created_at: at(3),
-    updated_at: at(9),
-    anchor: { path: "b.ts", start_line: 11, end_line: 12 },
+    created_at: at(minute),
+    updated_at: at(minute),
+    anchor: { path, start_line: 1, end_line: 1 },
     history: [],
-    attachment: { state: "orphan", reason: "The lines changed." },
-    replies: [{ ...answer("t2", 9), disposition: "fixed", fixed_in: { fingerprint: "2".repeat(64) } }],
-  } as unknown as Comment;
-  const next = nextStep(
-    state({
-      comments: [
-        general("c-late", 5, [answer("t1", 6)]),
-        orphan,
-        general("c-waiting", 1, []),
-      ],
-    }),
-    input,
-    stops,
-  );
-  assert.deepEqual(next, {
+    attachment:
+      offset === undefined
+        ? { state: "orphan", reason: "The lines changed." }
+        : { state: "attached", start: offset, end: offset + 4, reason: "Same patch." },
+    replies,
+  }) as unknown as Comment;
+
+test("answers to read come in page order: by file in walkthrough order, then row, orphans last in their file, then the whole change", () => {
+  const orphan = inline("c-orphan", 1, undefined, [
+    { ...answer("t2", 9), disposition: "fixed", fixed_in: { fingerprint: "2".repeat(64) } },
+  ]);
+  const comments = [
+    general("c-general", 0, [answer("t1", 6)]),
+    orphan,
+    inline("c-row-20", 3, 20, [answer("t1", 7)]),
+    inline("c-row-2", 4, 2, [answer("t1", 8)]),
+    inline("c-closing", 0, 2, [answer("t1", 5)], "a.ts"),
+    general("c-waiting", 1, []),
+  ];
+  // b.ts is stop 1's first file, a.ts is in the closing stop: the oldest answer, on a.ts, is not first.
+  assert.deepEqual(next({ comments }), {
     kind: "answer",
-    comment: "c-orphan",
-    thread: "t2",
+    comment: "c-row-2",
+    thread: "t1",
     github: false,
-    place: { kind: "inline", path: "b.ts", start: 11, end: 12 },
-    more: 1,
-    target: commentElementId("c-orphan"),
+    place: { kind: "inline", path: "b.ts", start: 1, end: 1 },
+    more: 4,
+    target: commentElementId("c-row-2"),
   });
+  const order: Array<string> = [];
+  let left = [...comments];
+  for (;;) {
+    const step = next({ comments: left });
+    if (step.kind !== "answer") break;
+    order.push(step.comment);
+    left = left.filter((comment) => comment.id !== step.comment);
+  }
+  assert.deepEqual(order, ["c-row-2", "c-row-20", "c-orphan", "c-closing", "c-general"]);
 });
 
-test("drift in this round comes before files; drift from an earlier round does not count", () => {
-  const drift = { round: 2, checked_at: at(4), paths: ["b.ts", "c.ts"] };
-  assert.deepEqual(nextStep(state({ drift }), input, stops), {
-    kind: "drift",
-    files: 2,
-    target: "drift",
+test("an answer counts how many more follow it", () => {
+  assert.equal(next({ comments: [general("c-1", 1, [answer("t1", 2)])] }).kind, "answer");
+  const one = next({ comments: [general("c-1", 1, [answer("t1", 2)])] });
+  assert.equal(one.kind === "answer" ? one.more : -1, 0);
+  const three = next({
+    comments: [general("c-1", 1, [answer("t1", 2)]), general("c-2", 3, [answer("t1", 4)]), general("c-3", 5, [answer("t2", 6)])],
   });
-  const old = { ...drift, round: 1 };
-  assert.equal(nextStep(state({ drift: old }), input, stops).kind, "file");
+  assert.equal(three.kind === "answer" ? three.more : -1, 2);
+});
+
+test("a reply on a comment from GitHub is the reply, not an agent's answer", () => {
+  const fromGitHub = {
+    ...general("c-gh", 1, []),
+    source: { kind: "github", author: "octocat", resolved: false },
+    replies: [answer("t1", 2)],
+  } as unknown as Comment;
+  const step = next({ comments: [fromGitHub] });
+  assert.equal(step.kind, "answer");
+  assert.equal(step.kind === "answer" && step.github, true);
+});
+
+test("drift is not a step: the strip goes on to the files", () => {
+  const drift = { round: 2, checked_at: at(4), paths: ["b.ts", "c.ts"] };
+  assert.equal(next({ drift }).kind, "file");
 });
 
 test("the next file is the first in walkthrough order whose approval does not hold", () => {
-  const next = nextStep(
-    state({
+  assert.deepEqual(
+    next({
       approvals: [
         approval("b.ts", "2".repeat(64)),
         // A lapsed approval: c.ts changed since it was viewed.
         approval("c.ts", "9".repeat(64)),
       ],
     }),
-    input,
-    stops,
+    { kind: "file", path: "c.ts", stop: 1, left: 3, target: fileElementId("c.ts") },
   );
-  assert.deepEqual(next, {
-    kind: "file",
-    path: "c.ts",
-    stop: 1,
-    left: 3,
-    target: fileElementId("c.ts"),
-  });
 });
 
 test("a file without a fingerprint is skipped, and with every file viewed the round is finished next", () => {
   const viewed = ["a.ts", "b.ts", "c.ts", "e.ts"].map((path) =>
     approval(path, input.files.find((item) => item.path === path)?.fingerprint ?? ""),
   );
-  const next = nextStep(
-    state({
-      approvals: viewed,
-      comments: [general("c-waiting", 1, [])],
-    }),
-    input,
-    stops,
+  // A question waits for an agent; a plain comment is pending until the finish, so it waits for no one yet.
+  const question = { ...general("c-question", 1, []), source: { kind: "reviewer", question: true } } as unknown as Comment;
+  assert.deepEqual(
+    next({ approvals: viewed, comments: [question, general("c-held", 2, [])] }),
+    { kind: "finish", round: 2, waiting: 1, target: "finish" },
   );
-  assert.deepEqual(next, { kind: "finish", round: 2, waiting: 1, target: "finish" });
 });
 
 test("a finished round and a closed review have nothing next, even with answers to read", () => {
   const comments = [general("c-late", 5, [answer("t1", 6)])];
   assert.deepEqual(
-    nextStep(
-      state({
-        comments,
-        submissions: [{ round: 2, verdict: "request_changes", body: "", submitted_at: at(7), revision: 3 }],
-      }),
-      input,
-      stops,
-    ),
+    next({
+      comments,
+      submissions: [{ round: 2, verdict: "request_changes", body: "", submitted_at: at(7), revision: 3 }],
+    }),
     { kind: "finished", round: 2, verdict: "request_changes" },
   );
-  assert.deepEqual(
-    nextStep(state({ comments, closed_at: at(8) }), input, stops),
-    { kind: "closed" },
+  assert.deepEqual(next({ comments, closed_at: at(8) }), { kind: "closed" });
+});
+
+test("progress counts viewable and viewed files, answers for the reviewer, comments waiting, and pending ones", () => {
+  const question = { ...general("c-question", 1, []), source: { kind: "reviewer", question: true } } as unknown as Comment;
+  const counts = progress(
+    state({
+      approvals: [approval("b.ts", "2".repeat(64)), approval("c.ts", "9".repeat(64))],
+      comments: [
+        general("c-answered", 1, [answer("t1", 2)]),
+        question,
+        general("c-held", 3, []),
+        general("c-replied", 3, [answer("t1", 4), { id: "r", created_at: at(5), actor: "reviewer", action: "reply", body: "Why?" }]),
+        general("c-done", 3, [answer("t1", 4), { id: "r2", created_at: at(5), actor: "reviewer", action: "accept", body: "" }]),
+      ],
+    }),
+    input,
   );
+  assert.deepEqual(
+    { ...counts, viewed: [...counts.viewed] },
+    { viewable: 4, viewed: ["b.ts"], forYou: 1, waiting: 2, pending: 1 },
+  );
+});
+
+test("a comment is pending until a finish carries it; one made after the round is finished waits for the agents", () => {
+  const sent = general("c-sent", 1, []);
+  const later = general("c-later", 9, []);
+  const finishedEarlier = { round: 1, verdict: "comment", body: "", submitted_at: at(5), revision: 2 };
+  const standing = standingOf(state({ comments: [sent, later], submissions: [finishedEarlier] }));
+  assert.equal(standing(sent), "agent");
+  assert.equal(standing(later), "pending");
+  const finishedNow = { ...finishedEarlier, round: 2 };
+  assert.equal(standingOf(state({ comments: [later], submissions: [finishedNow] }))(later), "agent");
 });

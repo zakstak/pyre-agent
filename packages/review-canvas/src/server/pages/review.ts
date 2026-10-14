@@ -13,18 +13,14 @@ import {
   nextStep,
 } from "../../review/next.ts";
 import { parseRows } from "../../review/patch.ts";
-import {
-  approvalHolds,
-  currentSubmission,
-  type SubmissionRecord,
-  turnOf,
-} from "../../review/state.ts";
+import { type Progress, progress, type Standing, standingOf } from "../../review/progress.ts";
+import { currentSubmission, type SubmissionRecord } from "../../review/state.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
 import type { ReviewView } from "../../store/store.ts";
 import type { Assets } from "../assets.ts";
 import { type Html, html } from "../html.ts";
 import { thread } from "./comments.ts";
-import { type InlineNote, type Layout, placeComments } from "./diff.ts";
+import { type InlineNote, type Layout, placeComments, UNIFIED_COLUMNS } from "./diff.ts";
 import { type FilePage, type FileView, fileBlock, orphan } from "./file.ts";
 import { connection, page as pageShell, themeControl } from "./layout.ts";
 import {
@@ -80,6 +76,8 @@ interface PageContext {
   readonly stops: ReadonlyArray<StopView>;
   readonly files: ReadonlyMap<string, FileView>;
   readonly next: Next;
+  readonly progress: Progress;
+  readonly standing: (comment: Comment) => Standing;
   readonly writable: boolean;
   readonly filePage: FilePage;
   readonly round: number;
@@ -94,6 +92,8 @@ const fileViews = (
   next: Next,
   previous: ReviewInput | undefined,
   round: number,
+  counts: Progress,
+  standing: (comment: Comment) => Standing,
 ): ReadonlyMap<string, FileView> => {
   const owner = new Map<string, StopView>();
   for (const stop of stops) for (const path of stop.owns) owner.set(path, stop);
@@ -109,9 +109,7 @@ const fileViews = (
     input.files.map((file, index) => {
       const { placed, orphans } = placeComments(file, view.state.comments);
       const comments = [...placed.map((item) => item.comment), ...orphans];
-      const approved = view.state.approvals.some(
-        (approval) => approval.path === file.path && approvalHolds(approval, [file]),
-      );
+      const approved = counts.viewed.has(file.path);
       const stop = owner.get(file.path);
       const excerpts = stops.flatMap((item) =>
         item.excerpts
@@ -134,13 +132,16 @@ const fileViews = (
         earlier !== undefined && earlier.fingerprint !== undefined && earlier.fingerprint === file.fingerprint
           ? round - 1
           : undefined;
-      const folded =
-        target !== file.path &&
-        (approved ||
-          file.group === "mechanical" ||
-          stop?.closing === true ||
-          unchangedSince !== undefined ||
-          owned.length === 0);
+      const forYou = comments.filter((comment) => standing(comment) === "reviewer").length;
+      const foldable =
+        approved ||
+        file.group === "mechanical" ||
+        stop?.closing === true ||
+        unchangedSince !== undefined ||
+        owned.length === 0;
+      // What the strip points at, and a file with an answer waiting for the reviewer, stay open: the reviewer has
+      // something to do there.
+      const held = foldable && (target === file.path || forYou > 0);
       return [
         file.path,
         {
@@ -150,8 +151,8 @@ const fileViews = (
           lapsed: !approved && view.state.approvals.some((approval) => approval.path === file.path),
           placed,
           orphans,
-          open: comments.filter((comment) => turnOf(comment) !== "resolved").length,
-          forYou: comments.filter((comment) => turnOf(comment) === "reviewer").length,
+          open: comments.filter((comment) => standing(comment) !== "resolved").length,
+          forYou,
           unchangedSince,
           previous: earlier,
           caption: owned[0]?.excerpt.caption,
@@ -163,17 +164,13 @@ const fileViews = (
                   ...placed.map((item) => ({ start: item.start, end: item.end })),
                 ],
           notes,
-          folded,
+          folded: foldable && !held,
+          held,
         } satisfies FileView,
       ];
     }),
   );
 };
-
-const viewedCount = (page: PageContext) => [...page.files.values()].filter((item) => item.approved).length;
-
-const turnCount = (page: PageContext, turn: "reviewer" | "agent") =>
-  page.view.state.comments.filter((comment) => turnOf(comment) === turn).length;
 
 // ---------------------------------------------------------------------------------------------------------- title
 
@@ -193,7 +190,7 @@ const roundsLine = (page: PageContext): Html => {
     const id = `round-${round.round}-detail`;
     const summary = earlier.get(round.round);
     return {
-      line: html`<button type="button" class="round" data-round-toggle aria-expanded="false" aria-controls="${id}">Round ${round.round} · ${done ?? "not finished"} · ${time(submission?.submitted_at ?? round.published_at)}</button>`,
+      line: html`<button type="button" class="round" data-round-toggle aria-expanded="false" aria-controls="${id}"><span>Round ${round.round} · ${done ?? "not finished"} · ${time(submission?.submitted_at ?? round.published_at)}</span></button>`,
       detail: html`<div class="round-detail" id="${id}" hidden>
 <p class="round-detail-title small muted">Round ${round.round}, published ${time(round.published_at)} by ${threadNameOf(page.view.threads, round.thread)}</p>
 ${summary === undefined ? html`<p class="muted">No summary.</p>` : html`<div class="reading">${prose(summary)}</div>`}
@@ -209,11 +206,13 @@ const driftLine = (page: PageContext): Html => {
   const drift = page.view.state.drift;
   if (drift === undefined || drift.round !== page.round) return html``;
   const shown = drift.paths.slice(0, 4);
-  return html`<p class="drift" id="drift" tabindex="-1"><strong>Changed since this round.</strong> ${
+  const link = (path: string) =>
+    page.files.has(path) ? html`<a href="${fragment(fileElementId(path))}"><code>${path}</code></a>` : html`<code>${path}</code>`;
+  return html`<p class="drift" id="drift"><strong>Changed since this round:</strong> ${
     drift.paths.length === 0
-      ? ""
-      : html`${shown.map((path, at) => html`${at === 0 ? "" : ", "}<code>${path}</code>`)}${drift.paths.length > shown.length ? ` and ${drift.paths.length - shown.length} more` : ""}. `
-  }${drift.head_sha === undefined ? "" : html`The head is now <code>${drift.head_sha.slice(0, 7)}</code>. `}The agents publish a new round with the change; comments still apply to what this round shows. <span class="muted">Checked ${time(drift.checked_at)}.</span></p>`;
+      ? html`<span class="muted">the code</span>`
+      : html`${shown.map((path, at) => html`${at === 0 ? "" : ", "}${link(path)}`)}${drift.paths.length > shown.length ? ` and ${drift.paths.length - shown.length} more` : ""}`
+  }${drift.head_sha === undefined ? "" : html` <span class="muted">· head</span> <code>${drift.head_sha.slice(0, 7)}</code>`} <span class="muted">· checked ${time(drift.checked_at)} · the agents publish a new round with the change.</span></p>`;
 };
 
 const titleBlock = (page: PageContext): Html => {
@@ -229,8 +228,8 @@ const titleBlock = (page: PageContext): Html => {
 <span><strong>${count(input.files.length, "file")}</strong> · <code class="stat"><span class="added">+${additions}</span> <span class="deleted">−${deletions}</span></code></span>
 <code class="sha" title="${sha}">${sha.slice(0, 7)}</code></p>
 ${roundsLine(page)}
-${input.files_complete ? "" : html`<p class="incomplete small muted">The file list may be incomplete.</p>`}
 ${driftLine(page)}
+${input.files_complete ? "" : html`<p class="incomplete small muted">The file list may be incomplete.</p>`}
 </header>`;
 };
 
@@ -251,8 +250,6 @@ const nextText = (page: PageContext): { readonly what: Html; readonly why: strin
           : html`Read ${threadNameOf(page.view.threads, next.thread ?? "")}’s answer`,
         why: [placeText(next), ...(next.more > 0 ? [`${next.more} more after this`] : [])].join(" · "),
       };
-    case "drift":
-      return { what: html`Look at what changed`, why: `${count(next.files, "file")} changed since this round` };
     case "file":
       return { what: html`Review <code>${next.path}</code>`, why: `stop ${next.stop} · ${count(next.left, "file")} left` };
     case "finish":
@@ -267,10 +264,8 @@ const nextText = (page: PageContext): { readonly what: Html; readonly why: strin
 
 const nextStrip = (page: PageContext): Html => {
   const { next } = page;
-  const total = page.files.size;
-  const viewed = viewedCount(page);
-  const forYou = turnCount(page, "reviewer");
-  const waiting = turnCount(page, "agent");
+  const { viewable: total, forYou, waiting } = page.progress;
+  const viewed = page.progress.viewed.size;
   const text = nextText(page);
   const lead =
     text !== undefined && "target" in next
@@ -293,10 +288,11 @@ ${waiting === 0 ? "" : html`<span class="waiting">${waiting} waiting for agents<
 // ---------------------------------------------------------------------------------------------------------- contents
 
 const contents = (page: PageContext): Html => {
-  const viewed = viewedCount(page);
-  return html`<aside class="toc-pane" aria-label="Contents">
+  const viewed = page.progress.viewed.size;
+  const total = page.progress.viewable;
+  return html`<div class="toc-pane">
 <details class="contents-disclosure" id="contents" open>
-<summary class="contents-summary">Contents · ${viewed} / ${page.files.size}</summary>
+<summary class="contents-summary">Contents · ${viewed} / ${total}</summary>
 <nav class="toc" aria-label="Stops and files">
 <ol class="toc-stops">${page.stops.map(
     (stop) => html`<li>
@@ -323,10 +319,10 @@ ${
 <div class="layout-switch" role="group" aria-label="Diff layout">
 <button type="button" data-layout="unified" aria-pressed="${String(page.filePage.layout === "unified")}">Unified</button><button type="button" data-layout="split" aria-pressed="${String(page.filePage.layout === "split")}">Split</button>
 </div>
-<span class="muted">${viewed} / ${page.files.size}</span>
+<span class="muted">${viewed} / ${total}</span>
 </div>
 </details>
-</aside>`;
+</div>`;
 };
 
 // ------------------------------------------------------------------------------------------------------------- stops
@@ -353,8 +349,8 @@ const alsoLine = (stop: StopView, page: PageContext): Html => {
 const stopSection = (stop: StopView, page: PageContext): Html => {
   const owned = stop.owns.map((path) => page.files.get(path)).filter((item) => item !== undefined);
   const viewed = owned.filter((item) => item.approved).length;
-  return html`<section class="stop${stop.closing ? " closing" : ""}" id="stop-${stop.index + 1}" data-stop="${stop.index}" aria-labelledby="stop-${stop.index + 1}-title">
-<h2 id="stop-${stop.index + 1}-title" tabindex="-1"><span class="stop-number">${stop.index + 1}</span> <span class="stop-title">${stop.title}</span> <span class="stop-count">${count(owned.length, "file")}${viewed === 0 ? "" : ` · ${viewed} viewed`}</span></h2>
+  return html`<section class="stop${stop.closing ? " closing" : ""}" id="stop-${stop.index + 1}" data-stop="${stop.index}">
+<div class="stop-head"><h2 id="stop-${stop.index + 1}-title" tabindex="-1"><span class="stop-number">${stop.index + 1}</span> <span class="stop-title">${stop.title}</span></h2><span class="stop-count">${count(owned.length, "file")}${viewed === 0 ? "" : ` · ${viewed} viewed`}</span></div>
 ${stop.summary.trim() === "" ? "" : html`<div class="stop-summary reading">${prose(stop.summary)}</div>`}
 ${stop.attention === null ? "" : html`<p class="attention reading"><strong>${ATTENTION_LEAD[stop.attention.kind]}.</strong> ${inline(stop.attention.note)}</p>`}
 ${alsoLine(stop, page)}
@@ -378,7 +374,7 @@ const departedSection = (page: PageContext): Html => {
   );
   return departed.length === 0
     ? html``
-    : html`<section class="departed end-section" id="departed" aria-labelledby="departed-title">
+    : html`<section class="departed end-section" id="departed">
 <h2 id="departed-title">Files that left the round</h2>
 ${departed.map((comment) => orphan(comment, page.filePage, "departed", true))}
 </section>`;
@@ -386,27 +382,35 @@ ${departed.map((comment) => orphan(comment, page.filePage, "departed", true))}
 
 const generalSection = (page: PageContext): Html => {
   const comments = page.view.state.comments.filter((comment) => comment.kind === "general");
-  return html`<section class="general end-section" id="general" aria-labelledby="general-title">
+  // A closed review has nothing to add: the section shows only what was said.
+  if (!page.writable && comments.length === 0) return html``;
+  const finished = currentSubmission(page.view.state) !== undefined;
+  return html`<section class="general end-section" id="general">
 <h2 id="general-title">On the whole change</h2>
-${comments.map((comment) => html`<div class="general-thread">${thread(comment, { threads: page.view.threads, writable: page.writable, instance: "general" })}</div>`)}
+${comments.map((comment) => html`<div class="general-thread">${thread(comment, { threads: page.view.threads, writable: page.writable, instance: "general", standing: page.standing })}</div>`)}
 ${
   !page.writable
-    ? comments.length === 0
-      ? html`<p class="muted">No comments on the whole change.</p>`
-      : ""
+    ? ""
     : html`<form class="general-composer" data-action="general_comment">
 <label class="sr-only" for="general-body">Comment on the whole change</label>
 <textarea id="general-body" name="body" rows="2" placeholder="A question, a concern, or a direction for the agents"></textarea>
-<div class="thread-actions"><button type="submit" class="small-button primary">Comment</button><button type="button" class="small-button" data-ask>Ask now</button><span class="hint">A comment waits for Finish review; Ask now sends a question at once.</span></div>
+<div class="thread-actions"><button type="submit" class="small-button primary">Comment</button><button type="button" class="small-button" data-ask>Ask now</button>${finished ? "" : html`<span class="hint">A comment waits for Finish review; Ask now sends a question at once.</span>`}</div>
 </form>`
 }
 </section>`;
 };
 
 const finishSection = (page: PageContext): Html => {
+  // A closed review cannot be finished, and the strip already says it is closed.
+  if (!page.writable) return html``;
   const submission = currentSubmission(page.view.state);
-  const notViewed = [...page.files.values()].filter((item) => !item.approved && item.file.fingerprint !== undefined).length;
-  const forYou = turnCount(page, "reviewer");
+  if (submission !== undefined)
+    return html`<section class="finish end-section" id="${FINISH_ELEMENT_ID}" data-round="${page.round}">
+<h2 id="finish-title" tabindex="-1">Round ${page.round} finished · ${VERDICT_TEXT[submission.verdict]} · ${time(submission.submitted_at)}</h2>
+<p class="reading submission">${VERDICT_DONE[submission.verdict].replace(/^you/, "You")} at ${time(submission.submitted_at)}${submission.body.trim() === "" ? "." : html`: ${submission.body}`}</p>
+</section>`;
+  const notViewed = page.progress.viewable - page.progress.viewed.size;
+  const { forYou } = page.progress;
   const state =
     notViewed === 0 && forYou === 0
       ? "Everything viewed, nothing waiting."
@@ -414,14 +418,9 @@ const finishSection = (page: PageContext): Html => {
           ...(notViewed === 0 ? [] : [`${count(notViewed, "file")} not yet viewed`]),
           ...(forYou === 0 ? [] : [`${count(forYou, "answer")} waiting for you`]),
         ].join(" · ")}. You can finish anyway.`;
-  return html`<section class="finish end-section" id="${FINISH_ELEMENT_ID}" data-round="${page.round}" aria-labelledby="finish-title">
-<h2 id="finish-title">Finish round ${page.round}</h2>
-${
-  submission !== undefined
-    ? html`<p class="reading submission">${VERDICT_DONE[submission.verdict].replace(/^you/, "You")} at ${time(submission.submitted_at)}${submission.body.trim() === "" ? "." : html`: ${submission.body}`}</p>`
-    : !page.writable
-      ? html`<p class="muted">This review is closed, so it cannot be finished.</p>`
-      : html`<p class="finish-state small muted">${state}</p>
+  return html`<section class="finish end-section" id="${FINISH_ELEMENT_ID}" data-round="${page.round}">
+<h2 id="finish-title" tabindex="-1">Finish round ${page.round}</h2>
+<p class="finish-state small muted">${state}</p>
 <form class="finish-form" data-action="submit" data-round="${page.round}">
 <fieldset class="verdicts"><legend class="sr-only">Verdict</legend>
 <label class="verdict"><input type="radio" name="verdict" value="approve"> Approve</label>
@@ -431,8 +430,7 @@ ${
 <label class="sr-only" for="finish-body">Summary</label>
 <textarea id="finish-body" name="body" rows="3" placeholder="What the agents should do next"></textarea>
 <div class="thread-actions"><button type="submit" class="primary">Finish review</button></div>
-</form>`
-}
+</form>
 </section>`;
 };
 
@@ -447,12 +445,12 @@ ${round && writable ? html`<label class="import-label">Import feedback<input typ
 /** The top bar: the way back, the target, the connection, and the way out. */
 const topbar = (view: ReviewView, updated: string, finish: boolean): Html => {
   const name = targetName(view.state.target);
-  return html`<nav class="crumbs" aria-label="Breadcrumb"><a href="/" class="home-link">Review canvas</a> <span class="muted" aria-hidden="true">/</span> ${targetText(view.state.target)}${name.kind === "pr" ? html` <a class="external" href="${name.url}" rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub">↗</a>` : ""}</nav>
+  return html`<div class="crumbs"><a href="/" class="home-link">Review canvas</a> <span class="muted" aria-hidden="true">/</span> ${targetText(view.state.target)}${name.kind === "pr" ? html` <a class="external" href="${name.url}" rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub">↗</a>` : ""}</div>
 <div class="topbar-actions">${connection(time(updated))}${finish ? html`<a class="button primary finish-link" href="#${FINISH_ELEMENT_ID}" data-open-finish>Finish review</a>` : ""}</div>`;
 };
 
 /** The composer the page clones under the rows a reviewer selects. */
-const composerTemplate = html`<template id="composer-template"><tr class="composer-row"><td colspan="4"><div class="row-body"><form class="composer" data-action="comment">
+const composerTemplate = html`<template id="composer-template"><tr class="composer-row"><td colspan="${UNIFIED_COLUMNS}"><div class="row-body"><form class="composer" data-action="comment">
 <p class="composer-range small muted">Comment on <span data-range></span></p>
 <label class="sr-only" for="composer-body">Comment</label>
 <textarea id="composer-body" name="body" rows="3" required placeholder="What should change, or what do you want to know?"></textarea>
@@ -470,10 +468,13 @@ export const reviewPage = (
   if (round === undefined) throw new Error("reviewPage needs a round");
   const writable = view.state.closed_at === undefined;
   const { stops } = tourView(input);
-  const next = nextStep(view.state, input, stops);
+  const next = nextStep(view.state, input, stops, round);
+  const counts = progress(view.state, input);
+  const standing = standingOf(view.state);
   const previous = round.round > 1 ? options.previous : undefined;
   const filePage: FilePage = {
     threads: view.threads,
+    standing,
     writable,
     layout: options.layout ?? "unified",
     round: round.round,
@@ -482,8 +483,10 @@ export const reviewPage = (
     view,
     input,
     stops,
-    files: fileViews(view, input, stops, next, previous, round.round),
+    files: fileViews(view, input, stops, next, previous, round.round, counts, standing),
     next,
+    progress: counts,
+    standing,
     writable,
     filePage,
     round: round.round,
@@ -514,7 +517,7 @@ ${finishSection(page)}
 </main>
 ${footer(view, writable, true)}
 </div>
-${composerTemplate}`,
+${writable ? composerTemplate : ""}`,
   });
 };
 

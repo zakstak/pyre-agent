@@ -479,7 +479,7 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
     assert.ok(status.body.status.files.length > 0);
     assert.match(
       (await call(pages, "GET", `/reviews/${review}`)).text,
-      /Changed since this round\./,
+      /Changed since this round:/,
     );
 
     const github = await call(
@@ -608,12 +608,13 @@ test("a file the next round changes shows what changed since the round before", 
     assert.equal((await publish(round("one\ntwo\nthree\n"))).status, 200);
     const page = (await call(pages, "GET", `/reviews/${review}`)).text;
     assert.doesNotMatch(page, /unchanged since round 1/);
-    assert.match(page, /<summary>Changes since round 1<\/summary>/);
+    // The header says so in a word that opens the patch between the rounds above the diff.
+    assert.match(page, /aria-controls="since-f0">changed since round 1<\/button>/);
     // The patch between rounds holds only the new line, and offers no comment control.
-    const since = page.slice(page.indexOf("Changes since round 1"));
+    const since = page.slice(page.indexOf('id="since-f0"'));
     assert.match(since, /<td class="source"><code>three<\/code>/);
     assert.doesNotMatch(
-      since.slice(0, since.indexOf("</details>")),
+      since.slice(0, since.indexOf('class="file-body"')),
       /add-comment/,
     );
   }));

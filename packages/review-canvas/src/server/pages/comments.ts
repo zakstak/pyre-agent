@@ -2,6 +2,7 @@
 import type { Comment, Disposition, Reply } from "../../schema/feedback.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { commentElementId } from "../../review/next.ts";
+import type { Standing } from "../../review/progress.ts";
 import { type Turn, turnOf } from "../../review/state.ts";
 import { type Html, html } from "../html.ts";
 import { threadName, threadNameOf, time } from "./names.ts";
@@ -14,6 +15,8 @@ export interface ThreadOptions {
   readonly writable: boolean;
   /** Which table or section renders the thread, which names its reply form, so a draft returns to it. */
   readonly instance: string;
+  /** Whose move each comment waits for, as the review's progress counts it. */
+  readonly standing: (comment: Comment) => Standing;
 }
 
 const DISPOSITION: Readonly<
@@ -73,10 +76,12 @@ const waitingFor = (comment: Comment, threads: ReadonlyArray<Thread>) => {
 /** What the comment's state says, when it says something: whose turn it is, or how it ended. */
 const turnChip = (
   comment: Comment,
-  turn: Turn,
+  standing: Standing,
   threads: ReadonlyArray<Thread>,
 ): Html => {
-  switch (turn) {
+  switch (standing) {
+    case "pending":
+      return html`<span class="tag" title="Sent with your review">Pending</span>`;
     case "reviewer":
       return chip("Your turn", "turn");
     case "agent":
@@ -125,19 +130,21 @@ export const thread = (
   extra: Html = html``,
 ): Html => {
   const turn = turnOf(comment);
+  const standing = options.standing(comment);
+  // The reattachment's reason, only where it found the lines somewhere else; the comment already sits on them.
   const moved =
     comment.kind === "inline" &&
     comment.attachment.state === "attached" &&
     comment.attachment.reason !== "Same patch."
       ? comment.attachment.reason
       : undefined;
-  return html`<article class="thread turn-${turn}" id="${commentElementId(comment.id)}" data-comment="${comment.id}" data-turn="${turn}" aria-label="Comment" tabindex="-1">
+  return html`<article class="thread turn-${turn}" id="${commentElementId(comment.id)}" data-comment="${comment.id}" data-turn="${turn}" data-standing="${standing}" aria-label="Comment" tabindex="-1">
 <div class="msg">
 <p class="by">${
     comment.source.kind === "github"
       ? html`<strong>${comment.source.author ?? "ghost"}</strong> <span>on GitHub</span>`
       : html`<strong>You</strong>`
-  } ${time(comment.created_at)}${comment.source.kind === "reviewer" && comment.source.question === true ? html` ${chip("Question")}` : ""} ${turnChip(comment, turn, options.threads)}${moved === undefined ? "" : html` <span>moved: ${moved}</span>`}</p>
+  } ${time(comment.created_at)} ${turnChip(comment, standing, options.threads)}${moved === undefined ? "" : html` <span class="moved" title="${moved}">moved</span>`}</p>
 <p class="body">${comment.body}</p>
 </div>
 ${comment.replies.length === 0 ? "" : html`<ol class="replies">${comment.replies.map((item) => reply(item, options))}</ol>`}

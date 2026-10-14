@@ -59,16 +59,99 @@
   [tabindex="-1"]:focus {
     outline: none;
   }
-  /* A compact control inside dense regions: 28px tall, 24px is the dense minimum. */
-  .small-button {
-    min-block-size: 1.75rem;
+  /*
+   * A compact control: its box is a 44px target, and the chip drawn inside it stays 28px tall, so dense rows keep
+   * their look. The chip is the ::before layer; the box itself has no fill or border.
+   */
+  .small-button,
+  .viewed,
+  .question,
+  .layout-switch button,
+  .button.finish-link {
+    position: relative;
+    isolation: isolate;
+    min-block-size: 2.75rem;
+    min-inline-size: 2.75rem;
     padding: 0 0.625rem;
     font-size: var(--size-small);
     font-weight: 500;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    box-shadow: none;
+  }
+  .small-button::before,
+  .viewed::before,
+  .question::before,
+  .layout-switch button::before,
+  .button.finish-link::before {
+    content: "";
+    position: absolute;
+    inset: 0.5rem 0;
+    z-index: -1;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
     border-radius: 6px;
   }
-  .small-button.primary {
+  .small-button:hover,
+  .viewed:hover,
+  .question:hover,
+  .layout-switch button:hover,
+  .button.finish-link:hover {
+    background: transparent;
+  }
+  .small-button:hover::before,
+  .viewed:hover::before,
+  .question:hover::before,
+  .layout-switch button:hover::before {
+    background: var(--pyre-subtle);
+  }
+  .small-button.quiet::before {
+    background: transparent;
+    border-color: transparent;
+  }
+  .small-button.quiet:hover::before {
+    background: var(--pyre-subtle);
+  }
+  .small-button.primary,
+  .button.finish-link {
     font-weight: 600;
+    color: var(--pyre-on-action);
+  }
+  .small-button.primary::before,
+  .button.finish-link::before {
+    background: var(--pyre-action);
+    border-color: var(--pyre-action);
+  }
+  .small-button:disabled {
+    color: var(--text-secondary);
+    background: transparent;
+  }
+  .small-button:disabled::before {
+    background: var(--bg-surface);
+    border-color: var(--separator);
+  }
+  /*
+   * A link or link-like button in a line of text: its box reaches 44px without moving the line, by padding it and
+   * taking the padding back with a negative margin.
+   */
+  .home-link,
+  .crumbs .external,
+  .drift a,
+  .also a,
+  .next-state a,
+  .foot a,
+  .import-label,
+  .theme-control .link-button,
+  .row-title {
+    display: inline-block;
+    min-inline-size: 2.75rem;
+    padding-block: max(0px, calc((2.75rem - 1lh) / 2));
+    margin-block: min(0px, calc((1lh - 2.75rem) / 2));
+  }
+  .crumbs .external,
+  .theme-control .link-button {
+    text-align: center;
   }
   .quiet {
     color: var(--text-secondary);
@@ -77,7 +160,6 @@
     color: var(--text-primary);
   }
   .link-button {
-    display: inline;
     min-block-size: 0;
     padding: 0;
     font: inherit;
@@ -127,7 +209,7 @@
   }
   input[type="search"],
   input[type="text"] {
-    min-block-size: 2.25rem;
+    min-block-size: 2.75rem;
     padding: 0 0.625rem;
     font-size: var(--size-small);
     background: var(--bg-raised);
@@ -153,8 +235,10 @@
     min-width: 0;
     font-weight: 400;
   }
-  .brand strong {
+  .brand-name {
+    font-size: inherit;
     font-weight: 650;
+    line-height: inherit;
   }
   .home-link {
     color: var(--text-secondary);
@@ -172,9 +256,10 @@
     gap: var(--space-1) var(--space-4);
   }
   .button.finish-link {
-    min-block-size: 2rem;
     padding: 0 var(--space-3);
-    font-size: var(--size-small);
+  }
+  .button.finish-link::before {
+    inset-block: 0.375rem;
   }
   /* The quiet "Connected" text shows while the live region is empty; the region speaks only when it is not. */
   .connection [data-connection]:empty {
@@ -263,12 +348,13 @@
   .rounds {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--space-1) 0.875rem;
     margin-block-start: 0.625rem;
     font-size: var(--size-small);
   }
   .round {
-    min-block-size: 1.75rem;
+    gap: 0;
     padding: 0.125rem 0;
     font-size: inherit;
     font-weight: 400;
@@ -276,6 +362,12 @@
     background: none;
     border: 0;
     border-radius: 0;
+  }
+  /* A 44px target that keeps the line as tall as its text. */
+  button.round {
+    min-block-size: 2.75rem;
+    padding-block: 0;
+    margin-block: min(0px, calc((1lh - 2.75rem) / 2));
   }
   button.round:hover {
     color: var(--text-primary);
@@ -310,10 +402,9 @@
     margin-block-start: var(--space-2);
   }
   .drift {
-    max-width: 80ch;
     margin-block-start: var(--space-2);
     font-size: var(--size-small);
-    scroll-margin-block: var(--sticky-top) var(--space-5);
+    overflow-wrap: anywhere;
   }
   .drift > strong:first-child {
     color: var(--status-warning);
@@ -327,10 +418,10 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-1) var(--space-4);
     min-width: 0;
     margin-block-start: 0.875rem;
-    padding: var(--space-2) var(--space-3);
+    padding: 0.25rem var(--space-3) 0.25rem var(--space-2);
     font-size: var(--size-small);
     background: var(--bg-raised);
     border: 1px solid var(--separator);
@@ -345,8 +436,8 @@
     align-items: center;
     gap: 0.25rem 0.625rem;
     min-width: 0;
-    min-block-size: 2rem;
-    padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+    min-block-size: 2.75rem;
+    padding: 0.25rem 0.5rem;
     color: var(--text-primary);
     font-weight: 600;
     text-decoration: none;
@@ -381,7 +472,7 @@
     overflow-wrap: anywhere;
   }
   .next-state {
-    padding-inline-start: var(--space-1);
+    padding-inline-start: var(--space-2);
   }
   .next-stats {
     display: flex;
@@ -478,13 +569,31 @@
     list-style: none;
   }
   .toc-stops > li + li {
-    margin-block-start: 0.625rem;
+    margin-block-start: 0.25rem;
+  }
+  .toc li + li {
+    margin-block-start: 0;
+  }
+  /* Every row is a 44px target; the selection and hover fill only the middle of it. */
+  .toc-stop,
+  .toc-file {
+    position: relative;
+    isolation: isolate;
+    min-block-size: 2.75rem;
+  }
+  .toc-stop::before,
+  .toc-file::before {
+    content: "";
+    position: absolute;
+    inset: 0.3125rem 0;
+    z-index: -1;
+    border-radius: 5px;
   }
   .toc-stop {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: var(--space-2);
-    padding: 0.125rem 0.375rem 0.125rem 0;
+    padding: 0 0.375rem 0 0;
     font-family: var(--font-reading);
     font-size: var(--size-technical);
     font-weight: 600;
@@ -511,19 +620,15 @@
   .toc-stop.read .n {
     color: var(--status-success);
   }
-  .toc-stop:hover,
-  .toc-file:hover {
+  .toc-stop:hover::before,
+  .toc-file:hover::before {
     background: var(--pyre-subtle);
-  }
-  .toc-files {
-    margin-block-start: 0.125rem;
   }
   .toc-file {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-block-size: 1.625rem;
-    padding: 0.0625rem 0.375rem 0.0625rem 1.5rem;
+    padding: 0 0.375rem 0 1.5rem;
     font-family: var(--font-technical);
     font-size: var(--size-technical);
     color: var(--text-primary);
@@ -533,17 +638,42 @@
   .toc a:focus-visible {
     outline-offset: -2px;
   }
+  /*
+   * A row too narrow for its name gives up the folder first, then the middle of the file name; the name's start and
+   * its extension stay. The name takes at most the whole row, and the folder whatever is left.
+   */
   .toc-name {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .toc-name .dir {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  .toc-name .base {
+    display: flex;
+    flex: 0 0 auto;
+    max-inline-size: 100%;
+    min-width: 0;
+  }
+  .toc-name .stem {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .toc-name .tail {
+    flex: none;
   }
   .toc-name .dir,
   .toc-file.is-viewed {
     color: var(--text-secondary);
   }
-  .toc-file[aria-current] {
+  .toc-file[aria-current]::before {
     background: var(--pyre-sidebar-selection);
     box-shadow: inset 3px 0 var(--pyre-accent);
   }
@@ -580,29 +710,36 @@
   .contents-foot > .muted {
     margin-inline-start: auto;
   }
+  /* Two 44px targets in one 28px outline. */
   .layout-switch {
+    position: relative;
+    isolation: isolate;
     display: inline-flex;
-    overflow: hidden;
+  }
+  .layout-switch::before {
+    content: "";
+    position: absolute;
+    inset: 0.5rem 0;
+    z-index: -1;
     border: 1px solid var(--border);
     border-radius: 6px;
   }
   .layout-switch button {
-    min-block-size: 1.75rem;
-    padding: 0 0.625rem;
-    font-size: var(--size-small);
-    font-weight: 500;
     color: var(--text-secondary);
+  }
+  .layout-switch button::before {
+    inset: calc(0.5rem + 1px) 1px;
     background: transparent;
     border: 0;
-    border-radius: 0;
-  }
-  .layout-switch button:focus-visible {
-    outline-offset: -2px;
+    border-radius: 5px;
   }
   .layout-switch button[aria-pressed="true"] {
     color: var(--text-primary);
-    background: var(--pyre-subtle);
+    background: transparent;
     box-shadow: none;
+  }
+  .layout-switch button[aria-pressed="true"]::before {
+    background: var(--pyre-subtle);
   }
   /* Too narrow for two halves side by side: the page shows the unified layout, so the switch does nothing. */
   @media (width < 48rem) {
@@ -619,16 +756,23 @@
     margin-block-start: 2.25rem;
     scroll-margin-block-start: var(--sticky-top);
   }
-  .stop > h2 {
+  .stop-head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 0 var(--space-3);
     margin-block-end: var(--space-2);
     padding-block-start: 0.875rem;
+    border-block-start: 1px solid var(--separator);
+  }
+  .stop-head > h2 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    min-width: 0;
     font-size: var(--size-heading);
     font-weight: 600;
-    border-block-start: 1px solid var(--separator);
     scroll-margin-block-start: var(--sticky-top);
   }
   .stop-number {
@@ -667,14 +811,16 @@
     margin-block-start: 0.625rem;
   }
   .question {
-    min-block-size: 2rem;
-    padding: 0.25rem 0.75rem;
+    padding: 0.375rem 0.75rem;
     font-size: var(--size-technical);
     font-weight: 400;
     color: var(--pyre-accent);
     text-align: start;
+  }
+  .question::before {
+    inset-block: 0.25rem;
     background: transparent;
-    border: 1px dashed var(--border);
+    border-style: dashed;
     border-radius: 999px;
   }
   .question .q {
@@ -682,9 +828,10 @@
   }
 
   /* ----------------------------------------------------------------------------------------- file block */
+  /* The block clips to its rounded corners without becoming a scroll container, so its header can stick. */
   .file {
     margin-block: var(--space-4);
-    overflow: hidden;
+    overflow: clip;
     background: var(--bg-code);
     border: 1px solid var(--separator);
     border-radius: var(--radius);
@@ -696,21 +843,36 @@
   .file[data-folded="true"] + .file[data-folded="true"] {
     margin-block-start: var(--space-2);
   }
+  /* One row, whatever the file has: its controls are quiet words, and anything they open goes below the row. */
   .file-head {
-    padding: 0.4375rem 0.625rem 0.4375rem 0.75rem;
-    font-size: var(--size-technical);
-    background: var(--bg-raised);
-  }
-  .file[data-folded="false"] > .file-head,
-  .file:not([data-folded]) > .file-head {
-    border-block-end: 1px solid var(--separator);
-  }
-  .file-line {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-1) var(--space-3);
+    gap: 0 var(--space-3);
     min-width: 0;
+    min-block-size: 2.75rem;
+    padding: 0 0.375rem 0 0.75rem;
+    font-size: var(--size-technical);
+    background: var(--bg-raised);
+  }
+  .file:has(> .file-body:not([hidden]), > .file-extra:not([hidden])) > .file-head {
+    border-block-end: 1px solid var(--separator);
+  }
+  /* While its diff is in view, a file's header stays under the next strip, as GitHub's does. */
+  @media (min-width: 48rem) {
+    .file[data-folded="false"] > .file-head {
+      position: sticky;
+      inset-block-start: calc(var(--sticky-top) - 0.5rem);
+      z-index: 5;
+    }
+    .file.is-stuck > .file-head {
+      box-shadow: 0 -1px var(--separator);
+    }
+    .file[data-folded="false"] tr[data-row],
+    .file[data-folded="false"] tr.note,
+    .file[data-folded="false"] .thread {
+      scroll-margin-block-start: calc(var(--sticky-top) + 2.75rem);
+    }
   }
   .file-path {
     min-width: 0;
@@ -741,41 +903,61 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--space-1) var(--space-3);
+    gap: 0 var(--space-2);
     margin-inline-start: auto;
+  }
+  .file-end > .stat,
+  .file-lapsed {
+    margin-inline-end: var(--space-1);
   }
   .file-lapsed {
     color: var(--status-warning);
   }
-  .fold-toggle::after {
-    content: " ▾";
-  }
-  .fold-toggle[aria-expanded="true"]::after {
-    content: " ▴";
-  }
-  .viewed,
-  .viewed-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    min-block-size: 1.75rem;
-    padding: 0 0.625rem;
+  /* "About", "changed since round 1", "Show diff": muted words with 44px targets. */
+  .file-word {
+    gap: 0;
+    min-block-size: 2.75rem;
+    min-inline-size: 2.75rem;
+    padding: 0 0.375rem;
     font-size: var(--size-technical);
     font-weight: 500;
     color: var(--text-secondary);
     background: transparent;
-    border: 1px solid var(--border);
+    border: 0;
     border-radius: 6px;
   }
-  .viewed[aria-pressed="true"],
-  .viewed-state {
+  .file-word:hover {
+    color: var(--text-primary);
+    background: transparent;
+    text-decoration: underline;
+  }
+  .file-word[aria-expanded="true"] {
+    color: var(--text-primary);
+  }
+  .file-word[data-extra]::after,
+  .fold-toggle::after {
+    content: "\00a0▾";
+  }
+  .file-word[aria-expanded="true"]::after {
+    content: "\00a0▴";
+  }
+  .viewed {
+    gap: 0.375rem;
+    font-size: var(--size-technical);
+    color: var(--text-secondary);
+  }
+  .viewed::before {
+    background: transparent;
+  }
+  .viewed[aria-pressed="true"] {
     color: var(--status-success);
     background: transparent;
-    border-color: color-mix(in oklab, var(--status-success) 50%, transparent);
     box-shadow: none;
   }
-  .viewed .box,
-  .viewed-state .box {
+  .viewed[aria-pressed="true"]::before {
+    border-color: color-mix(in oklab, var(--status-success) 50%, transparent);
+  }
+  .viewed .box {
     display: inline-grid;
     place-items: center;
     inline-size: 0.875rem;
@@ -785,22 +967,36 @@
     border: 1.5px solid currentColor;
     border-radius: 3px;
   }
-  .about {
-    margin-block-start: var(--space-1);
-  }
-  .about > summary,
-  .about-part > summary {
-    min-block-size: 1.75rem;
+  /* On a closed review, Viewed is a fact, not a control. */
+  .viewed-state {
+    padding-inline: 0.375rem;
     font-size: var(--size-technical);
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--status-success);
   }
-  .about-body {
+  /* What a header control opens, above the diff: the agent's notes on the file, or what changed since the last round. */
+  .file-extra {
     display: grid;
     gap: var(--space-2);
-    padding-block: var(--space-1) var(--space-2);
+    padding: var(--space-3) var(--space-4);
     font-family: var(--font-reading);
+    font-size: var(--size-reading);
+    background: var(--bg-surface);
+    border-block-end: 1px solid var(--separator);
+  }
+  .file-extra.since {
+    padding-inline: 0;
+    padding-block-end: 0;
+    background: var(--bg-code);
+  }
+  .file-extra.since > p {
+    padding-inline: var(--space-4);
+  }
+  .about-part > summary {
+    min-block-size: 2.75rem;
     font-size: var(--size-small);
+    font-weight: 500;
+    color: var(--text-secondary);
   }
   .callout {
     max-width: var(--measure-reading);
@@ -858,13 +1054,17 @@
   .diff {
     font-size: var(--size-technical);
   }
+  /* One gutter cell holds both line numbers, so a narrow page can show one and keep the + button over it. */
   .diff td.line-number {
-    min-inline-size: 2.75rem;
-    padding: 0 var(--space-1) 0 var(--space-2);
-  }
-  .diff td.line-number:first-child {
     position: relative;
-    padding-inline-start: 1.75rem;
+    min-inline-size: 0;
+    padding: 0 var(--space-1) 0 1.75rem;
+  }
+  .diff .ln-old,
+  .diff .ln-new {
+    display: inline-block;
+    min-inline-size: 2.75rem;
+    padding-inline-start: var(--space-1);
   }
   .diff td.marker {
     position: relative;
@@ -912,13 +1112,14 @@
   .diff tr.hunk td.source code {
     color: var(--pyre-accent);
   }
+  /* A 24px target, as tall as the row. */
   .diff .add-comment {
     position: absolute;
-    inset-block-start: 0.1875rem;
-    inset-inline-start: 0.25rem;
+    inset-block-start: 0;
+    inset-inline-start: 0.125rem;
     min-block-size: 0;
-    inline-size: 1.125rem;
-    block-size: 1.125rem;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
     padding: 0;
     font-family: var(--font-reading);
     font-size: 0.875rem;
@@ -1006,6 +1207,7 @@
     background: var(--bg-surface);
   }
   .diff .expand {
+    gap: 0;
     inline-size: 100%;
     min-block-size: 1.75rem;
     justify-content: flex-start;
@@ -1020,11 +1222,10 @@
     outline-offset: -2px;
   }
   .diff .expand::after {
-    content: "▾";
-    margin-inline-start: 0.375rem;
+    content: "\00a0▾";
   }
   .diff .expand[aria-expanded="true"]::after {
-    content: "▴";
+    content: "\00a0▴";
   }
   /* Split layout: each row is two halves, old and new, each with its gutter. */
   .diff.split {
@@ -1042,7 +1243,7 @@
   .diff.split td.half .ln {
     display: inline-block;
     position: relative;
-    inline-size: 4.5em;
+    inline-size: 5em;
     padding: 0 var(--space-2) 0 1.75rem;
     text-align: end;
     color: var(--text-secondary);
@@ -1167,8 +1368,13 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.375rem var(--space-2);
-    margin-block-start: var(--space-2);
+    gap: 0 var(--space-2);
+  }
+  .moved {
+    color: var(--text-secondary);
+    text-decoration: underline dotted;
+    text-underline-offset: 0.18em;
+    cursor: help;
   }
   .reply-editor {
     margin-block-start: var(--space-2);
@@ -1223,7 +1429,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    min-block-size: 2.5rem;
+    min-block-size: 2.75rem;
     padding: 0 0.875rem;
     font-size: var(--size-small);
     font-weight: 400;
@@ -1240,8 +1446,9 @@
     accent-color: var(--pyre-accent);
   }
   .finish .primary {
-    min-block-size: 2.25rem;
-    padding: 0 var(--space-3);
+    min-block-size: 2.75rem;
+    margin-block-start: var(--space-2);
+    padding: 0 var(--space-4);
     font-size: var(--size-small);
   }
   .submission {
@@ -1441,7 +1648,6 @@
     margin-inline-start: auto;
   }
   .repository-head > button:not(.quiet) {
-    min-block-size: 2rem;
     padding: 0 var(--space-3);
   }
   .checkouts {
@@ -1472,10 +1678,18 @@
     color: var(--status-danger);
   }
   .row-reviews {
-    margin: 0.125rem 0 0;
+    margin: 0;
     padding: 0 0 0 var(--space-4);
     list-style: none;
     font-size: var(--size-small);
+  }
+  .row-reviews > li + li {
+    margin-block-start: 0;
+  }
+  .row-reviews a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
   }
   .repository-error {
     margin-block-end: var(--space-2);
@@ -1510,7 +1724,7 @@
     font-size: var(--size-small);
   }
   .repository-scan button {
-    min-block-size: 2.25rem;
+    min-block-size: 2.75rem;
   }
 
   /* --------------------------------------------------------------------------------------- narrow pages */
@@ -1545,6 +1759,40 @@
     .row-body,
     .orphan {
       padding-inline-start: var(--space-3);
+    }
+    /* Narrow diffs: one line number (the new line, or the old one on a deleted line), with the + over it. */
+    .diff td.line-number {
+      padding-inline: 0 0.125rem;
+    }
+    .diff .ln-old,
+    .diff tr.deletion .ln-new {
+      display: none;
+    }
+    .diff tr.deletion .ln-old {
+      display: inline-block;
+    }
+    .diff .ln-old,
+    .diff .ln-new {
+      min-inline-size: 2ch;
+      padding-inline-start: 0;
+    }
+    .diff .add-comment {
+      inset-inline-start: 0;
+    }
+    .diff td.marker {
+      min-inline-size: 1ch;
+      padding-inline: 0;
+      text-align: center;
+    }
+    .diff td.marker > span[aria-hidden] {
+      inline-size: 1ch;
+    }
+    /* The note's own row under the line still shows its letter. */
+    .diff td.marker > span.note-marker[aria-hidden] {
+      display: none;
+    }
+    .diff .source {
+      padding-inline: 0.25rem var(--space-3);
     }
   }
   @media (max-width: 23.75rem) {

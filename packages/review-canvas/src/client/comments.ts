@@ -6,7 +6,7 @@
  * draft it sent, so neither can move a draft onto other code or clear a newer one.
  */
 import { attempt, toast, tryAct } from "./api.ts";
-import { reveal, setGap } from "./folds.ts";
+import { followViewed, reveal, stepGap } from "./folds.ts";
 
 interface Selection {
   readonly table: HTMLTableElement;
@@ -94,15 +94,30 @@ const paintSelection = () => {
 const openers = new WeakMap<HTMLElement, HTMLElement>();
 
 /**
+ * The + button of the composer's last selected line, for a composer a refresh rebuilt: its opener went with the old
+ * markup, and this is the line the reviewer was on.
+ */
+const lineButton = (composer: HTMLElement): HTMLElement | null => {
+  const table = tableOf(composer);
+  if (table === null) return null;
+  const unit = unitsOf(table)
+    .filter((candidate) => candidate.dataset.row === composer.dataset.end)
+    .at(-1);
+  return unit?.querySelector<HTMLElement>("button.add-comment") ?? null;
+};
+
+/**
  * Closes a composer. One that is being submitted is left for its submission to finish. Focus inside it returns to the
- * button that opened it, so a keyboard reviewer stays on the line they were on. A reviewer's own close, with Esc or
- * Cancel, also counts focus left on the page itself, where some browsers put it after a click on a button.
+ * button that opened it, or to its last line's + button, so a keyboard reviewer stays on the line they were on. A
+ * reviewer's own close, with Esc or Cancel, also counts focus left on the page itself, where some browsers put it
+ * after a click on a button.
  */
 const closeComposer = (
   composer: HTMLElement | null = composerRow(),
   options: { readonly byReviewer?: boolean } = {},
 ) => {
-  const opener = composer === null ? undefined : openers.get(composer);
+  const opened = composer === null ? undefined : openers.get(composer);
+  const opener = opened?.isConnected === true ? opened : composer === null ? null : lineButton(composer);
   const focused =
     composer !== null &&
     (composer.contains(document.activeElement) ||
@@ -110,7 +125,7 @@ const closeComposer = (
         document.activeElement === document.body));
   composer?.remove();
   paintSelection();
-  if (focused && opener?.isConnected === true) opener.focus();
+  if (focused) opener?.focus();
 };
 
 /** The table row the composer goes under: the one holding the last selected line, in document order. */
@@ -175,10 +190,10 @@ const openComposer = (
   const fragment = template.content.cloneNode(true) as DocumentFragment;
   const row = fragment.querySelector<HTMLElement>(".composer-row");
   if (row === null) return;
-  // The template spans the unified layout's four columns; a split table has two, and a wider span would add columns.
+  // The template spans the unified layout's columns; a split table has fewer, and a wider span would add columns.
   const cell = row.querySelector("td");
-  if (cell !== null)
-    cell.colSpan = where.table.classList.contains("split") ? 2 : 4;
+  const columns = where.table.tHead?.rows[0]?.cells.length;
+  if (cell !== null && columns !== undefined) cell.colSpan = columns;
   row.dataset.draft = options.draft ?? newDraftId();
   row.dataset.path = where.table.dataset.path ?? "";
   row.dataset.patch = where.table.dataset.patch ?? "";
@@ -529,7 +544,7 @@ export const installComments = () => {
     }
     const expand = target.closest<HTMLElement>("[data-expand]");
     if (expand !== null) {
-      setGap(expand, expand.getAttribute("aria-expanded") !== "true");
+      stepGap(expand);
       return;
     }
     const ask = target.closest<HTMLButtonElement>("button[data-ask]");
@@ -593,6 +608,8 @@ export const installComments = () => {
     const approve = target.closest<HTMLElement>('[data-action="approve"]');
     if (approve !== null) {
       const approved = approve.getAttribute("aria-pressed") === "true";
+      // Marking a file viewed folds it, whatever the reviewer chose before.
+      followViewed(approve.dataset.path ?? "", !approved);
       void tryAct(
         approved
           ? { kind: "unapprove", path: approve.dataset.path }

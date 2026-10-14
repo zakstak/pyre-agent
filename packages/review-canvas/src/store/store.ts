@@ -65,6 +65,7 @@ import {
   unapprove,
 } from "../review/state.ts";
 import { tourView } from "../review/tour.ts";
+import { type Progress, progress } from "../review/progress.ts";
 import {
   type ImportReport,
   importFeedback,
@@ -142,12 +143,8 @@ export interface ReviewSummary {
   readonly published_at: Timestamp | undefined;
   /** The verdict the reviewer finished the current round with. */
   readonly verdict: Verdict | undefined;
-  /** Files in the current round, and how many of them have an approval that holds. */
-  readonly round_files: number | undefined;
-  readonly viewed: number | undefined;
-  /** Comments whose turn is the reviewer's, such as answers to read, and those that wait for an agent. */
-  readonly for_you: number;
-  readonly waiting: number;
+  /** How far the reviewer is with the current round, as the review page counts it. */
+  readonly progress: Omit<Progress, "viewed"> & { readonly viewed: number } | undefined;
   /** Files an agent found changed since the current round. */
   readonly drift: number | undefined;
 }
@@ -306,6 +303,8 @@ export class Store {
   readonly #listeners = new Set<ChangeListener>();
   /** Changes made by the open transaction, announced only once it commits. */
   #pending: Array<readonly [ReviewId, Revision]> = [];
+  /** Each review's last progress count, by the round input and revision it counted. */
+  readonly #progressCache = new Map<string, { readonly key: string; readonly progress: ReviewSummary["progress"] }>();
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
@@ -481,6 +480,29 @@ export class Store {
     return this.#input(id, round);
   }
 
+  /**
+   * A review's progress for the list page. A round's input holds whole patches and file texts, so it is read and
+   * decoded only when the review changed since the last count.
+   */
+  #progress(row: ReviewRow, state: ReviewState, round: Round): ReviewSummary["progress"] {
+    const key = `${round.input_sha256}:${row.revision}`;
+    const known = this.#progressCache.get(row.id);
+    if (known?.key === key) return known.progress;
+    const input = this.#input(row.id, round.round);
+    const counts = input === undefined ? undefined : progress(state, input);
+    const result = counts === undefined ? undefined : { ...counts, viewed: counts.viewed.size };
+    this.#progressCache.set(row.id, { key, progress: result });
+    return result;
+  }
+
+  /** The review that replaced this one with a fresh start, if any. */
+  replacedBy(id: string): ReviewId | undefined {
+    const row = this.#db
+      .prepare("SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1")
+      .get(id) as { id: string } | undefined;
+    return row?.id as ReviewId | undefined;
+  }
+
   reviews(): ReadonlyArray<ReviewSummary> {
     const rows = this.#db
       .prepare("SELECT * FROM reviews ORDER BY created_at DESC, id")
@@ -490,8 +512,6 @@ export class Store {
       const round = currentRound(state);
       const files =
         round === undefined ? undefined : state.target.changed_files;
-      const input =
-        round === undefined ? undefined : this.#input(row.id, round.round);
       return {
         id: state.id,
         target: state.target,
@@ -513,18 +533,7 @@ export class Store {
         carry_from: state.carry_from,
         published_at: round?.published_at,
         verdict: currentSubmission(state)?.verdict,
-        round_files: input?.files.length,
-        viewed:
-          input === undefined
-            ? undefined
-            : state.approvals.filter((approval) =>
-                approvalHolds(approval, input.files),
-              ).length,
-        for_you: state.comments.filter(
-          (comment) => turnOf(comment) === "reviewer",
-        ).length,
-        waiting: state.comments.filter((comment) => turnOf(comment) === "agent")
-          .length,
+        progress: round === undefined ? undefined : this.#progress(row, state, round),
         drift:
           state.drift !== undefined && state.drift.round === round?.round
             ? state.drift.paths.length

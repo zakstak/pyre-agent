@@ -86,14 +86,18 @@ export const pathParts = (path: string): Html => {
     : html`<span class="dir">${path.slice(0, at + 1)}</span><span class="base">${path.slice(at + 1)}</span>`;
 };
 
-/** A path for a narrow list: the last folder and the file name, so the name stays readable. */
+/**
+ * A path for a narrow list: the last folder and the file name. When the row is too narrow, the folder gives way
+ * first, then the middle of the name, so its start and its extension stay readable.
+ */
 export const shortPath = (path: string): Html => {
   const parts = path.split("/");
   const base = parts.at(-1) ?? path;
   const folder = parts.at(-2);
-  return folder === undefined
-    ? html`<span class="base">${base}</span>`
-    : html`<span class="dir">${folder}/</span><span class="base">${base}</span>`;
+  const dot = base.lastIndexOf(".");
+  const split = Math.max(0, (dot > 0 ? dot : base.length) - 4);
+  const name = html`<span class="base"><span class="stem">${base.slice(0, split)}</span><span class="tail">${base.slice(split)}</span></span>`;
+  return folder === undefined ? name : html`<span class="dir">${folder}/</span>${name}`;
 };
 
 const home = homedir();

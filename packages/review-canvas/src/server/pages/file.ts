@@ -6,6 +6,7 @@ import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { fileElementId } from "../../review/next.ts";
+import type { Standing } from "../../review/progress.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
 import { type Html, html } from "../html.ts";
 import { thread } from "./comments.ts";
@@ -24,24 +25,23 @@ const PATCH_NOTE_TEXT: Readonly<Record<NonNullable<ReviewFile["patch_note"]>, st
   replaced_characters: "Hidden or reordering characters in this patch were replaced.",
 };
 
-/** The status word a header shows, only when it says more than "modified". */
-const statusWord = (file: ReviewFile, unchangedSince: number | undefined): string | undefined => {
+/**
+ * The one status word a header shows, only when it says more than "modified". What the file is (deleted, renamed,
+ * binary, too large) comes first; then that it changed since the round before, which opens what changed; then that
+ * it is new; then that it is as the round before showed it.
+ */
+const statusWord = (
+  file: ReviewFile,
+  unchangedSince: number | undefined,
+  changedSince: number | undefined,
+): string | { readonly since: number } | undefined => {
+  if (file.status === "deleted" || file.status === "removed") return "deleted";
+  if (file.status === "renamed") return file.old_path === undefined ? "renamed" : `renamed from ${file.old_path}`;
   if (file.patch_note === "binary") return "binary";
   if (file.patch_note === "too_large") return "too large";
-  if (file.status === "renamed" && file.old_path !== undefined) return `renamed from ${file.old_path}`;
-  if (unchangedSince !== undefined) return `unchanged since round ${unchangedSince}`;
-  switch (file.status) {
-    case "added":
-    case "copied":
-      return file.status;
-    case "deleted":
-    case "removed":
-      return "deleted";
-    case "renamed":
-      return "renamed";
-    default:
-      return undefined;
-  }
+  if (changedSince !== undefined) return { since: changedSince };
+  if (file.status === "added" || file.status === "copied") return file.status;
+  return unchangedSince === undefined ? undefined : `unchanged since round ${unchangedSince}`;
 };
 
 export interface FileView {
@@ -68,10 +68,16 @@ export interface FileView {
   readonly notes: ReadonlyArray<InlineNote>;
   /** The header alone shows until the reviewer opens the file. */
   readonly folded: boolean;
+  /**
+   * Open although the page would fold it, because the strip points at it or an answer on it waits for the reviewer.
+   * The page script keeps it open from then on, until the reviewer folds it or marks it viewed.
+   */
+  readonly held: boolean;
 }
 
 export interface FilePage {
   readonly threads: ReadonlyArray<Thread>;
+  readonly standing: (comment: Comment) => Standing;
   readonly writable: boolean;
   readonly layout: Layout;
   readonly round: number;
@@ -82,43 +88,47 @@ const tableId = (view: FileView) => `f${view.index}`;
 const viewedButton = (view: FileView, page: FilePage): Html => {
   const { file } = view;
   if (file.fingerprint === undefined) return html``;
+  // A closed review cannot change: its Viewed is a word, not a control.
   if (!page.writable)
-    return view.approved ? html`<span class="viewed-state"><span class="box" aria-hidden="true">✓</span>Viewed</span>` : html``;
+    return view.approved ? html`<span class="viewed-state"><span aria-hidden="true">✓</span> Viewed</span>` : html``;
   return html`<button type="button" class="viewed" data-action="approve" data-path="${file.path}" data-fingerprint="${file.fingerprint}" aria-pressed="${String(view.approved)}" title="${view.approved ? "Viewed. Activate to mark it not viewed" : "Mark this version of the file viewed"}"><span class="box" aria-hidden="true">${view.approved ? "✓" : ""}</span>Viewed</button>`;
 };
 
-/** What changed since the round before, as a read-only patch between the two rounds' texts. */
-const sinceRound = (view: FileView, page: FilePage): Html => {
+/** What changed since the round before, as a read-only patch between the two rounds' texts; undefined when nothing did. */
+const sincePatch = (view: FileView): string | undefined => {
   const before = view.previous?.new_content;
   const after = view.file.new_content;
-  if (view.unchangedSince !== undefined || before === undefined || after === undefined) return html``;
-  const patch = unifiedDiff(before, after);
-  if (patch === undefined) return html``;
-  return html`<details class="about-part" id="since-${tableId(view)}"><summary>Changes since round ${page.round - 1}</summary>${diffTable({
-    // The same file with the patch between rounds, without its text, so the table shows no unchanged lines.
-    file: (({ new_content: _text, ...file }) => ({ ...file, patch }))(view.file),
-    comments: [],
-    tableId: `${tableId(view)}-since`,
-    threads: page.threads,
-    writable: false,
-    readOnly: true,
-  })}</details>`;
+  if (view.unchangedSince !== undefined || before === undefined || after === undefined) return undefined;
+  return unifiedDiff(before, after);
 };
 
-/** The agent's notes on the whole file, behind one quiet disclosure; nothing when there are none. */
-const about = (view: FileView, page: FilePage): Html => {
+const sinceBlock = (view: FileView, page: FilePage, patch: string): Html =>
+  html`<div class="file-extra since" id="since-${tableId(view)}" hidden>
+<p class="small muted">Changes since round ${page.round - 1}</p>
+${diffTable({
+  // The same file with the patch between rounds, without its text, so the table shows no unchanged lines.
+  file: (({ new_content: _text, ...file }) => ({ ...file, patch }))(view.file),
+  comments: [],
+  tableId: `${tableId(view)}-since`,
+  threads: page.threads,
+  writable: false,
+  readOnly: true,
+  standing: page.standing,
+})}
+</div>`;
+
+/** The agent's notes on the whole file, which "About" opens above the diff; nothing when there are none. */
+const aboutBlock = (view: FileView): Html | undefined => {
   const { file } = view;
-  const since = sinceRound(view, page);
   const callouts = file.callouts ?? [];
-  if (file.summary === undefined && file.pseudocode === undefined && file.trace === undefined && callouts.length === 0 && since.value === "")
-    return html``;
-  return html`<details class="about" id="about-${tableId(view)}"><summary>About this file</summary><div class="about-body">
+  if (file.summary === undefined && file.pseudocode === undefined && file.trace === undefined && callouts.length === 0)
+    return undefined;
+  return html`<div class="file-extra about-body" id="about-${tableId(view)}" hidden>
 ${file.summary === undefined ? "" : html`<div class="reading">${prose(file.summary)}</div>`}
-${callouts.map((callout) => html`<p class="callout"><strong>${callout.tag}.</strong> ${inline(callout.text)}</p>`)}
-${file.pseudocode === undefined ? "" : html`<details class="about-part"><summary>Pseudocode</summary><div class="code-region"><pre>${file.pseudocode}</pre></div></details>`}
-${file.trace === undefined ? "" : html`<details class="about-part"><summary>Trace</summary><dl class="trace"><dt>Input</dt><dd><pre>${file.trace.input}</pre></dd><dt>Before</dt><dd><pre>${file.trace.before}</pre></dd><dt>After</dt><dd><pre>${file.trace.after}</pre></dd></dl></details>`}
-${since}
-</div></details>`;
+${callouts.map((callout) => html`<p class="callout reading"><strong>${callout.tag}.</strong> ${inline(callout.text)}</p>`)}
+${file.pseudocode === undefined ? "" : html`<details class="about-part" id="pseudocode-${tableId(view)}"><summary>Pseudocode</summary><div class="code-region"><pre>${file.pseudocode}</pre></div></details>`}
+${file.trace === undefined ? "" : html`<details class="about-part" id="trace-${tableId(view)}"><summary>Trace</summary><dl class="trace"><dt>Input</dt><dd><pre>${file.trace.input}</pre></dd><dt>Before</dt><dd><pre>${file.trace.before}</pre></dd><dt>After</dt><dd><pre>${file.trace.after}</pre></dd></dl></details>`}
+</div>`;
 };
 
 /** Where an orphaned comment pointed, in the round it was made in. */
@@ -143,36 +153,46 @@ export const orphan = (
 <pre class="orphan-quote"><code>${comment.anchor.quote}</code></pre>
 ${thread(
   comment,
-  { threads: page.threads, writable: page.writable, instance },
+  { threads: page.threads, writable: page.writable, instance, standing: page.standing },
   page.writable ? html`<button type="button" class="small-button quiet" data-reattach="${comment.id}">Move to other lines</button>` : html``,
 )}
 </div>`;
 
 export const fileBlock = (view: FileView, page: FilePage): Html => {
   const { file } = view;
-  const status = statusWord(file, view.unchangedSince);
+  const patch = sincePatch(view);
+  const status = statusWord(file, view.unchangedSince, patch === undefined ? undefined : page.round - 1);
+  // The patch between the rounds shows only where the header's word can open it.
+  const since = typeof status === "object" ? patch : undefined;
   const hasBody = file.patch !== undefined || file.patch_note !== undefined || view.orphans.length > 0;
   const body = `body-${tableId(view)}`;
+  const about = aboutBlock(view);
   const talk =
     view.open === 0
       ? ""
       : `${count(view.open, "comment")}${view.forYou > 0 ? ` · ${view.forYou} for you` : ""}`;
-  return html`<article class="file${view.approved ? " is-viewed" : ""}" id="${fileElementId(file.path)}" data-path="${file.path}" data-file="${view.index}" data-folded="${String(view.folded)}" aria-labelledby="title-${tableId(view)}">
+  return html`<article class="file${view.approved ? " is-viewed" : ""}" id="${fileElementId(file.path)}" data-path="${file.path}" data-file="${view.index}" data-folded="${String(view.folded)}"${view.held ? html` data-held` : ""}>
 <header class="file-head">
-<div class="file-line">
-<h3 class="file-path" id="title-${tableId(view)}" tabindex="-1"><code title="${file.path}">${pathParts(file.path)}</code></h3>
+<h3 class="file-path" tabindex="-1"><code title="${file.path}">${pathParts(file.path)}</code></h3>
 ${view.caption === undefined || view.caption === "" ? "" : html`<span class="file-caption">${inline(view.caption)}</span>`}
-${status === undefined ? "" : html`<span class="file-status">${status}</span>`}
+${
+  status === undefined
+    ? ""
+    : typeof status === "object"
+      ? html`<button type="button" class="file-word" data-extra aria-expanded="false" aria-controls="since-${tableId(view)}">changed since round ${status.since}</button>`
+      : html`<span class="file-status">${status}</span>`
+}
 ${talk === "" ? "" : html`<span class="file-talk">${talk}</span>`}
 <span class="file-end">
 ${file.patch === undefined ? "" : html`<span class="stat"><span class="added">+${file.additions}</span> <span class="deleted">−${file.deletions}</span></span>`}
 ${view.lapsed ? html`<span class="file-lapsed">changed since you viewed it</span>` : ""}
-${hasBody ? html`<button type="button" class="small-button quiet fold-toggle" data-fold aria-controls="${body}" aria-expanded="${String(!view.folded)}">${view.folded ? "Show diff" : "Hide diff"}</button>` : ""}
+${about === undefined ? "" : html`<button type="button" class="file-word" data-extra aria-expanded="false" aria-controls="about-${tableId(view)}">About</button>`}
+${hasBody ? html`<button type="button" class="file-word fold-toggle" data-fold aria-controls="${body}" aria-expanded="${String(!view.folded)}">${view.folded ? "Show diff" : "Hide diff"}</button>` : ""}
 ${viewedButton(view, page)}
 </span>
-</div>
-${about(view, page)}
 </header>
+${about ?? ""}
+${since === undefined ? "" : sinceBlock(view, page, since)}
 ${
   !hasBody
     ? ""
@@ -190,6 +210,7 @@ ${
         threads: page.threads,
         writable: page.writable,
         layout: page.layout,
+        standing: page.standing,
       })
 }
 ${view.orphans.length === 0 ? "" : html`<div class="orphans">${view.orphans.map((comment) => orphan(comment, page, `${tableId(view)}-orphan`))}</div>`}
