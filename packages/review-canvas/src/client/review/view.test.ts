@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReviewFile } from "../../schema/input.ts";
 import type { Revision } from "../../schema/primitives.ts";
-import { shortPath } from "../names.ts";
+import { splitPath, underRoot } from "../names.ts";
 import { afterOwnAction } from "./data.ts";
 import { parseHash } from "./places.ts";
 import { fileStatus } from "./view.ts";
@@ -30,9 +30,17 @@ test("a file header shows one status word: a lapsed approval, then a change sinc
   assert.equal(fileStatus(file(), false, undefined), undefined);
 });
 
-test("a sidebar name is the last folder and the file name, whole", () => {
-  assert.deepEqual(shortPath("src/jobs/webhook-retry-queue.ts"), { dir: "jobs/", base: "webhook-retry-queue.ts" });
-  assert.deepEqual(shortPath("pnpm-lock.yaml"), { dir: "", base: "pnpm-lock.yaml" });
+test("the contents name a file by its folder and its file name", () => {
+  assert.deepEqual(splitPath("src/jobs/webhook-retry-queue.ts"), { dir: "src/jobs/", base: "webhook-retry-queue.ts" });
+  assert.deepEqual(splitPath("pnpm-lock.yaml"), { dir: "", base: "pnpm-lock.yaml" });
+});
+
+test("a checkout's path is shown under the longest scan directory that holds it", () => {
+  const roots = ["~/git", "~/git/work/"];
+  assert.equal(underRoot("~/git/work/ledger", roots), "ledger");
+  assert.equal(underRoot("~/git/pyre", roots), "pyre");
+  assert.equal(underRoot("~/gitlab/pyre", roots), "~/gitlab/pyre");
+  assert.equal(underRoot("~/git", roots), "~/git");
 });
 
 test("a hash names the files view, a stop, an element, or the start", () => {

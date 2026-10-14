@@ -3,8 +3,9 @@ import type { ReviewSummary } from "../../schema/rpc.ts";
 import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { TargetText, ThreadName } from "../ui/target.tsx";
-import { Joined, Time } from "../ui/text.tsx";
+import { TargetText } from "../ui/target.tsx";
+import { Time } from "../ui/text.tsx";
+import { AgentVoice } from "../ui/voice.tsx";
 
 /** Whose move a review waits for, which its dot shows. */
 type Standing = "yours" | "agents" | "closed";
@@ -43,7 +44,7 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
   return (
     <li
       data-standing={state}
-      className="grid grid-cols-[1.25rem_minmax(0,1fr)_18rem] gap-x-3 gap-y-0.5 px-4 py-3 max-md:grid-cols-[1.25rem_minmax(0,1fr)]"
+      className="grid grid-cols-[1.25rem_minmax(0,1fr)_18rem] gap-x-3 gap-y-0.5 py-3 max-md:grid-cols-[1.25rem_minmax(0,1fr)]"
     >
       <span
         role="img"
@@ -66,11 +67,13 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
         >
           {item.target.title}
         </a>
-        <p className="flex flex-wrap gap-x-2.5 text-small text-muted">
+        <p className="flex flex-wrap items-center gap-x-2.5 text-small text-muted">
           <TargetText target={item.target} />
           {item.threads.length === 0 ? null : (
-            <span>
-              <Joined items={item.threads.map((thread) => <ThreadName thread={thread} />)} />
+            <span className="inline-flex flex-wrap items-center gap-x-2.5">
+              {item.threads.map((thread) => (
+                <AgentVoice key={thread.id} label={thread.label} />
+              ))}
             </span>
           )}
           {closed ? (
@@ -125,7 +128,7 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
           No reviews yet. An agent starts one with <code>review-canvas register</code>.
         </p>
       ) : (
-        <ul className="divide-y divide-separator rounded-control border border-separator bg-surface">
+        <ul>
           {sorted.map((item) => (
             <ReviewRow key={item.id} item={item} />
           ))}

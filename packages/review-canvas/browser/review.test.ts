@@ -879,7 +879,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
-  test("sidebar rows are dense, and a name too long for its row drops its whole folder before it cuts the name's end", async () => {
+  test("the contents list the stops, then every file once by folder, in dense rows that cut a long name at its end", async () => {
     const input = fixtureInput();
     input.files_complete = false;
     input.files.push({
@@ -900,32 +900,30 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("[data-toc-file]").first().waitFor();
     const rows = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("[data-toc-file]")].map((row) => {
-        // The name's folder and file name, in that order, inside the row's first child.
-        const [dir, base] = [...(row.firstElementChild?.children ?? [])] as Array<HTMLElement>;
-        const box = row.getBoundingClientRect();
-        const hasDir = dir !== undefined && dir.textContent !== "";
+        const name = row.firstElementChild as HTMLElement | null;
+        // The folder line the row sits under, if any.
+        const folder = row.closest("ul")?.previousElementSibling?.textContent ?? "";
         return {
           path: row.dataset.tocFile ?? "",
-          height: box.height,
+          name: name?.textContent ?? "",
+          folder,
+          height: row.getBoundingClientRect().height,
           fontSize: getComputedStyle(row).fontSize,
-          // A folder that shows sits on the name's line, wholly inside the row.
-          dirShown: !hasDir
-            ? null
-            : Math.abs(dir.getBoundingClientRect().top - (base?.getBoundingClientRect().top ?? 0)) < 1 &&
-              dir.getBoundingClientRect().bottom <= box.bottom + 0.5,
-          dirWhole: !hasDir ? null : dir.scrollWidth <= dir.clientWidth + 1 && dir.getBoundingClientRect().right <= box.right + 0.5,
-          baseCut: base === undefined ? false : base.scrollWidth > base.clientWidth + 1,
+          cut: name === null ? false : name.scrollWidth > name.clientWidth + 1,
         };
       }),
     );
+    assert.equal(new Set(rows.map((row) => row.path)).size, rows.length, "every file is listed once");
     for (const row of rows) {
       assert.equal(row.height, 28, `${row.path} is ${row.height}px tall`);
       assert.equal(row.fontSize, "14px");
-      if (row.dirShown === true) assert.equal(row.dirWhole, true, `${row.path} shows part of its folder`);
+      assert.equal(`${row.folder}${row.name}`, row.path, `${row.path} shows under its folder by its file name`);
     }
     const long = rows.find((row) => row.path.endsWith("contents-sidebar.ts"));
-    assert.deepEqual([long?.dirShown, long?.baseCut], [false, true]);
-    assert.ok(rows.some((row) => row.dirShown === true), "short names keep their folder");
+    assert.equal(long?.cut, true);
+    const kickers = await page.locator("nav[aria-label='Stops and files'] > p").allTextContents();
+    assert.deepEqual(kickers, ["Walkthrough", "Files"]);
+    assert.equal(await page.locator("[data-stop-link] ~ * [data-toc-file], li:has(> [data-stop-link]) [data-toc-file]").count(), 0);
     await page.close();
   });
 

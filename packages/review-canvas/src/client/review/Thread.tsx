@@ -10,9 +10,9 @@ import { type Turn, turnOf } from "../../review/queries.ts";
 import { threadName, threadNameOf } from "../names.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { ThreadName } from "../ui/target.tsx";
 import { Time } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
+import { AgentVoice, Voice, voiceOf } from "../ui/voice.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
 import type { InlineComment } from "./diff-model.ts";
@@ -76,8 +76,20 @@ const TurnChip = ({ comment, standing }: { readonly comment: Comment; readonly s
 };
 
 const By = ({ children }: { readonly children: React.ReactNode }) => (
-  <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-small text-muted [&_strong]:text-ink">{children}</p>
+  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted">{children}</p>
 );
+
+/** A GitHub author as a voice; a deleted account is GitHub's "ghost". */
+const GitHubVoice = ({ login }: { readonly login: string | null }) => (
+  <Voice kind={voiceOf(login ?? "ghost")} name={login ?? "ghost"} />
+);
+
+/** The thread's bar: the voice that started the comment. Whose turn it is, the chip says. */
+const BAR: Readonly<Record<"you" | "github" | "bot", string>> = {
+  you: "border-action",
+  github: "border-link",
+  bot: "border-separator",
+};
 
 const Body = ({ text }: { readonly text: string }) => (
   <p className="mt-1 whitespace-pre-wrap break-words text-ink">{text}</p>
@@ -90,9 +102,9 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
       const thread = page.snapshot.threads.find((candidate) => candidate.id === item.thread);
       const disposition = DISPOSITION[item.disposition];
       return (
-        <li data-reply="agent" className="border-t border-separator pt-2">
+        <li data-reply="agent" className="pt-3">
           <By>
-            <strong>{thread === undefined ? item.thread : <ThreadName thread={thread} />}</strong>
+            {thread === undefined ? <Voice kind="agent" name={item.thread} /> : <AgentVoice label={thread.label} />}
             <Chip tone={disposition.tone}>{disposition.label}</Chip>
             <Time at={item.created_at} />
           </By>
@@ -121,9 +133,9 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
     }
     case "reviewer":
       return (
-        <li data-reply="reviewer" className="border-t border-separator pt-2">
+        <li data-reply="reviewer" className="pt-3">
           <By>
-            <strong>You</strong>
+            <Voice kind="you" name="You" />
             {item.action === "accept" ? <span>accepted</span> : item.action === "reopen" ? <span>reopened</span> : null}
             <Time at={item.created_at} />
           </By>
@@ -132,9 +144,9 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
       );
     case "github":
       return (
-        <li data-reply="github" className="border-t border-separator pt-2">
+        <li data-reply="github" className="pt-3">
           <By>
-            <strong>{item.github.author ?? "ghost"}</strong>
+            <GitHubVoice login={item.github.author} />
             <span>on GitHub</span>
             <Time at={item.created_at} />
           </By>
@@ -277,6 +289,7 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
   const { page } = usePage();
   const turn = turnOf(comment);
   const standing = page.standing(comment);
+  const starter = comment.source.kind === "github" ? voiceOf(comment.source.author ?? "ghost") : "you";
   const article = useRef<HTMLElement>(null);
   /**
    * The thread as it was when the reviewer made a move. When the move shows, the thread's actions have changed, and
@@ -306,17 +319,17 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
       tabIndex={-1}
       className={cn(
         "scroll-mt-(--sticky-top) border-l-2 py-2 pr-4 pl-3 [&+&]:mt-3",
-        turn === "reviewer" ? "border-action" : turn === "resolved" ? "border-separator" : "border-accent",
+        BAR[starter],
       )}
     >
       <By>
         {comment.source.kind === "github" ? (
           <>
-            <strong>{comment.source.author ?? "ghost"}</strong>
+            <GitHubVoice login={comment.source.author} />
             <span>on GitHub</span>
           </>
         ) : (
-          <strong>You</strong>
+          <Voice kind="you" name="You" />
         )}
         <Time at={comment.created_at} />
         <TurnChip comment={comment} standing={standing} />
@@ -350,7 +363,7 @@ export const Orphan = ({ comment, withPath = false }: { readonly comment: Inline
     toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");
   };
   return (
-    <div className="border-t border-separator px-3 py-3 first:border-t-0">
+    <div className="px-3 py-3">
       <p className="text-small text-muted">
         {withPath ? (
           <>

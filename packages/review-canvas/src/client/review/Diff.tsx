@@ -74,6 +74,15 @@ const ROW_TONE: Readonly<Record<Row["kind"], string>> = {
   meta: "bg-surface text-muted",
 };
 
+/** The line numbers and marker of an added or deleted row, at full strength, as the row's counts are. */
+const GUTTER_TONE: Readonly<Record<Row["kind"], string>> = {
+  add: "text-success",
+  del: "text-danger",
+  context: "text-muted",
+  hunk: "text-muted",
+  meta: "text-muted",
+};
+
 const MARKER: Readonly<Record<Row["kind"], string>> = { add: "+", del: "−", context: " ", hunk: "", meta: "" };
 
 /** What the marker means, for a reader who hears the table instead of seeing its colours. */
@@ -90,7 +99,7 @@ const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
 
 const ROW_BODY = "sticky left-0 box-border max-w-[100cqi] px-3 py-1.5 pl-11";
 
-const UNDER = "border-y border-separator bg-surface p-0 font-sans text-small leading-[1.45] whitespace-normal";
+const UNDER = "bg-surface p-0 font-sans text-small leading-[1.45] whitespace-normal";
 
 const NoteMarker = ({ notes }: { readonly notes: ReadonlyArray<InlineNote> | undefined }) =>
   notes === undefined || notes.length === 0 ? null : (
@@ -104,10 +113,10 @@ const NoteMarker = ({ notes }: { readonly notes: ReadonlyArray<InlineNote> | und
 
 const NoteRow = ({ note, columns }: { readonly note: InlineNote; readonly columns: number }) => (
   <tr id={note.id} data-note className="scroll-my-(--sticky-top)">
-    <td colSpan={columns} className={UNDER}>
+    <td colSpan={columns} className={cn(UNDER, "border-l-2 border-accent")}>
       <div className={ROW_BODY}>
         <span className="sr-only">Note </span>
-        <span className="mr-2 inline-grid size-4.5 place-items-center rounded-full border border-current align-[0.0625rem] font-mono text-xs leading-none font-bold text-accent">
+        <span className="mr-2 inline-grid size-4.5 place-items-center rounded-full bg-accent align-[0.0625rem] font-mono text-xs leading-none font-bold text-on-accent">
           {note.letter}
         </span>
         {note.stop === undefined ? null : <span className="text-muted">Stop {note.stop} · </span>}
@@ -259,11 +268,11 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
         data-kind={row.kind}
         className={cn("group/unit scroll-my-(--sticky-top)", ROW_TONE[row.kind], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
       >
-        <td {...gutterProps(table, row)} className={cn("relative text-muted select-none", NUMBER_GUTTER, gutterProps(table, row).className)}>
+        <td {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], NUMBER_GUTTER, gutterProps(table, row).className)}>
           {unit ? <Plus table={table} row={row} side="unified" /> : null}
           <LineNumbers old={row.old} fresh={row.new} deleted={row.kind === "del"} />
         </td>
-        <td {...gutterProps(table, row)} className={cn("relative text-muted select-none", MARKER_GUTTER, gutterProps(table, row).className)}>
+        <td {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], MARKER_GUTTER, gutterProps(table, row).className)}>
           <NoteMarker notes={table.notesAt.get(row.index)} />
           <Marker kind={row.kind} />
         </td>
@@ -292,11 +301,11 @@ const Half = ({ table, row, side }: { readonly table: TableContext; readonly row
         lit(table, row),
       )}
     >
-      <span {...gutterProps(table, row)} className={cn("relative text-muted select-none", HALF_NUMBER_GUTTER, gutterProps(table, row).className)}>
+      <span {...gutterProps(table, row)} className={cn("relative select-none", GUTTER_TONE[row.kind], HALF_NUMBER_GUTTER, gutterProps(table, row).className)}>
         {unit ? <Plus table={table} row={row} side={side} /> : null}
         {row[side] ?? ""}
       </span>
-      <span {...gutterProps(table, row)} className={cn("text-muted select-none", HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
+      <span {...gutterProps(table, row)} className={cn("select-none", GUTTER_TONE[row.kind], HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
         {side === "new" || row.kind === "del" ? <NoteMarker notes={table.notesAt.get(row.index)} /> : null}
         <Marker kind={row.kind} />
       </span>

@@ -10,14 +10,15 @@ import type { ReviewId } from "../../schema/primitives.ts";
 import type { Target } from "../../schema/target.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { fileElementId } from "../../review/next.ts";
-import { count, targetName, threadName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
+import { count, targetName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { CONNECTION_TEXT, connectionAtom } from "../rpc.ts";
 import { buttonVariants } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { frame } from "../ui/page.tsx";
-import { TargetText, ThreadName } from "../ui/target.tsx";
+import { TargetText } from "../ui/target.tsx";
 import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
+import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
 
@@ -95,18 +96,34 @@ export const TopBar = ({
   );
 };
 
-/** Who did something: the agents' dot, then the thread's name when there is one, then what it did. */
-export const Who = ({ thread, children }: { readonly thread: Thread | undefined; readonly children: React.ReactNode }) => (
-  <span className="inline-flex items-baseline gap-1.5">
-    <span aria-hidden="true" className="inline-block size-2 rounded-full bg-accent" />
-    {thread === undefined ? null : (
-      <strong className="text-ink">
-        <ThreadName thread={thread} />
-      </strong>
-    )}
-    {children}
+/** What an agent did: its voice, named by its thread or else by `id`, then what it did. */
+export const Who = ({
+  thread,
+  id,
+  children,
+}: {
+  readonly thread: Thread | undefined;
+  readonly id: string;
+  readonly children: React.ReactNode;
+}) => (
+  <span className="inline-flex flex-wrap items-center gap-x-1.5">
+    {thread === undefined ? <Voice kind="agent" name={id} /> : <AgentVoice label={thread.label} />}
+    <span>{children}</span>
   </span>
 );
+
+/** The agent's narration, as a kicker over it: the voice of the thread that published the round, then what it is. */
+export const Narration = ({ children, className }: { readonly children: React.ReactNode; readonly className?: string }) => {
+  const { page } = usePage();
+  const publisher = page.snapshot.threads.find((item) => item.id === page.round.thread);
+  return (
+    <p className={cn("text-small text-muted", className)}>
+      <Who thread={publisher} id={page.round.thread}>
+        {children}
+      </Who>
+    </p>
+  );
+};
 
 const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
   const { page } = usePage();
@@ -162,14 +179,16 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
           const summary = summaries.get(round.round);
           const publisher = threads.find((item) => item.id === round.thread);
           return (
-            <div key={round.round} id={`round-${round.round}-detail`} className="my-3 flex flex-col gap-2 rounded-panel border border-separator bg-surface px-4 py-3">
+            <div key={round.round} id={`round-${round.round}-detail`} className="my-3 flex flex-col gap-2 rounded-panel bg-surface px-4 py-3">
               <p className="text-small text-muted">
-                Round {round.round}, published <Time at={round.published_at} /> by {publisher === undefined ? round.thread : threadName(publisher.label)}
+                <Who thread={publisher} id={round.thread}>
+                  published round {round.round} at <Time at={round.published_at} />
+                </Who>
               </p>
               {summary === undefined ? <p className="text-muted">No summary.</p> : <Prose text={summary} />}
               {submission === undefined ? null : (
                 <p>
-                  <strong>You</strong>{" "}
+                  <Voice kind="you" name="You" />{" "}
                   <span className="text-muted">
                     · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
                   </span>
@@ -239,8 +258,8 @@ export const Title = ({ id }: { readonly id: ReviewId }) => {
     <header className="col-span-full min-w-0 pt-6">
       <h1 className="mb-1.5 text-title leading-tight font-semibold tracking-tight break-words">{input.target.title}</h1>
       <p className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5 text-small text-muted">
-        <Who thread={publisher}>
-          {publisher === undefined ? <strong className="text-ink">{round.thread}</strong> : null} published round {round.round} at{" "}
+        <Who thread={publisher} id={round.thread}>
+          published round {round.round} at{" "}
           <Time at={round.published_at} />
         </Who>
         <span>
@@ -268,7 +287,7 @@ export const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
     <section
       data-next
       aria-label="Next"
-      className="sticky top-(--topbar-height) z-10 col-span-full -mx-6 min-w-0 border-b border-separator bg-raised px-6 text-small max-md:static max-md:-mx-4 max-md:px-4"
+      className="sticky top-(--topbar-height) z-10 col-span-full -mx-6 min-w-0 bg-raised px-6 text-small max-md:static max-md:-mx-4 max-md:px-4"
     >
       <div className="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1">
         {strip.kind === "go" ? (

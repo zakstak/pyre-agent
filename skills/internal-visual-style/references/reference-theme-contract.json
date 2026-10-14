@@ -17,7 +17,8 @@
       "referenceLibraryId": "libfile_d9d4de303ed48191b8ed4c43744a0d53",
       "dark": "Exact visible hex values from the supplied screenshot",
       "light": "Derived companion, not screenshot evidence",
-      "success": "Derived semantic addition in both modes"
+      "success": "Derived semantic addition in both modes",
+      "signal": "Signal colours (success, error, warning, dark accent, and the focus and functional roles that follow it) changed on 2026-10-14 to carry hue, from Zak's T3 Code theme; surfaces, text, and borders are unchanged"
     },
     "dark": {
       "background": "#19191e",
@@ -30,7 +31,7 @@
       "input": "#504b5d",
       "subtle": "#342e42",
       "highlight": "#3c354b",
-      "accent": "#a99acb",
+      "accent": "#b69ff0",
       "action": "#d7a6bd",
       "message": "#443c55",
       "code": "#131318",
@@ -38,19 +39,19 @@
       "sidebarControls": "#332f3c",
       "sidebarSelection": "#393345",
       "terminal": "#19191e",
-      "error": "#d6a9b5",
-      "warning": "#d3c7b0",
-      "success": "#b7cbb9",
+      "error": "#e5637e",
+      "warning": "#e0a94d",
+      "success": "#34c08a",
       "onAccent": "#131318",
       "onAction": "#131318",
-      "focus": "#a99acb",
-      "functionalBoundary": "#a99acb",
+      "focus": "#b69ff0",
+      "functionalBoundary": "#b69ff0",
       "canvas": "#19191e",
       "accentSoft": "#342e42",
       "accentText": "#131318",
       "accentSecondary": "#d7a6bd",
       "line": "#55525f",
-      "functionalBorder": "#a99acb",
+      "functionalBorder": "#b69ff0",
       "controlBorder": "#918d9a"
     },
     "light": {
@@ -72,9 +73,9 @@
       "sidebarControls": "#e5dfed",
       "sidebarSelection": "#ddd2e9",
       "terminal": "#f3f1f7",
-      "error": "#89465b",
-      "warning": "#705524",
-      "success": "#2f634b",
+      "error": "#c43d60",
+      "warning": "#9a6a12",
+      "success": "#1b8a57",
       "onAccent": "#fbfaff",
       "onAction": "#fbfaff",
       "focus": "#664c82",
@@ -99,7 +100,7 @@
     "input": "#504b5d",
     "subtle": "#342e42",
     "highlight": "#3c354b",
-    "accent": "#a99acb",
+    "accent": "#b69ff0",
     "action": "#d7a6bd",
     "message": "#443c55",
     "code": "#131318",
@@ -107,15 +108,15 @@
     "sidebarControls": "#332f3c",
     "sidebarSelection": "#393345",
     "terminal": "#19191e",
-    "error": "#d6a9b5",
-    "warning": "#d3c7b0"
+    "error": "#e5637e",
+    "warning": "#e0a94d"
   },
   "derivedDarkAdditions": {
-    "success": "#b7cbb9",
+    "success": "#34c08a",
     "onAccent": "#131318",
     "onAction": "#131318",
-    "focus": "#a99acb",
-    "functionalBoundary": "#a99acb"
+    "focus": "#b69ff0",
+    "functionalBoundary": "#b69ff0"
   },
   "derivedLight": {
     "background": "#f3f1f7",
@@ -136,9 +137,9 @@
     "sidebarControls": "#e5dfed",
     "sidebarSelection": "#ddd2e9",
     "terminal": "#f3f1f7",
-    "error": "#89465b",
-    "warning": "#705524",
-    "success": "#2f634b",
+    "error": "#c43d60",
+    "warning": "#9a6a12",
+    "success": "#1b8a57",
     "onAccent": "#fbfaff",
     "onAction": "#fbfaff",
     "focus": "#664c82",
@@ -165,7 +166,7 @@
       "input": "#504b5d",
       "subtle": "#342e42",
       "highlight": "#3c354b",
-      "accent": "#a99acb",
+      "accent": "#b69ff0",
       "action": "#d7a6bd",
       "message": "#443c55",
       "code": "#131318",
@@ -173,15 +174,15 @@
       "sidebarControls": "#332f3c",
       "sidebarSelection": "#393345",
       "terminal": "#19191e",
-      "error": "#d6a9b5",
-      "warning": "#d3c7b0"
+      "error": "#e5637e",
+      "warning": "#e0a94d"
     },
     "derivedDarkAdditions": {
-      "success": "#b7cbb9",
+      "success": "#34c08a",
       "onAccent": "#131318",
       "onAction": "#131318",
-      "focus": "#a99acb",
-      "functionalBoundary": "#a99acb"
+      "focus": "#b69ff0",
+      "functionalBoundary": "#b69ff0"
     },
     "derivedLight": {
       "background": "#f3f1f7",
@@ -202,9 +203,9 @@
       "sidebarControls": "#e5dfed",
       "sidebarSelection": "#ddd2e9",
       "terminal": "#f3f1f7",
-      "error": "#89465b",
-      "warning": "#705524",
-      "success": "#2f634b",
+      "error": "#c43d60",
+      "warning": "#9a6a12",
+      "success": "#1b8a57",
       "onAccent": "#fbfaff",
       "onAction": "#fbfaff",
       "focus": "#664c82"
@@ -231,10 +232,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "background",
           "backgroundHex": "#19191e",
-          "ratio": 6.8145847845513705,
+          "ratio": 7.677642795732416,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -249,19 +250,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "background",
           "backgroundHex": "#19191e",
-          "ratio": 8.507515295291268,
+          "ratio": 5.351869122761731,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "background",
           "backgroundHex": "#19191e",
-          "ratio": 10.479279140978386,
+          "ratio": 8.29916133792156,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -294,10 +295,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "surface",
           "backgroundHex": "#1e1c24",
-          "ratio": 6.55416394623865,
+          "ratio": 7.384240007984742,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -312,19 +313,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "surface",
           "backgroundHex": "#1e1c24",
-          "ratio": 8.182398749646309,
+          "ratio": 5.147346281304219,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "surface",
           "backgroundHex": "#1e1c24",
-          "ratio": 10.078811211517259,
+          "ratio": 7.982007084031633,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -357,10 +358,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "raised",
           "backgroundHex": "#26242c",
-          "ratio": 5.9597400733398675,
+          "ratio": 6.7145331498767105,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -375,19 +376,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "raised",
           "backgroundHex": "#26242c",
-          "ratio": 7.440303618327814,
+          "ratio": 4.680512443032607,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "raised",
           "backgroundHex": "#26242c",
-          "ratio": 9.164722695619824,
+          "ratio": 7.258086290576577,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -420,10 +421,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "overlay",
           "backgroundHex": "#2c2a32",
-          "ratio": 5.505216647382811,
+          "ratio": 6.202444942433482,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -438,19 +439,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "overlay",
           "backgroundHex": "#2c2a32",
-          "ratio": 6.872864057349131,
-          "normalTextAA": true,
+          "ratio": 4.3235501385256585,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "overlay",
           "backgroundHex": "#2c2a32",
-          "ratio": 8.465769199947472,
+          "ratio": 6.704543651788968,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -483,10 +484,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "input",
           "backgroundHex": "#504b5d",
-          "ratio": 3.261351207791207,
+          "ratio": 3.6743969583613914,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -501,20 +502,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "input",
           "backgroundHex": "#504b5d",
-          "ratio": 4.071560654216288,
+          "ratio": 2.56131890339501,
           "normalTextAA": false,
-          "largeTextAndEssentialNonTextAA": true
+          "largeTextAndEssentialNonTextAA": false
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "input",
           "backgroundHex": "#504b5d",
-          "ratio": 5.015215271910515,
-          "normalTextAA": true,
+          "ratio": 3.9718457850057343,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -546,10 +547,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "subtle",
           "backgroundHex": "#342e42",
-          "ratio": 5.0583114640178435,
+          "ratio": 5.6989398177755595,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -564,19 +565,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "subtle",
           "backgroundHex": "#342e42",
-          "ratio": 6.314935320202643,
-          "normalTextAA": true,
+          "ratio": 3.9725708599237857,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "subtle",
           "backgroundHex": "#342e42",
-          "ratio": 7.778530826063192,
+          "ratio": 6.160278911271331,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -609,10 +610,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "highlight",
           "backgroundHex": "#3c354b",
-          "ratio": 4.532293837188786,
+          "ratio": 5.106302764934451,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -627,19 +628,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "highlight",
           "backgroundHex": "#3c354b",
-          "ratio": 5.658240430150639,
-          "normalTextAA": true,
+          "ratio": 3.5594602179611483,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "highlight",
           "backgroundHex": "#3c354b",
-          "ratio": 6.969635534729666,
+          "ratio": 5.519666857908733,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -672,11 +673,11 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "message",
           "backgroundHex": "#443c55",
-          "ratio": 4.0387349587658665,
-          "normalTextAA": false,
+          "ratio": 4.550235317393998,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -690,19 +691,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "message",
           "backgroundHex": "#443c55",
-          "ratio": 5.042067935411295,
-          "normalTextAA": true,
+          "ratio": 3.1718412205888193,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "message",
           "backgroundHex": "#443c55",
-          "ratio": 6.2106544048408425,
+          "ratio": 4.918584783021162,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -735,10 +736,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "code",
           "backgroundHex": "#131318",
-          "ratio": 7.205821670066044,
+          "ratio": 8.118429307378154,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -753,19 +754,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "code",
           "backgroundHex": "#131318",
-          "ratio": 8.995946196487742,
+          "ratio": 5.659129018040779,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "code",
           "backgroundHex": "#131318",
-          "ratio": 11.080912353151442,
+          "ratio": 8.775630284583288,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -798,10 +799,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "sidebar",
           "backgroundHex": "#131318",
-          "ratio": 7.205821670066044,
+          "ratio": 8.118429307378154,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -816,19 +817,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "sidebar",
           "backgroundHex": "#131318",
-          "ratio": 8.995946196487742,
+          "ratio": 5.659129018040779,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "sidebar",
           "backgroundHex": "#131318",
-          "ratio": 11.080912353151442,
+          "ratio": 8.775630284583288,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -861,10 +862,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "sidebarControls",
           "backgroundHex": "#332f3c",
-          "ratio": 5.067294991680873,
+          "ratio": 5.709061097152503,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -879,19 +880,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "sidebarControls",
           "backgroundHex": "#332f3c",
-          "ratio": 6.326150603512662,
-          "normalTextAA": true,
+          "ratio": 3.979626119463917,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "sidebarControls",
           "backgroundHex": "#332f3c",
-          "ratio": 7.792345445299422,
+          "ratio": 6.171219525823251,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -924,10 +925,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "sidebarSelection",
           "backgroundHex": "#393345",
-          "ratio": 4.714106560803535,
+          "ratio": 5.31114182582599,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -942,19 +943,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "sidebarSelection",
           "backgroundHex": "#393345",
-          "ratio": 5.885220440809186,
-          "normalTextAA": true,
+          "ratio": 3.7022477732418255,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "sidebarSelection",
           "backgroundHex": "#393345",
-          "ratio": 7.249222089505497,
+          "ratio": 5.741087997166756,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -987,10 +988,10 @@
         },
         {
           "foreground": "accent",
-          "foregroundHex": "#a99acb",
+          "foregroundHex": "#b69ff0",
           "background": "terminal",
           "backgroundHex": "#19191e",
-          "ratio": 6.8145847845513705,
+          "ratio": 7.677642795732416,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1005,19 +1006,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#d6a9b5",
+          "foregroundHex": "#e5637e",
           "background": "terminal",
           "backgroundHex": "#19191e",
-          "ratio": 8.507515295291268,
+          "ratio": 5.351869122761731,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#d3c7b0",
+          "foregroundHex": "#e0a94d",
           "background": "terminal",
           "backgroundHex": "#19191e",
-          "ratio": 10.479279140978386,
+          "ratio": 8.29916133792156,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1070,20 +1071,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.061899581302685,
-          "normalTextAA": true,
+          "ratio": 4.478519778825287,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.216732579370393,
-          "normalTextAA": true,
+          "ratio": 4.215717286086318,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1097,11 +1098,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.230418280034356,
-          "normalTextAA": true,
+          "ratio": 3.887473381476553,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1142,19 +1143,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 6.542018416731348,
+          "ratio": 4.833230653166718,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 6.7091146068432606,
+          "ratio": 4.549613492505707,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1169,11 +1170,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 6.723884251999652,
-          "normalTextAA": true,
+          "ratio": 4.195371783230241,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1214,19 +1215,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 6.794351316048806,
+          "ratio": 5.0196537149949245,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 6.967892591366838,
+          "ratio": 4.72509712618086,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1241,11 +1242,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 6.9832319181026445,
-          "normalTextAA": true,
+          "ratio": 4.357191921655666,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1286,19 +1287,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 6.794351316048806,
+          "ratio": 5.0196537149949245,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 6.967892591366838,
+          "ratio": 4.72509712618086,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1313,11 +1314,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 6.9832319181026445,
-          "normalTextAA": true,
+          "ratio": 4.357191921655666,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1358,20 +1359,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 5.391865855390874,
-          "normalTextAA": true,
+          "ratio": 3.9835001478120016,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 5.529584856567345,
-          "normalTextAA": true,
+          "ratio": 3.749745733324266,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1385,11 +1386,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 5.541757849723603,
-          "normalTextAA": true,
+          "ratio": 3.457783275390373,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1430,20 +1431,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 5.492548536857434,
-          "normalTextAA": true,
+          "ratio": 4.057884319685113,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 5.632839174402322,
-          "normalTextAA": true,
+          "ratio": 3.8197649929598554,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1457,11 +1458,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 5.6452394746959085,
-          "normalTextAA": true,
+          "ratio": 3.5223506999950587,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1502,20 +1503,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 4.813694348251554,
-          "normalTextAA": true,
+          "ratio": 3.556348147758542,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 4.936645696706786,
-          "normalTextAA": true,
+          "ratio": 3.347659294200836,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1529,11 +1530,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 4.94751337589784,
-          "normalTextAA": true,
+          "ratio": 3.0870040643877914,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1574,20 +1575,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 5.091139318048567,
-          "normalTextAA": true,
+          "ratio": 3.7613239590708916,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 5.2211771640441045,
-          "normalTextAA": true,
+          "ratio": 3.5406069897909394,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1601,11 +1602,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 5.232671219300356,
-          "normalTextAA": true,
+          "ratio": 3.264928479077399,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1646,20 +1647,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.763219152748254,
-          "normalTextAA": true,
+          "ratio": 4.257855251330496,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.9104232573318365,
-          "normalTextAA": true,
+          "ratio": 4.0080014985209305,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1673,11 +1674,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.923434639511212,
-          "normalTextAA": true,
+          "ratio": 3.6959307470266705,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1718,20 +1719,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.763219152748254,
-          "normalTextAA": true,
+          "ratio": 4.257855251330496,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.9104232573318365,
-          "normalTextAA": true,
+          "ratio": 4.0080014985209305,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1745,11 +1746,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 5.923434639511212,
-          "normalTextAA": true,
+          "ratio": 3.6959307470266705,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1790,20 +1791,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 5.212095115888683,
-          "normalTextAA": true,
+          "ratio": 3.8506858704198326,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 5.345222414053804,
-          "normalTextAA": true,
+          "ratio": 3.6247250852770017,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1817,11 +1818,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 5.356989546226064,
-          "normalTextAA": true,
+          "ratio": 3.3424969768943265,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1862,20 +1863,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 4.681536550586443,
-          "normalTextAA": true,
+          "ratio": 3.4587102204337876,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 4.801112325468396,
-          "normalTextAA": true,
+          "ratio": 3.2557508248117437,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1889,11 +1890,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 4.81168163745046,
-          "normalTextAA": true,
+          "ratio": 3.0022517662530084,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1934,20 +1935,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#89465b",
+          "foregroundHex": "#c43d60",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.061899581302685,
-          "normalTextAA": true,
+          "ratio": 4.478519778825287,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#705524",
+          "foregroundHex": "#9a6a12",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.216732579370393,
-          "normalTextAA": true,
+          "ratio": 4.215717286086318,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1961,11 +1962,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#2f634b",
+          "foregroundHex": "#1b8a57",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 6.230418280034356,
-          "normalTextAA": true,
+          "ratio": 3.887473381476553,
+          "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         }
       ]
@@ -1978,55 +1979,55 @@
     "darkSuccessMatrix": [
       {
         "background": "background",
-        "ratio": 10.221028386176348
+        "ratio": 7.5494983596299
       },
       {
         "background": "surface",
-        "ratio": 9.830429565426423
+        "ratio": 7.260992639352952
       },
       {
         "background": "raised",
-        "ratio": 8.938867794547477
+        "ratio": 6.602463588023577
       },
       {
         "background": "overlay",
-        "ratio": 8.25713926878007
+        "ratio": 6.098922438098319
       },
       {
         "background": "input",
-        "ratio": 4.891620594066608
+        "ratio": 3.613069082244552
       },
       {
         "background": "subtle",
-        "ratio": 7.586837158010544
+        "ratio": 5.603821114188965
       },
       {
         "background": "highlight",
-        "ratio": 6.797876235895776
+        "ratio": 5.021075527123263
       },
       {
         "background": "message",
-        "ratio": 6.057599393490605
+        "ratio": 4.474289176840895
       },
       {
         "background": "code",
-        "ratio": 10.807834983935622
+        "ratio": 7.982927881574602
       },
       {
         "background": "sidebar",
-        "ratio": 10.807834983935622
+        "ratio": 7.982927881574602
       },
       {
         "background": "sidebarControls",
-        "ratio": 7.600311330561744
+        "ratio": 5.613773463378233
       },
       {
         "background": "sidebarSelection",
-        "ratio": 7.070572675632968
+        "ratio": 5.222495701951972
       },
       {
         "background": "terminal",
-        "ratio": 10.221028386176348
+        "ratio": 7.5494983596299
       }
     ],
     "filledControlPairs": {
@@ -2034,8 +2035,8 @@
         {
           "foregroundHex": "#131318",
           "background": "accent",
-          "backgroundHex": "#a99acb",
-          "ratio": 7.205821670066044
+          "backgroundHex": "#b69ff0",
+          "ratio": 8.118429307378154
         },
         {
           "foregroundHex": "#131318",
@@ -2082,7 +2083,7 @@
     "QA": "Inspect actual1440/390/320 dark/light pixels at100/200text. Verify typography, focus, meaningful boundaries, source-color restrictions, state/export parity, and palette persistence before publishing.",
     "optionalReadingBases": "Existing explicit reading-base overrides are secondary. The dark Neutral raised fill requires main ink for proposal text; source-muted-to-neutral-raised remains an honestly reported restricted pair."
   },
-  "css": "/* Reference-directed visual treatment. Dark source colors remain exact; light is a derived companion. */\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"] {\n  color-scheme:dark;\n  --pyre-background: #19191e;\n  --pyre-surface: #1e1c24;\n  --pyre-raised: #26242c;\n  --pyre-overlay: #2c2a32;\n  --pyre-text: #dbd9e3;\n  --pyre-muted: #918d9a;\n  --pyre-border: #55525f;\n  --pyre-input: #504b5d;\n  --pyre-subtle: #342e42;\n  --pyre-highlight: #3c354b;\n  --pyre-accent: #a99acb;\n  --pyre-action: #d7a6bd;\n  --pyre-message: #443c55;\n  --pyre-code: #131318;\n  --pyre-sidebar: #131318;\n  --pyre-sidebar-controls: #332f3c;\n  --pyre-sidebar-selection: #393345;\n  --pyre-terminal: #19191e;\n  --pyre-error: #d6a9b5;\n  --pyre-warning: #d3c7b0;\n  --pyre-success: #b7cbb9;\n  --pyre-on-accent: #131318;\n  --pyre-on-action: #131318;\n  --pyre-focus: #a99acb;\n  --pyre-functional-boundary: #a99acb;\n  --pyre-canvas: #19191e;\n  --pyre-accent-soft: #342e42;\n  --pyre-accent-text: #131318;\n  --pyre-accent-secondary: #d7a6bd;\n  --pyre-line: #55525f;\n  --pyre-functional-border: #a99acb;\n  --pyre-control-border: #918d9a;\n}\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"light\"] {\n  color-scheme:light;\n  --pyre-background: #f3f1f7;\n  --pyre-surface: #fbfaff;\n  --pyre-raised: #ffffff;\n  --pyre-overlay: #ffffff;\n  --pyre-text: #302938;\n  --pyre-muted: #5c5367;\n  --pyre-border: #7e708a;\n  --pyre-input: #e8e3ef;\n  --pyre-subtle: #eae5f1;\n  --pyre-highlight: #dfd5ed;\n  --pyre-accent: #664c82;\n  --pyre-action: #844463;\n  --pyre-message: #e4dceb;\n  --pyre-code: #eeebf3;\n  --pyre-sidebar: #eeebf3;\n  --pyre-sidebar-controls: #e5dfed;\n  --pyre-sidebar-selection: #ddd2e9;\n  --pyre-terminal: #f3f1f7;\n  --pyre-error: #89465b;\n  --pyre-warning: #705524;\n  --pyre-success: #2f634b;\n  --pyre-on-accent: #fbfaff;\n  --pyre-on-action: #fbfaff;\n  --pyre-focus: #664c82;\n  --pyre-functional-boundary: #7e708a;\n  --pyre-canvas: #f3f1f7;\n  --pyre-accent-soft: #eae5f1;\n  --pyre-accent-text: #fbfaff;\n  --pyre-accent-secondary: #844463;\n  --pyre-line: #7e708a;\n  --pyre-functional-border: #7e708a;\n  --pyre-control-border: #7e708a;\n}\n\n[data-mode=\"light\"][data-base=\"neutral\"] { --pyre-canvas:#f3f5f6; --pyre-surface:#ffffff; --pyre-raised:#e9edf0; --pyre-line:#d3d8dc; }\n[data-mode=\"dark\"][data-base=\"neutral\"] { --pyre-canvas:#10151a; --pyre-surface:#181f26; --pyre-raised:#242d36; --pyre-line:#394149; }\n[data-mode=\"light\"][data-base=\"warm\"] { --pyre-canvas:#f8f3e9; --pyre-surface:#fffaf2; --pyre-raised:#efe5d5; --pyre-line:#dbd2c6; }\n[data-mode=\"dark\"][data-base=\"warm\"] { --pyre-canvas:#191610; --pyre-surface:#221d16; --pyre-raised:#30271f; --pyre-line:#494035; }\n\n/* Source border is decorative. Functional boundaries remain legible even with legacy layouts. */\n[data-palette=\"reference-charcoal-violet\"] button,\n[data-palette=\"reference-charcoal-violet\"] .button,\n[data-palette=\"reference-charcoal-violet\"] select,\n[data-palette=\"reference-charcoal-violet\"] .output { border-color:var(--pyre-functional-border); }\n[data-palette=\"reference-charcoal-violet\"] .notice .muted { color:var(--pyre-text); }\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"][data-base=\"neutral\"] #plan .pr-list p { color:var(--pyre-text); }\n\n[data-visual-theme=\"reference-editor\"] { --pyre-radius:8px; --pyre-section-gap:20px; --pyre-row-pad:14px; --pyre-content-width:1180px; --pyre-reading-width:68ch; }\n[data-visual-theme=\"reference-editor\"] body { line-height:1.55; }\n[data-visual-theme=\"reference-editor\"] h1 { font-size:26px; font-weight:650; letter-spacing:-.01em; }\n[data-visual-theme=\"reference-editor\"] .page-header { padding-bottom:20px; }\n[data-visual-theme=\"reference-editor\"] .palette-heading { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] .theme-picker-label { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .refinement-selected { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .theme-number { font-size:14px; opacity:1; }\n[data-visual-theme=\"reference-editor\"] button, [data-visual-theme=\"reference-editor\"] .button { border-radius:8px; background:var(--pyre-raised); border-color:var(--pyre-control-border,var(--pyre-border)); color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] button:hover { background:var(--pyre-surface); }\n[data-visual-theme=\"reference-editor\"] button[aria-pressed=\"true\"] { background:var(--pyre-sidebar-selection,var(--pyre-accent-soft)); color:var(--pyre-text); border-color:var(--pyre-accent); box-shadow:inset 0 -2px var(--pyre-accent); }\n[data-visual-theme=\"reference-editor\"] button.primary { background:var(--pyre-action,var(--pyre-accent)); border-color:var(--pyre-action,var(--pyre-accent)); color:var(--pyre-on-action,var(--pyre-accent-text)); box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] :focus-visible { outline:2px solid var(--pyre-focus); outline-offset:2px; }\n[data-visual-theme=\"reference-editor\"] .quick-controls { background:var(--pyre-canvas); padding:8px 0; border-color:var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers { border:1px solid var(--pyre-line); border-radius:10px; background:var(--pyre-surface); padding:16px; margin-bottom:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option { flex-basis:9em; gap:6px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option .swatch { border-color:var(--pyre-line); border-radius:4px; height:16px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .theme-option { min-height:44px; font-size:15px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details { border:1px solid var(--pyre-line); background:var(--pyre-surface); border-radius:10px; padding:0 16px; margin-top:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details .controls { padding-bottom:16px; border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section { background:var(--pyre-surface); border:1px solid var(--pyre-line); border-radius:10px; padding:18px; margin-top:20px; box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] #plan h2 { font-size:20px; font-weight:650; letter-spacing:0; }\n[data-visual-theme=\"reference-editor\"] #plan h3 { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0 16px 0 0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding-left:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li { padding:14px 0; border-bottom:1px solid var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li:last-child { border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { background:var(--pyre-code,var(--pyre-raised)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:6px; padding:4px 6px; font-size:14px; line-height:1.4; align-self:start; width:fit-content; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list p { margin-top:6px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice { background:var(--pyre-subtle,var(--pyre-accent-soft)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:8px; padding:14px 16px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice .muted { color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] #plan .evidence li { padding:10px 0; }\n[data-visual-theme=\"reference-editor\"] .output { background:var(--pyre-code,var(--pyre-surface)); color:var(--pyre-text); border-color:var(--pyre-functional-border,var(--pyre-border)); border-radius:8px; }\n[data-visual-theme=\"reference-editor\"] .token { border-color:var(--pyre-line); }\n@media(max-width:850px) {\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { padding:4px 6px; border:1px solid var(--pyre-line); }\n}\n@media(max-width:720px) {\n [data-visual-theme=\"reference-editor\"] .page { padding:20px 16px 48px; }\n [data-visual-theme=\"reference-editor\"] .appearance-pickers { padding:12px; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding:14px 12px; }\n [data-visual-theme=\"reference-editor\"] .appearance-details { padding:0 12px; }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding:12px; }\n}\n/* Keep technical ranges whole; grow the gutter with its actual text. */\n[data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:max-content minmax(0,1fr); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { white-space:nowrap; width:max-content; min-width:max-content; }\n@container pyre-margin (max-width:calc(10.5em + 28px)) {\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:minmax(0,1fr); }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list .mono { grid-column:1; grid-row:1; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li > div { grid-column:1; grid-row:2; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-state { grid-column:1; grid-row:3; }\n}\n@media(max-width:380px) {\n /* At ordinary text size these remain12px. Enlarged text gets reading space back. */\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding-inline:clamp(6px,calc(100vw - 10em),12px); }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding-inline:clamp(8px,calc(100vw - 10em),12px); }\n}\n@media print {\n :root { --pyre-action:#333333 !important; --pyre-on-action:#ffffff !important; --pyre-code:#ffffff !important; --pyre-subtle:#eeeeee !important; --pyre-functional-border:#777777 !important; --pyre-control-border:#777777 !important; }\n}\n",
+  "css": "/* Reference-directed visual treatment. Dark source colors remain exact; light is a derived companion. */\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"] {\n  color-scheme:dark;\n  --pyre-background: #19191e;\n  --pyre-surface: #1e1c24;\n  --pyre-raised: #26242c;\n  --pyre-overlay: #2c2a32;\n  --pyre-text: #dbd9e3;\n  --pyre-muted: #918d9a;\n  --pyre-border: #55525f;\n  --pyre-input: #504b5d;\n  --pyre-subtle: #342e42;\n  --pyre-highlight: #3c354b;\n  --pyre-accent: #b69ff0;\n  --pyre-action: #d7a6bd;\n  --pyre-message: #443c55;\n  --pyre-code: #131318;\n  --pyre-sidebar: #131318;\n  --pyre-sidebar-controls: #332f3c;\n  --pyre-sidebar-selection: #393345;\n  --pyre-terminal: #19191e;\n  --pyre-error: #e5637e;\n  --pyre-warning: #e0a94d;\n  --pyre-success: #34c08a;\n  --pyre-on-accent: #131318;\n  --pyre-on-action: #131318;\n  --pyre-focus: #b69ff0;\n  --pyre-functional-boundary: #b69ff0;\n  --pyre-canvas: #19191e;\n  --pyre-accent-soft: #342e42;\n  --pyre-accent-text: #131318;\n  --pyre-accent-secondary: #d7a6bd;\n  --pyre-line: #55525f;\n  --pyre-functional-border: #b69ff0;\n  --pyre-control-border: #918d9a;\n}\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"light\"] {\n  color-scheme:light;\n  --pyre-background: #f3f1f7;\n  --pyre-surface: #fbfaff;\n  --pyre-raised: #ffffff;\n  --pyre-overlay: #ffffff;\n  --pyre-text: #302938;\n  --pyre-muted: #5c5367;\n  --pyre-border: #7e708a;\n  --pyre-input: #e8e3ef;\n  --pyre-subtle: #eae5f1;\n  --pyre-highlight: #dfd5ed;\n  --pyre-accent: #664c82;\n  --pyre-action: #844463;\n  --pyre-message: #e4dceb;\n  --pyre-code: #eeebf3;\n  --pyre-sidebar: #eeebf3;\n  --pyre-sidebar-controls: #e5dfed;\n  --pyre-sidebar-selection: #ddd2e9;\n  --pyre-terminal: #f3f1f7;\n  --pyre-error: #c43d60;\n  --pyre-warning: #9a6a12;\n  --pyre-success: #1b8a57;\n  --pyre-on-accent: #fbfaff;\n  --pyre-on-action: #fbfaff;\n  --pyre-focus: #664c82;\n  --pyre-functional-boundary: #7e708a;\n  --pyre-canvas: #f3f1f7;\n  --pyre-accent-soft: #eae5f1;\n  --pyre-accent-text: #fbfaff;\n  --pyre-accent-secondary: #844463;\n  --pyre-line: #7e708a;\n  --pyre-functional-border: #7e708a;\n  --pyre-control-border: #7e708a;\n}\n\n[data-mode=\"light\"][data-base=\"neutral\"] { --pyre-canvas:#f3f5f6; --pyre-surface:#ffffff; --pyre-raised:#e9edf0; --pyre-line:#d3d8dc; }\n[data-mode=\"dark\"][data-base=\"neutral\"] { --pyre-canvas:#10151a; --pyre-surface:#181f26; --pyre-raised:#242d36; --pyre-line:#394149; }\n[data-mode=\"light\"][data-base=\"warm\"] { --pyre-canvas:#f8f3e9; --pyre-surface:#fffaf2; --pyre-raised:#efe5d5; --pyre-line:#dbd2c6; }\n[data-mode=\"dark\"][data-base=\"warm\"] { --pyre-canvas:#191610; --pyre-surface:#221d16; --pyre-raised:#30271f; --pyre-line:#494035; }\n\n/* Source border is decorative. Functional boundaries remain legible even with legacy layouts. */\n[data-palette=\"reference-charcoal-violet\"] button,\n[data-palette=\"reference-charcoal-violet\"] .button,\n[data-palette=\"reference-charcoal-violet\"] select,\n[data-palette=\"reference-charcoal-violet\"] .output { border-color:var(--pyre-functional-border); }\n[data-palette=\"reference-charcoal-violet\"] .notice .muted { color:var(--pyre-text); }\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"][data-base=\"neutral\"] #plan .pr-list p { color:var(--pyre-text); }\n\n[data-visual-theme=\"reference-editor\"] { --pyre-radius:8px; --pyre-section-gap:20px; --pyre-row-pad:14px; --pyre-content-width:1180px; --pyre-reading-width:68ch; }\n[data-visual-theme=\"reference-editor\"] body { line-height:1.55; }\n[data-visual-theme=\"reference-editor\"] h1 { font-size:26px; font-weight:650; letter-spacing:-.01em; }\n[data-visual-theme=\"reference-editor\"] .page-header { padding-bottom:20px; }\n[data-visual-theme=\"reference-editor\"] .palette-heading { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] .theme-picker-label { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .refinement-selected { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .theme-number { font-size:14px; opacity:1; }\n[data-visual-theme=\"reference-editor\"] button, [data-visual-theme=\"reference-editor\"] .button { border-radius:8px; background:var(--pyre-raised); border-color:var(--pyre-control-border,var(--pyre-border)); color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] button:hover { background:var(--pyre-surface); }\n[data-visual-theme=\"reference-editor\"] button[aria-pressed=\"true\"] { background:var(--pyre-sidebar-selection,var(--pyre-accent-soft)); color:var(--pyre-text); border-color:var(--pyre-accent); box-shadow:inset 0 -2px var(--pyre-accent); }\n[data-visual-theme=\"reference-editor\"] button.primary { background:var(--pyre-action,var(--pyre-accent)); border-color:var(--pyre-action,var(--pyre-accent)); color:var(--pyre-on-action,var(--pyre-accent-text)); box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] :focus-visible { outline:2px solid var(--pyre-focus); outline-offset:2px; }\n[data-visual-theme=\"reference-editor\"] .quick-controls { background:var(--pyre-canvas); padding:8px 0; border-color:var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers { border:1px solid var(--pyre-line); border-radius:10px; background:var(--pyre-surface); padding:16px; margin-bottom:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option { flex-basis:9em; gap:6px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option .swatch { border-color:var(--pyre-line); border-radius:4px; height:16px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .theme-option { min-height:44px; font-size:15px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details { border:1px solid var(--pyre-line); background:var(--pyre-surface); border-radius:10px; padding:0 16px; margin-top:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details .controls { padding-bottom:16px; border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section { background:var(--pyre-surface); border:1px solid var(--pyre-line); border-radius:10px; padding:18px; margin-top:20px; box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] #plan h2 { font-size:20px; font-weight:650; letter-spacing:0; }\n[data-visual-theme=\"reference-editor\"] #plan h3 { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0 16px 0 0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding-left:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li { padding:14px 0; border-bottom:1px solid var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li:last-child { border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { background:var(--pyre-code,var(--pyre-raised)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:6px; padding:4px 6px; font-size:14px; line-height:1.4; align-self:start; width:fit-content; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list p { margin-top:6px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice { background:var(--pyre-subtle,var(--pyre-accent-soft)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:8px; padding:14px 16px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice .muted { color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] #plan .evidence li { padding:10px 0; }\n[data-visual-theme=\"reference-editor\"] .output { background:var(--pyre-code,var(--pyre-surface)); color:var(--pyre-text); border-color:var(--pyre-functional-border,var(--pyre-border)); border-radius:8px; }\n[data-visual-theme=\"reference-editor\"] .token { border-color:var(--pyre-line); }\n@media(max-width:850px) {\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { padding:4px 6px; border:1px solid var(--pyre-line); }\n}\n@media(max-width:720px) {\n [data-visual-theme=\"reference-editor\"] .page { padding:20px 16px 48px; }\n [data-visual-theme=\"reference-editor\"] .appearance-pickers { padding:12px; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding:14px 12px; }\n [data-visual-theme=\"reference-editor\"] .appearance-details { padding:0 12px; }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding:12px; }\n}\n/* Keep technical ranges whole; grow the gutter with its actual text. */\n[data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:max-content minmax(0,1fr); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { white-space:nowrap; width:max-content; min-width:max-content; }\n@container pyre-margin (max-width:calc(10.5em + 28px)) {\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:minmax(0,1fr); }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list .mono { grid-column:1; grid-row:1; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li > div { grid-column:1; grid-row:2; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-state { grid-column:1; grid-row:3; }\n}\n@media(max-width:380px) {\n /* At ordinary text size these remain12px. Enlarged text gets reading space back. */\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding-inline:clamp(6px,calc(100vw - 10em),12px); }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding-inline:clamp(8px,calc(100vw - 10em),12px); }\n}\n@media print {\n :root { --pyre-action:#333333 !important; --pyre-on-action:#ffffff !important; --pyre-code:#ffffff !important; --pyre-subtle:#eeeeee !important; --pyre-functional-border:#777777 !important; --pyre-control-border:#777777 !important; }\n}\n",
   "integration": {
     "visualTheme": "reference-editor",
     "underlyingLayout": "moss / 04 Margin notes",

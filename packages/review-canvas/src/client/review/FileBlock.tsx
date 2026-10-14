@@ -12,6 +12,7 @@ import { cn } from "../ui/cn.ts";
 import { Inline, LineCounts, Prose } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
+import { Narration } from "./Header.tsx";
 import { Orphan } from "./Thread.tsx";
 import { extraAtom, foldsAtom } from "./ui.ts";
 import { type FileModel, PATCH_NOTE_TEXT } from "./view.ts";
@@ -70,7 +71,8 @@ const Word = ({
 const About = ({ model, id }: { readonly model: FileModel; readonly id: string }) => {
   const { file } = model;
   return (
-    <div id={id} className="flex flex-col gap-2 border-b border-separator bg-surface px-4 py-3">
+    <div id={id} className="flex flex-col gap-2 bg-surface px-4 py-3">
+      <Narration>About this file</Narration>
       {file.summary === undefined ? null : <Prose text={file.summary} />}
       {(file.callouts ?? []).map((callout, at) => (
         <p key={at}>
@@ -189,13 +191,13 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
       data-path={file.path}
       data-folded={folded}
       data-viewed={model.approved}
-      className="mt-3 scroll-mt-(--sticky-top) rounded-panel first-of-type:mt-4 border border-separator bg-surface"
+      className="mt-3 scroll-mt-(--sticky-top) rounded-panel bg-surface first-of-type:mt-4"
     >
       <header
         data-file-head
         className={cn(
           "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-t-panel bg-surface px-2 py-1.5",
-          folded ? "rounded-b-panel" : "border-b border-separator md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
+          folded ? "rounded-b-panel" : "md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
         )}
       >
         {model.hasBody ? (
@@ -241,7 +243,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
       </header>
       {hasAbout && aboutOpen ? <About model={model} id={`about-${table}`} /> : null}
       {status?.kind === "since" && sinceOpen ? (
-        <div id={`since-${table}`} className="border-b border-separator">
+        <div id={`since-${table}`}>
           <p className="bg-surface px-4 py-2 text-small text-muted">Changes since round {page.round.round - 1}</p>
           <DiffTable model={model} split={false} patch={status.patch} />
         </div>

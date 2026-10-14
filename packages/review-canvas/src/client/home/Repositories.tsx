@@ -23,7 +23,7 @@ import {
   queryAtom,
   rootAtom,
 } from "./data.ts";
-import { count, targetName } from "../names.ts";
+import { count, targetName, underRoot } from "../names.ts";
 
 const FIELD =
   "min-h-11 w-full rounded-control border border-line bg-raised px-2.5 text-small text-ink placeholder:text-muted";
@@ -100,17 +100,20 @@ const ReviewLinks = ({
     </ul>
   );
 
+/** A checkout on one line: its path under the scan directory that holds it, then its branch and state. */
 const CheckoutLine = ({
   checkout,
+  roots,
   reviews,
 }: {
   readonly checkout: Checkout;
+  readonly roots: ReadonlyArray<string>;
   readonly reviews: ReadonlyArray<ReviewSummary>;
 }) => (
   <li data-checkout="">
-    <div className="flex flex-wrap items-baseline gap-x-4">
-      <code className="min-w-0 wrap-anywhere" title={checkout.root}>
-        {checkout.shown}
+    <div className="flex items-baseline gap-x-4 max-md:flex-wrap">
+      <code className="min-w-0 flex-1 truncate text-technical text-muted" title={checkout.root}>
+        {underRoot(checkout.shown, roots)}
       </code>
       {checkout.status === undefined ? null : <CheckoutState status={checkout.status} />}
     </div>
@@ -122,12 +125,14 @@ const CheckoutLine = ({
 
 const RepositoryRow = ({
   entry,
+  roots,
   reviews,
   byId,
   busy,
   change,
 }: {
   readonly entry: RepositoryEntry;
+  readonly roots: ReadonlyArray<string>;
   readonly reviews: ReadonlyArray<ReviewSummary>;
   readonly byId: ReadonlyMap<ReviewId, ReviewSummary>;
   readonly busy: boolean;
@@ -138,7 +143,7 @@ const RepositoryRow = ({
     <li
       data-repository=""
       data-monitoring={entry.monitored ? "monitored" : "discovered"}
-      className="px-4 py-3"
+      className="py-3"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <h3 className="min-w-0 text-reading font-semibold wrap-anywhere" title={entry.full_name}>
@@ -167,7 +172,7 @@ const RepositoryRow = ({
       </div>
       <ul className="mt-2">
         {entry.checkouts.map((checkout) => (
-          <CheckoutLine key={checkout.root} checkout={checkout} reviews={reviews} />
+          <CheckoutLine key={checkout.root} checkout={checkout} roots={roots} reviews={reviews} />
         ))}
       </ul>
       <ReviewLinks
@@ -262,9 +267,8 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
       : "";
   const rows = (entries: ReadonlyArray<RepositoryEntry>) =>
     entries.map((entry) => (
-      <RepositoryRow key={entry.id} entry={entry} reviews={reviews} byId={byId} busy={busy} change={change} />
+      <RepositoryRow key={entry.id} entry={entry} roots={snapshot.roots} reviews={reviews} byId={byId} busy={busy} change={change} />
     ));
-  const list = "divide-y divide-separator rounded-control border border-separator bg-surface";
   return (
     <section aria-labelledby="repositories-title" data-repositories="" className="mt-9">
       <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
@@ -302,7 +306,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
           <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
         )
       ) : shownMonitored.length === 0 ? null : (
-        <ul aria-label="Monitored repositories" className={list}>
+        <ul aria-label="Monitored repositories">
           {rows(shownMonitored)}
         </ul>
       )}
@@ -314,7 +318,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
             </h2>
             <span className="text-small text-muted">{discovered.length}</span>
           </div>
-          <ul aria-labelledby="found-title" className={list}>
+          <ul aria-labelledby="found-title">
             {rows(shownDiscovered)}
           </ul>
         </>

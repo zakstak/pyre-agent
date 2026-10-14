@@ -46,18 +46,21 @@ Use roles, not hex values. Each role switches with the mode.
 | Secondary text | `--text-secondary`                                        | Metadata, hints, and line numbers                     |
 | Separator      | `--separator`                                             | Decorative lines around and between panels            |
 | Control border | `--border`                                                | Boundaries of fields and buttons                      |
-| Accent         | `--pyre-accent`, `--link`, `--focus`                      | Links, focus rings, current item, comment affordances |
+| Accent         | `--pyre-accent`, `--focus`                                | Focus rings, current item, the agent's voice          |
+| Link           | `--link`                                                  | Links                                                 |
 | Action         | `--pyre-action`                                           | The primary button only                               |
 | Subtle         | `--pyre-subtle`                                           | Hover fills, callouts, and diff hunk rows             |
 | Status         | `--status-success`, `--status-warning`, `--status-danger` | Results, paired with words                            |
 | Diff tints     | `--pyre-diff-addition`, `--pyre-diff-deletion`            | Added and deleted diff rows                           |
 | Selection      | `--pyre-selection`                                        | Selected text                                         |
 
-The dark source colors are exact values from Zak's reference screenshot. The
-light companion, the success role, and the `color-mix()` roles are derived.
+The dark surface, text, and border colors are exact values from Zak's reference
+screenshot. The light companion, the `color-mix()` roles, and the signal colors
+(success, error, warning, the dark accent, and the link), which were changed on
+2026-10-14 to carry hue, from Zak's T3 Code theme, are derived.
 [reference-theme-contract.json](reference-theme-contract.json) records the
 source contract, SHA-256
-`4cb5c21b3d08f297b1bd8c0a81916168307d452ac6e457670e5fab11d1418d27`, including
+`2704cfed94bd8723d488fa7a5490a5c1d1deb8707ef53f8bec827b00baddf2e3`, including
 its full contrast matrix. Keep the source and derived distinction when you
 extend the palette.
 

@@ -13,6 +13,7 @@ import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlock } from "./FileBlock.tsx";
+import { Narration } from "./Header.tsx";
 import { ACTIONS_CLASS, Orphan, submitOnModEnter, ThreadView } from "./Thread.tsx";
 import { finishDraftAtom, generalDraftAtom } from "./ui.ts";
 import { finishState } from "./view.ts";
@@ -83,6 +84,9 @@ export const StopSection = ({
       data-stop={stop.index}
       className="mt-12 scroll-mt-(--sticky-top) first:mt-0"
     >
+      <Narration className="mb-1">
+        Walkthrough · stop {stop.index + 1} of {page.stops.length}
+      </Narration>
       <div data-stop-head className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`stop-${stop.index + 1}-title`} tabIndex={-1} className="scroll-mt-(--sticky-top) text-heading font-semibold">
           <span className="mr-1 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>{" "}
@@ -99,8 +103,8 @@ export const StopSection = ({
         </div>
       )}
       {stop.attention === null ? null : (
-        <p data-attention className="mt-3 max-w-reading border-l-2 border-action pl-3.5">
-          <strong className="text-action">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
+        <p data-attention className="mt-3 max-w-reading border-l-2 border-warning pl-3.5">
+          <strong className="text-warning">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
         </p>
       )}
       <Also stop={stop} onFlash={onFlash} />
@@ -132,7 +136,7 @@ export const StopSection = ({
 const END_SECTION = "mt-12 scroll-mt-(--sticky-top)";
 
 /** The finish as a card, open or finished, so the page ends on something to act on. */
-const FINISH_CARD = cn(END_SECTION, "rounded-panel border border-separator bg-surface p-5");
+const FINISH_CARD = cn(END_SECTION, "rounded-panel bg-surface p-5");
 
 /**
  * Inline comments on files that left the round, such as a reverted or renamed file. No file block shows them, so
@@ -144,7 +148,7 @@ export const Departed = () => {
   return (
     <section id="departed" data-end-section className={END_SECTION}>
       <h2 className="text-heading font-semibold">Files that left the round</h2>
-      <div className="mt-3 rounded-panel border border-separator bg-surface">
+      <div className="mt-3 rounded-panel bg-surface">
         {page.departed.map((comment) => (
           <Orphan key={comment.id} comment={comment} withPath />
         ))}
@@ -172,7 +176,7 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
       {page.general.length === 0 ? null : (
         <div className="mt-3 flex flex-col gap-3">
           {page.general.map((comment) => (
-            <div key={comment.id} className="rounded-panel border border-separator bg-surface px-4 py-3">
+            <div key={comment.id} className="rounded-panel bg-surface px-4 py-3">
               <ThreadView comment={comment} />
             </div>
           ))}

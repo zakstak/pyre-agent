@@ -25,7 +25,7 @@ import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
-import { NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
+import { Narration, NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { Departed, Finish, General, StopSection } from "./Sections.tsx";
 import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
@@ -98,7 +98,7 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
           <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3.5 text-small text-muted">
             {first === undefined ? null : (
-              <Who thread={first}>
+              <Who thread={first} id={first.id}>
                 started this review at <Time at={snapshot.state.created_at} />
               </Who>
             )}
@@ -199,6 +199,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {page.input.summary === undefined ? null : (
             <div className="mb-10 max-w-reading">
+              <Narration className="mb-1.5">Round {page.round.round}</Narration>
               <Prose text={page.input.summary} />
             </div>
           )}

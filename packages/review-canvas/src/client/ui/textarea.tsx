@@ -5,7 +5,7 @@ import { cn } from "./cn.ts";
 export const Textarea = ({ className, ...props }: ComponentProps<"textarea">) => (
   <textarea
     className={cn(
-      "block w-full resize-y rounded-control border border-line bg-code px-3 py-2 text-base placeholder:text-muted",
+      "block w-full resize-y rounded-control border border-separator bg-code px-3 py-2 text-base placeholder:text-muted",
       className,
     )}
     {...props}

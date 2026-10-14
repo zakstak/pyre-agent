@@ -1,18 +1,30 @@
 /**
- * The contents: every stop with the files it owns, where the reviewer is, and what they read and viewed, with the
- * diff layout under them. A wide page keeps them beside the review; a narrower one folds them into a disclosure.
+ * The contents: the walkthrough's stops, then every file of the round by folder, each list marking where the reviewer
+ * is and what they read and viewed, with the diff layout under them. A wide page keeps them beside the review; a narrower one folds them into a disclosure.
  */
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { useEffect, useRef, useState } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
 import { fileElementId } from "../../review/next.ts";
-import { count, shortPath } from "../names.ts";
+import { count, splitPath } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { useMedia } from "../ui/media.ts";
 import { usePage } from "./act.ts";
 import { spiedAtom } from "./navigate.ts";
 import { layoutAtom, seenAtom, WIDE_QUERY } from "./ui.ts";
+
+const KICKER = "text-technical font-semibold tracking-wide text-muted uppercase";
+
+/** Paths in path order, grouped by their folder; files at the root come first, under no folder. */
+const byDirectory = (paths: ReadonlyArray<RepoPath>) => {
+  const groups = new Map<string, Array<RepoPath>>();
+  for (const path of [...paths].sort((a, b) => a.localeCompare(b))) {
+    const { dir } = splitPath(path);
+    groups.set(dir, [...(groups.get(dir) ?? []), path]);
+  }
+  return [...groups].map(([dir, grouped]) => ({ dir, paths: grouped })).sort((a, b) => (a.dir === "" ? -1 : b.dir === "" ? 1 : 0));
+};
 
 export const Contents = ({
   onStop,
@@ -30,88 +42,98 @@ export const Contents = ({
   const viewed = page.progress.viewed.size;
   const total = page.progress.viewable;
   const nav = useRef<HTMLElement>(null);
-  // A wide page keeps the spied row in view in the pane.
+  // A wide page keeps the spied row in view in the pane: the file's when a file is spied, else the stop's.
   useEffect(() => {
     if (!wide) return;
-    nav.current?.querySelector<HTMLElement>("[aria-current='location']")?.scrollIntoView({ block: "nearest" });
+    const rows = nav.current?.querySelectorAll<HTMLElement>("[aria-current='location']");
+    rows?.[rows.length - 1]?.scrollIntoView({ block: "nearest" });
   }, [current, wide]);
+  // The spy marks a stop or a file; a file marks the stop that owns it too, so each list shows where the reader is.
+  const spiedFile = current?.startsWith("file:") === true ? current.slice("file:".length) : undefined;
+  const spiedStop =
+    spiedFile === undefined
+      ? current?.startsWith("stop:") === true
+        ? Number(current.slice("stop:".length))
+        : undefined
+      : page.stops.find((stop) => stop.owns.some((path) => path === spiedFile))?.index;
   const list = (
     <nav ref={nav} aria-label="Stops and files" className="text-small">
-      <ol className="m-0 flex list-none flex-col p-0">
+      <p className={KICKER}>Walkthrough</p>
+      <ol className="m-0 mt-1.5 flex list-none flex-col p-0">
         {page.stops.map((stop) => (
-          <li key={stop.index} className="mt-2 first:mt-0">
+          <li key={stop.index} className="m-0">
             <a
               href={`#stop-${stop.index + 1}`}
               data-stop-link={stop.index}
               data-read={read.has(stop.index) ? "" : undefined}
-              aria-current={current === `stop:${stop.index}` ? "location" : undefined}
+              aria-current={spiedStop === stop.index ? "location" : undefined}
               onClick={(event) => {
                 event.preventDefault();
                 setOpen(false);
                 onStop(stop.index);
               }}
-              className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
+              className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
             >
               <span className={cn("font-mono text-technical font-normal", read.has(stop.index) ? "text-accent" : "text-muted")}>{stop.index + 1}</span>
               <span className="min-w-0">{stop.title}</span>
-              <span className="font-normal text-muted">{stop.owns.length}</span>
             </a>
-            {stop.owns.length === 0 ? null : (
-              <ol className="m-0 list-none p-0">
-                {stop.owns.map((path) => {
-                  const model = page.files.get(path);
-                  if (model === undefined) return null;
-                  const name = shortPath(path);
-                  return (
-                    <li key={path} className="m-0">
-                      <a
-                        href={`#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`}
-                        data-toc-file={path}
-                        title={path}
-                        aria-current={current === `file:${path}` ? "location" : undefined}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          setOpen(false);
-                          onFile(path);
-                        }}
-                        className={cn(
-                          "flex h-7 items-center gap-2 rounded-control pr-1 pl-7 font-mono text-technical no-underline hover:bg-subtle aria-[current]:bg-selected",
-                          model.approved ? "text-muted" : "text-ink",
-                        )}
-                      >
-                        {/*
-                          The folder and name when both fit, else the name alone, cut at its end; never part of the
-                          folder. The name comes first in a wrapping line laid out right to left and packed to the
-                          left, so the folder is what wraps, onto a second line the row clips.
-                        */}
-                        <span className="flex max-h-7 min-w-0 flex-1 flex-row-reverse flex-wrap justify-end overflow-hidden leading-7 whitespace-nowrap">
-                          <span className="flex-none text-muted">{name.dir}</span>
-                          <span className="-order-1 min-w-0 truncate">{name.base}</span>
-                        </span>
-                        {model.approved ? (
-                          <span aria-label="viewed" className="text-ink">
-                            ✓
-                          </span>
-                        ) : model.open > 0 ? (
-                          <span aria-label={count(model.open, "open comment")} className="inline-flex items-center gap-1 text-ink">
-                            <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-accent" />
-                            {model.open}
-                          </span>
-                        ) : null}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
           </li>
         ))}
       </ol>
+      <p className={cn(KICKER, "mt-6")}>Files</p>
+      <ul className="m-0 mt-1.5 list-none p-0">
+        {byDirectory([...page.files.keys()]).map(({ dir, paths }) => (
+          <li key={dir} className="m-0">
+            {dir === "" ? null : (
+              <p title={dir} className="truncate px-1 pt-1.5 font-mono text-technical text-muted">
+                {dir}
+              </p>
+            )}
+            <ul className={cn("m-0 list-none p-0", dir !== "" && "pl-3")}>
+              {paths.map((path) => {
+                const model = page.files.get(path);
+                if (model === undefined) return null;
+                return (
+                  <li key={path} className="m-0">
+                    <a
+                      href={`#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`}
+                      data-toc-file={path}
+                      title={path}
+                      aria-current={spiedFile === path ? "location" : undefined}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setOpen(false);
+                        onFile(path);
+                      }}
+                      className={cn(
+                        "flex h-7 items-center gap-2 rounded-control px-1 font-mono text-technical no-underline hover:bg-subtle aria-[current]:bg-selected",
+                        model.approved ? "text-muted" : "text-ink",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{splitPath(path).base}</span>
+                      {model.approved ? (
+                        <span aria-label="viewed" className="text-ink">
+                          ✓
+                        </span>
+                      ) : model.open > 0 ? (
+                        <span aria-label={count(model.open, "open comment")} className="inline-flex items-center gap-1 text-ink">
+                          <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-accent" />
+                          {model.open}
+                        </span>
+                      ) : null}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </nav>
   );
   // The layout switch alone: the strip already counts what was viewed.
   const foot = (
-    <div className={cn("border-t border-separator text-small", wide ? "mt-auto pt-3 pb-4" : "mt-4 pt-4 max-md:hidden")}>
+    <div className={cn("text-small", wide ? "mt-auto pt-3 pb-4" : "mt-4 pt-4 max-md:hidden")}>
       <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line">
         {([["unified", "Unified"], ["split", "Split"]] as const).map(([choice, label]) => (
           <button
@@ -140,7 +162,7 @@ export const Contents = ({
           {foot}
         </>
       ) : (
-        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-4 rounded-panel border border-separator bg-surface px-3">
+        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-4 rounded-panel bg-surface px-3">
           <summary className="flex min-h-11 items-center font-semibold">
             Contents · {viewed} / {total}
           </summary>
