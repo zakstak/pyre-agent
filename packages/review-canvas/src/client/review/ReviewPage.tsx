@@ -4,8 +4,8 @@
  * the whole change and the finish come last. A strip under the title always names the one thing to do next.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
-import { Cause, Exit, Option, Schema } from "effect";
-import { AsyncResult } from "effect/reactivity";
+import { Cause, Option, Schema } from "effect";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReviewInput } from "../../schema/input.ts";
 import { type ReviewId, RoundNumber } from "../../schema/primitives.ts";
@@ -16,7 +16,7 @@ import { fileElementId } from "../../review/next.ts";
 import type { Round } from "../../review/queries.ts";
 import { count, shortPath, targetName, threadName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { connectionAtom } from "../rpc.ts";
-import { buttonVariants } from "../ui/button.tsx";
+import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Prose, Time } from "../ui/text.tsx";
 import { TargetText } from "../ui/target.tsx";
@@ -121,7 +121,7 @@ const TopBar = ({
 const ImportFeedback = () => {
   const runImport = useImport();
   return (
-    <label className="cursor-pointer font-normal underline underline-offset-3">
+    <label className="cursor-pointer rounded-sm font-normal underline underline-offset-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus">
       Import feedback
       <input
         type="file"
@@ -133,9 +133,9 @@ const ImportFeedback = () => {
           const file = input.files?.[0];
           input.value = "";
           if (file === undefined) return;
-          const exit = await runImport(await file.text());
-          if (Exit.isFailure(exit)) return toast(`Not imported: ${failureMessage(exit.cause)}`, "danger");
-          const report = exit.value;
+          const imported = await runImport(await file.text());
+          if (!imported.ok) return toast(`Not imported: ${imported.message}`, "danger");
+          const { report } = imported;
           const added = `Imported ${count(report.comments, "comment")}, ${count(report.replies, "reply", "replies")}, and ${count(report.approvals, "approval")}.`;
           const already = report.already === 0 ? "" : ` ${report.already} already here.`;
           toast(`${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`);
@@ -460,18 +460,19 @@ const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
 
 // -------------------------------------------------------------------------------------------------------- contents
 
+/** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
+const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
+
 const Contents = ({
-  current,
-  read,
   onStop,
   onFile,
 }: {
-  readonly current: string | undefined;
-  readonly read: ReadonlySet<number>;
   readonly onStop: (index: number) => void;
   readonly onFile: (path: string) => void;
 }) => {
-  const { page } = usePage();
+  const { id, page } = usePage();
+  const current = useAtomValue(spiedAtom);
+  const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
   const [layout, setLayout] = useAtom(layoutAtom);
   const wide = useMedia(WIDE_QUERY);
   const [open, setOpen] = useState(false);
@@ -568,6 +569,7 @@ const Contents = ({
             aria-pressed={layout === choice}
             onClick={() => setLayout(choice)}
             className={cn(
+              TOUCH_TARGET,
               "h-7 cursor-pointer px-2.5 font-medium capitalize",
               layout === choice ? "bg-selected text-ink shadow-pressed" : "bg-raised text-muted hover:bg-subtle",
             )}
@@ -633,12 +635,11 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   const navigate = useNavigate(key, page);
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
-  const read = new Set(useAtomValue(seenAtom(key)));
   const [layout] = useAtom(layoutAtom);
   const narrow = useMedia(NARROW_QUERY);
   const split = layout === "split" && !narrow;
-  const [current, setCurrent] = useState<string | undefined>(undefined);
   useStickyBars();
+  const context = useMemo(() => ({ id, page }), [id, page]);
 
   useEffect(() => {
     document.title = `${page.input.target.title} · Review canvas`;
@@ -664,7 +665,8 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        setCurrent(navigate.spy());
+        const spied = navigate.spy();
+        if (registry.get(spiedAtom) !== spied) registry.set(spiedAtom, spied);
       });
     };
     run();
@@ -753,7 +755,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   };
 
   return (
-    <ReviewContext.Provider value={{ id, page }}>
+    <ReviewContext.Provider value={context}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-control focus:border focus:border-line focus:bg-raised focus:px-3 focus:py-2">
         Skip to content
       </a>
@@ -761,7 +763,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
       <Frame>
         <Title id={id} />
         <NextStrip onGo={() => void navigate.goNext()} />
-        <Contents current={current} read={read} onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
+        <Contents onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
           history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
           void navigate.showFile(path);
         }} />

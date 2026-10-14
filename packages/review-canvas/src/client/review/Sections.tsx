@@ -6,7 +6,7 @@ import type { RoundNumber } from "../../schema/primitives.ts";
 import { parseRows } from "../../review/patch.ts";
 import type { StopView } from "../../review/tour.ts";
 import { count } from "../names.ts";
-import { Button } from "../ui/button.tsx";
+import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Inline, Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -123,7 +123,7 @@ export const StopSection = ({
               type="button"
               data-question={question}
               onClick={() => onAsk(question)}
-              className="inline-flex min-h-7 cursor-pointer items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle"
+              className={cn(TOUCH_TARGET, "inline-flex min-h-7 cursor-pointer items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
             >
               <span aria-hidden="true" className="font-bold text-accent">
                 ?
@@ -172,15 +172,20 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
   const act = useAct();
   const [body, setBody] = useAtom(generalDraftAtom);
   const [busy, setBusy] = useState(false);
+  // Set at once, unlike `busy`: Ctrl+Enter twice must send once.
+  const sending = useRef(false);
   // A closed review has nothing to add: the section shows only what was said.
   if (!page.writable && page.general.length === 0) return null;
   const send = async (question: boolean) => {
     const text = body.trim();
     if (text === "") return textarea.current?.focus();
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true);
     const outcome = await act({ kind: "general_comment", body: text, ...(question ? { question: true } : {}) });
+    sending.current = false;
     setBusy(false);
-    if (outcome.ok) setBody((now) => (now.trim() === text ? "" : now));
+    if (outcome.ok) setBody((now) => (now === body ? "" : now));
   };
   return (
     <section id="general" data-end-section className={END_SECTION}>
@@ -209,6 +214,7 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
             ref={textarea}
             id="general-body"
             rows={2}
+            readOnly={busy}
             value={body}
             placeholder="A question, a concern, or a direction for the agents"
             onChange={(event) => setBody(event.currentTarget.value)}
@@ -248,6 +254,7 @@ export const Finish = () => {
   const act = useAct();
   const [draft, setDraft] = useAtom(finishDraftAtom);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [engaged, setEngaged] = useState(false);
@@ -304,8 +311,11 @@ export const Finish = () => {
         className="mt-3"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (sending.current) return;
+          sending.current = true;
           setBusy(true);
           const outcome = await act({ kind: "submit", round: shownRound, verdict: draft.verdict, body: draft.body });
+          sending.current = false;
           setBusy(false);
           if (!outcome.ok) return catchUp();
           toast("Review finished. The agents have the turn.");
@@ -328,6 +338,7 @@ export const Finish = () => {
                 name="verdict"
                 value={verdict.value}
                 checked={draft.verdict === verdict.value}
+                disabled={busy}
                 onChange={() => setDraft((now) => ({ ...now, verdict: verdict.value }))}
                 className="size-4 accent-accent"
               />
@@ -341,6 +352,7 @@ export const Finish = () => {
         <textarea
           id="finish-body"
           rows={3}
+          readOnly={busy}
           value={draft.body}
           placeholder="What the agents should do next"
           onChange={(event) => {

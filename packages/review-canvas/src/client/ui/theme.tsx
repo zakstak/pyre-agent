@@ -7,6 +7,7 @@ import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
 import { useEffect, useSyncExternalStore } from "react";
+import { TOUCH_TARGET } from "./button.tsx";
 import { cn } from "./cn.ts";
 
 const THEMES = ["system", "light", "dark"] as const;
@@ -49,6 +50,7 @@ export const ThemeControl = () => {
             aria-pressed={theme === choice}
             onClick={() => setTheme(choice)}
             className={cn(
+              TOUCH_TARGET,
               "cursor-pointer px-1 underline-offset-3",
               theme === choice ? "font-semibold text-ink" : "underline hover:text-ink",
             )}

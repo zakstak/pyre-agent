@@ -7,10 +7,11 @@
  * composer's range.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
+import { Equal } from "effect";
 import { Atom } from "effect/reactivity";
-import { Fragment, useContext, useEffect, useRef } from "react";
+import { Fragment, useContext, useEffect, useMemo, useRef } from "react";
 import type { Row } from "../../review/patch.ts";
-import { Button } from "../ui/button.tsx";
+import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Inline, Lead } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -35,6 +36,20 @@ import type { FileModel, InlineNote } from "./view.ts";
 /** A drag over the line numbers of one file, from the row it started on to the row under the pointer. */
 const dragAtom = Atom.make<{ readonly path: string; readonly from: number; readonly to: number } | undefined>(undefined).pipe(
   Atom.keepAlive,
+);
+
+/**
+ * What one table reads of the page-wide drag, flash, and drafts. A table re-renders only when its own part changes,
+ * so dragging or typing in one file leaves every other diff alone.
+ */
+const dragOf = Atom.family((path: string) =>
+  Atom.map(dragAtom, (drag) => (drag?.path === path ? drag : undefined)).pipe(Atom.withEquality(Equal.equals)),
+);
+const flashOf = Atom.family((path: string) =>
+  Atom.map(flashAtom, (flash) => (flash?.path === path ? flash : undefined)).pipe(Atom.withEquality(Equal.equals)),
+);
+const draftsOf = Atom.family((path: string) =>
+  Atom.map(draftsAtom, (drafts) => drafts.filter((draft) => draft.path === path)).pipe(Atom.withEquality(Equal.equals)),
 );
 
 let nextDraft = 0;
@@ -80,6 +95,18 @@ const ROW_TONE: Readonly<Record<Row["kind"], string>> = {
 };
 
 const MARKER: Readonly<Record<Row["kind"], string>> = { add: "+", del: "−", context: " ", hunk: "", meta: "" };
+
+/** What the marker means, for a reader who hears the table instead of seeing its colours. */
+const SPOKEN: Readonly<Record<Row["kind"], string>> = { add: "Added", del: "Deleted", context: "", hunk: "", meta: "" };
+
+const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
+  <>
+    <span aria-hidden="true" className="inline-block w-[1em] text-center">
+      {MARKER[kind]}
+    </span>
+    {SPOKEN[kind] === "" ? null : <span className="sr-only">{SPOKEN[kind]}</span>}
+  </>
+);
 
 const ROW_BODY = "sticky left-0 box-border max-w-[100cqi] px-3 py-1.5 pl-11";
 
@@ -250,9 +277,7 @@ const UnifiedRow = ({ table, row, plus }: { readonly table: TableContext; readon
         </td>
         <td {...gutterProps(table, row)} className={cn("relative text-muted select-none", MARKER_GUTTER, gutterProps(table, row).className)}>
           <NoteMarker notes={table.notesAt.get(row.index)} />
-          <span aria-hidden="true" className="inline-block w-[1em] text-center">
-            {MARKER[row.kind]}
-          </span>
+          <Marker kind={row.kind} />
         </td>
         <td className={SOURCE}>
           <code className="text-ink">{row.content}</code>
@@ -295,9 +320,7 @@ const Half = ({
       </span>
       <span {...gutterProps(table, row)} className={cn("inline-block min-w-7 px-1 text-right text-muted select-none", gutterProps(table, row).className)}>
         {side === "new" || row.kind === "del" ? <NoteMarker notes={table.notesAt.get(row.index)} /> : null}
-        <span aria-hidden="true" className="inline-block w-[1em] text-center">
-          {MARKER[row.kind]}
-        </span>
+        <Marker kind={row.kind} />
       </span>
       <code className="text-ink">{row.content}</code>
     </td>
@@ -381,7 +404,7 @@ const GapGroup = ({ table, gap }: { readonly table: TableContext; readonly gap: 
             data-context={gap.context}
             aria-expanded={shown === 2}
             onClick={() => setStage(nextStage(shown, gap))}
-            className="sticky left-0 h-7 cursor-pointer px-12 font-sans text-small font-medium text-link hover:underline"
+            className={cn(TOUCH_TARGET, "sticky left-0 h-7 cursor-pointer px-12 font-sans text-small font-medium text-link hover:underline")}
           >
             {gapLabel(shown, gap)}
             <span aria-hidden="true"> {shown === 2 ? "▴" : "▾"}</span>
@@ -431,6 +454,8 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
     if (inside) requestAnimationFrame(() => document.getElementById(draft.opener)?.focus());
   };
   const send = async (question: boolean) => {
+    // The atom, not this render's props: Ctrl+Enter twice must send once.
+    if (registry.get(draftsAtom).find((item) => item.id === draft.id)?.submitting !== false) return;
     const body = draft.body.trim();
     if (body === "") return area.current?.focus();
     update((item) => ({ ...item, submitting: true }));
@@ -477,6 +502,7 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
               id={textId}
               rows={3}
               required
+              readOnly={draft.submitting}
               value={draft.body}
               placeholder="What should change, or what do you want to know?"
               onChange={(event) => {
@@ -533,17 +559,18 @@ export const DiffTable = ({
   const source = patch ?? model.file.patch ?? "";
   const split = wantSplit && !readOnly;
   const id = readOnly ? `f${model.index}-since` : `f${model.index}`;
-  const layout = layoutDiff(source, {
-    shown: readOnly ? undefined : model.shown,
-    content: readOnly ? undefined : model.file.new_content,
-  });
-  const drafts = useAtomValue(draftsAtom).filter((draft) => !readOnly && draft.path === model.file.path && draft.digest === model.digest);
+  // A new snapshot rebuilds the file's model, but the patch and the rows it shows rarely change: lay out once per both.
+  const shown = readOnly ? undefined : model.shown;
+  const shownKey = shown?.map((range) => `${range.start}-${range.end}`).join(",");
+  const content = readOnly ? undefined : model.file.new_content;
+  const layout = useMemo(() => layoutDiff(source, { shown, content }), [source, shownKey, content]);
+  const drafts = useAtomValue(draftsOf(model.file.path)).filter((draft) => !readOnly && draft.digest === model.digest);
   const reattaching = useAtomValue(reattachAtom);
-  const drag = useAtomValue(dragAtom);
-  const flash = useAtomValue(flashAtom);
+  const drag = useAtomValue(dragOf(model.file.path));
+  const flash = useAtomValue(flashOf(model.file.path));
   const editable = drafts.find((draft) => !draft.submitting);
   const selected =
-    drag !== undefined && drag.path === model.file.path
+    drag !== undefined
       ? { start: Math.min(drag.from, drag.to), end: Math.max(drag.from, drag.to) }
       : editable === undefined
         ? undefined
@@ -576,7 +603,7 @@ export const DiffTable = ({
     selectable: page.writable && !readOnly && model.digest !== undefined,
     reattaching: reattaching !== undefined,
     selected,
-    flash: flash !== undefined && flash.path === model.file.path && !readOnly ? flash : undefined,
+    flash: readOnly ? undefined : flash,
     commented: new Set(model.placed.flatMap((item) => Array.from({ length: item.end - item.start + 1 }, (_, at) => item.start + at))),
     notesAt: readOnly ? new Map() : groupBy(model.notes, (note) => note.row),
     threadsAt: readOnly ? new Map() : groupBy(model.placed, (item) => item.end),

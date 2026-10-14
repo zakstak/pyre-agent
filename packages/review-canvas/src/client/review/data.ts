@@ -2,10 +2,11 @@
  * A review as the page holds it: the live snapshot the server pushes, the rounds' inputs, and the one way to change
  * it. Every value comes from the server over the RPC socket; the page renders whatever these atoms hold.
  */
-import { Effect, Option, Semaphore, Stream } from "effect";
+import { Effect, type Exit, Option, Ref, Semaphore, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type { ReviewId, Revision, RoundNumber } from "../../schema/primitives.ts";
-import type { PageAction } from "../../schema/rpc.ts";
+import type { RpcClientError } from "effect/rpc";
+import type { ImportReport, PageAction, Refused } from "../../schema/rpc.ts";
 import { epochAtom, PageClient } from "../rpc.ts";
 
 /**
@@ -63,70 +64,66 @@ export const earlierAtom = Atom.family((key: RoundKey) =>
   ),
 );
 
-/**
- * The revision the page's actions carry. The server refuses an action on a revision other than the review's current
- * one, so the page sends the revision of the snapshot it shows, advanced by its own actions while nothing else
- * changed in between: those only add what the reviewer did, so the snapshot still describes the review.
- */
-const basisAtom = Atom.family((_id: ReviewId) => Atom.make<Revision | undefined>(undefined));
-
-/** The basis an action leaves: advanced when the action was sent on it and made exactly the next revision. */
+/** The basis an action leaves: advanced when the action made exactly the next revision. */
 export const afterOwnAction = (basis: Revision, made: Revision): Revision => (made === basis + 1 ? made : basis);
 
-/** The later of the revision the page shows and its basis. A newer snapshot carries the page's own changes. */
-const basisOf = (registry: Atom.FnContext["registry"], id: ReviewId): Revision | undefined => {
-  const shown = AsyncResult.value(registry.get(reviewAtom(id))).pipe(
-    Option.map((snapshot) => snapshot.revision),
-    Option.getOrUndefined,
-  );
-  const own = registry.get(basisAtom(id));
-  return shown === undefined || (own !== undefined && own > shown) ? own : shown;
-};
-
-/** One change at a time per review, actions and imports alike, so each is sent on the basis the one before left. */
-const lockOf = Atom.family((_id: ReviewId) => Atom.make(() => Semaphore.makeUnsafe(1)).pipe(Atom.keepAlive));
+/** `shown` is the revision of the snapshot the page shows, which can trail the newest while a new round loads. */
+export interface ReviewActions {
+  /** Sends an action after the changes before it, and answers with the revision it made. */
+  readonly act: (
+    action: PageAction,
+    shown: Revision,
+  ) => Promise<Exit.Exit<Revision, Refused | RpcClientError.RpcClientError>>;
+  /** Imports a feedback file's text after the changes before it, and answers with what it added. */
+  readonly importFeedback: (
+    text: string,
+    shown: Revision,
+  ) => Promise<Exit.Exit<ImportReport, Refused | RpcClientError.RpcClientError>>;
+}
 
 /**
- * Sends one change after the ones before it. Reads go through the registry, so the function depends on no atom and
- * nothing interrupts a change in flight.
+ * The one way a page changes a review. Changes go one at a time, and each caller gets its own change's outcome.
+ *
+ * The server refuses a change on a revision other than the review's current one, so each carries the revision of
+ * the snapshot the page shows, advanced by the page's own changes while nothing else changed in between: those only
+ * add what the reviewer did, so the snapshot still describes the review. A newer snapshot the page does not show yet,
+ * such as a round whose input is still loading, does not count, so a change made on the old page is refused as stale.
  */
-export const actAtom = Atom.family((id: ReviewId) =>
-  PageClient.runtime.fn(
-    (action: PageAction, get) =>
-      get.registry.get(lockOf(id)).withPermits(1)(
-        Effect.gen(function* () {
-          const client = yield* PageClient;
-          const sentWith = basisOf(get.registry, id);
-          const { revision } = yield* client("review.act", {
-            id,
-            action,
-            ...(sentWith === undefined ? {} : { revision: sentWith }),
-          });
-          if (sentWith !== undefined) get.registry.set(basisAtom(id), afterOwnAction(sentWith, revision));
-          return revision;
-        }),
-      ),
-    { concurrent: true },
-  ),
-);
-
-/** Imports a feedback file's text after the changes before it. */
-export const importAtom = Atom.family((id: ReviewId) =>
-  PageClient.runtime.fn(
-    (text: string, get) =>
-      get.registry.get(lockOf(id)).withPermits(1)(
-        Effect.gen(function* () {
-          const client = yield* PageClient;
-          const sentWith = basisOf(get.registry, id);
-          const { revision, report } = yield* client("review.import", {
-            id,
-            text,
-            ...(sentWith === undefined ? {} : { revision: sentWith }),
-          });
-          if (sentWith !== undefined) get.registry.set(basisAtom(id), afterOwnAction(sentWith, revision));
-          return report;
-        }),
-      ),
-    { concurrent: true },
-  ),
+export const actionsAtom = Atom.family((id: ReviewId) =>
+  PageClient.runtime
+    .atom(
+      Effect.gen(function* () {
+        const client = yield* PageClient;
+        const lock = yield* Semaphore.make(1);
+        const own = yield* Ref.make<Revision | undefined>(undefined);
+        const send = <A extends { readonly revision: Revision }, E>(
+          shown: Revision,
+          change: (revision: Revision) => Effect.Effect<A, E>,
+        ) =>
+          lock.withPermits(1)(
+            Effect.gen(function* () {
+              const ownBasis = yield* Ref.get(own);
+              const basis = ownBasis !== undefined && ownBasis > shown ? ownBasis : shown;
+              const done = yield* change(basis);
+              yield* Ref.set(own, afterOwnAction(basis, done.revision));
+              return done;
+            }),
+          );
+        return {
+          act: (action, shown) =>
+            Effect.runPromiseExit(
+              send(shown, (revision) => client("review.act", { id, action, revision })).pipe(
+                Effect.map((done) => done.revision),
+              ),
+            ),
+          importFeedback: (text, shown) =>
+            Effect.runPromiseExit(
+              send(shown, (revision) => client("review.import", { id, text, revision })).pipe(
+                Effect.map((done) => done.report),
+              ),
+            ),
+        } satisfies ReviewActions;
+      }),
+    )
+    .pipe(Atom.keepAlive),
 );

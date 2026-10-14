@@ -160,20 +160,26 @@ const Moves = ({
   readonly comment: Comment;
   readonly turn: Turn;
   readonly extra: React.ReactNode;
-  readonly onMoved: () => void;
+  readonly onMoved: (outcome: "sent" | "refused") => void;
 }) => {
   const act = useAct();
   const [reply, setReply] = useAtom(replyAtom(comment.id));
   const [busy, setBusy] = useState(false);
+  // Set at once, unlike `busy`: Ctrl+Enter twice must send once.
+  const sending = useRef(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
-  const send = async (action: "reply" | "accept" | "reopen", body: string) => {
+  /** Sends a move. `typed` is the reply box's text as it was, so text typed meanwhile stays in the box. */
+  const send = async (action: "reply" | "accept" | "reopen", body: string, typed?: string) => {
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true);
+    onMoved("sent");
     const outcome = await act({ kind: "reply", comment: comment.id, action, body });
+    sending.current = false;
     setBusy(false);
-    if (!outcome.ok) return;
-    if (action === "reply") setReply((now) => (now.body === body ? { open: false, body: "" } : { ...now, open: false }));
-    onMoved();
+    if (!outcome.ok) return onMoved("refused");
+    if (typed !== undefined) setReply((now) => (now.body === typed ? { open: false, body: "" } : { ...now, open: false }));
   };
   if (turn === "resolved")
     return (
@@ -191,7 +197,7 @@ const Moves = ({
         event.preventDefault();
         const body = reply.body.trim();
         if (body === "") return area.current?.focus();
-        void send("reply", body);
+        void send("reply", body, reply.body);
       }}
     >
       {reply.open ? (
@@ -203,6 +209,7 @@ const Moves = ({
             ref={area}
             id={editorId}
             autoFocus
+            readOnly={busy}
             rows={3}
             value={reply.body}
             placeholder={turn === "agent" ? "Add to the comment" : "Reply to the answer"}
@@ -262,13 +269,18 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
   const turn = turnOf(comment);
   const standing = page.standing(comment);
   const article = useRef<HTMLElement>(null);
-  // After a move the thread's actions change; focus goes to its first one, or the thread itself.
-  const [moved, setMoved] = useState(0);
+  /**
+   * The thread as it was when the reviewer made a move. When the move shows, the thread's actions have changed, and
+   * focus goes to its first one, or the thread itself, once: a later answer from an agent leaves focus alone.
+   */
+  const pending = useRef<{ readonly turn: string; readonly replies: number } | undefined>(undefined);
   useEffect(() => {
-    if (moved === 0) return;
+    const was = pending.current;
+    if (was === undefined || (was.turn === turn && was.replies === comment.replies.length)) return;
+    pending.current = undefined;
     const target = article.current?.querySelector<HTMLElement>("[data-thread-actions] button") ?? article.current;
     target?.focus({ preventScroll: true });
-  }, [moved, turn, comment.replies.length]);
+  }, [turn, comment.replies.length]);
   // The reattachment's reason, only where it found the lines somewhere else; the comment already sits on them.
   const reason =
     comment.kind === "inline" && comment.attachment.state === "attached" && comment.attachment.reason !== "Same patch."
@@ -313,7 +325,9 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
           ))}
         </ol>
       )}
-      {page.writable ? <Moves comment={comment} turn={turn} extra={extra} onMoved={() => setMoved((n) => n + 1)} /> : null}
+      {page.writable ? <Moves comment={comment} turn={turn} extra={extra} onMoved={(outcome) => {
+            pending.current = outcome === "sent" ? { turn, replies: comment.replies.length } : undefined;
+          }} /> : null}
     </article>
   );
 };

@@ -7,7 +7,7 @@ import { ChevronDown } from "lucide-react";
 import { useEffect } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
-import { Button } from "../ui/button.tsx";
+import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Inline, Prose } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -61,7 +61,7 @@ const Word = ({
     aria-expanded={open}
     aria-controls={controls}
     onClick={onToggle}
-    className={cn("cursor-pointer text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
+    className={cn(TOUCH_TARGET, "cursor-pointer text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
   >
     {children}
     <span aria-hidden="true"> {open ? "▴" : "▾"}</span>
@@ -132,6 +132,7 @@ const Viewed = ({ model }: { readonly model: FileModel }) => {
         if (outcome.ok) set(undefined);
       }}
       className={cn(
+        TOUCH_TARGET,
         "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-control border px-2 text-small font-medium",
         model.approved ? "border-accent bg-selected text-ink" : "border-line bg-raised text-ink hover:bg-subtle",
       )}
@@ -190,7 +191,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
             aria-expanded={!folded}
             aria-label={folded ? "Show diff" : "Hide diff"}
             onClick={() => set(folded ? "open" : "closed")}
-            className="inline-grid size-7 cursor-pointer place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink"
+            className={cn(TOUCH_TARGET, "inline-grid size-7 cursor-pointer place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink")}
           >
             <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", folded && "-rotate-90")} />
           </button>

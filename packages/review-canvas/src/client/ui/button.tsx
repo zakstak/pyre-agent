@@ -3,16 +3,22 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn.ts";
 
 /**
+ * A 44px target on touch screens for a control drawn smaller, through an invisible ::after box, so dense rows keep
+ * their look. Every compact control uses it, whether or not it is a `Button`.
+ */
+export const TOUCH_TARGET =
+  "relative pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:top-1/2 pointer-coarse:after:min-h-11 pointer-coarse:after:-translate-y-1/2";
+
+/**
  * Every button on the page. Small buttons keep a dense row's look and reach a 44px target on touch screens through
  * an invisible ::after box.
  */
 export const buttonVariants = cva(
   [
-    "relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap",
+    "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap",
     "rounded-control border font-semibold leading-tight no-underline transition-colors",
     "disabled:cursor-not-allowed disabled:border-separator disabled:bg-surface disabled:text-muted",
-    "pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:top-1/2",
-    "pointer-coarse:after:min-h-11 pointer-coarse:after:-translate-y-1/2",
+    TOUCH_TARGET,
   ],
   {
     variants: {
