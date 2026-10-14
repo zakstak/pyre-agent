@@ -3,6 +3,7 @@
  * is and what they read and viewed, with the diff layout under them. A wide page keeps them beside the review; a narrower one folds them into a disclosure.
  */
 import { useAtom, useAtomValue } from "@effect/atom-react";
+import { Check, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
 import { fileElementId } from "../../review/next.ts";
@@ -10,6 +11,7 @@ import { count, splitPath } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { useMedia } from "../ui/media.ts";
+import { Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
 import { spiedAtom } from "./navigate.ts";
 import { layoutAtom, seenAtom, WIDE_QUERY } from "./ui.ts";
@@ -112,14 +114,11 @@ export const Contents = ({
                     >
                       <span className="min-w-0 flex-1 truncate">{splitPath(path).base}</span>
                       {model.approved ? (
-                        <span aria-label="viewed" className="text-ink">
-                          ✓
-                        </span>
+                        <Check role="img" aria-label="viewed" className="size-3.5 shrink-0 text-ink" />
                       ) : model.open > 0 ? (
-                        <span aria-label={count(model.open, "open comment")} className="inline-flex items-center gap-1 text-ink">
-                          <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-accent" />
+                        <Stat icon={MessageSquare} tone="ink" title={count(model.open, "open comment")}>
                           {model.open}
-                        </span>
+                        </Stat>
                       ) : null}
                     </a>
                   </li>

@@ -3,12 +3,13 @@
  * and a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left.
  */
 import { useAtom } from "@effect/atom-react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { Stat } from "../ui/stat.tsx";
 import { Inline, LineCounts, Prose } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
@@ -228,7 +229,11 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         ) : (
           <span className={cn("text-small", status.warning ? "text-warning" : "text-muted")}>{status.text}</span>
         )}
-        {model.talk === undefined || !folded ? null : <span className="text-small text-muted">{model.talk}</span>}
+        {model.talk === undefined || !folded ? null : (
+          <Stat icon={MessageSquare} title={model.talk}>
+            {model.open}
+          </Stat>
+        )}
         <span className="ml-auto flex items-center gap-3 max-md:w-full max-md:justify-end">
           {file.patch === undefined ? null : (
             <LineCounts additions={file.additions} deletions={file.deletions} className="text-technical" />

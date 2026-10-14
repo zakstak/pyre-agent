@@ -329,7 +329,8 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.waitForFunction(() => /Finish round 2/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
     assert.equal(await strip(), "→Finish round 2 · everything viewed, nothing waiting");
     assert.equal(await next.getAttribute("data-target"), "finish");
-    assert.match(await text(page, "[data-viewed-count]"), /^10 of 10 viewed$/);
+    assert.equal(await page.locator("[data-viewed-count]").getAttribute("aria-label"), "10 of 10 files viewed");
+    assert.equal(await text(page, "[data-viewed-count]"), "10/10");
     await page.locator("body").click({ position: { x: 5, y: 300 } });
     await page.keyboard.press("n");
     await focusIs("#finish input[name='verdict']");
@@ -533,7 +534,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await file.locator("button[data-fold]").getAttribute("aria-label"), "Show diff");
     assert.equal(await file.locator("button[data-fold]").getAttribute("aria-expanded"), "false");
     assert.equal(await file.getAttribute("data-viewed"), "true");
-    assert.equal(await page.locator("[data-toc-file='long.txt'] [aria-label='viewed']").textContent(), "✓");
+    assert.equal(await page.locator("[data-toc-file='long.txt'] svg[aria-label='viewed']").count(), 1);
     assert.deepEqual((await agent.status()).approved, ["long.txt"]);
     await page.close();
   });
@@ -760,7 +761,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     for (const id of questions) await agent.answer(id, { disposition: "answered", body: "Because." });
     await agent.call("POST", "/drift", { paths: ["src/notes/format.py"] });
     await page.locator("#drift").waitFor();
-    await page.waitForFunction(() => /2 for you/.test(document.querySelector("[data-for-you]")?.textContent ?? ""));
+    await page.waitForFunction(() => document.querySelector("[data-for-you]")?.getAttribute("aria-label") === "2 answers to read");
     assert.equal(await text(page, "[data-next-go]"), "→Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
     const inline = await page.locator(`${table("src/notes/store.py")} article[data-comment]`).getAttribute("id");
     assert.equal(await page.locator("[data-next-go]").getAttribute("data-target"), inline);
@@ -786,11 +787,11 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("#general-body").fill("Why?");
     await page.locator("#general form").getByRole("button", { name: "Ask now", exact: true }).click();
     await page.locator("#general article[data-comment]").waitFor();
-    await page.waitForFunction(() => /^1 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
+    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "1 comment waiting for agents");
     // The finish carries the comment: now it waits for the agent too.
     await page.locator("#finish button[type=submit]").click();
     await page.locator("#finish [data-submission]").waitFor();
-    await page.waitForFunction(() => /^2 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
+    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "2 comments waiting for agents");
     assert.equal(await comment.locator("[data-chip]").textContent(), "Waiting for Claude Code");
     // After the finish, the general composer no longer explains what a comment waits for.
     assert.equal(await page.locator("#general").getByText(/A comment waits for Finish review/).count(), 0);
@@ -803,7 +804,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await onRound(page, 2);
     assert.equal(await sent.getAttribute("data-standing"), "agent");
     assert.match((await sent.locator("[data-chip]").textContent()) ?? "", /Waiting for/);
-    await page.waitForFunction(() => /^3 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
+    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "3 comments waiting for agents");
     await page.close();
   });
 

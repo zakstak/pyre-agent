@@ -44,6 +44,12 @@ const clock = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const full = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+/** A time on the reader's clock, in full, for a title. */
+export const timeTitle = (at: string): string => {
+  const when = new Date(at);
+  return Number.isFinite(when.getTime()) ? full.format(when) : at;
+};
+
 /** A time on the reader's clock: the time alone today, the day and time this year, the full date otherwise. */
 export const Time = ({ at }: { readonly at: string }) => {
   const when = new Date(at);

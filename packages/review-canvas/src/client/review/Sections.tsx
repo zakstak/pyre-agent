@@ -1,5 +1,6 @@
 /** The sections of the review page's one scroll: the stops with their files, then the whole change and the finish. */
 import { useAtom } from "@effect/atom-react";
+import { Eye } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Verdict } from "../../schema/feedback.ts";
 import type { RoundNumber } from "../../schema/primitives.ts";
@@ -8,6 +9,7 @@ import type { StopView } from "../../review/tour.ts";
 import { count, lineRange, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { Stat } from "../ui/stat.tsx";
 import { Inline, Joined, Prose, Time } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -92,10 +94,9 @@ export const StopSection = ({
           <span className="mr-1 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>{" "}
           <span>{stop.title}</span>
         </h2>
-        <span className="text-small text-muted">
-          {count(owned.length, "file")}
-          {viewed === 0 ? "" : ` · ${viewed} viewed`}
-        </span>
+        <Stat icon={Eye} title={`${viewed} of ${count(owned.length, "file")} viewed`}>
+          {viewed}/{owned.length}
+        </Stat>
       </div>
       {stop.summary.trim() === "" ? null : (
         <div className="mt-2 max-w-reading">

@@ -5,6 +5,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
+import { Eye, Hourglass, MessageSquare } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Target } from "../../schema/target.ts";
@@ -15,6 +16,7 @@ import { CONNECTION_TEXT, connectionAtom } from "../rpc.ts";
 import { buttonVariants } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { frame } from "../ui/page.tsx";
+import { Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -352,15 +354,24 @@ export const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
           >
             {viewed} of {total}
           </progress>
-          <span data-viewed-count>
-            <strong>{viewed}</strong> of {total} viewed
-          </span>
+          <Stat data-viewed-count icon={Eye} title={`${viewed} of ${count(total, "file")} viewed`}>
+            {viewed}/{total}
+          </Stat>
           {forYou === 0 ? null : (
-            <span data-for-you>
-              <strong>{forYou}</strong> for you
-            </span>
+            <Stat data-for-you icon={MessageSquare} tone="action" title={`${count(forYou, "answer")} to read`}>
+              {forYou}
+            </Stat>
           )}
-          {waiting === 0 ? null : <span data-waiting className="text-muted max-md:hidden">{waiting} waiting for agents</span>}
+          {waiting === 0 ? null : (
+            <Stat
+              data-waiting
+              icon={Hourglass}
+              className="max-md:hidden"
+              title={`${count(waiting, "comment")} waiting for agents`}
+            >
+              {waiting}
+            </Stat>
+          )}
         </div>
       </div>
     </section>
