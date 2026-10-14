@@ -9,7 +9,9 @@ import { createServer } from "node:http";
 import { connect } from "node:net";
 import type { Duplex } from "node:stream";
 import { pathToFileURL } from "node:url";
+import * as Limits from "../schema/limits.ts";
 import { AgentApi } from "./agent.ts";
+import { MAX_REQUEST_BYTES } from "./requests.ts";
 import { clientDir as installedClientDir } from "./install.ts";
 import { App } from "./app.ts";
 import { repositoryRoots } from "./repositories.ts";
@@ -140,11 +142,18 @@ const cutPageSocketsSoon = () =>
     for (const socket of pageSockets) socket.destroy();
   }, 1000).unref();
 
+/**
+ * The largest WebSocket message a page may send, refused before it is parsed: a feedback file at its limit with every
+ * character escaped in JSON, and an action's worth beside it.
+ */
+const MAX_PAGE_MESSAGE_BYTES = 2 * Limits.MAX_FEEDBACK_BYTES + MAX_REQUEST_BYTES;
+
 const pageServerOn = (port: number) =>
   NodeHttpServer.layer(createPageServer, {
     host: "127.0.0.1",
     port,
     gracefulShutdownTimeout: "1 second",
+    websocket: { maxPayload: MAX_PAGE_MESSAGE_BYTES },
   });
 
 /**
@@ -246,11 +255,11 @@ export const run = () =>
           );
         // This outer lock is released only after the inner scope closes both listeners and the store.
         yield* Effect.acquireRelease(
-          Effect.sync(() => {
+          Effect.suspend(() => {
             const lock = StartLock.try(runtimeDir(), "lifetime.lock");
-            if (lock === undefined)
-              throw new SocketInUse({ path: socketPath() });
-            return lock;
+            return lock === undefined
+              ? Effect.fail(new SocketInUse({ path: socketPath() }))
+              : Effect.succeed(lock);
           }),
           (lock) => Effect.sync(() => lock.release()),
         );
@@ -263,8 +272,11 @@ export const run = () =>
               Effect.flatMap(Lifecycle, ({ stopped }) =>
                 Deferred.await(stopped),
               ),
-            ).pipe(Effect.provide(context));
-            cutPageSocketsSoon();
+            ).pipe(
+              Effect.provide(context),
+              // However the server stops, a signal included, before the listeners close.
+              Effect.ensuring(Effect.sync(cutPageSocketsSoon)),
+            );
             // Flush the lifecycle response before closing the listeners.
             yield* Effect.sleep("100 millis");
           }),

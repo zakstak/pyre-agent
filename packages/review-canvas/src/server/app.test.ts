@@ -126,12 +126,12 @@ test("every page path serves the built shell with the security headers", () =>
 
 test("the RPC socket opens only for a page of this server", () =>
   withServer(async (port) => {
-    const upgrade = (origin: string | undefined) =>
+    const upgrade = (origin: string | undefined, path = "/rpc") =>
       new Promise<number>((resolve, reject) => {
         const socket = request({
           host: "127.0.0.1",
           port,
-          path: "/rpc",
+          path,
           // A refused upgrade leaves its connection to close; each attempt gets its own.
           agent: false,
           headers: {
@@ -156,6 +156,9 @@ test("the RPC socket opens only for a page of this server", () =>
       });
     assert.equal(await upgrade("https://evil.example"), 403);
     assert.equal(await upgrade(undefined), 403);
+    // The router matches these as /rpc too; the check holds for any upgrade, not one spelling of the path.
+    for (const path of ["/rpc/", "/rpc//", "/RPC", "/%72pc", "/rpc?x=1"])
+      assert.equal(await upgrade("https://evil.example", path), 403, path);
     assert.equal(await upgrade(`http://localhost:${port}`), 101);
     assert.equal(await upgrade(`http://127.0.0.1:${port}`), 101);
   }));

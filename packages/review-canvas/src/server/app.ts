@@ -11,7 +11,7 @@ import { encodeDocument, FeedbackDocument } from "../schema/document.ts";
 import type { Timestamp } from "../schema/primitives.ts";
 import { feedbackOf } from "../store/store.ts";
 import { Assets } from "./assets.ts";
-import { PageRpcServer, RPC_PATH } from "./rpc.ts";
+import { PageRpcServer } from "./rpc.ts";
 import { ReviewStore } from "./services.ts";
 
 const securityHeaders = {
@@ -60,8 +60,9 @@ export const loopbackOrigins = (port: number): ReadonlySet<string> =>
 
 /**
  * Answers only requests addressed to this server by its loopback name and port, so a page on another site that
- * rebinds its DNS name to 127.0.0.1 gets nothing. The RPC socket, through which every change comes, also needs this
- * server's own Origin: browsers send any site's WebSocket to localhost, and only the Origin says whose page opened it.
+ * rebinds its DNS name to 127.0.0.1 gets nothing. A WebSocket, which is how pages read and change reviews, also needs
+ * this server's own Origin: browsers send any site's WebSocket to localhost, and only the Origin says whose page opened
+ * it.
  * Every response carries the security headers, including the 404 or 500 for a failed route.
  */
 const Guard = HttpRouter.middleware(
@@ -83,8 +84,9 @@ const Guard = HttpRouter.middleware(
             HttpServerResponse.text("Unknown host", { status: 403 }),
           );
         }
+        // Every WebSocket upgrade, whatever its path: the router also matches `/rpc/`, `/RPC`, and `/%72pc`.
         if (
-          new URL(request.url, "http://localhost").pathname === RPC_PATH &&
+          (request.headers.upgrade ?? "").toLowerCase() === "websocket" &&
           !origins.has(request.headers.origin ?? "")
         ) {
           return secure(

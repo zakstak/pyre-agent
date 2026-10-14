@@ -14,7 +14,6 @@ import {
   discoverRepositories,
   groupRepositories,
   identifyRepository,
-  mapCheckouts,
   remoteAddress,
   type RepositoryStatus,
   repositoryName,
@@ -121,11 +120,15 @@ export const loadHome = (store: Store, roots: ReadonlyArray<string>, selectedRoo
     // UPDATE rather than INSERT keeps discovery incapable of accepting a new repository.
     for (const repository of monitored) store.refreshMonitoredRepository(repository);
     const checkouts = monitored.flatMap((repository) => repository.checkouts.map((root) => ({ root, repository })));
+    // Four Git reads at a time. A page that leaves interrupts the load, which aborts the reads under way and starts none.
     const statuses = new Map(
-      yield* Effect.promise(() =>
-        mapCheckouts(checkouts, async ({ root, repository }) =>
-          [root, await checkoutStatus(root, repository.identity)] as const,
-        ),
+      yield* Effect.forEach(
+        checkouts,
+        ({ root, repository }) =>
+          Effect.promise((signal) => checkoutStatus(root, repository.identity, signal)).pipe(
+            Effect.map((status) => [root, status] as const),
+          ),
+        { concurrency: 4 },
       ),
     );
     const reviews = store.reviews();

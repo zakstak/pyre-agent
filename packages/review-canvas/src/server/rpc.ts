@@ -136,7 +136,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
     }),
   );
 
-export const RPC_PATH = "/rpc";
+const RPC_PATH = "/rpc";
 
 /** The page RPCs on the router at {@link RPC_PATH}, as JSON over a WebSocket. */
 export const PageRpcServer = (roots: ReadonlyArray<string>) =>
