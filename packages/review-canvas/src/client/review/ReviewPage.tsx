@@ -92,7 +92,7 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   return (
     <>
       <SkipLink />
-      <ReviewBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
+      <ReviewBar target={snapshot.state.target} updated={snapshot.state.created_at} />
       <Frame>
         <header className="col-span-full pt-6">
           <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
@@ -188,23 +188,29 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <ReviewBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
+      <ReviewBar target={page.snapshot.state.target} updated={page.updated} />
       <Frame>
         <Title id={id} />
-        <NextStrip onGo={() => void navigate.goNext()} />
+        <NextStrip
+          onGo={() => void navigate.goNext()}
+          onStep={(step) => void navigate.goStep(step)}
+          onFinish={() => void navigate.goFinish()}
+        />
         <Contents onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
           history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
           void navigate.showFile(path);
         }} />
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {page.input.summary === undefined ? null : (
-            <div className="mb-10 max-w-reading">
-              <Narration className="mb-1.5">Round {page.round.round}</Narration>
+            <div className="max-w-reading">
+              <Narration className="mb-1.5">
+                · Round {page.round.round} · published <Time at={page.round.published_at} />
+              </Narration>
               <Prose text={page.input.summary} />
             </div>
           )}
           {page.stops.map((stop) => (
-            <StopSection key={stop.index} stop={stop} split={split} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
+            <StopSection key={stop.index} stop={stop} split={split} ruled={stop.index > 0 || page.input.summary !== undefined} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
           ))}
           <Departed />
           <General textarea={general} />

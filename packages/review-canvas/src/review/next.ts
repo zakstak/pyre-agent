@@ -116,12 +116,62 @@ const pageOrder = (
   };
 };
 
+/** The first answer that waits for the reviewer, in the order the page shows them. */
+export const answerStep = (
+  state: ReviewState,
+  input: ReviewInput,
+  stops: ReadonlyArray<StopView>,
+): Extract<Next, { kind: "answer" }> | undefined => {
+  const standing = standingOf(state);
+  const toRead = state.comments
+    .filter((comment) => standing(comment) === "reviewer")
+    .toSorted(pageOrder(input, stops));
+  const first = toRead[0];
+  if (first === undefined) return undefined;
+  const last = first.replies.at(-1);
+  return {
+    kind: "answer",
+    comment: first.id,
+    thread: last?.actor === "agent" ? last.thread : undefined,
+    github: first.source.kind === "github",
+    place: placeOf(first),
+    more: toRead.length - 1,
+    target: commentElementId(first.id),
+  };
+};
+
+/**
+ * The first file in walkthrough order whose approval does not hold. Files without a fingerprint cannot be viewed, so
+ * they are skipped.
+ */
+export const fileStep = (
+  state: ReviewState,
+  input: ReviewInput,
+  stops: ReadonlyArray<StopView>,
+): Extract<Next, { kind: "file" }> | undefined => {
+  const counts = progress(state, input);
+  const viewable = new Set(
+    input.files.filter((file) => file.fingerprint !== undefined).map((file) => file.path),
+  );
+  const unviewed = walkthroughOrder(stops).filter(
+    (item) => viewable.has(item.path) && !counts.viewed.has(item.path),
+  );
+  const file = unviewed[0];
+  if (file === undefined) return undefined;
+  return {
+    kind: "file",
+    path: file.path,
+    stop: file.stop,
+    left: unviewed.length,
+    target: fileElementId(file.path),
+  };
+};
+
 /**
  * What the reviewer should do next, in priority order: read the answers that wait for them, in the order the page
- * shows them; view the first file in walkthrough order whose approval does not hold (files without a fingerprint
- * cannot be viewed, so they are skipped); otherwise finish the round. A closed review, and a round the reviewer
- * already finished, have nothing next. Drift is not a step: nothing on the page acts on it, so the page says it in a
- * line of its own.
+ * shows them; view the first file in walkthrough order whose approval does not hold; otherwise finish the round. A
+ * closed review, and a round the reviewer already finished, have nothing next. Drift is not a step: nothing on the
+ * page acts on it, so the page says it in a line of its own.
  */
 export const nextStep = (
   state: ReviewState,
@@ -133,46 +183,13 @@ export const nextStep = (
   const submission = currentSubmission(state);
   if (submission !== undefined)
     return { kind: "finished", round: round.round, verdict: submission.verdict };
-
-  const standing = standingOf(state);
-  const toRead = state.comments
-    .filter((comment) => standing(comment) === "reviewer")
-    .toSorted(pageOrder(input, stops));
-  const first = toRead[0];
-  if (first !== undefined) {
-    const last = first.replies.at(-1);
-    return {
-      kind: "answer",
-      comment: first.id,
-      thread: last?.actor === "agent" ? last.thread : undefined,
-      github: first.source.kind === "github",
-      place: placeOf(first),
-      more: toRead.length - 1,
-      target: commentElementId(first.id),
-    };
-  }
-
-  const counts = progress(state, input);
-  const viewable = new Set(
-    input.files.filter((file) => file.fingerprint !== undefined).map((file) => file.path),
+  return (
+    answerStep(state, input, stops) ??
+    fileStep(state, input, stops) ?? {
+      kind: "finish",
+      round: round.round,
+      waiting: progress(state, input).waiting,
+      target: FINISH_ELEMENT_ID,
+    }
   );
-  const unviewed = walkthroughOrder(stops).filter(
-    (item) => viewable.has(item.path) && !counts.viewed.has(item.path),
-  );
-  const file = unviewed[0];
-  if (file !== undefined)
-    return {
-      kind: "file",
-      path: file.path,
-      stop: file.stop,
-      left: unviewed.length,
-      target: fileElementId(file.path),
-    };
-
-  return {
-    kind: "finish",
-    round: round.round,
-    waiting: counts.waiting,
-    target: FINISH_ELEMENT_ID,
-  };
 };

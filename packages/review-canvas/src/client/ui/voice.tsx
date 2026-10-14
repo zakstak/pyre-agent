@@ -20,18 +20,25 @@ const DISC: Readonly<Record<VoiceKind, string>> = {
 
 const MARK: Readonly<Record<VoiceKind, typeof Sparkles>> = { agent: Sparkles, you: User, github: AtSign, bot: Bot };
 
+/** A voice's mark: the filled disc in its colour with its glyph, without the name. */
+export const VoiceMark = ({ kind }: { readonly kind: VoiceKind }) => {
+  const Mark = MARK[kind];
+  return (
+    <span aria-hidden="true" className={cn("inline-grid size-4.5 flex-none place-items-center rounded-full", DISC[kind])}>
+      <Mark className="size-3" strokeWidth={2.5} />
+    </span>
+  );
+};
+
 /**
  * A speaker. `name` is a thread's name for an agent and a login for GitHub: a person shows as `@login`, a bot as its
  * login without `[bot]` and a `bot` chip.
  */
 export const Voice = ({ kind, name, title }: { readonly kind: VoiceKind; readonly name: string; readonly title?: string | undefined }) => {
-  const Mark = MARK[kind];
   const shown = kind === "github" ? `@${name}` : kind === "bot" ? name.replace(/\[bot\]$/, "") : name;
   return (
     <span className="inline-flex items-center gap-1.5 align-middle">
-      <span aria-hidden="true" className={cn("inline-grid size-4.5 flex-none place-items-center rounded-full", DISC[kind])}>
-        <Mark className="size-3" strokeWidth={2.5} />
-      </span>
+      <VoiceMark kind={kind} />
       <span title={title} className="font-semibold text-ink">
         {shown}
       </span>

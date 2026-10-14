@@ -318,7 +318,9 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
       aria-label="Comment"
       tabIndex={-1}
       className={cn(
-        "scroll-mt-(--sticky-top) border-l-2 py-2 pr-4 pl-3 [&+&]:mt-3",
+        // A jump lands tinted, and the tint fades: see `land` in navigate.ts.
+        "scroll-my-(--scroll-top) border-l-2 py-2 pr-4 pl-3 transition-colors duration-1000 [&+&]:mt-3",
+        "data-[landed=arrived]:bg-selected data-[landed=arrived]:transition-none",
         BAR[starter],
       )}
     >

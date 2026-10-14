@@ -5,7 +5,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { Eye, Hourglass, MessageSquare } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown } from "lucide-react";
 import { useLayoutEffect, useState } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Target } from "../../schema/target.ts";
@@ -15,23 +15,15 @@ import { count, targetName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { buttonVariants } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { TopBar } from "../ui/page.tsx";
-import { Stat } from "../ui/stat.tsx";
+import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
 import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
 
-/** The top bar of a review: the target as the page's place, a link to the pull request, and Finish while it can. */
-export const ReviewBar = ({
-  target,
-  updated,
-  onFinish,
-}: {
-  readonly target: Target;
-  readonly updated: string | undefined;
-  readonly onFinish: (() => void) | undefined;
-}) => {
+/** The top bar of a review: the target as the page's place and a link to the pull request. */
+export const ReviewBar = ({ target, updated }: { readonly target: Target; readonly updated: string | undefined }) => {
   const name = targetName(target);
   return (
     <TopBar
@@ -41,27 +33,13 @@ export const ReviewBar = ({
         <>
           <TargetText target={target} />
           {name.kind === "pr" ? (
-            <a href={name.url} rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub" className="px-1 text-muted no-underline">
-              ↗
+            <a href={name.url} rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub" className="inline-flex self-center px-1 text-muted no-underline">
+              <ArrowUpRight aria-hidden="true" className="size-3.5" />
             </a>
           ) : null}
         </>
       }
-    >
-      {onFinish === undefined ? null : (
-        <a
-          href="#finish"
-          data-open-finish
-          onClick={(event) => {
-            event.preventDefault();
-            onFinish();
-          }}
-          className={buttonVariants({ variant: "primary", size: "sm" })}
-        >
-          Finish review
-        </a>
-      )}
-    </TopBar>
+    />
   );
 };
 
@@ -136,7 +114,7 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
               className="pb-2 text-muted hover:text-ink"
             >
               Round {round.round} · {done ?? "not finished"} · <Time at={submission?.submitted_at ?? round.published_at} />
-              <span aria-hidden="true"> {expanded ? "▴" : "▾"}</span>
+              <ChevronDown aria-hidden="true" className={cn("ml-1 inline size-3.5 align-[-0.125em] transition-transform", !expanded && "-rotate-90")} />
             </button>
           );
         })}
@@ -247,11 +225,107 @@ const Kbd = ({ children }: { readonly children: string }) => (
   <kbd className="inline-block rounded-sm border border-line px-[0.3em] leading-[1.3] font-semibold text-muted">{children}</kbd>
 );
 
-export const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
+/** A step of the round in the strip, as a link: underlined on hover only. */
+const STEP_LINK = "inline-flex min-h-11 items-center no-underline hover:underline";
+
+/** A step's link to an element of the page, which `onGo` brings into view. */
+const StepLink = ({
+  target,
+  onGo,
+  children,
+}: {
+  readonly target: string;
+  readonly onGo: () => void;
+  readonly children: React.ReactNode;
+}) => (
+  <a
+    href={`#${encodeURI(target).replaceAll("#", "%23")}`}
+    onClick={(event) => {
+      event.preventDefault();
+      onGo();
+    }}
+    className={STEP_LINK}
+  >
+    {children}
+  </a>
+);
+
+/**
+ * The round's steps, in order: the answers to read while any wait, the files to view, and the finish. The step the
+ * strip names is in ink; the others still work.
+ */
+const Steps = ({
+  onGo,
+  onFinish,
+}: {
+  readonly onGo: (step: "answer" | "file") => void;
+  readonly onFinish: () => void;
+}) => {
+  const { page } = usePage();
+  const { viewable: total, forYou } = page.progress;
+  const viewed = page.progress.viewed.size;
+  const current = page.strip.kind === "go" ? page.strip.next.kind : undefined;
+  const filesDone = viewed === total;
+  const files = (
+    <Stat
+      data-viewed-count
+      icon={Check}
+      tone={current === "file" ? "ink" : "muted"}
+      iconClassName={filesDone ? "text-success" : undefined}
+      className={current === "file" ? "font-semibold" : undefined}
+      title={`${viewed} of ${count(total, "file")} viewed`}
+    >
+      {viewed}/{total}
+    </Stat>
+  );
+  return (
+    <ol aria-label={`Round ${page.round.round}`} className="m-0 ml-auto flex list-none flex-wrap items-center gap-x-5 p-0">
+      {forYou === 0 || page.steps.answer === undefined ? null : (
+        <li>
+          <StepLink target={page.steps.answer.target} onGo={() => onGo("answer")}>
+            <AnswerStat data-for-you count={forYou} title={`${count(forYou, "answer")} to read`} />
+          </StepLink>
+        </li>
+      )}
+      <li>
+        {page.steps.file === undefined ? (
+          files
+        ) : (
+          <StepLink target={page.steps.file.target} onGo={() => onGo("file")}>
+            {files}
+          </StepLink>
+        )}
+      </li>
+      {!page.writable || page.finished ? null : (
+        <li>
+          <a
+            href="#finish"
+            data-open-finish
+            onClick={(event) => {
+              event.preventDefault();
+              onFinish();
+            }}
+            className={buttonVariants({ variant: current === "finish" ? "primary" : "quiet", size: "sm" })}
+          >
+            Finish
+          </a>
+        </li>
+      )}
+    </ol>
+  );
+};
+
+export const NextStrip = ({
+  onGo,
+  onStep,
+  onFinish,
+}: {
+  readonly onGo: () => void;
+  readonly onStep: (step: "answer" | "file") => void;
+  readonly onFinish: () => void;
+}) => {
   const { page } = usePage();
   const { strip } = page;
-  const { viewable: total, forYou, waiting } = page.progress;
-  const viewed = page.progress.viewed.size;
   return (
     <section
       data-next
@@ -272,7 +346,7 @@ export const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
             className="-ml-2 inline-flex min-h-11 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-control px-2 py-1 font-semibold text-ink no-underline hover:bg-subtle"
           >
             <span aria-hidden="true" className="inline-grid size-6 flex-none place-items-center rounded-control bg-accent text-chip text-on-accent">
-              →
+              <ArrowRight className="size-3.5" />
             </span>
             <span className="min-w-0 break-words">
               {strip.what}
@@ -312,34 +386,7 @@ export const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
             <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops
           </span>
         ) : null}
-        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-          <progress
-            value={viewed}
-            max={Math.max(total, 1)}
-            aria-label="Files viewed"
-            className="h-1.5 w-30 max-md:hidden appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-success [&::-webkit-progress-bar]:bg-separator [&::-webkit-progress-value]:bg-success"
-          >
-            {viewed} of {total}
-          </progress>
-          <Stat data-viewed-count icon={Eye} title={`${viewed} of ${count(total, "file")} viewed`}>
-            {viewed}/{total}
-          </Stat>
-          {forYou === 0 ? null : (
-            <Stat data-for-you icon={MessageSquare} tone="action" title={`${count(forYou, "answer")} to read`}>
-              {forYou}
-            </Stat>
-          )}
-          {waiting === 0 ? null : (
-            <Stat
-              data-waiting
-              icon={Hourglass}
-              className="max-md:hidden"
-              title={`${count(waiting, "comment")} waiting for agents`}
-            >
-              {waiting}
-            </Stat>
-          )}
-        </div>
+        <Steps onGo={onStep} onFinish={onFinish} />
       </div>
     </section>
   );
@@ -355,7 +402,10 @@ export const useStickyBars = () => {
       const stripSticks = strip !== null && getComputedStyle(strip).position === "sticky";
       const top = barSticks ? (bar?.offsetHeight ?? 0) : 0;
       document.documentElement.style.setProperty("--topbar-height", `${top}px`);
-      document.documentElement.style.setProperty("--sticky-top", `${top + (stripSticks ? (strip?.offsetHeight ?? 0) : 0) + 8}px`);
+      const sticky = top + (stripSticks ? (strip?.offsetHeight ?? 0) : 0) + 8;
+      document.documentElement.style.setProperty("--sticky-top", `${sticky}px`);
+      // What a jump to a row, a note, or a thread keeps above it: the file's header and a line of code.
+      document.documentElement.style.setProperty("--scroll-top", `calc(${sticky}px + 3.75rem)`);
     };
     const observer = new ResizeObserver(measure);
     for (const element of document.querySelectorAll("[data-topbar], [data-next]")) observer.observe(element);

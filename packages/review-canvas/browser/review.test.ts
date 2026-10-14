@@ -243,8 +243,9 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(agent.url);
-    await page.locator("[data-open-finish]").click();
-    // Finish review in the top bar goes to the finish section and its first verdict.
+    // The top bar has no action: Finish is the strip's last step, and it goes to the finish section and its first verdict.
+    assert.equal(await page.locator("[data-topbar] [data-open-finish]").count(), 0);
+    await page.locator("[data-next] [data-open-finish]").click();
     await page.waitForFunction(() => (document.activeElement as HTMLInputElement | null)?.name === "verdict");
     await agent.publish(changedStore(input));
     await onRound(page, 2);
@@ -278,9 +279,13 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const focusIs = (selector: string) =>
       page.waitForFunction((selector) => document.activeElement?.matches(selector) === true, selector);
     // Nothing viewed and nothing to read: the first file of the first stop.
-    assert.equal(await strip(), "→Review src/notes/store.py · stop 1 · 10 files left");
+    assert.equal(await strip(), "Review src/notes/store.py · stop 1 · 10 files left");
     assert.equal(await next.getAttribute("data-target"), "files/src/notes/store.py");
     assert.equal(await next.getAttribute("data-kind"), "file");
+    // The round's steps: no answers to read, so the files and the finish.
+    const steps = page.locator("[data-next] ol[aria-label='Round 1'] > li");
+    assert.equal(await steps.count(), 2);
+    assert.equal(await text(page, "[data-next] [data-open-finish]"), "Finish");
     await page.keyboard.press("n");
     await focusIs("article[data-path='src/notes/store.py'] button[data-viewed]");
 
@@ -293,12 +298,19 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const [question] = (await agent.status()).questions;
     await agent.answer(question, { disposition: "answered", body: "No need." });
     await page.waitForFunction(() => /Read/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
-    assert.equal(await strip(), "→Read Claude Code’s answer · src/notes/store.py:12");
+    assert.equal(await strip(), "Read Claude Code’s answer · src/notes/store.py:12");
     assert.equal(await next.getAttribute("data-target"), `comment-${question}`);
     assert.equal(await next.getAttribute("data-kind"), "answer");
+    assert.equal(await steps.count(), 3);
+    assert.equal(await page.locator("[data-next] [data-for-you]").getAttribute("aria-label"), "1 answer to read");
+    // A step works whatever the strip names: Files goes to the first file not viewed.
+    await steps.filter({ has: page.locator("[data-viewed-count]") }).locator("a").click();
+    await focusIs("article[data-path='src/notes/store.py'] button[data-viewed]");
     await page.locator("body").click({ position: { x: 5, y: 300 } });
     await page.keyboard.press("n");
     await focusIs(`#comment-${question} button[title='The answer settles the comment']`);
+    // The thread it lands on shows itself for a moment.
+    assert.notEqual(await page.locator(`#comment-${question}`).getAttribute("data-landed"), null);
     await page.keyboard.press("Enter");
     await page.locator("article[data-comment][data-turn='resolved']").waitFor();
     await page.waitForFunction(() => /Review/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
@@ -319,7 +331,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       /^Changed since this round: src\/notes\/store\.py · checked .+ · the agents publish a new round with the change\.$/,
     );
     assert.equal(await page.locator("#drift a").getAttribute("href"), "#files/src/notes/store.py");
-    assert.equal(await strip(), "→Review src/notes/store.py · stop 1 · 10 files left");
+    assert.equal(await strip(), "Review src/notes/store.py · stop 1 · 10 files left");
 
     // A new round replaces the drift; with every file viewed, the strip asks for the finish.
     await agent.publish(changedStore(input));
@@ -327,7 +339,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await page.locator("#drift").count(), 0);
     await viewAll(page);
     await page.waitForFunction(() => /Finish round 2/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
-    assert.equal(await strip(), "→Finish round 2 · everything viewed, nothing waiting");
+    assert.equal(await strip(), "Finish round 2 · everything viewed, nothing waiting");
     assert.equal(await next.getAttribute("data-target"), "finish");
     assert.equal(await page.locator("[data-viewed-count]").getAttribute("aria-label"), "10 of 10 files viewed");
     assert.equal(await text(page, "[data-viewed-count]"), "10/10");
@@ -346,7 +358,8 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     // store.py renders once, in the stop that owns it.
     assert.equal(await page.locator(table("src/notes/store.py")).count(), 1);
     const back = page.locator("#stop-2 [data-also] a");
-    assert.equal(await text(page, "#stop-2 [data-also] a"), "src/notes/store.py lines 14–15 ↑");
+    assert.equal(await text(page, "#stop-2 [data-also] a"), "src/notes/store.py lines 14–15");
+    assert.equal(await back.locator("svg").count(), 1);
     /** The new line numbers of the rows painted with the highlight colour. */
     const lit = () =>
       page.evaluate((selector) => {
@@ -779,9 +792,17 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await agent.call("POST", "/drift", { paths: ["src/notes/format.py"] });
     await page.locator("#drift").waitFor();
     await page.waitForFunction(() => document.querySelector("[data-for-you]")?.getAttribute("aria-label") === "2 answers to read");
-    assert.equal(await text(page, "[data-next-go]"), "→Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
+    assert.equal(await text(page, "[data-next-go]"), "Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
     const inline = await page.locator(`${table("src/notes/store.py")} article[data-comment]`).getAttribute("id");
     assert.equal(await page.locator("[data-next-go]").getAttribute("data-target"), inline);
+    // N, then Accept, then N again reaches the next answer without the strip in between.
+    await page.locator("body").click({ position: { x: 5, y: 300 } });
+    await page.keyboard.press("n");
+    await page.waitForFunction((id) => document.activeElement?.closest(`#${id}`) != null, inline);
+    await page.keyboard.press("Enter");
+    await page.locator(`#${inline}[data-turn='resolved']`).waitFor();
+    await page.keyboard.press("n");
+    await page.waitForFunction(() => document.activeElement?.closest("#general article[data-comment]") != null);
     await page.close();
   });
 
@@ -799,16 +820,16 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await comment.getAttribute("data-standing"), "pending");
     assert.equal(await comment.locator("[data-chip]").textContent(), "Pending");
     assert.equal(await comment.locator("[data-chip]").getAttribute("title"), "Sent with your review");
-    assert.equal(await page.locator("[data-next] [data-for-you], [data-next] [data-waiting]").count(), 0);
+    assert.equal(await page.locator("[data-next] [data-for-you]").count(), 0);
     // A question goes out at once: it waits for the agent.
     await page.locator("#general-body").fill("Why?");
     await page.locator("#general form").getByRole("button", { name: "Ask now", exact: true }).click();
     await page.locator("#general article[data-comment]").waitFor();
-    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "1 comment waiting for agents");
+    // The finish says what waits for the agents.
+    await page.locator("#finish").getByText(/· 1 comment waiting for agents\. You can finish anyway\.$/).waitFor();
     // The finish carries the comment: now it waits for the agent too.
     await page.locator("#finish button[type=submit]").click();
     await page.locator("#finish [data-submission]").waitFor();
-    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "2 comments waiting for agents");
     assert.equal(await comment.locator("[data-chip]").textContent(), "Waiting for Claude Code");
     // After the finish, the general composer no longer explains what a comment waits for.
     assert.equal(await page.locator("#general").getByText(/A comment waits for Finish review/).count(), 0);
@@ -821,7 +842,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await onRound(page, 2);
     assert.equal(await sent.getAttribute("data-standing"), "agent");
     assert.match((await sent.locator("[data-chip]").textContent()) ?? "", /Waiting for/);
-    await page.waitForFunction(() => document.querySelector("[data-waiting]")?.getAttribute("aria-label") === "3 comments waiting for agents");
+    await page.locator("#finish").getByText(/· 3 comments waiting for agents\. You can finish anyway\.$/).waitFor();
     await page.close();
   });
 

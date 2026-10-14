@@ -8,7 +8,7 @@ import type { PatchDigest, RepoPath, RoundNumber } from "../../schema/primitives
 import type { ReviewSnapshot } from "../../schema/rpc.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
-import { type Next, nextStep } from "../../review/next.ts";
+import { answerStep, fileStep, type Next, nextStep } from "../../review/next.ts";
 import { type Progress, progress, type Standing, standingOf } from "../../review/progress.ts";
 import { currentSubmission, type Round } from "../../review/queries.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
@@ -228,6 +228,11 @@ export interface PageModel {
   readonly files: ReadonlyMap<RepoPath, FileModel>;
   readonly next: Next;
   readonly strip: Strip;
+  /** Where the strip's steps go: the first answer for the reviewer and the first file not viewed, when there is one. */
+  readonly steps: {
+    readonly answer: Extract<Next, { kind: "answer" }> | undefined;
+    readonly file: Extract<Next, { kind: "file" }> | undefined;
+  };
   readonly progress: Progress;
   readonly standing: (comment: Comment) => Standing;
   readonly writable: boolean;
@@ -262,6 +267,7 @@ export const pageModel = (
     files,
     next,
     strip: stripOf(next, snapshot.threads),
+    steps: { answer: answerStep(state, input, stops), file: fileStep(state, input, stops) },
     progress: counts,
     standing,
     writable: state.closed_at === undefined,
@@ -283,10 +289,11 @@ export const pageModel = (
 /** What the finish section says before the reviewer finishes. */
 export const finishState = (counts: Progress): string => {
   const notViewed = counts.viewable - counts.viewed.size;
-  if (notViewed === 0 && counts.forYou === 0) return "Everything viewed, nothing waiting.";
+  if (notViewed === 0 && counts.forYou === 0 && counts.waiting === 0) return "Everything viewed, nothing waiting.";
   return `${[
     ...(notViewed === 0 ? [] : [`${count(notViewed, "file")} not yet viewed`]),
     ...(counts.forYou === 0 ? [] : [`${count(counts.forYou, "answer")} waiting for you`]),
+    ...(counts.waiting === 0 ? [] : [`${count(counts.waiting, "comment")} waiting for agents`]),
   ].join(" · ")}. You can finish anyway.`;
 };
 

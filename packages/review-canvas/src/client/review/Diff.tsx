@@ -113,7 +113,7 @@ const NoteMarker = ({ notes }: { readonly notes: ReadonlyArray<InlineNote> | und
   );
 
 const NoteRow = ({ note, columns }: { readonly note: InlineNote; readonly columns: number }) => (
-  <tr id={note.id} data-note className="scroll-my-(--sticky-top)">
+  <tr id={note.id} data-note className="scroll-my-(--scroll-top)">
     <td colSpan={columns} className={cn(UNDER, "border-l-2 border-accent")}>
       <div className={ROW_BODY}>
         <span className="sr-only">Note </span>
@@ -299,7 +299,7 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
         {...unitProps(table, row)}
         data-kind={row.kind}
         data-whitespace={shown === row.kind ? undefined : "hidden"}
-        className={cn("group/unit scroll-my-(--sticky-top)", ROW_TONE[shown], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
+        className={cn("group/unit scroll-my-(--scroll-top)", ROW_TONE[shown], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
       >
         <td {...gutterProps(table, row)} className={cn("relative select-none", NUMBER_GUTTER, gutterProps(table, row).className)}>
           {unit ? <Plus table={table} row={row} side="unified" /> : null}
@@ -368,7 +368,7 @@ const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly r
     const indexes = [pair.old?.index, pair.new?.index].filter((index): index is number => index !== undefined);
     return (
       <Fragment key={`p${Math.min(...indexes)}`}>
-        <tr id={`${table.id}-p${Math.min(...indexes)}`} className="scroll-my-(--sticky-top)">
+        <tr id={`${table.id}-p${Math.min(...indexes)}`} className="scroll-my-(--scroll-top)">
           <Half table={table} row={pair.old} side="old" />
           <Half table={table} row={pair.new} side="new" />
         </tr>
@@ -455,7 +455,7 @@ const GapGroup = ({
   const toggle = (
     <tbody data-gap={gap.key}>
       {table.split ? (
-        <tr {...anchor} className="h-6 scroll-my-(--sticky-top) bg-surface">
+        <tr {...anchor} className="h-6 scroll-my-(--scroll-top) bg-surface">
           <td colSpan={2} className="pr-3 whitespace-pre">
             <span className={cn(HALF_NUMBER_GUTTER, "align-top")}>{button}</span>
             <span className={HALF_MARKER_GUTTER} />
@@ -463,7 +463,7 @@ const GapGroup = ({
           </td>
         </tr>
       ) : (
-        <tr {...anchor} className="h-6 scroll-my-(--sticky-top) bg-surface">
+        <tr {...anchor} className="h-6 scroll-my-(--scroll-top) bg-surface">
           <td className={NUMBER_GUTTER}>{button}</td>
           <td className={MARKER_GUTTER} />
           <td className={SOURCE}>{words}</td>

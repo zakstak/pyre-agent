@@ -8,7 +8,7 @@
 import { RegistryContext } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef } from "react";
-import { commentElementId, FINISH_ELEMENT_ID, fileElementId } from "../../review/next.ts";
+import { commentElementId, FINISH_ELEMENT_ID, fileElementId, type Next } from "../../review/next.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
 import { layoutDiff, nextStage } from "./diff-model.ts";
@@ -51,6 +51,22 @@ const shown = (id: string): Promise<HTMLElement | null> =>
     };
     look();
   });
+
+/**
+ * Shows that a jump landed on a thread: it arrives tinted, and a frame later the tint fades. The attribute goes after
+ * the fade, so a test or a style can read where the page landed.
+ */
+const land = (element: HTMLElement) => {
+  element.dataset.landed = "arrived";
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (element.dataset.landed === "arrived") element.dataset.landed = "fading";
+    }),
+  );
+  setTimeout(() => {
+    if (element.dataset.landed === "fading") delete element.dataset.landed;
+  }, 1500);
+};
 
 /** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
 export const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
@@ -128,11 +144,8 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       });
     };
 
-    /** Brings the next strip's target into view and focuses what acts on it. */
-    const goNext = async () => {
-      if (page.strip.kind !== "go") return;
-      const { next } = page.strip;
-      if (next.kind === "finish") return goFinish();
+    /** Brings an answer or a file into view and focuses what acts on it: Accept, or Viewed. */
+    const go = async (next: Extract<Next, { kind: "answer" | "file" }>) => {
       const target = await reveal(next.target);
       if (target === null) return;
       if (next.kind === "file") {
@@ -144,8 +157,22 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
           ? (target.querySelector<HTMLElement>("[data-accept]") ?? target)
           : (target.querySelector<HTMLElement>("[data-viewed]") ?? target.querySelector<HTMLElement>("h3") ?? target);
       steer();
-      target.scrollIntoView({ block: next.kind === "file" ? "start" : "center" });
+      target.scrollIntoView({ block: "start" });
       focus.focus({ preventScroll: true });
+      if (next.kind === "answer") land(target);
+    };
+
+    /** Brings the next strip's target into view and focuses what acts on it. */
+    const goNext = async () => {
+      if (page.strip.kind !== "go") return;
+      const { next } = page.strip;
+      return next.kind === "finish" ? goFinish() : go(next);
+    };
+
+    /** Goes where one of the strip's steps points: the first answer to read, or the first file not viewed. */
+    const goStep = async (step: "answer" | "file") => {
+      const next = page.steps[step];
+      if (next !== undefined) await go(next);
     };
 
     /** Where the hash says the page is. */
@@ -173,6 +200,7 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
           if (element.id === "main") return;
           steer();
           element.scrollIntoView({ block: element.matches("section, article") ? "start" : "center" });
+          if (element.matches("article[data-comment]")) land(element);
           return;
         }
       }
@@ -233,6 +261,7 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       showStop,
       showFile,
       goNext,
+      goStep,
       goFinish,
       applyHash,
       flash,

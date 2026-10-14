@@ -1,6 +1,6 @@
 /** The sections of the review page's one scroll: the stops with their files, then the whole change and the finish. */
 import { useAtom } from "@effect/atom-react";
-import { Eye } from "lucide-react";
+import { ArrowUp, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Verdict } from "../../schema/feedback.ts";
 import type { RoundNumber } from "../../schema/primitives.ts";
@@ -52,7 +52,8 @@ const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (p
         className="text-link underline underline-offset-3"
       >
         <code>{excerpt.path}</code>
-        {first === undefined || last === undefined ? "" : ` ${lineRange(first, last, "line")}`} ↑
+        {first === undefined || last === undefined ? "" : ` ${lineRange(first, last, "line")}`}{" "}
+        <ArrowUp aria-hidden="true" className="inline size-3 align-[-0.0625em]" />
       </a>,
     ];
   });
@@ -63,14 +64,20 @@ const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (p
   );
 };
 
+/** A rule over a section of the page's one scroll, after the one before it. */
+const RULED = "mt-10 border-t border-separator pt-8";
+
 export const StopSection = ({
   stop,
   split,
+  ruled,
   onFlash,
   onAsk,
 }: {
   readonly stop: StopView;
   readonly split: boolean;
+  /** A rule parts the stop from what comes before it: every stop but a first with no round summary over it. */
+  readonly ruled: boolean;
   readonly onFlash: (path: string, index: number, start: number, end: number) => void;
   readonly onAsk: (question: string) => void;
 }) => {
@@ -84,7 +91,7 @@ export const StopSection = ({
     <section
       id={`stop-${stop.index + 1}`}
       data-stop={stop.index}
-      className="mt-12 scroll-mt-(--sticky-top) first:mt-0"
+      className={cn("scroll-mt-(--sticky-top)", ruled ? RULED : "mt-0", ruled && stop.index === 0 && "mt-8")}
     >
       <Narration className="mb-1">
         Walkthrough · stop {stop.index + 1} of {page.stops.length}
@@ -94,7 +101,7 @@ export const StopSection = ({
           <span className="mr-1 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>{" "}
           <span>{stop.title}</span>
         </h2>
-        <Stat icon={Eye} title={`${viewed} of ${count(owned.length, "file")} viewed`}>
+        <Stat icon={Check} title={`${viewed} of ${count(owned.length, "file")} viewed`}>
           {viewed}/{owned.length}
         </Stat>
       </div>
@@ -134,10 +141,10 @@ export const StopSection = ({
   );
 };
 
-const END_SECTION = "mt-12 scroll-mt-(--sticky-top)";
+const END_SECTION = cn(RULED, "scroll-mt-(--sticky-top)");
 
-/** The finish as a card, open or finished, so the page ends on something to act on. */
-const FINISH_CARD = cn(END_SECTION, "rounded-panel bg-surface p-5");
+/** The finish as a card, open or finished, so the page ends on something to act on. It follows the whole change. */
+const FINISH_CARD = "mt-6 scroll-mt-(--sticky-top) rounded-panel bg-surface p-5";
 
 /**
  * Inline comments on files that left the round, such as a reverted or renamed file. No file block shows them, so

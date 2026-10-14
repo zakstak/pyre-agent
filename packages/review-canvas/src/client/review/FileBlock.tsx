@@ -3,7 +3,7 @@
  * and a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left.
  */
 import { useAtom } from "@effect/atom-react";
-import { ChevronDown, MessageSquare } from "lucide-react";
+import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
@@ -62,10 +62,10 @@ const Word = ({
     aria-expanded={open}
     aria-controls={controls}
     onClick={onToggle}
-    className={cn(TOUCH_TARGET, "text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
+    className={cn(TOUCH_TARGET, "inline-flex items-center gap-1 text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
   >
     {children}
-    <span aria-hidden="true"> {open ? "▴" : "▾"}</span>
+    <ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
   </button>
 );
 
@@ -124,8 +124,8 @@ const Viewed = ({
   // A closed review cannot change: its Viewed is a word, not a control.
   if (!page.writable)
     return model.approved ? (
-      <span className="text-small text-muted">
-        <span aria-hidden="true">✓</span> Viewed
+      <span className="inline-flex items-center gap-1 text-small text-muted">
+        <Check aria-hidden="true" className="size-3.5" /> Viewed
       </span>
     ) : null;
   const fingerprint = file.fingerprint;
@@ -154,11 +154,11 @@ const Viewed = ({
       <span
         aria-hidden="true"
         className={cn(
-          "inline-grid size-3.5 place-items-center rounded-sm border text-[0.625rem] leading-none",
+          "inline-grid size-3.5 place-items-center rounded-sm border",
           model.approved ? "border-accent bg-accent text-on-accent" : "border-line",
         )}
       >
-        {model.approved ? "✓" : ""}
+        {model.approved ? <Check className="size-3" strokeWidth={3} /> : null}
       </span>
       Viewed
     </button>
@@ -198,7 +198,10 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         data-file-head
         className={cn(
           "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-t-panel bg-surface px-2 py-1.5",
-          folded ? "rounded-b-panel" : "md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
+          // An open file's header has a hairline under it, so where it sticks it reads as a bar over the rows.
+          folded
+            ? "rounded-b-panel"
+            : "border-b border-separator md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
         )}
       >
         {model.hasBody ? (

@@ -3,7 +3,7 @@
  * them, as on GitHub's pull request list; the standing chips write its `is:` term.
  */
 import { useAtom } from "@effect/atom-react";
-import { Archive, CircleCheck, CircleX, Eye, FileDiff, Hourglass, type LucideIcon, MessageCircle, MessageSquare } from "lucide-react";
+import { Archive, Check, CircleCheck, CircleX, FileDiff, Hourglass, type LucideIcon, MessageCircle } from "lucide-react";
 import type { Verdict } from "../../schema/feedback.ts";
 import { facetValues, isStateTerm, STATE_OPTIONS, withoutKey, withoutState } from "../../review/facets.ts";
 import { formatQuery, hasStanding, matches, parseQuery, type Query, type Standing, standing, withoutStanding, withStanding } from "../../review/query.ts";
@@ -12,7 +12,7 @@ import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
-import { Stat } from "../ui/stat.tsx";
+import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Time, timeTitle } from "../ui/text.tsx";
 import { AgentVoice } from "../ui/voice.tsx";
@@ -44,7 +44,7 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
   const progress = item.progress;
   const viewed = (tone: "action" | "muted") =>
     progress === undefined ? null : (
-      <Stat icon={Eye} tone={tone} title={`${progress.viewed} of ${count(progress.viewable, "file")} viewed`}>
+      <Stat icon={Check} tone={tone} title={`${progress.viewed} of ${count(progress.viewable, "file")} viewed`}>
         {progress.viewed}/{progress.viewable}
       </Stat>
     );
@@ -64,9 +64,7 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
   return (
     <>
       {forYou === 0 ? null : (
-        <Stat icon={MessageSquare} tone="action" title={`${count(forYou, "answer")} to read`}>
-          {forYou}
-        </Stat>
+        <AnswerStat count={forYou} title={`${count(forYou, "answer")} to read`} />
       )}
       {viewed(forYou === 0 && left > 0 ? "action" : "muted")}
       {drift === 0 ? null : (
