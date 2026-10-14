@@ -1,0 +1,274 @@
+/**
+ * The review page: one scroll in the order the agent's stops tell the story. Each stop is a section with the agent's
+ * prose and the files it owns as whole diffs, the notes in the code; the conversation sits under the rows it is about;
+ * the whole change and the finish come last. A strip under the title always names the one thing to do next.
+ */
+import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
+import { Cause, Option, Schema } from "effect";
+import { AsyncResult, Atom } from "effect/reactivity";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import type { ReviewInput } from "../../schema/input.ts";
+import { type RepoPath, type ReviewId, RoundNumber } from "../../schema/primitives.ts";
+import { Refused, type ReviewSnapshot, type RoundView } from "../../schema/rpc.ts";
+import { fileElementId } from "../../review/next.ts";
+import type { Round } from "../../review/queries.ts";
+import { count, threadName } from "../names.ts";
+import { type CallError, failureText } from "../rpc.ts";
+import { useMedia } from "../ui/media.ts";
+import { Message, SkipLink } from "../ui/page.tsx";
+import { TargetText } from "../ui/target.tsx";
+import { Prose, Time } from "../ui/text.tsx";
+import { ThemeControl } from "../ui/theme.tsx";
+import { toast } from "../ui/toast.tsx";
+import { ReviewContext, useImport } from "./act.ts";
+import { Contents } from "./Contents.tsx";
+import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
+import { NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
+import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
+import { Departed, Finish, General, StopSection } from "./Sections.tsx";
+import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
+import { type PageModel, pageModel } from "./view.ts";
+
+/** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
+const ImportFeedback = () => {
+  const runImport = useImport();
+  return (
+    <label className="rounded-sm font-normal underline underline-offset-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus">
+      Import feedback
+      <input
+        type="file"
+        accept="application/json,.json"
+        className="sr-only"
+        onChange={async (event) => {
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          input.value = "";
+          if (file === undefined) return;
+          const imported = await runImport(await file.text());
+          if (!imported.ok) return toast(`Not imported: ${imported.message}`, "danger");
+          const report = imported.value;
+          const added = `Imported ${count(report.comments, "comment")}, ${count(report.replies, "reply", "replies")}, and ${count(report.approvals, "approval")}.`;
+          const already = report.already === 0 ? "" : ` ${report.already} already here.`;
+          toast(`${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`);
+        }}
+      />
+    </label>
+  );
+};
+
+/** The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. */
+const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round: boolean; readonly writable: boolean }) => (
+  <footer className="mt-16 flex flex-wrap items-center gap-x-6 gap-y-2 text-small text-muted">
+    <ThemeControl />
+    {round ? (
+      <a href={`/reviews/${id}/feedback.json`} download className="underline underline-offset-3">
+        Export feedback
+      </a>
+    ) : null}
+    {round && writable ? <ImportFeedback /> : null}
+    <code className="text-technical">{id}</code>
+  </footer>
+);
+
+const Frame = ({ children }: { readonly children: React.ReactNode }) => (
+  <div className="mx-auto grid max-w-[96rem] grid-cols-1 gap-x-8 px-5 pb-16 lg:grid-cols-[15.5rem_minmax(0,1fr)]">{children}</div>
+);
+
+/** A review no thread has published a round to yet: the title, one sentence, and the footer. */
+const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
+  const names = snapshot.threads.map((item) => threadName(item.label));
+  const who =
+    names.length === 0 ? "the agents" : names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  const first = snapshot.threads[0];
+  useEffect(() => {
+    document.title = `Waiting for the first round · ${snapshot.state.target.title} · Review canvas`;
+  }, [snapshot.state.target.title]);
+  return (
+    <>
+      <SkipLink />
+      <TopBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
+      <Frame>
+        <header className="col-span-full pt-5">
+          <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
+          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3.5 text-small text-muted">
+            {first === undefined ? null : (
+              <Who thread={first}>
+                started this review at <Time at={snapshot.state.created_at} />
+              </Who>
+            )}
+            <TargetText target={snapshot.state.target} />
+          </p>
+        </header>
+        <main id="main" tabIndex={-1} className="col-span-full pt-8">
+          <p className="max-w-reading">Waiting for {who}’s first round. This page updates itself.</p>
+        </main>
+        <div className="col-span-full">
+          <Footer id={snapshot.state.id} round={false} writable={false} />
+        </div>
+      </Frame>
+    </>
+  );
+};
+
+/**
+ * What a new round changes on the page. It keeps the files that were open; the finish section announces it. The open
+ * files come from the folds as they were at the last render of the round before. A draft whose code changed cannot
+ * stay on its rows: its text goes to the stash, which fills the next comment the reviewer opens.
+ */
+const useRoundChange = (key: RoundKey, page: PageModel) => {
+  const registry = useContext(RegistryContext);
+  const before = useRef<{ readonly round: RoundNumber; readonly open: ReadonlySet<RepoPath> } | undefined>(undefined);
+  // Every render, so the open files are the ones of the last render before the round changed.
+  useEffect(() => {
+    const folds = registry.get(foldsAtom(key));
+    const open = new Set(
+      [...page.files.values()]
+        .filter((model) => (folds[model.file.path] ?? (model.folded ? "closed" : "open")) === "open")
+        .map((model) => model.file.path),
+    );
+    const was = before.current;
+    before.current = { round: page.round.round, open };
+    if (was === undefined || was.round === page.round.round) return;
+    const carried = { ...folds };
+    for (const path of was.open) if (!open.has(path) && page.files.has(path) && carried[path] === undefined) carried[path] = "open";
+    registry.set(foldsAtom(key), carried);
+  });
+  useEffect(() => {
+    const drafts = registry.get(draftsAtom);
+    const lost = drafts.filter((draft) => !draft.submitting && page.files.get(draft.path)?.digest !== draft.digest);
+    if (lost.length === 0) return;
+    registry.set(draftsAtom, drafts.filter((draft) => !lost.includes(draft)));
+    const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
+    if (text !== undefined) {
+      registry.set(stashAtom, text);
+      toast(
+        "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
+        "danger",
+      );
+    }
+  }, [page.files, registry]);
+};
+
+const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
+  const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
+  const navigate = useNavigate(key, page);
+  const registry = useContext(RegistryContext);
+  const general = useRef<HTMLTextAreaElement>(null);
+  const [layout] = useAtom(layoutAtom);
+  const narrow = useMedia(NARROW_QUERY);
+  const split = layout === "split" && !narrow;
+  useStickyBars();
+  const context = useMemo(() => ({ id, page }), [id, page]);
+
+  useEffect(() => {
+    document.title = `${page.input.target.title} · Review canvas`;
+  }, [page.input.target.title]);
+  useHash(navigate);
+  useScrollSpy(navigate);
+  useKeys(navigate);
+  useRoundChange(key, page);
+
+  /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
+  const ask = (question: string) => {
+    const area = general.current;
+    if (area === null) return;
+    const now = registry.get(generalDraftAtom);
+    const next = now.startsWith(question) ? now : now === "" ? question : `${question}\n\n${now}`;
+    // Drawn at once, so the caret goes after the text the box now holds.
+    flushSync(() => registry.set(generalDraftAtom, next));
+    area.scrollIntoView({ block: "center" });
+    area.focus();
+    area.setSelectionRange(next.length, next.length);
+  };
+
+  return (
+    <ReviewContext.Provider value={context}>
+      <SkipLink />
+      <TopBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
+      <Frame>
+        <Title id={id} />
+        <NextStrip onGo={() => void navigate.goNext()} />
+        <Contents onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
+          history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
+          void navigate.showFile(path);
+        }} />
+        <main id="main" tabIndex={-1} className="min-w-0 pt-8 outline-none">
+          {page.input.summary === undefined ? null : (
+            <div className="mb-10">
+              <Prose text={page.input.summary} />
+            </div>
+          )}
+          {page.stops.map((stop) => (
+            <StopSection key={stop.index} stop={stop} split={split} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
+          ))}
+          <Departed />
+          <General textarea={general} />
+          <Finish key={page.writable ? "open" : "closed"} />
+        </main>
+        <div className="col-span-full">
+          <Footer id={id} round writable={page.writable} />
+        </div>
+      </Frame>
+    </ReviewContext.Provider>
+  );
+};
+
+const roundNumber = Schema.decodeSync(RoundNumber);
+
+/** No round to read: what a review without one, or a first round's round before, stands for. */
+const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, CallError>>(AsyncResult.initial());
+
+/**
+ * A round's input and digests, and the input of the round before, once the server sent them. A round that does not
+ * exist is never asked for: the server would refuse it, and a refusal is kept until the next reconnect.
+ */
+const useRound = (id: ReviewId, round: Round | undefined) => {
+  const current = useAtomValue(round === undefined ? noRound : roundAtom({ id, round: round.round }));
+  const before = useAtomValue(
+    round === undefined || round.round <= 1 ? noRound : roundAtom({ id, round: roundNumber(round.round - 1) }),
+  );
+  const view = AsyncResult.value(current).pipe(Option.getOrUndefined);
+  const previous: ReviewInput | undefined = AsyncResult.value(before).pipe(
+    Option.map((item) => item.input),
+    Option.getOrUndefined,
+  );
+  const waitingForPrevious = round !== undefined && round.round > 1 && previous === undefined && !AsyncResult.isFailure(before);
+  return { view, previous, ready: view !== undefined && !waitingForPrevious, failure: AsyncResult.isFailure(current) ? current.cause : undefined };
+};
+
+const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: ReviewSnapshot }) => {
+  const round = snapshot.state.rounds.at(-1);
+  const { view, previous, ready, failure } = useRound(id, round);
+  const fresh = useMemo(
+    () => (round === undefined || view === undefined || !ready ? undefined : pageModel(snapshot, round, view.input, view.digests, previous)),
+    [snapshot, round, view, previous, ready],
+  );
+  // A new round's input arrives a moment after the snapshot that announces it. Until then the page keeps showing the
+  // round it has, so the review stays mounted: the finish keeps the round it names, open files stay open, and the
+  // new round is announced.
+  const [last, setLast] = useState<PageModel | undefined>(undefined);
+  if (fresh !== undefined && fresh !== last) setLast(fresh);
+  const page = fresh ?? last;
+  if (round === undefined) return <Waiting snapshot={snapshot} />;
+  // A page already showing keeps showing while the next round fails to load; the reconnect reads it again.
+  if (page === undefined && failure !== undefined)
+    return <Message title="This review did not load">{failureText(failure)}</Message>;
+  if (page === undefined) return <p className="p-8 text-muted">Loading round {round.round}…</p>;
+  return <Review id={id} page={page} />;
+};
+
+export const ReviewPage = ({ id }: { readonly id: ReviewId }) => {
+  const result = useAtomValue(reviewAtom(id));
+  const snapshot = AsyncResult.value(result).pipe(Option.getOrUndefined);
+  if (snapshot !== undefined) return <Loaded id={id} snapshot={snapshot} />;
+  if (AsyncResult.isFailure(result)) {
+    const refused = Cause.findErrorOption(result.cause).pipe(Option.filter((error) => error instanceof Refused));
+    return Option.isSome(refused) && refused.value.kind === "not_found" ? (
+      <Message title="No such review" />
+    ) : (
+      <Message title="This review did not load">{failureText(result.cause)}</Message>
+    );
+  }
+  return <p className="p-8 text-muted">Loading the review…</p>;
+};

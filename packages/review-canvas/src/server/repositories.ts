@@ -226,12 +226,17 @@ export const mapCheckouts = async <A, B>(items: ReadonlyArray<A>, read: (item: A
   return [...results.entries()].sort(([a], [b]) => a - b).map(([, result]) => result);
 };
 
-export const checkoutStatus = async (root: WorktreeRoot, identity?: Repository["identity"]): Promise<RepositoryStatus> => {
+/** A checkout's branch and changed items. An aborted read stops its Git processes and reads as unavailable. */
+export const checkoutStatus = async (
+  root: WorktreeRoot,
+  identity?: Repository["identity"],
+  signal?: AbortSignal,
+): Promise<RepositoryStatus> => {
   try {
-    const current = await identifyRepository(root);
+    const current = await identifyRepository(root, signal);
     if (identity !== undefined && repositoryId(identity) !== repositoryId(current.identity))
       return { kind: "unavailable", message: "This checkout now belongs to a different repository." };
-    const output = await git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=all"]);
+    const output = await git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=all"], { signal });
     let changed = 0;
     const records = output.split("\0");
     for (let i = 0; i < records.length; i++) {
@@ -240,7 +245,7 @@ export const checkoutStatus = async (root: WorktreeRoot, identity?: Repository["
       changed++;
       if (record.slice(0, 2).includes("R") || record.slice(0, 2).includes("C")) i++;
     }
-    const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], { ok: [0, 1] })).replace(/\n$/, "");
+    const branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"], { ok: [0, 1], signal })).replace(/\n$/, "");
     return { kind: "ready", branch: branch === "" ? null : branch, changed };
   } catch {
     return { kind: "unavailable", message: "Repository unavailable or Git status could not be read." };

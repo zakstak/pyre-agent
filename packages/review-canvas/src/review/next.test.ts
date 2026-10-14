@@ -9,7 +9,7 @@ import {
   walkthroughOrder,
 } from "./next.ts";
 import { progress, standingOf } from "./progress.ts";
-import type { ReviewState, Round } from "./state.ts";
+import type { ReviewState, Round } from "./queries.ts";
 import { tourView } from "./tour.ts";
 
 const patch = "@@ -0,0 +1,2 @@\n+one\n+two\n";

@@ -43,34 +43,12 @@ import type {
 import { type Target, targetKey } from "../schema/target.ts";
 import type { Thread, ThreadHost } from "../schema/thread.ts";
 import type { RowSelection } from "../review/anchor.ts";
-import {
-  type ActionContext,
-  ActionError,
-  addGeneralComment,
-  addInlineComment,
-  agentAnswer,
-  approve,
-  approvalHolds,
-  carriedApprovals,
-  currentRound,
-  currentSubmission,
-  publishRound,
-  reattach,
-  reportDrift,
-  reviewerReply,
-  type ReviewState,
-  turnOf,
-  type Round,
-  submit,
-  unapprove,
-} from "../review/state.ts";
+import { type ActionContext, ActionError, addGeneralComment, addInlineComment, agentAnswer, approve, carriedApprovals, publishRound, reattach, reportDrift, reviewerReply, submit, unapprove } from "../review/state.ts";
+import { approvalHolds, currentRound, currentSubmission, type ReviewState, turnOf, type Round } from "../review/queries.ts";
 import { tourView } from "../review/tour.ts";
-import { type Progress, progress } from "../review/progress.ts";
-import {
-  type ImportReport,
-  importFeedback,
-  importGitHub,
-} from "../review/imports.ts";
+import { progress } from "../review/progress.ts";
+import type { ImportReport, ReviewSnapshot, ReviewSummary } from "../schema/rpc.ts";
+import { importFeedback, importGitHub } from "../review/imports.ts";
 import type { GitHubItem } from "../schema/github.ts";
 import { pullRequestKey } from "../schema/target.ts";
 
@@ -122,32 +100,6 @@ CREATE TABLE rounds (
   FOREIGN KEY (review_id, thread_id) REFERENCES threads (review_id, id)
 ) WITHOUT ROWID;
 `;
-
-/** A review as the list page shows it. */
-export interface ReviewSummary {
-  readonly id: ReviewId;
-  readonly target: Target;
-  readonly created_at: Timestamp;
-  readonly closed_at: Timestamp | undefined;
-  readonly revision: Revision;
-  readonly round: RoundNumber | undefined;
-  readonly open_comments: number;
-  readonly comments: number;
-  readonly approvals: number;
-  readonly files: number | undefined;
-  readonly submitted: boolean;
-  readonly threads: ReadonlyArray<Thread>;
-  /** The review this one replaced with a fresh start, if any. */
-  readonly carry_from: ReviewId | undefined;
-  /** When the current round was published. */
-  readonly published_at: Timestamp | undefined;
-  /** The verdict the reviewer finished the current round with. */
-  readonly verdict: Verdict | undefined;
-  /** How far the reviewer is with the current round, as the review page counts it. */
-  readonly progress: Omit<Progress, "viewed"> & { readonly viewed: number } | undefined;
-  /** Files an agent found changed since the current round. */
-  readonly drift: number | undefined;
-}
 
 /** A review with everything a page or an agent reads: its state, threads, and the current round's input. */
 export interface ReviewView {
@@ -475,6 +427,23 @@ export class Store {
     return row === undefined ? undefined : this.#view(row);
   }
 
+  /**
+   * What an open page follows: everything a review's actions change, without decoding its round's input, and for a
+   * closed review the one that replaced it.
+   */
+  snapshot(id: string): ReviewSnapshot | undefined {
+    const row = this.#row(id);
+    if (row === undefined) return undefined;
+    const state = JSON.parse(row.state) as ReviewState;
+    const replaced = state.closed_at === undefined ? undefined : this.#replacedBy(row.id);
+    return {
+      state,
+      revision: row.revision as Revision,
+      threads: this.#threads(row.id),
+      ...(replaced === undefined ? {} : { replaced_by: replaced }),
+    };
+  }
+
   /** A view of an earlier round of the review, for reading only. */
   round(id: string, round: number): ReviewInput | undefined {
     return this.#input(id, round);
@@ -496,7 +465,7 @@ export class Store {
   }
 
   /** The review that replaced this one with a fresh start, if any. */
-  replacedBy(id: string): ReviewId | undefined {
+  #replacedBy(id: string): ReviewId | undefined {
     const row = this.#db
       .prepare("SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1")
       .get(id) as { id: string } | undefined;

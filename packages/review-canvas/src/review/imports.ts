@@ -16,29 +16,13 @@ import { compareReplies } from "../schema/feedback.ts";
 import type { GitHubItem, GitHubPost, GitHubThread } from "../schema/github.ts";
 import type { ReviewFile } from "../schema/input.ts";
 import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
+import type { ImportReport } from "../schema/rpc.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
-import { anchorAt, attach, attachedRows } from "./anchor.ts";
-import { parseRows, type Row } from "./patch.ts";
-import {
-  type ActionContext,
-  ActionError,
-  appendReply,
-  type ReviewState,
-  type Turn,
-  withRound,
-} from "./state.ts";
-
-export interface ImportReport {
-  readonly comments: number;
-  readonly replies: number;
-  readonly approvals: number;
-  /** Comments the review already held, by ID or GitHub ID. */
-  readonly already: number;
-  /** Threads the review already held whose resolution on GitHub changed since the last import. */
-  readonly resolutions: number;
-  readonly skipped: ReadonlyArray<string>;
-}
+import { anchorAt, attach } from "./anchor.ts";
+import { attachedRows, parseRows, type Row } from "./patch.ts";
+import { type ActionContext, ActionError, appendReply, withRound } from "./state.ts";
+import { type ReviewState, type Turn } from "./queries.ts";
 
 /**
  * A turn while replaying a comment's replies. `github` is a GitHub thread after its opening post or a GitHub reply:

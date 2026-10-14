@@ -55,16 +55,17 @@ revision it saw with each action; when the review moved on, the server refuses
 the action and the page refreshes. No state is written that the feedback schema
 would refuse, so every review exports as a valid feedback document.
 
-A page acts on the revision its markup shows. A comment names the patch its
-rows belong to, and a finish names the round it covers, so neither can land on
-a round the reviewer has not seen even while a refresh is on its way.
+A page acts on the revision it shows. A comment names the patch its rows
+belong to, and a finish names the round it covers, so neither can land on a
+round the reviewer has not seen even while the newer one is on its way.
 
-Open pages hold a server-sent event stream and refresh the page's content when
-the revision changes, keeping the reviewer's place, open drafts, and scroll. A
-draft whose code changed is not moved; its text fills the next comment. A
-hidden tab holds no stream and catches up when shown. A failed refresh waits
-longer each time. Whole files show unified or side by side; the choice is a
-cookie the server reads when it renders.
+Pages are rendered in the browser and need JavaScript. An open page holds one
+WebSocket to the server and receives the review again whenever it changes,
+keeping the reviewer's place, open drafts, and scroll. A draft whose code
+changed is not moved; its text fills the next comment. When the server stops,
+the page says so and reconnects on its own when the server returns on the same
+port. Whole files show unified or side by side; the browser remembers the
+choice.
 
 ## Whose turn
 

@@ -1,6 +1,9 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
-import { Context, Effect, Layer } from "effect";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import { Context, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
+import { RpcClient, RpcClientError, type RpcGroup, RpcSerialization } from "effect/rpc";
+import { Socket } from "effect/socket";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { createServer, request } from "node:http";
@@ -8,7 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureBytes } from "../schema/testing.ts";
-import { patchDigest } from "../review/patch.ts";
+import { RepoPath, ReviewId, Revision, RoundNumber } from "../schema/primitives.ts";
+import { PageAction, PageRpcs, Refused } from "../schema/rpc.ts";
+import { patchDigest } from "../review/anchor.ts";
 import { finishedSince, hasQuestions } from "./status.ts";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
@@ -68,6 +73,78 @@ const call = (
     req.end();
   });
 
+type PageClient = RpcClient.RpcClient.Flat<RpcGroup.Rpcs<typeof PageRpcs>, RpcClientError.RpcClientError>;
+
+/**
+ * Runs calls through the page RPCs over the socket, as a page on `origin` would. A call that never settles fails
+ * after a while, so a regression fails the test instead of hanging it.
+ */
+const rpc = <A, E>(
+  port: number,
+  use: (client: PageClient) => Effect.Effect<A, E>,
+  origin = `http://127.0.0.1:${port}`,
+) =>
+  Effect.runPromiseExit(
+    Effect.scoped(Effect.flatMap(RpcClient.make(PageRpcs, { flatten: true }), use)).pipe(
+      Effect.provide(
+        RpcClient.layerProtocolSocket().pipe(
+          Layer.provide(Socket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: { origin } })),
+          // The browser's constructor sends no Origin; Node's can.
+          Layer.provide(NodeSocket.layerWebSocketConstructor),
+          Layer.provide(RpcSerialization.layerJson),
+        ),
+      ),
+      Effect.timeout("10 seconds"),
+    ),
+  );
+
+/** What a page call returned; a failed call fails the test with its cause. */
+const succeeded = <A, E>(exit: Exit.Exit<A, E>): A => {
+  if (Exit.isFailure(exit)) assert.fail(String(exit.cause));
+  return exit.value;
+};
+
+/** The refusal a page call failed with. */
+const refused = <A, E>(exit: Exit.Exit<A, E>): Refused => {
+  const error = Option.getOrUndefined(Exit.findErrorOption(exit));
+  assert.ok(error instanceof Refused, `expected a refusal: ${String(exit)}`);
+  return error;
+};
+
+/** Whether a page call failed because the socket would not open, so no call reached the review. */
+const unopened = <A, E>(exit: Exit.Exit<A, E>): boolean => {
+  const error = Option.getOrUndefined(Exit.findErrorOption(exit));
+  return error instanceof RpcClientError.RpcClientError && error.reason._tag === "SocketOpenError";
+};
+
+/** A page action, decoded by the RPC's own schema, on the revision the page saw when it names one. */
+const act = (
+  port: number,
+  id: ReviewId,
+  request: { action: typeof PageAction.Encoded; revision?: number },
+  origin?: string,
+) =>
+  rpc(
+    port,
+    (client) =>
+      client("review.act", {
+        id,
+        action: Schema.decodeSync(PageAction)(request.action),
+        revision: request.revision === undefined ? undefined : Schema.decodeSync(Revision)(request.revision),
+      }),
+    origin,
+  );
+
+/** The review as a page that opens it now first receives it. */
+const snapshotOf = async (port: number, id: ReviewId) =>
+  Option.getOrThrow(succeeded(await rpc(port, (client) => Stream.runHead(client("review.watch", { id })))));
+
+/** A round's input and patch digests, as a page reads them. */
+const roundOf = async (port: number, id: ReviewId, round: number) =>
+  succeeded(
+    await rpc(port, (client) => client("review.round", { id, round: Schema.decodeSync(RoundNumber)(round) })),
+  );
+
 /** Both listeners on one store: the agent API on a socket, the pages on a loopback port. */
 const withServers = (
   check: (
@@ -77,7 +154,7 @@ const withServers = (
 ) => {
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-agent-"));
   const socketPath = join(dir, "agent.sock");
-  const TestAssets = Layer.succeed(Assets, { styles: [], scripts: [] });
+  const TestAssets = Layer.succeed(Assets, { index: "<!doctype html>" });
   const PageServer = NodeHttpServer.layer(createServer, {
     host: "127.0.0.1",
     port: 0,
@@ -127,7 +204,7 @@ const withServers = (
 const input = () =>
   JSON.parse(fixtureBytes("input/worktree.json").toString("utf8"));
 
-/** The digest of a fixture file's patch, as the page's table carries it. */
+/** The digest of a fixture file's patch, which the round the page reads must carry. */
 const patchOf = (path: string): string =>
   patchDigest(
     (input().files as Array<{ path: string; patch?: string }>).find(
@@ -135,13 +212,7 @@ const patchOf = (path: string): string =>
     )?.patch ?? "",
   );
 
-/** Every id attribute on a page, with how often it appears. */
-const repeatedIds = (page: string) => {
-  const counts = new Map<string, number>();
-  for (const [, id] of page.matchAll(/\sid="([^"]+)"/g))
-    counts.set(id ?? "", (counts.get(id ?? "") ?? 0) + 1);
-  return [...counts].filter(([, count]) => count > 1);
-};
+const STORE = Schema.decodeSync(RepoPath)("src/notes/store.py");
 
 test("an agent registers, publishes, and answers; a page comments, submits, and exports", () =>
   withServers(async (agent, pages) => {
@@ -161,6 +232,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
       registered.body.url,
       `http://127.0.0.1:${pages.port}/reviews/${review}`,
     );
+    const id = Schema.decodeSync(ReviewId)(review);
 
     // Unknown fields and bad tokens are refused.
     const extra = await call(agent, "POST", "/agent/register", {
@@ -178,10 +250,10 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     });
     assert.equal(unauthorized.status, 401);
 
-    // Before a round, the page waits.
-    const waiting = await call(pages, "GET", `/reviews/${review}`);
-    assert.equal(waiting.status, 200);
-    assert.match(waiting.text, /Waiting for the first round/);
+    // Before a round, the page has no round to show, so it waits.
+    const waiting = await snapshotOf(pages.port, id);
+    assert.equal(waiting.revision, 1);
+    assert.deepEqual(waiting.state.rounds, []);
 
     const published = await call(
       agent,
@@ -195,45 +267,48 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(published.status, 200, published.text);
     assert.equal(published.body.round.round, 1);
 
-    const page = await call(pages, "GET", `/reviews/${review}`);
-    assert.equal(page.status, 200);
-    assert.match(page.text, /Write notes atomically/);
-    assert.match(page.text, /data-revision="2"/);
-    assert.match(page.text, /<section class="stop/);
+    const page = await snapshotOf(pages.port, id);
+    assert.equal(page.revision, 2);
+    assert.equal(page.state.target.title, "Write notes atomically");
+    assert.deepEqual(page.state.rounds.map((item) => item.round), [1]);
+    // The page selects rows by the digest it receives, which names the patch the agent published.
+    const round = await roundOf(pages.port, id, 1);
+    assert.equal(round.input.files.length, input().files.length);
+    assert.equal(round.digests[STORE], patchOf(STORE));
 
-    // A page action needs this server's Origin.
-    const action = (body: unknown, origin = `http://127.0.0.1:${pages.port}`) =>
-      call(pages, "POST", `/reviews/${review}/actions`, {
-        body: JSON.stringify(body),
-        headers: { origin },
-      });
-    const foreign = await action(
+    // A page action needs this server's Origin: the socket refuses another, so the review stays at revision 2.
+    const foreign = await act(
+      pages.port,
+      id,
       { action: { kind: "general_comment", body: "x" } },
       "http://evil.example",
     );
-    assert.equal(foreign.status, 403);
-    const commented = await action({
-      action: {
-        kind: "comment",
-        selection: {
-          path: "src/notes/store.py",
-          patch_sha256: patchOf("src/notes/store.py"),
-          start_row: 13,
-          end_row: 15,
+    assert.ok(unopened(foreign), String(foreign));
+    const commented = succeeded(
+      await act(pages.port, id, {
+        action: {
+          kind: "comment",
+          selection: {
+            path: STORE,
+            patch_sha256: round.digests[STORE] ?? "",
+            start_row: 13,
+            end_row: 15,
+          },
+          body: "Lock first.",
         },
-        body: "Lock first.",
-      },
-      revision: 2,
-    });
-    assert.equal(commented.status, 200, commented.text);
-    assert.equal(commented.body.revision, 3);
-    const stale = await action({
-      action: { kind: "general_comment", body: "late" },
-      revision: 2,
-    });
-    assert.equal(stale.status, 409);
-    assert.equal(stale.body.error.kind, "stale");
-    assert.equal(stale.body.error.revision, 3);
+        revision: 2,
+      }),
+    );
+    assert.equal(commented.revision, 3);
+    const stale = refused(
+      await act(pages.port, id, {
+        action: { kind: "general_comment", body: "late" },
+        revision: 2,
+      }),
+    );
+    assert.equal(stale.kind, "stale");
+    assert.equal(stale.revision, 3);
+    assert.match(stale.message, /changed since the page loaded/);
 
     // The agent sees the comment as its turn, and its answer hands the turn back.
     const status = await call(agent, "GET", `/agent/reviews/${review}`, {
@@ -280,28 +355,31 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
       { headers: { authorization: `Bearer ${token}` } },
     );
     assert.equal(waited.body.status.revision, 4);
-    const submitted = await action({
-      action: {
-        kind: "submit",
-        round: 1,
-        verdict: "approve",
-        body: "Ship it.",
-      },
-    });
-    assert.equal(submitted.status, 200, submitted.text);
+    const submitted = succeeded(
+      await act(pages.port, id, {
+        action: {
+          kind: "submit",
+          round: 1,
+          verdict: "approve",
+          body: "Ship it.",
+        },
+      }),
+    );
     const after = await call(agent, "GET", `/agent/reviews/${review}`, {
       headers: { authorization: `Bearer ${token}` },
     });
     assert.equal(after.body.status.submission.verdict, "approve");
     const finishedAt = after.body.status.submission.revision;
-    assert.equal(finishedAt, submitted.body.revision);
+    assert.equal(finishedAt, submitted.revision);
     // A finish that happened before the agent started waiting still counts; one it already read does not.
     assert.ok(finishedSince(after.body.status, 0));
     assert.equal(finishedSince(after.body.status, finishedAt), false);
     // A later comment is not a new finish.
-    await action({
-      action: { kind: "general_comment", body: "One more thing." },
-    });
+    succeeded(
+      await act(pages.port, id, {
+        action: { kind: "general_comment", body: "One more thing." },
+      }),
+    );
     const later = await call(agent, "GET", `/agent/reviews/${review}`, {
       headers: { authorization: `Bearer ${token}` },
     });
@@ -309,7 +387,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(finishedSince(later.body.status, finishedAt), false);
     assert.equal(later.body.status.feedback.submissions[0].revision, undefined);
 
-    // Export is the feedback document, and the list page shows the review.
+    // Export is the feedback document, and the home page lists the review with its finished round.
     const exported = await call(
       pages,
       "GET",
@@ -319,9 +397,12 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(exported.body.format, "review-canvas.feedback/1");
     assert.equal(exported.body.comments.length, 2);
     assert.equal(exported.body.submissions.length, 1);
-    const home = await call(pages, "GET", "/");
-    assert.match(home.text, /Write notes atomically/);
-    assert.match(home.text, /Round 1 finished/);
+    const home = succeeded(await rpc(pages.port, (client) => client("home.load", {})));
+    const listed = home.reviews.find((item) => item.id === id);
+    assert.equal(listed?.target.title, "Write notes atomically");
+    assert.equal(listed.round, 1);
+    assert.equal(listed.submitted, true);
+    assert.equal(listed.verdict, "approve");
 
     // A page on the loopback port cannot reach the agent API.
     const crossed = await call(pages, "POST", "/agent/register", {
@@ -330,7 +411,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(crossed.status, 404);
   }));
 
-test("the event stream reports the revision, then each change", () =>
+test("the review watch reports the revision, then each change", () =>
   withServers(async (agent, pages) => {
     const registered = await call(agent, "POST", "/agent/register", {
       body: JSON.stringify({
@@ -343,60 +424,49 @@ test("the event stream reports the revision, then each change", () =>
       review: string;
       token: string;
     };
+    const id = Schema.decodeSync(ReviewId)(review);
     await call(agent, "POST", `/agent/reviews/${review}/rounds`, {
       body: fixtureBytes("input/worktree.json"),
       headers: { authorization: `Bearer ${token}` },
     });
-    const events = await new Promise<string>((resolve, reject) => {
-      let done = false;
-      let posted: Promise<unknown> = Promise.resolve();
-      const req = request(
-        {
-          host: "127.0.0.1",
-          port: pages.port,
-          path: `/reviews/${review}/events`,
-          headers: { host: `127.0.0.1:${pages.port}` },
-        },
-        (response) => {
-          assert.match(
-            String(response.headers["content-type"]),
-            /text\/event-stream/,
-          );
-          let text = "";
-          response.setEncoding("utf8");
-          response.on("data", (chunk: string) => {
-            text += chunk;
-            if (
-              text.includes('"revision":2') &&
-              !text.includes('"revision":3')
-            ) {
-              posted = call(pages, "POST", `/reviews/${review}/actions`, {
-                body: JSON.stringify({
-                  action: { kind: "general_comment", body: "Hello" },
-                }),
-                headers: { origin: `http://127.0.0.1:${pages.port}` },
-              });
-            }
-            if (text.includes('"revision":3')) {
-              done = true;
-              response.on("error", () => {});
-              req.destroy();
-              void posted.then(() => resolve(text));
-            }
-          });
-        },
-      );
-      // Closing the stream from this side resets the socket; that is the expected end, not a failure.
-      req.on("error", (error) => {
-        if (!done) reject(error);
+    const answer = (comment: string) =>
+      call(agent, "POST", `/agent/reviews/${review}/answers`, {
+        body: JSON.stringify({
+          comment,
+          answer: { disposition: "answered", body: "Hello to you." },
+        }),
+        headers: { authorization: `Bearer ${token}` },
       });
-      req.end();
-    });
-    assert.match(events, /event: change\ndata: \{"revision":2\}/);
-    assert.match(events, /event: change\ndata: \{"revision":3\}/);
+    const hello = Schema.decodeSync(PageAction)({ kind: "general_comment", body: "Hello" });
+    const snapshots = succeeded(
+      await rpc(pages.port, (client) =>
+        client("review.watch", { id }).pipe(
+          Stream.take(3),
+          // Each change waits for the snapshot before it: the watch keeps only the newest, so two changes made
+          // together would arrive as one.
+          Stream.tap((snapshot) =>
+            Effect.gen(function* () {
+              if (snapshot.revision === 2) yield* client("review.act", { id, action: hello });
+              const comment = snapshot.state.comments[0];
+              if (snapshot.revision === 3 && comment !== undefined)
+                yield* Effect.promise(async () => {
+                  const answered = await answer(comment.id);
+                  assert.equal(answered.status, 200, answered.text);
+                });
+            }),
+          ),
+          Stream.runCollect,
+        ),
+      ),
+    );
+    assert.deepEqual(snapshots.map((snapshot) => snapshot.revision), [2, 3, 4]);
+    assert.deepEqual(
+      snapshots.map((snapshot) => snapshot.state.comments[0]?.replies.map((reply) => reply.actor)),
+      [undefined, [], ["agent"]],
+    );
   }));
 
-test("a comment on a file that leaves the round stays on the page, and no id repeats", () =>
+test("a comment on a file that leaves the round stays in the review, though the round no longer holds the file", () =>
   withServers(async (agent, pages) => {
     const registered = await call(agent, "POST", "/agent/register", {
       body: JSON.stringify({
@@ -409,46 +479,48 @@ test("a comment on a file that leaves the round stays on the page, and no id rep
       review: string;
       token: string;
     };
+    const id = Schema.decodeSync(ReviewId)(review);
     const publish = (round: unknown) =>
       call(agent, "POST", `/agent/reviews/${review}/rounds`, {
         body: JSON.stringify(round),
         headers: { authorization: `Bearer ${token}` },
       });
     assert.equal((await publish(input())).status, 200);
-    const commented = await call(pages, "POST", `/reviews/${review}/actions`, {
-      body: JSON.stringify({
+    const first = await roundOf(pages.port, id, 1);
+    succeeded(
+      await act(pages.port, id, {
         action: {
           kind: "comment",
           selection: {
-            path: "src/notes/store.py",
-            patch_sha256: patchOf("src/notes/store.py"),
+            path: STORE,
+            patch_sha256: first.digests[STORE] ?? "",
             start_row: 13,
             end_row: 15,
           },
           body: "Lock before the rename.",
         },
       }),
-      headers: { origin: `http://127.0.0.1:${pages.port}` },
-    });
-    assert.equal(commented.status, 200, commented.text);
-    const first = await call(pages, "GET", `/reviews/${review}`);
-    assert.deepEqual(repeatedIds(first.text), []);
+    );
 
-    // Round 2 reverts store.py, so no file panel can show the comment.
+    // Round 2 reverts store.py, so no file block can show the comment; the page lists it with the files that left.
     const second = input();
     second.files = second.files.filter(
-      (file: { path: string }) => file.path !== "src/notes/store.py",
+      (file: { path: string }) => file.path !== STORE,
     );
     second.target.changed_files = second.files.length;
     assert.equal((await publish(second)).status, 200);
-    const page = await call(pages, "GET", `/reviews/${review}`);
-    assert.match(page.text, /Files that left the round/);
-    assert.match(page.text, /Lock before the rename\./);
-    assert.match(page.text, /The file is not in this round\./);
-    assert.deepEqual(repeatedIds(page.text), []);
+    const page = await snapshotOf(pages.port, id);
+    assert.deepEqual(page.state.rounds.map((item) => item.round), [1, 2]);
+    const [comment] = page.state.comments;
+    assert.equal(comment?.body, "Lock before the rename.");
+    assert.equal(comment.kind === "inline" && comment.anchor.path, STORE);
+    const current = await roundOf(pages.port, id, 2);
+    assert.ok(current.input.files.length > 0);
+    assert.equal(current.input.files.some((file) => file.path === STORE), false);
+    assert.equal(current.digests[STORE], undefined);
   }));
 
-test("agents report drift and GitHub comments; pages import feedback and choose a layout", () =>
+test("agents report drift and GitHub comments; pages import feedback", () =>
   withServers(async (agent, pages) => {
     const registered = await call(agent, "POST", "/agent/register", {
       body: JSON.stringify({
@@ -461,6 +533,7 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
       review: string;
       token: string;
     };
+    const id = Schema.decodeSync(ReviewId)(review);
     const auth = { authorization: `Bearer ${token}` };
     await call(agent, "POST", `/agent/reviews/${review}/rounds`, {
       body: fixtureBytes("input/worktree.json"),
@@ -468,19 +541,19 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
     });
 
     const drift = await call(agent, "POST", `/agent/reviews/${review}/drift`, {
-      body: JSON.stringify({ paths: ["src/notes/store.py"] }),
+      body: JSON.stringify({ paths: [STORE] }),
       headers: auth,
     });
     assert.equal(drift.status, 200, drift.text);
     const status = await call(agent, "GET", `/agent/reviews/${review}`, {
       headers: auth,
     });
-    assert.deepEqual(status.body.status.drift.paths, ["src/notes/store.py"]);
+    assert.deepEqual(status.body.status.drift.paths, [STORE]);
     assert.ok(status.body.status.files.length > 0);
-    assert.match(
-      (await call(pages, "GET", `/reviews/${review}`)).text,
-      /Changed since this round:/,
-    );
+    // The page shows the drift of the round it describes.
+    const drifted = (await snapshotOf(pages.port, id)).state.drift;
+    assert.equal(drifted?.round, 1);
+    assert.deepEqual(drifted.paths, [STORE]);
 
     const github = await call(
       agent,
@@ -507,17 +580,15 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
     assert.equal(github.body.report.comments, 1);
 
     // A question asked now shows as the agents' to answer at once.
-    const origin = { origin: `http://127.0.0.1:${pages.port}` };
-    await call(pages, "POST", `/reviews/${review}/actions`, {
-      body: JSON.stringify({
+    succeeded(
+      await act(pages.port, id, {
         action: {
           kind: "general_comment",
           body: "Why a temp file?",
           question: true,
         },
       }),
-      headers: origin,
-    });
+    );
     const asked = await call(agent, "GET", `/agent/reviews/${review}`, {
       headers: auth,
     });
@@ -530,37 +601,18 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
       "GET",
       `/reviews/${review}/feedback.json`,
     );
-    const foreign = await call(pages, "POST", `/reviews/${review}/import`, {
-      body: exported.text,
-      headers: { origin: "http://evil.example" },
-    });
-    assert.equal(foreign.status, 403);
-    const imported = await call(pages, "POST", `/reviews/${review}/import`, {
-      body: exported.text,
-      headers: origin,
-    });
-    assert.equal(imported.status, 200, imported.text);
-    assert.equal(imported.body.report.comments, 0);
-    assert.equal(imported.body.report.already, 2);
-    const garbage = await call(pages, "POST", `/reviews/${review}/import`, {
-      body: '{"format":"review-canvas.feedback/1"}',
-      headers: origin,
-    });
-    assert.equal(garbage.status, 400);
-
-    // The layout cookie picks how whole files render.
-    const split = await call(pages, "GET", `/reviews/${review}`, {
-      headers: { cookie: "review-canvas-layout=split" },
-    });
-    assert.match(split.text, /<table class="diff split"/);
-    assert.match(split.text, /data-layout="split" aria-pressed="true"/);
-    assert.doesNotMatch(
-      (await call(pages, "GET", `/reviews/${review}`)).text,
-      /<table class="diff split"/,
-    );
+    const importing = (text: string, origin?: string) =>
+      rpc(pages.port, (client) => client("review.import", { id, text }), origin);
+    const foreign = await importing(exported.text, "http://evil.example");
+    assert.ok(unopened(foreign), String(foreign));
+    const imported = succeeded(await importing(exported.text));
+    assert.equal(imported.report.comments, 0);
+    assert.equal(imported.report.already, 2);
+    const garbage = refused(await importing('{"format":"review-canvas.feedback/1"}'));
+    assert.equal(garbage.kind, "schema");
   }));
 
-test("a file the next round changes shows what changed since the round before", () =>
+test("a file the next round changes reaches the page in both rounds, for the page to compare", () =>
   withServers(async (agent, pages) => {
     const round = (text: string) => {
       const base = input();
@@ -595,26 +647,30 @@ test("a file the next round changes shows what changed since the round before", 
       review: string;
       token: string;
     };
+    const id = Schema.decodeSync(ReviewId)(review);
     const publish = (body: unknown) =>
       call(agent, "POST", `/agent/reviews/${review}/rounds`, {
         body: JSON.stringify(body),
         headers: { authorization: `Bearer ${token}` },
       });
     assert.equal((await publish(first)).status, 200);
-    assert.doesNotMatch(
-      (await call(pages, "GET", `/reviews/${review}`)).text,
-      /Changes since round/,
+    // With one round there is no round before to compare with.
+    assert.deepEqual(
+      (await snapshotOf(pages.port, id)).state.rounds.map((item) => item.round),
+      [1],
     );
     assert.equal((await publish(round("one\ntwo\nthree\n"))).status, 200);
-    const page = (await call(pages, "GET", `/reviews/${review}`)).text;
-    assert.doesNotMatch(page, /unchanged since round 1/);
-    // The header says so in a word that opens the patch between the rounds above the diff.
-    assert.match(page, /aria-controls="since-f0">changed since round 1<\/button>/);
-    // The patch between rounds holds only the new line, and offers no comment control.
-    const since = page.slice(page.indexOf('id="since-f0"'));
-    assert.match(since, /<td class="source"><code>three<\/code>/);
-    assert.doesNotMatch(
-      since.slice(0, since.indexOf('class="file-body"')),
-      /add-comment/,
+    assert.deepEqual(
+      (await snapshotOf(pages.port, id)).state.rounds.map((item) => item.round),
+      [1, 2],
     );
+    // The page reads the round before beside the current one: a new fingerprint says the file changed, and the two
+    // contents give the patch between the rounds.
+    const [before] = (await roundOf(pages.port, id, 1)).input.files;
+    const [now] = (await roundOf(pages.port, id, 2)).input.files;
+    assert.equal(before?.path, "notes.txt");
+    assert.equal(now?.path, "notes.txt");
+    assert.notEqual(before.fingerprint, now.fingerprint);
+    assert.equal(before.new_content, "one\ntwo\n");
+    assert.equal(now.new_content, "one\ntwo\nthree\n");
   }));

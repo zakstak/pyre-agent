@@ -63,12 +63,10 @@ export const readJson = <S extends Schema.Codec<unknown, unknown>>(
         "too_large",
         `The body exceeds ${maxBytes} bytes.`,
       );
-    let raw: string;
-    try {
-      raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      return yield* refuse(400, "encoding", "The body is not UTF-8.");
-    }
+    const raw = yield* Effect.try({
+      try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      catch: () => new RequestRefused(400, "encoding", "The body is not UTF-8."),
+    });
     const parsed = parseStrictJson(raw);
     if (Result.isFailure(parsed))
       return yield* refuse(400, "syntax", parsed.failure.message);

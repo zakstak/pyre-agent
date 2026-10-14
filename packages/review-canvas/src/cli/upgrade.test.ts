@@ -33,22 +33,31 @@ const fixture = (t: TestContext) => {
   ])
     cpSync(join(root, name), join(pkg, name), { recursive: true });
   symlinkSync(join(root, "node_modules"), join(pkg, "node_modules"), "dir");
+  // A small page instead of the React app, so a rebuild takes a moment.
   writeFileSync(
-    join(pkg, "src/client/main.ts"),
+    join(pkg, "index.html"),
+    '<!doctype html><title>Review canvas</title><script type="module" src="/src/client/test.ts"></script>',
+  );
+  writeFileSync(
+    join(pkg, "src/client/test.ts"),
     'import "./test.css"; document.title = "new client";',
   );
   writeFileSync(join(pkg, "src/client/test.css"), "body { color: red; }");
   writeFileSync(
     join(pkg, "vite.config.ts"),
-    `export default { publicDir: false, build: { outDir: "dist/client", emptyOutDir: true, manifest: true, rolldownOptions: { input: "src/client/main.ts" } } };`,
+    `export default { publicDir: false, build: { outDir: "dist/client", emptyOutDir: true, manifest: true, rolldownOptions: { input: "index.html" } } };`,
   );
   mkdirSync(join(pkg, "dist/client/.vite"), { recursive: true });
   mkdirSync(join(pkg, "dist/client/assets"));
   writeFileSync(join(pkg, "dist/client/assets/old.js"), "// old client");
   writeFileSync(
+    join(pkg, "dist/client/index.html"),
+    '<!doctype html><title>Review canvas</title><script type="module" src="/assets/old.js"></script>',
+  );
+  writeFileSync(
     join(pkg, "dist/client/.vite/manifest.json"),
     JSON.stringify({
-      "src/client/main.ts": { file: "assets/old.js" },
+      "index.html": { file: "assets/old.js", isEntry: true },
     }),
   );
   const { REVIEW_CANVAS_PORT: _port, ...inherited } = process.env;
@@ -145,26 +154,35 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
     await get(new URL("/assets/old.js", registered.url).href),
     "// old client",
   );
-  // The page normally keeps an SSE connection open for its entire lifetime.
-  const events = request(new URL(`${registered.url}/events`));
-  const streaming = new Promise<void>((resolve) =>
-    events.once("response", (response) => {
-      response.on("data", () => resolve());
-      response.on("error", () => {}); // Expected when upgrade closes the stream.
-    }),
-  );
-  events.on("error", () => {});
-  events.end();
-  await streaming;
-  t.after(() => events.destroy());
-  // An API/page-source change at the same installation path must not reuse the loaded code.
-  const home = join(f.pkg, "src/server/pages/home.ts");
+  // The page normally keeps its RPC socket open for its entire lifetime.
+  const page = new URL(registered.url);
+  const socket = request(new URL("/rpc", page), {
+    headers: {
+      connection: "Upgrade",
+      upgrade: "websocket",
+      origin: page.origin,
+      "sec-websocket-key": Buffer.from("upgrade-fixture!").toString("base64"),
+      "sec-websocket-version": "13",
+    },
+  });
+  const opened = new Promise<void>((resolve, reject) => {
+    socket.once("upgrade", (_response, stream) => {
+      stream.on("error", () => {}); // Expected when the upgrade closes the socket.
+      t.after(() => stream.destroy());
+      resolve();
+    });
+    socket.once("response", (response) => reject(new Error(`no upgrade: ${response.statusCode}`)));
+  });
+  socket.on("error", () => {});
+  socket.end();
+  await opened;
+  // A server-source change at the same installation path must not reuse the loaded code.
+  const app = join(f.pkg, "src/server/app.ts");
+  const missing = new URL("/reviews/missing/feedback.json", page).href;
+  assert.equal(await (await fetch(missing)).text(), "No such review");
   writeFileSync(
-    home,
-    readFileSync(home, "utf8").replace(
-      ">Reviews</h2>",
-      ">Upgraded reviews</h2>",
-    ),
+    app,
+    readFileSync(app, "utf8").replace('"No such review"', '"Upgraded: no such review"'),
   );
   await f.node(["src/cli/build.ts"]);
   // Rebuild removed the old hash, after the old daemon relinquished its listeners and store.
@@ -187,21 +205,21 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
   const fresh = await f.identity();
   assert.notEqual(fresh.instance, old.instance);
   assert.notEqual(fresh.revision, old.revision);
-  const page = await get(current.url);
-  assert.doesNotMatch(page, /\/assets\/old.js/);
-  for (const asset of page.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+  const shell = await get(current.url);
+  assert.doesNotMatch(shell, /\/assets\/old.js/);
+  for (const asset of shell.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
     assert.ok(asset[1] !== undefined);
     await get(new URL(asset[1], current.url).href);
   }
-  assert.match(await get(new URL("/", current.url).href), /Upgraded reviews/);
+  assert.equal(await (await fetch(missing)).text(), "Upgraded: no such review");
   await f.helper(
     'import { ensureServer } from "./src/cli/socket.ts"; await Promise.all([ensureServer(), ensureServer()]);',
   );
   assert.equal((await f.identity()).instance, fresh.instance);
 
   writeFileSync(
-    home,
-    readFileSync(home, "utf8").replace("Upgraded reviews", "Second upgrade"),
+    app,
+    readFileSync(app, "utf8").replace("Upgraded: no such review", "Second upgrade"),
   );
   await f.helper(
     'import { ensureServer } from "./src/cli/socket.ts"; await ensureServer();',

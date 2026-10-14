@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import type { PatchDigest } from "../schema/primitives.ts";
+import type { Attachment } from "../schema/feedback.ts";
 
 /** What one row of a unified diff is. Rows count hunk headers, as anchors do. */
 export type RowKind = "hunk" | "context" | "add" | "del" | "meta";
@@ -95,8 +94,6 @@ export const parseRows = (patch: string): ReadonlyArray<Row> => {
 export const joinedRows = (rows: ReadonlyArray<Row>): string =>
   rows.map((row) => row.text).join("\n");
 
-export const patchDigest = (patch: string): PatchDigest =>
-  createHash("sha256").update(patch, "utf8").digest("hex") as PatchDigest;
 
 /** The row that shows a source line on one side, if the patch shows it. */
 export const rowForLine = (
@@ -151,3 +148,22 @@ export const hunkRanges = (patch: string): ReadonlyArray<HunkRange> =>
       };
       return { old: span(match[1], match[2]), new: span(match[3], match[4]) };
     });
+
+/** The rows an attachment spans in the file's current patch. */
+export const attachedRows = (
+  rows: ReadonlyArray<Row>,
+  attachment: Attachment,
+): { readonly start: number; readonly end: number } | undefined => {
+  if (attachment.state !== "attached") return undefined;
+  let start: number | undefined;
+  let end: number | undefined;
+  for (const row of rows) {
+    const rowEnd = row.offset + row.text.length;
+    if (rowEnd < attachment.start) continue;
+    if (row.offset >= attachment.end && attachment.end > attachment.start)
+      break;
+    start ??= row.index;
+    end = row.index;
+  }
+  return start === undefined || end === undefined ? undefined : { start, end };
+};
