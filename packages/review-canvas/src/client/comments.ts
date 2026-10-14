@@ -6,6 +6,7 @@
  * draft it sent, so neither can move a draft onto other code or clear a newer one.
  */
 import { attempt, toast, tryAct } from "./api.ts";
+import { reveal, setGap } from "./folds.ts";
 
 interface Selection {
   readonly table: HTMLTableElement;
@@ -170,6 +171,7 @@ const openComposer = (
     document.querySelector<HTMLTemplateElement>("#composer-template");
   const anchorRow = lastSelectedRow(where);
   if (template === null || anchorRow === undefined) return;
+  reveal(anchorRow);
   const fragment = template.content.cloneNode(true) as DocumentFragment;
   const row = fragment.querySelector<HTMLElement>(".composer-row");
   if (row === null) return;
@@ -185,14 +187,17 @@ const openComposer = (
   row.dataset.end = String(where.end);
   if (options.submitting === true) row.dataset.submitting = "true";
   if (options.opener !== undefined) openers.set(row, options.opener);
-  // Under the thread row that already follows the anchor row, if any.
-  const after = anchorRow.nextElementSibling?.classList.contains("thread-row")
-    ? anchorRow.nextElementSibling
-    : anchorRow;
+  // Under the notes and the thread row that already follow the anchor row, if any.
+  let after: Element = anchorRow;
+  while (
+    after.nextElementSibling?.classList.contains("note") === true ||
+    after.nextElementSibling?.classList.contains("thread-row") === true
+  )
+    after = after.nextElementSibling;
   after.after(fragment);
   const range = row.querySelector<HTMLElement>("[data-range]");
   if (range !== null)
-    range.textContent = `${where.table.dataset.path ?? ""}, ${lineLabel(where)}`;
+    range.textContent = lineLabel(where);
   const button = row.querySelector<HTMLButtonElement>("button[type=submit]");
   if (button !== null) button.disabled = options.submitting === true;
   const textarea = row.querySelector<HTMLTextAreaElement>("textarea");
@@ -390,8 +395,29 @@ export const restoreReplyDrafts = (drafts: ReadonlyArray<ReplyDraft>) => {
         : (fallback.find(
             (candidate) => candidate.closest("[hidden]") === null,
           ) ?? fallback[0]);
-    if (textarea !== undefined) textarea.value = draft.value;
+    if (textarea !== undefined) {
+      textarea.value = draft.value;
+      const form = textarea.closest<HTMLFormElement>("form.reply-form");
+      if (form !== null) setReplyEditor(form, true, false);
+    }
   }
+};
+
+/**
+ * Opens a thread's reply box in place of its buttons, or closes it and returns focus to Reply. Its text stays, so a
+ * closed reply is not a lost one.
+ */
+const setReplyEditor = (form: HTMLFormElement, open: boolean, focus = true) => {
+  const editor = form.querySelector<HTMLElement>(".reply-editor");
+  const buttons = form.querySelector<HTMLElement>("[data-reply-actions]");
+  if (editor === null) return;
+  editor.hidden = !open;
+  if (buttons !== null) buttons.hidden = open;
+  if (!focus) return;
+  if (open) {
+    reveal(editor);
+    editor.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  } else form.querySelector<HTMLElement>("[data-reply-open]")?.focus();
 };
 
 /** The comment being moved to other lines, while the reviewer picks them. */
@@ -428,42 +454,6 @@ const chooseLines = (where: Selection, opener?: HTMLElement) => {
   });
 };
 
-/** Unchanged-line gaps the reviewer opened, by table and gap, so a refresh keeps them open. */
-const openGaps = new Set<string>();
-
-const setGap = (button: HTMLElement, open: boolean) => {
-  const table = button.closest<HTMLTableElement>("table.diff");
-  const lines = table?.querySelector<HTMLElement>(
-    `[data-gap-lines="${CSS.escape(button.dataset.expand ?? "")}"]`,
-  );
-  if (table == null || lines == null) return;
-  lines.hidden = !open;
-  button.setAttribute("aria-expanded", String(open));
-  const count = lines.querySelectorAll("tr").length;
-  button.textContent = open
-    ? `Hide ${count} unchanged line${count === 1 ? "" : "s"}`
-    : `Show ${count} unchanged line${count === 1 ? "" : "s"}`;
-  const key = `${table.dataset.table}:${table.dataset.patch}:${button.dataset.expand}`;
-  if (open) openGaps.add(key);
-  else openGaps.delete(key);
-};
-
-/** Opens again the gaps the reviewer had open, where the same patch still shows them. */
-export const restoreGaps = () => {
-  for (const button of document.querySelectorAll<HTMLElement>(
-    "[data-expand]",
-  )) {
-    const table = button.closest<HTMLTableElement>("table.diff");
-    if (
-      table != null &&
-      openGaps.has(
-        `${table.dataset.table}:${table.dataset.patch}:${button.dataset.expand}`,
-      )
-    )
-      setGap(button, true);
-  }
-};
-
 /** Puts text in the general composer and focuses it, for a question to ask now. */
 const prefillGeneral = (text: string) => {
   const textarea = document.querySelector<HTMLTextAreaElement>(
@@ -473,8 +463,8 @@ const prefillGeneral = (text: string) => {
   if (!textarea.value.startsWith(text))
     textarea.value =
       textarea.value === "" ? text : `${text}\n\n${textarea.value}`;
-  document.querySelector("#general")?.scrollIntoView({ block: "start" });
-  textarea.focus();
+  textarea.scrollIntoView({ block: "center" });
+  textarea.focus({ preventScroll: true });
   textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 };
 
@@ -550,11 +540,6 @@ export const installComments = () => {
         void submitGeneral(form, true);
       return;
     }
-    const askStop = target.closest<HTMLElement>("[data-ask-stop]");
-    if (askStop !== null) {
-      prefillGeneral(`About the stop “${askStop.dataset.askStop ?? ""}”: `);
-      return;
-    }
     const move = target.closest<HTMLElement>("[data-reattach]");
     if (move !== null) {
       reattaching = move.dataset.reattach;
@@ -562,6 +547,18 @@ export const installComments = () => {
       toast(
         "Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.",
       );
+      return;
+    }
+    const openReply = target.closest<HTMLElement>("[data-reply-open]");
+    if (openReply !== null) {
+      const form = openReply.closest<HTMLFormElement>("form.reply-form");
+      if (form !== null) setReplyEditor(form, true);
+      return;
+    }
+    const cancelReply = target.closest<HTMLElement>("[data-reply-cancel]");
+    if (cancelReply !== null) {
+      const form = cancelReply.closest<HTMLFormElement>("form.reply-form");
+      if (form !== null) setReplyEditor(form, false);
       return;
     }
     const cancel = target.closest("[data-cancel]");
@@ -638,7 +635,11 @@ export const installComments = () => {
       event.target instanceof HTMLTextAreaElement ? event.target : null;
     if (target === null) return;
     const composer = target.closest<HTMLElement>(".composer-row");
-    if (event.key === "Escape" && composer !== null) {
+    const replyForm = target.closest<HTMLFormElement>("form.reply-form");
+    if (event.key === "Escape" && replyForm !== null) {
+      event.preventDefault();
+      setReplyEditor(replyForm, false);
+    } else if (event.key === "Escape" && composer !== null) {
       event.preventDefault();
       if (composer.dataset.submitting === undefined)
         closeComposer(composer, { byReviewer: true });

@@ -108,16 +108,23 @@ test("with the file's text, unchanged lines sit between the hunks, hidden until 
   assert.doesNotMatch(render("unified"), /data-expand/);
 });
 
-test("an excerpt is always unified and never expands", () => {
-  const excerpt = diffTable({
-    file: file({ new_content: content }),
-    range: { start: 1, end: 3 },
+test("rows outside the shown ranges fold behind a toggle, with no + button until revealed", () => {
+  const rows = "@@ -1,8 +1,8 @@\n a\n b\n c\n d\n-e\n+E\n f\n g\n h\n";
+  const table = diffTable({
+    file: file({ patch: rows }),
+    shown: [{ start: 5, end: 6 }],
     comments: [],
-    tableId: "s0e0",
+    tableId: "f0",
     threads: [],
     writable: true,
     layout: "split",
   }).value;
-  assert.match(excerpt, /<table class="diff unified"/);
-  assert.doesNotMatch(excerpt, /data-expand/);
+  assert.match(table, /<table class="diff split"/);
+  // Rows 0-4 fold (five rows); rows 7-9 are too few to fold, so they show.
+  assert.match(table, /data-expand="r0" data-count="5" data-noun="more" aria-expanded="false">Show 5 more lines</);
+  assert.match(table, /<tbody class="gap-lines folded" data-gap-lines="r0" hidden>/);
+  const folded = table.slice(table.indexOf('data-gap-lines="r0"'), table.indexOf("</tbody>", table.indexOf('data-gap-lines="r0"')));
+  assert.doesNotMatch(folded, /add-comment/);
+  assert.match(folded, /data-selectable/);
+  assert.equal(table.match(/data-expand="r/g)?.length, 1);
 });

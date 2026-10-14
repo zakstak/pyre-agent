@@ -1,12 +1,15 @@
-/** Walking the tour: one stop at a time, J and K to move, the rail to jump, and the files view beside it. */
+/**
+ * Moving through the one-scroll review page: the hash contract (`#tour/N`, `#files`, `#files/PATH`, `#ELEMENT-ID`),
+ * J and K between stops, N for the next strip's target, the contents sidebar with its scroll-spy, and read-stop
+ * memory.
+ */
+import { forgetFold, reveal, setFolded } from "./folds.ts";
 import { parseHash } from "./places.ts";
-
-type View = "tour" | "files";
 
 const storageKey = () =>
   `review-canvas:${document.body.dataset.review}:${document.body.dataset.round}:seen`;
 
-const stops = () => [...document.querySelectorAll<HTMLElement>("article.stop")];
+const stops = () => [...document.querySelectorAll<HTMLElement>("section.stop")];
 
 const seenStops = (): Set<number> => {
   try {
@@ -17,36 +20,48 @@ const seenStops = (): Set<number> => {
   }
 };
 
-const rememberSeen = (seen: Set<number>) => {
-  try {
-    sessionStorage.setItem(storageKey(), JSON.stringify([...seen]));
-  } catch {
-    /* Storage is optional. */
-  }
+const markRead = (indexes: Iterable<number>) => {
+  const seen = seenStops();
+  const before = seen.size;
+  for (const index of indexes) seen.add(index);
+  if (seen.size !== before)
+    try {
+      sessionStorage.setItem(storageKey(), JSON.stringify([...seen]));
+    } catch {
+      /* Storage is optional. */
+    }
+  renderRead(seen);
 };
 
-let current = 0;
-let view: View = "tour";
+const renderRead = (seen = seenStops()) => {
+  for (const link of document.querySelectorAll<HTMLElement>(".toc-stop"))
+    link.classList.toggle("read", seen.has(Number(link.dataset.stopLink)));
+};
 
-/** The width at which the rail stands beside the tour; below it, the rail folds into a disclosure. main.css agrees. */
+/** The stop J and K move from: the last one moved to, or the one scrolled to. */
+let current = 0;
+/** Until this time, scrolling is the page's own, and does not move `current`. */
+let steering = 0;
+
+const steer = () => {
+  steering = performance.now() + 900;
+};
+
+/** The width at which the contents stand beside the page; below it, they fold into a disclosure. main.css agrees. */
 const wide = matchMedia("(min-width: 64rem)");
 
-const railDisclosure = () =>
-  document.querySelector<HTMLDetailsElement>(".rail-disclosure");
+/** Whether the reviewer opened the folded contents. The server renders them open; a narrow page starts them folded. */
+let contentsOpen = false;
 
-/** Whether the reviewer opened the folded rail. The server renders it open; a narrow page starts it folded. */
-let railOpen = false;
-
-/** Keeps the rail open where it stands beside the tour, and as the reviewer left it where it folds. */
-export const syncRail = () => {
-  const disclosure = railDisclosure();
-  if (disclosure !== null) disclosure.open = wide.matches || railOpen;
+/** Keeps the contents open where they stand beside the page, and as the reviewer left them where they fold. */
+export const syncContents = () => {
+  const disclosure = document.querySelector<HTMLDetailsElement>(".contents-disclosure");
+  if (disclosure !== null) disclosure.open = wide.matches || contentsOpen;
 };
 
-/** After a choice in the folded rail, fold it again, so the stop or file chosen is what shows. */
-const foldRail = () => {
-  railOpen = false;
-  syncRail();
+const foldContents = () => {
+  contentsOpen = false;
+  syncContents();
 };
 
 const isEditing = () => {
@@ -59,34 +74,7 @@ const isEditing = () => {
   );
 };
 
-const renderRail = () => {
-  const seen = seenStops();
-  for (const link of document.querySelectorAll<HTMLElement>(".stop-link")) {
-    const index = Number(link.dataset.stopGo);
-    link.setAttribute(
-      "aria-current",
-      index === current && view === "tour" ? "step" : "false",
-    );
-    link.classList.toggle("seen", seen.has(index));
-    const bullet = link.querySelector<HTMLElement>(".stop-bullet");
-    if (bullet !== null)
-      bullet.textContent = seen.has(index) ? "✓" : String(index + 1);
-  }
-  for (const place of document.querySelectorAll<HTMLElement>(
-    "[data-rail-stop]",
-  ))
-    place.textContent = String(current + 1);
-  const count = document.querySelector<HTMLElement>("[data-seen-count]");
-  if (count !== null)
-    count.textContent = String(
-      [...seen].filter((index) => index < stops().length).length,
-    );
-};
-
-/**
- * Shows one stop, remembers it as read, and keeps the location in the hash, unless the hash already names something
- * in the stop, such as a note.
- */
+/** Scrolls a stop's heading to the top, focuses it, and keeps the place in the hash unless told otherwise. */
 export const showStop = (
   index: number,
   options: { readonly scroll?: boolean; readonly keepHash?: boolean } = {},
@@ -94,154 +82,305 @@ export const showStop = (
   const all = stops();
   if (all.length === 0) return;
   current = Math.max(0, Math.min(index, all.length - 1));
-  for (const [at, stop] of all.entries()) stop.hidden = at !== current;
-  const seen = seenStops();
-  seen.add(current);
-  rememberSeen(seen);
-  setView("tour", { keepHash: true });
-  if (options.keepHash !== true)
-    history.replaceState(null, "", `#tour/${current + 1}`);
-  renderRail();
+  markRead([current]);
+  if (options.keepHash !== true) history.replaceState(null, "", `#tour/${current + 1}`);
   if (options.scroll !== false) {
-    const main = document.querySelector<HTMLElement>("#main");
-    main?.scrollIntoView({ block: "start" });
-    all[current]
-      ?.querySelector<HTMLElement>("h2")
-      ?.focus({ preventScroll: true });
+    steer();
+    const heading = all[current]?.querySelector<HTMLElement>("h2");
+    heading?.scrollIntoView({ block: "start" });
+    heading?.focus({ preventScroll: true });
   }
+  spy();
 };
 
-export const setView = (
-  next: View,
-  options: { readonly keepHash?: boolean; readonly file?: string } = {},
-) => {
-  view = next;
-  const tour = document.querySelector<HTMLElement>("#tour-view");
-  const files = document.querySelector<HTMLElement>("#files-view");
-  if (tour !== null) tour.hidden = next !== "tour";
-  if (files !== null) files.hidden = next !== "files";
-  for (const button of document.querySelectorAll<HTMLElement>(
-    "button[data-view]",
-  ))
-    button.setAttribute("aria-pressed", String(button.dataset.view === next));
-  document.body.dataset.currentView = next;
-  if (next === "files") {
-    if (options.keepHash !== true)
-      history.replaceState(
-        null,
-        "",
-        options.file === undefined ? "#files" : `#files/${options.file}`,
-      );
-    if (options.file !== undefined) {
-      // The files view's own panel: a stop can hold another copy of the same file, hidden with the tour.
-      const panel = document.querySelector<HTMLElement>(
-        `#files-view > article.file[data-path="${CSS.escape(options.file)}"]`,
-      );
-      panel?.scrollIntoView({ block: "start" });
-      panel?.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
-    }
+const fileBlock = (path: string) =>
+  document.querySelector<HTMLElement>(`article.file[data-path="${CSS.escape(path)}"]`);
+
+/** Opens a file's block, scrolls its header to the top, and focuses its path. */
+const showFile = (article: HTMLElement, scroll = true) => {
+  reveal(article);
+  const stop = article.closest<HTMLElement>("section.stop");
+  if (stop !== null) current = Number(stop.dataset.stop);
+  if (scroll) {
+    steer();
+    article.scrollIntoView({ block: "start" });
+    article.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
   }
-  renderRail();
+  spy();
 };
 
-/**
- * Where the hash says the page is: a stop, the files view or a file in it, or an element. A note link shows its
- * stop and keeps its hash; a link to anything else on the page, such as the skip link's target, is the browser's.
- */
-export const applyHash = (
-  options: { readonly scroll?: boolean; readonly initial?: boolean } = {},
-) => {
+/** Where the hash says the page is. On a refresh the page keeps its scroll, so nothing moves. */
+export const applyHash = (options: { readonly scroll?: boolean } = {}) => {
+  const scroll = options.scroll !== false;
   const place = parseHash(location.hash);
   switch (place.kind) {
-    case "files":
-      setView(
-        "files",
+    case "files": {
+      const article =
         place.file === undefined
-          ? { keepHash: true }
-          : { keepHash: true, file: place.file },
-      );
+          ? document.querySelector<HTMLElement>("article.file")
+          : fileBlock(place.file);
+      if (article !== null) showFile(article, scroll);
       return;
+    }
     case "stop":
-      showStop(place.index, options);
+      showStop(place.index, { keepHash: true, scroll });
       return;
     case "start":
-      showStop(0, options);
       return;
     case "element": {
       const element = document.getElementById(place.id);
-      const stop = element?.closest<HTMLElement>("article.stop");
-      if (element != null && stop != null) {
-        showStop(Number(stop.dataset.stop), { keepHash: true, scroll: false });
-        element.scrollIntoView({ block: "center" });
-      } else if (element?.closest("#files-view") != null) {
-        setView("files", { keepHash: true });
-        element.scrollIntoView({ block: "start" });
-      } else if (options.initial === true || element === null) {
-        // The page still needs a view: the current stop, with the hash left as the reader gave it.
-        showStop(current, { keepHash: element !== null, scroll: false });
+      if (element === null) return;
+      reveal(element);
+      const stop = element.closest<HTMLElement>("section.stop");
+      if (stop !== null) {
+        current = Number(stop.dataset.stop);
+        if (element === stop) markRead([current]);
       }
+      if (scroll && element.id !== "main") {
+        steer();
+        element.scrollIntoView({ block: element.matches("section, article.file") ? "start" : "center" });
+      }
+      spy();
       return;
     }
   }
+};
+
+/** Brings the next strip's target into view and focuses what acts on it. */
+const goNext = () => {
+  const link = document.querySelector<HTMLAnchorElement>("[data-next-go]");
+  const target = link === null ? null : document.getElementById(link.dataset.target ?? "");
+  if (link === null || target === null) return;
+  reveal(target);
+  const stop = target.closest<HTMLElement>("section.stop");
+  if (stop !== null) current = Number(stop.dataset.stop);
+  const focus =
+    link.dataset.kind === "answer"
+      ? (target.querySelector<HTMLElement>("[data-reply='accept']") ?? target)
+      : link.dataset.kind === "file"
+        ? (target.querySelector<HTMLElement>("[data-action='approve']") ?? target.querySelector<HTMLElement>("h3") ?? target)
+        : link.dataset.kind === "finish"
+          ? (target.querySelector<HTMLElement>("input[name='verdict']") ?? target)
+          : target;
+  steer();
+  target.scrollIntoView({ block: link.dataset.kind === "file" ? "start" : "center" });
+  focus.focus({ preventScroll: true });
+  spy();
+};
+
+/** The finish section, scrolled to with its first verdict focused. */
+const goFinish = () => {
+  const finish = document.querySelector<HTMLElement>("#finish");
+  if (finish === null) return;
+  steer();
+  finish.scrollIntoView({ block: "start" });
+  (finish.querySelector<HTMLElement>("input[name='verdict']") ?? finish.querySelector<HTMLElement>("h2"))?.focus({
+    preventScroll: true,
+  });
+};
+
+/** Lights the rows a later stop points back at, for a moment. */
+const highlight = (link: HTMLElement) => {
+  const table = document.querySelector<HTMLTableElement>(`table.diff[data-table="${CSS.escape(link.dataset.highlight ?? "")}"]`);
+  if (table === null) return;
+  const start = Number(link.dataset.start);
+  const end = Number(link.dataset.end);
+  const rows = [...table.querySelectorAll<HTMLElement>("[data-row]")].filter((row) => {
+    const at = Number(row.dataset.row);
+    return at >= start && at <= end;
+  });
+  const first = rows[0];
+  if (first === undefined) return;
+  reveal(first);
+  steer();
+  first.scrollIntoView({ block: "center" });
+  for (const row of rows) row.classList.add("flash");
+  window.setTimeout(() => {
+    for (const row of rows) row.classList.remove("flash");
+  }, 2000);
+};
+
+/** Where the sticky bars end: anything above this line has been scrolled past. */
+const spyLine = () => (document.querySelector(".next")?.getBoundingClientRect().bottom ?? 0) + 12;
+
+let spyQueued = false;
+
+/**
+ * Marks the contents row of the file in view, and the stops scrolled past as read. A stop heading in view marks its
+ * first file. Scrolling by the reviewer also moves the stop J and K count from.
+ */
+export const spy = () => {
+  const line = spyLine();
+  const marks = [
+    ...document.querySelectorAll<HTMLElement>("section.stop > h2, section.stop article.file"),
+  ];
+  let at: HTMLElement | undefined;
+  for (const mark of marks) {
+    if (mark.getBoundingClientRect().top <= line) at = mark;
+    else break;
+  }
+  const passed = stops()
+    .filter((stop) => (stop.querySelector("h2")?.getBoundingClientRect().top ?? Infinity) <= line)
+    .map((stop) => Number(stop.dataset.stop));
+  if (passed.length > 0) markRead(passed);
+  const stop = at?.closest<HTMLElement>("section.stop");
+  if (stop != null && performance.now() > steering) current = Number(stop.dataset.stop);
+  const link =
+    at === undefined
+      ? null
+      : at.matches("h2")
+        ? document.querySelector<HTMLElement>(`.toc-stop[data-stop-link="${stop?.dataset.stop}"] + .toc-files a`)
+        : document.querySelector<HTMLElement>(`[data-toc-file="${CSS.escape(at.dataset.path ?? "")}"]`);
+  for (const other of document.querySelectorAll<HTMLElement>(".toc-file[aria-current]"))
+    if (other !== link) other.removeAttribute("aria-current");
+  if (link === null || link.hasAttribute("aria-current")) return;
+  link.setAttribute("aria-current", "location");
+  // Keep the row in sight in the contents' own scroll, without moving the page.
+  const scroller = link.closest<HTMLElement>(".toc-pane");
+  if (scroller !== null && wide.matches) {
+    const box = scroller.getBoundingClientRect();
+    const row = link.getBoundingClientRect();
+    if (row.top < box.top + 8) scroller.scrollTop -= box.top + 8 - row.top;
+    else if (row.bottom > box.bottom - 8) scroller.scrollTop += row.bottom - box.bottom + 8;
+  }
+};
+
+const queueSpy = () => {
+  if (spyQueued) return;
+  spyQueued = true;
+  requestAnimationFrame(() => {
+    spyQueued = false;
+    spy();
+  });
 };
 
 export const currentStop = () => current;
 
+/**
+ * Measures the sticky bars, so what sticks under them and what the page scrolls to lands below them however they
+ * wrap. The top bar is static on narrow pages, as the shared style has it.
+ */
+const measureBars = () => {
+  const topbar = document.querySelector<HTMLElement>("header.topbar");
+  const next = document.querySelector<HTMLElement>(".next");
+  const top = topbar !== null && getComputedStyle(topbar).position === "sticky" ? topbar.offsetHeight : 0;
+  const root = document.documentElement.style;
+  root.setProperty("--topbar-height", `${top}px`);
+  root.setProperty("--sticky-top", `${top + (next?.offsetHeight ?? 0) + 8}px`);
+};
+
+const bars = new ResizeObserver(measureBars);
+
+const observeBars = () => {
+  bars.disconnect();
+  for (const bar of document.querySelectorAll("header.topbar, .next")) bars.observe(bar);
+  measureBars();
+};
+
 export const installTour = () => {
-  for (const heading of document.querySelectorAll<HTMLElement>(
-    "article.stop h2",
-  ))
-    heading.tabIndex = -1;
-  for (const heading of document.querySelectorAll<HTMLElement>(
-    "article.file h3",
-  ))
-    heading.tabIndex = -1;
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    if (target === null || event.defaultPrevented) return;
     // The summary's own click opens or closes it; remember which, so a refresh's markup does not decide.
-    const summary = target?.closest(".rail-summary");
-    if (summary !== null && summary !== undefined) {
-      railOpen = !(railDisclosure()?.open ?? false);
+    if (target.closest(".contents-summary") !== null) {
+      contentsOpen = !(document.querySelector<HTMLDetailsElement>(".contents-disclosure")?.open ?? false);
       return;
     }
-    const go = target?.closest<HTMLElement>("[data-stop-go]");
-    if (go !== null && go !== undefined) {
+    const stopLink = target.closest<HTMLElement>("[data-stop-link]");
+    if (stopLink !== null) {
       event.preventDefault();
-      if (go.closest(".rail") !== null) foldRail();
-      showStop(Number(go.dataset.stopGo));
+      foldContents();
+      showStop(Number(stopLink.dataset.stopLink));
       return;
     }
-    const viewButton = target?.closest<HTMLElement>("button[data-view]");
-    if (viewButton !== null && viewButton !== undefined) {
-      const next = viewButton.dataset.view === "files" ? "files" : "tour";
-      if (next === "tour") showStop(current);
-      else setView("files");
-      return;
-    }
-    const open = target?.closest<HTMLElement>("[data-open-file]");
-    if (open !== null && open !== undefined) {
+    const fileLink = target.closest<HTMLElement>("[data-toc-file]");
+    if (fileLink !== null) {
       event.preventDefault();
-      if (open.closest(".rail") !== null) foldRail();
-      const file = open.dataset.openFile;
-      setView("files", file === undefined ? {} : { file });
+      foldContents();
+      const article = fileBlock(fileLink.dataset.tocFile ?? "");
+      if (article !== null) {
+        history.replaceState(null, "", `#files/${fileLink.dataset.tocFile ?? ""}`);
+        showFile(article);
+      }
+      return;
     }
+    if (target.closest("[data-next-go]") !== null) {
+      event.preventDefault();
+      goNext();
+      return;
+    }
+    if (target.closest("[data-open-finish]") !== null) {
+      event.preventDefault();
+      goFinish();
+      return;
+    }
+    const fold = target.closest<HTMLElement>("[data-fold]");
+    if (fold !== null) {
+      const article = fold.closest<HTMLElement>("article.file");
+      if (article !== null) setFolded(article, article.dataset.folded !== "true");
+      return;
+    }
+    const round = target.closest<HTMLElement>("[data-round-toggle]");
+    if (round !== null) {
+      const open = round.getAttribute("aria-expanded") !== "true";
+      setRound(round, open);
+      return;
+    }
+    const back = target.closest<HTMLElement>("[data-highlight]");
+    if (back !== null) {
+      event.preventDefault();
+      highlight(back);
+      return;
+    }
+    // Marking a file viewed folds it, whatever the reviewer chose before.
+    const approve = target.closest<HTMLElement>("[data-action='approve']");
+    if (approve !== null) forgetFold(approve.dataset.path ?? "");
   });
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || isEditing()) return;
-    if (document.querySelector("dialog[open]") !== null) return;
     if (event.key === "j" || event.key === "J") {
       event.preventDefault();
-      if (view === "tour") showStop(current + 1);
+      showStop(current + 1);
     } else if (event.key === "k" || event.key === "K") {
       event.preventDefault();
-      if (view === "tour") showStop(current - 1);
+      showStop(current - 1);
+    } else if (event.key === "n" || event.key === "N") {
+      event.preventDefault();
+      goNext();
     }
   });
   window.addEventListener("hashchange", () => applyHash());
+  window.addEventListener("scroll", queueSpy, { passive: true });
+  window.addEventListener("resize", queueSpy, { passive: true });
   wide.addEventListener("change", () => {
-    railOpen = false;
-    syncRail();
+    contentsOpen = false;
+    syncContents();
   });
-  syncRail();
-  applyHash({ scroll: false, initial: true });
+  observeBars();
+  syncContents();
+  renderRead();
+  applyHash();
+  spy();
+};
+
+/** Earlier rounds the reviewer expanded in the rounds line, so a refresh keeps them open. */
+const openRounds = new Set<string>();
+
+const setRound = (button: HTMLElement, open: boolean) => {
+  const panel = document.getElementById(button.getAttribute("aria-controls") ?? "");
+  if (panel === null) return;
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+  if (open) openRounds.add(panel.id);
+  else openRounds.delete(panel.id);
+};
+
+/** After a refresh: the read stops, the expanded rounds, the contents, and the scroll-spy. */
+export const afterRefresh = () => {
+  for (const button of document.querySelectorAll<HTMLElement>("[data-round-toggle]"))
+    if (openRounds.has(button.getAttribute("aria-controls") ?? "")) setRound(button, true);
+  observeBars();
+  syncContents();
+  renderRead();
+  spy();
 };

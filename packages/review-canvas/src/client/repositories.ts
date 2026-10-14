@@ -1,42 +1,50 @@
-/** Repository acceptance is an explicit user action; filtering never contacts the server. */
+/**
+ * The home page's repositories: one search field that narrows them by name, path, or branch, kept in the URL as `q`,
+ * and the explicit Monitor and Remove actions. Filtering never contacts the server. An incoming `filter` (monitored,
+ * discovered, changed, unavailable) from an older link still hides the rows that do not match; the page has no
+ * control for it, since rows are grouped by monitoring and every checkout says its state.
+ */
+const FILTERS = ["monitored", "discovered", "changed", "unavailable"];
+
 export const installRepositories = () => {
   const search = document.querySelector<HTMLInputElement>("[data-repository-search]");
-  const filter = document.querySelector<HTMLSelectElement>("[data-repository-filter]");
-  if (search === null || filter === null) return;
+  if (search === null) return;
   const refresh = document.querySelector<HTMLButtonElement>("[data-repository-refresh]");
   if (refresh !== null) {
     refresh.disabled = false;
     refresh.addEventListener("click", () => location.reload());
   }
-  const cards = [...document.querySelectorAll<HTMLElement>("[data-repository]")];
+  const rows = [...document.querySelectorAll<HTMLElement>("[data-repository]")];
   const count = document.querySelector<HTMLElement>("[data-repository-count]");
   const empty = document.querySelector<HTMLElement>("[data-repository-empty]");
   const error = document.querySelector<HTMLElement>("[data-repository-error]");
-  if ([...filter.options].some((option) => option.value === filter.dataset.initial))
-    filter.value = filter.dataset.initial ?? "all";
+  const filter = FILTERS.includes(search.dataset.filter ?? "") ? (search.dataset.filter ?? "") : "";
   const apply = () => {
     const query = search.value.trim().toLowerCase();
     let shown = 0;
-    for (const card of cards) {
-      card.hidden = !(card.dataset.search ?? "").includes(query) ||
-        !(filter.value === "all" || filter.value === card.dataset.monitoring || (card.dataset.status ?? "").split(" ").includes(filter.value));
-      if (!card.hidden) shown++;
+    for (const row of rows) {
+      row.hidden =
+        !(row.dataset.search ?? "").includes(query) ||
+        !(filter === "" || filter === row.dataset.monitoring || (row.dataset.status ?? "").split(" ").includes(filter));
+      if (!row.hidden) shown++;
     }
-    if (count !== null) count.textContent = `${shown} of ${cards.length} repositories shown`;
-    if (empty !== null) empty.hidden = shown > 0 || cards.length === 0;
+    // A group whose rows are all hidden hides its heading too.
+    for (const list of document.querySelectorAll<HTMLElement>("[data-repositories] ul.rows")) {
+      const any = [...list.querySelectorAll<HTMLElement>(":scope > [data-repository]")].some((row) => !row.hidden);
+      list.hidden = !any;
+      const head = list.previousElementSibling;
+      if (head instanceof HTMLElement && head.classList.contains("found-head")) head.hidden = !any;
+    }
+    if (count !== null) count.textContent = `${shown} of ${rows.length} repositories shown`;
+    if (empty !== null) empty.hidden = shown > 0 || rows.length === 0;
     const url = new URL(location.href);
     if (search.value === "") url.searchParams.delete("q");
     else url.searchParams.set("q", search.value);
-    if (filter.value === "all") url.searchParams.delete("filter");
-    else url.searchParams.set("filter", filter.value);
     history.replaceState(null, "", url);
-    for (const key of ["q", "filter"]) {
-      const input = document.querySelector<HTMLInputElement>(`.repository-scan input[name="${key}"]`);
-      if (input !== null) input.value = url.searchParams.get(key) ?? "";
-    }
+    const input = document.querySelector<HTMLInputElement>(`.repository-scan input[name="q"]`);
+    if (input !== null) input.value = search.value;
   };
   search.addEventListener("input", apply);
-  filter.addEventListener("change", apply);
   apply();
   for (const button of document.querySelectorAll<HTMLButtonElement>("[data-repository-action]")) {
     button.disabled = false;

@@ -50,13 +50,16 @@ import {
   addInlineComment,
   agentAnswer,
   approve,
+  approvalHolds,
   carriedApprovals,
   currentRound,
+  currentSubmission,
   publishRound,
   reattach,
   reportDrift,
   reviewerReply,
   type ReviewState,
+  turnOf,
   type Round,
   submit,
   unapprove,
@@ -133,6 +136,20 @@ export interface ReviewSummary {
   readonly files: number | undefined;
   readonly submitted: boolean;
   readonly threads: ReadonlyArray<Thread>;
+  /** The review this one replaced with a fresh start, if any. */
+  readonly carry_from: ReviewId | undefined;
+  /** When the current round was published. */
+  readonly published_at: Timestamp | undefined;
+  /** The verdict the reviewer finished the current round with. */
+  readonly verdict: Verdict | undefined;
+  /** Files in the current round, and how many of them have an approval that holds. */
+  readonly round_files: number | undefined;
+  readonly viewed: number | undefined;
+  /** Comments whose turn is the reviewer's, such as answers to read, and those that wait for an agent. */
+  readonly for_you: number;
+  readonly waiting: number;
+  /** Files an agent found changed since the current round. */
+  readonly drift: number | undefined;
 }
 
 /** A review with everything a page or an agent reads: its state, threads, and the current round's input. */
@@ -473,6 +490,8 @@ export class Store {
       const round = currentRound(state);
       const files =
         round === undefined ? undefined : state.target.changed_files;
+      const input =
+        round === undefined ? undefined : this.#input(row.id, round.round);
       return {
         id: state.id,
         target: state.target,
@@ -491,6 +510,25 @@ export class Store {
           round !== undefined &&
           state.submissions.some((item) => item.round === round.round),
         threads: this.#threads(row.id),
+        carry_from: state.carry_from,
+        published_at: round?.published_at,
+        verdict: currentSubmission(state)?.verdict,
+        round_files: input?.files.length,
+        viewed:
+          input === undefined
+            ? undefined
+            : state.approvals.filter((approval) =>
+                approvalHolds(approval, input.files),
+              ).length,
+        for_you: state.comments.filter(
+          (comment) => turnOf(comment) === "reviewer",
+        ).length,
+        waiting: state.comments.filter((comment) => turnOf(comment) === "agent")
+          .length,
+        drift:
+          state.drift !== undefined && state.drift.round === round?.round
+            ? state.drift.paths.length
+            : undefined,
       };
     });
   }

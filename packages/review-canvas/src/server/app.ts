@@ -185,6 +185,16 @@ const Review = HttpRouter.add(
               view.round !== undefined && view.round.round > 1
                 ? store.round(view.state.id, view.round.round - 1)
                 : undefined,
+            earlier: view.state.rounds
+              .filter((round) => round.round !== view.round?.round)
+              .map((round) => ({
+                round: round.round,
+                summary: store.round(view.state.id, round.round)?.summary,
+              })),
+            replacedBy:
+              view.state.closed_at === undefined
+                ? undefined
+                : store.reviews().find((item) => item.carry_from === view.state.id)?.id,
           }),
     );
   }),

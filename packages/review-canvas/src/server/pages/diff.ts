@@ -11,7 +11,6 @@ import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
 import { attachedRows } from "../../review/anchor.ts";
 import { parseRows, patchDigest, type Row } from "../../review/patch.ts";
-import type { NoteView } from "../../review/tour.ts";
 import { type Html, html } from "../html.ts";
 import { thread, type ThreadOptions } from "./comments.ts";
 
@@ -61,18 +60,35 @@ const marker: Readonly<Record<Row["kind"], string>> = {
   meta: "",
 };
 
+/** A note of the tour, shown in the diff under the row it explains. */
+export interface InlineNote {
+  readonly id: string;
+  readonly row: number;
+  readonly letter: string;
+  readonly title: Html;
+  readonly body: Html;
+  /** For a note of a later stop than the one that owns the file: that stop's number. */
+  readonly stop?: number | undefined;
+}
+
 export interface DiffOptions extends Omit<ThreadOptions, "instance"> {
   readonly file: ReviewFile;
-  /** The rows to show; the whole patch when absent. Only a whole patch splits and shows unchanged lines. */
-  readonly range?: { readonly start: number; readonly end: number } | undefined;
+  /**
+   * The row ranges to show, such as a stop's excerpts; the other rows fold behind a "Show N more lines" row. Every
+   * row shows when absent.
+   */
+  readonly shown?: ReadonlyArray<{ readonly start: number; readonly end: number }> | undefined;
   readonly comments: ReadonlyArray<PlacedComment>;
-  readonly notes?: ReadonlyArray<NoteView> | undefined;
-  /** Distinguishes several tables of one file on a page, so row IDs stay unique. */
+  readonly notes?: ReadonlyArray<InlineNote> | undefined;
+  /** Names the table and its rows; unique on the page. */
   readonly tableId: string;
   readonly layout?: Layout | undefined;
   /** For a patch the reviewer cannot comment on, such as the changes between two rounds. */
   readonly readOnly?: boolean | undefined;
 }
+
+/** A run of hidden rows shorter than this shows instead: a fold for two lines costs more than it saves. */
+const MIN_FOLD = 4;
 
 /** Unchanged lines before a hunk, or after the last one, which the file's text supplies. */
 export interface Gap {
@@ -170,90 +186,130 @@ const unitData = (row: Row): Html =>
 const addButton = (row: Row): Html =>
   html`<button type="button" class="add-comment" title="Comment on this line" aria-label="Comment on line ${row.new ?? row.old}">+</button>`;
 
-const noteMarker = (note: NoteView | undefined, tableId: string): Html =>
-  note === undefined
+const noteMarker = (notes: ReadonlyArray<InlineNote> | undefined): Html =>
+  notes === undefined || notes.length === 0
     ? html``
-    : html`<a class="note-marker" href="#${tableId}-note-${note.letter}" title="${note.title}" aria-label="Note ${note.letter}: ${note.title}">${note.letter}</a>`;
+    : html`<span class="note-marker" aria-hidden="true">${notes.map((note) => note.letter).join("")}</span>`;
+
+const noteRow = (note: InlineNote, columns: number): Html =>
+  html`<tr class="note" id="${note.id}"><td colspan="${columns}"><div class="row-body"><span class="sr-only">Note </span><span class="note-letter">${note.letter}</span>${note.stop === undefined ? "" : html`<span class="muted">Stop ${note.stop} · </span>`}<strong>${note.title}</strong>${html` `}${note.body}</div></td></tr>`;
 
 /**
- * The rows of a patch, or a slice of them. A comment thread renders under the last row it spans. A note marker sits
- * on its row, and its text is in the stop's notes list.
+ * The rows of a patch. A note renders under its row, then the comment threads that end there. Rows outside `shown`
+ * fold into runs behind a toggle, and those rows have no + button until the page reveals them: a hidden button
+ * cannot take focus, and the first + on the page should be one the reviewer can reach.
  */
 export const diffTable = (options: DiffOptions): Html => {
   const { file, comments, tableId } = options;
   const rows = parseRows(file.patch ?? "");
-  const whole = options.range === undefined;
   const readOnly = options.readOnly === true;
-  const layout: Layout =
-    whole && !readOnly ? (options.layout ?? "unified") : "unified";
+  const layout: Layout = readOnly ? "unified" : (options.layout ?? "unified");
   const selectable = (row: Row) => !readOnly && changeable(row);
   const columns = layout === "split" ? 2 : 4;
-  const range = options.range ?? { start: 0, end: rows.length - 1 };
   const threadsEndingAt = new Map<number, Array<PlacedComment>>();
   for (const placed of comments) {
-    if (placed.end < range.start || placed.start > range.end) continue;
-    const at = Math.min(placed.end, range.end);
-    const list = threadsEndingAt.get(at) ?? [];
+    const list = threadsEndingAt.get(placed.end) ?? [];
     list.push(placed);
-    threadsEndingAt.set(at, list);
+    threadsEndingAt.set(placed.end, list);
   }
-  const notesAt = new Map<number, NoteView>();
-  for (const note of options.notes ?? []) notesAt.set(note.row, note);
+  const notesAt = new Map<number, Array<InlineNote>>();
+  for (const note of options.notes ?? [])
+    notesAt.set(note.row, [...(notesAt.get(note.row) ?? []), note]);
   const commented = new Set<number>();
   for (const placed of comments)
     for (let at = placed.start; at <= placed.end; at++) commented.add(at);
   const mark = (row: Row) => (commented.has(row.index) ? " commented" : "");
 
-  const threadRow = (indexes: ReadonlyArray<number>): Html => {
-    const placed = [...new Set(indexes)].flatMap(
-      (index) => threadsEndingAt.get(index) ?? [],
-    );
-    return placed.length === 0
-      ? html``
-      : html`<tr class="thread-row"><td colspan="${columns}">${placed.map(
-          (item) => thread(item.comment, { ...options, instance: tableId }),
-        )}</td></tr>`;
+  // Which rows show: those in `shown`, and any run of hidden rows too short to fold.
+  const visible = new Set<number>();
+  if (options.shown === undefined) for (const row of rows) visible.add(row.index);
+  else {
+    for (const range of options.shown)
+      for (let at = range.start; at <= range.end; at++) visible.add(at);
+    let run: Array<number> = [];
+    const flush = () => {
+      if (run.length < MIN_FOLD) for (const at of run) visible.add(at);
+      run = [];
+    };
+    for (const row of rows) {
+      if (visible.has(row.index)) flush();
+      else run.push(row.index);
+    }
+    flush();
+  }
+
+  const extras = (indexes: ReadonlyArray<number>): Html => {
+    const unique = [...new Set(indexes)];
+    const notes = unique.flatMap((index) => notesAt.get(index) ?? []);
+    const placed = unique.flatMap((index) => threadsEndingAt.get(index) ?? []);
+    return html`${notes.map((note) => noteRow(note, columns))}${
+      placed.length === 0
+        ? ""
+        : html`<tr class="thread-row"><td colspan="${columns}"><div class="row-body">${placed.map(
+            (item) => thread(item.comment, { ...options, instance: tableId }),
+          )}</div></td></tr>`
+    }`;
   };
 
-  const unifiedRow = (row: Row): Html =>
+  const unifiedRow = (row: Row, plus: boolean): Html =>
     html`<tr id="${tableId}-r${row.index}" class="${rowClass[row.kind]}${mark(row)}"${selectable(row) ? unitData(row) : html` data-row="${row.index}"`}>
-<td class="line-number" data-gutter>${selectable(row) ? addButton(row) : ""}${row.old ?? ""}</td><td class="line-number" data-gutter>${row.new ?? ""}</td><td class="marker" data-gutter>${noteMarker(notesAt.get(row.index), tableId)}<span aria-hidden="true">${marker[row.kind]}</span></td><td class="source"><code>${row.content}</code></td></tr>${threadRow([row.index])}`;
+<td class="line-number" data-gutter>${selectable(row) && plus ? addButton(row) : ""}${row.old ?? ""}</td><td class="line-number" data-gutter>${row.new ?? ""}</td><td class="marker" data-gutter>${noteMarker(notesAt.get(row.index))}<span aria-hidden="true">${marker[row.kind]}</span></td><td class="source"><code>${row.content}</code></td></tr>${extras([row.index])}`;
 
-  const half = (row: Row | undefined, side: "old" | "new"): Html =>
+  const half = (row: Row | undefined, side: "old" | "new", plus: boolean): Html =>
     row === undefined
       ? html`<td class="half ${side} empty"></td>`
-      : html`<td class="half ${side} ${rowClass[row.kind]}${mark(row)}"${unitData(row)}><span class="ln" data-gutter>${addButton(row)}${row[side] ?? ""}</span><span class="mk" data-gutter aria-hidden="true">${marker[row.kind]}</span><code>${row.content}</code></td>`;
+      : html`<td class="half ${side} ${rowClass[row.kind]}${mark(row)}"${unitData(row)}><span class="ln" data-gutter>${plus ? addButton(row) : ""}${row[side] ?? ""}</span><span class="mk" data-gutter>${side === "new" || row.kind === "del" ? noteMarker(notesAt.get(row.index)) : ""}<span aria-hidden="true">${marker[row.kind]}</span></span><code>${row.content}</code></td>`;
 
-  const splitRows = (piece: ReadonlyArray<Row>): Html =>
+  const splitRows = (piece: ReadonlyArray<Row>, plus: boolean): Html =>
     html`${pairRows(piece).map((pair) => {
       if (pair.whole !== undefined)
-        return html`<tr class="${rowClass[pair.whole.kind]}" data-row="${pair.whole.index}"><td colspan="2"><code>${pair.whole.content}</code></td></tr>`;
+        return html`<tr class="${rowClass[pair.whole.kind]}" data-row="${pair.whole.index}"><td colspan="2"><code>${pair.whole.content}</code></td></tr>${extras([pair.whole.index])}`;
       const indexes = [pair.old?.index, pair.new?.index].filter(
         (index): index is number => index !== undefined,
       );
-      return html`<tr id="${tableId}-p${Math.min(...indexes)}" class="pair">${half(pair.old, "old")}${half(pair.new, "new")}</tr>${threadRow(indexes)}`;
+      return html`<tr id="${tableId}-p${Math.min(...indexes)}" class="pair">${half(pair.old, "old", plus)}${half(pair.new, "new", plus)}</tr>${extras(indexes)}`;
     })}`;
 
-  const body = (piece: ReadonlyArray<Row>): Html =>
-    html`<tbody>${layout === "split" ? splitRows(piece) : piece.map(unifiedRow)}</tbody>`;
+  const rowsHtml = (piece: ReadonlyArray<Row>, plus: boolean): Html =>
+    layout === "split"
+      ? splitRows(piece, plus)
+      : html`${piece.map((row) => unifiedRow(row, plus))}`;
+
+  const toggle = (key: string, count: number, noun: string): Html =>
+    html`<tbody class="gap"><tr class="gap-toggle"><td colspan="${columns}"><button type="button" class="quiet expand" data-expand="${key}" data-count="${count}" data-noun="${noun}" aria-expanded="false">Show ${count} ${noun} line${count === 1 ? "" : "s"}</button></td></tr></tbody>`;
+
+  // A piece of the patch: runs of shown rows, and runs of folded rows behind their toggle.
+  const body = (piece: ReadonlyArray<Row>): Html => {
+    const runs: Array<{ shown: boolean; rows: Array<Row> }> = [];
+    for (const row of piece) {
+      const shown = visible.has(row.index);
+      const last = runs.at(-1);
+      if (last !== undefined && last.shown === shown) last.rows.push(row);
+      else runs.push({ shown, rows: [row] });
+    }
+    return html`${runs.map((run) =>
+      run.shown
+        ? html`<tbody>${rowsHtml(run.rows, true)}</tbody>`
+        : html`${toggle(`r${run.rows[0]?.index ?? 0}`, run.rows.length, "more")}<tbody class="gap-lines folded" data-gap-lines="r${run.rows[0]?.index ?? 0}" hidden>${rowsHtml(run.rows, false)}</tbody>`,
+    )}`;
+  };
 
   const gapBody = (gap: Gap, at: number): Html => {
-    const count = gap.lines.length;
     const line = (item: Gap["lines"][number]): Html =>
       layout === "split"
         ? html`<tr class="unchanged"><td class="half old context"><span class="ln">${item.old}</span><span class="mk"></span><code>${item.text}</code></td><td class="half new context"><span class="ln">${item.new}</span><span class="mk"></span><code>${item.text}</code></td></tr>`
         : html`<tr class="unchanged"><td class="line-number">${item.old}</td><td class="line-number">${item.new}</td><td class="marker"></td><td class="source"><code>${item.text}</code></td></tr>`;
-    return html`<tbody class="gap"><tr class="gap-toggle"><td colspan="${columns}"><button type="button" class="quiet expand" data-expand="${at}" aria-expanded="false">Show ${count} unchanged line${count === 1 ? "" : "s"}</button></td></tr></tbody><tbody class="gap-lines" data-gap-lines="${at}" hidden>${gap.lines.map(line)}</tbody>`;
+    return html`${toggle(String(at), gap.lines.length, "unchanged")}<tbody class="gap-lines" data-gap-lines="${at}" hidden>${gap.lines.map(line)}</tbody>`;
   };
 
   const found =
-    whole && file.patch !== undefined && file.new_content !== undefined
+    !readOnly && file.patch !== undefined && file.new_content !== undefined
       ? gaps(file.patch, file.new_content)
       : [];
-  // With the file's text, a whole patch is cut into a body per hunk, so the unchanged lines go between them.
+  // With the file's text, the patch is cut into a piece per hunk, so the unchanged lines go between them.
   const segments: Array<Html> = [];
   if (found.length === 0) {
-    segments.push(body(rows.slice(range.start, range.end + 1)));
+    segments.push(body(rows));
   } else {
     const starts = rows
       .filter((row) => row.kind === "hunk")

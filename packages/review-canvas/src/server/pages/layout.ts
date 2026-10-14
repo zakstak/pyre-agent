@@ -1,9 +1,20 @@
 import type { Assets } from "../assets.ts";
 import { type Html, html } from "../html.ts";
 
-export const themeToggle = html`<button type="button" id="theme-toggle" class="theme-toggle quiet" aria-pressed="false" hidden><span class="theme-label">Dark mode</span></button>`;
+/**
+ * The page's one theme control, in the footer: the system's choice, or light or dark. The page script marks the
+ * current choice and keeps it in the shared style's storage; without the script the page follows the system.
+ */
+export const themeControl = html`<span class="theme-control" role="group" aria-label="Theme">Theme: <button type="button" class="link-button" data-theme-choice="system" aria-pressed="true">system</button> · <button type="button" class="link-button" data-theme-choice="light" aria-pressed="false">light</button> · <button type="button" class="link-button" data-theme-choice="dark" aria-pressed="false">dark</button></span>`;
 
-/** The document every page shares: its head, assets, app bar, and theme. */
+/**
+ * The connection state, at the right of the top bar. The live region is empty while the page is connected, and says
+ * "Reconnecting…" or "Disconnected" when the event stream is lost; the quiet "Connected" text shows only then.
+ */
+export const connection = (updated: Html): Html =>
+  html`<span class="connection small muted"><span class="connected">Connected · updated ${updated}</span><span data-connection role="status"></span></span>`;
+
+/** The document every page shares: its head, assets, top bar, and theme. */
 export const page = (
   assets: Assets["Service"],
   options: {
@@ -29,5 +40,6 @@ ${assets.scripts.map((src) => html`<script type="module" src="${src}"></script>`
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="topbar">${options.topbar}</header>
 ${options.body}
+<div class="toast" role="status" aria-live="polite" data-toast hidden></div>
 </body>
 </html>`;

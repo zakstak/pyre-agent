@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
 import { html } from "./html.ts";
-import { inline } from "./pages/review.ts";
+import { inline } from "./pages/prose.ts";
 import { activityLayer, storeLayer } from "./services.ts";
 import { gitEnvironment } from "../collector/git.ts";
 import { identifyRepository } from "./repositories.ts";
