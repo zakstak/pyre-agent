@@ -13,7 +13,8 @@ import { patchTotals } from "../schema/input.ts";
 import { anchorForRows } from "./anchor.ts";
 import { unifiedDiff } from "./linediff.ts";
 import { applyAnalysis } from "../schema/analysis.ts";
-import { hunkRanges, patchDigest } from "./patch.ts";
+import { patchDigest } from "./anchor.ts";
+import { hunkRanges } from "./patch.ts";
 import { tourView } from "./tour.ts";
 
 const file = (patch: string): ReviewFile =>

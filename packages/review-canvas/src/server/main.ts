@@ -7,6 +7,7 @@ import { HttpRouter, HttpServer } from "effect/http";
 import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
+import type { Duplex } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { AgentApi } from "./agent.ts";
 import { clientDir as installedClientDir } from "./install.ts";
@@ -74,10 +75,10 @@ const startLock = (dir: string, path: string) =>
         const lock = StartLock.try(dir);
         if (lock !== undefined) return lock;
         if (yield* Effect.promise(() => socketInUse(path)))
-          return yield* Effect.fail(new SocketInUse({ path }));
+          return yield* new SocketInUse({ path });
         yield* Effect.sleep("100 millis");
       }
-      return yield* Effect.fail(new StartTimedOut({ dir }));
+      return yield* new StartTimedOut({ dir });
     }),
     (lock) => Effect.sync(() => lock.release()),
   );
@@ -101,7 +102,7 @@ const claimSocket = Effect.gen(function* () {
   });
   yield* startLock(dir, path);
   if (yield* Effect.promise(() => socketInUse(path)))
-    return yield* Effect.fail(new SocketInUse({ path }));
+    return yield* new SocketInUse({ path });
   rmSync(path, { force: true });
   return path;
 });
@@ -118,8 +119,29 @@ const rememberedPort = (): number | undefined => {
   return /^\d+$/.test(text) && port > 0 && port < 65536 ? port : undefined;
 };
 
+/**
+ * The pages' RPC sockets. Stopping closes each one, and the WebSocket library waits for the page to answer the close
+ * for up to 30 seconds; a page that cannot answer, such as a frozen tab, would hold the stop that long. A second after
+ * the server starts stopping, the sockets still open are cut.
+ */
+const pageSockets = new Set<Duplex>();
+
+const createPageServer = () => {
+  const server = createServer();
+  server.on("upgrade", (_request, socket) => {
+    pageSockets.add(socket);
+    socket.once("close", () => pageSockets.delete(socket));
+  });
+  return server;
+};
+
+const cutPageSocketsSoon = () =>
+  setTimeout(() => {
+    for (const socket of pageSockets) socket.destroy();
+  }, 1000).unref();
+
 const pageServerOn = (port: number) =>
-  NodeHttpServer.layer(createServer, {
+  NodeHttpServer.layer(createPageServer, {
     host: "127.0.0.1",
     port,
     gracefulShutdownTimeout: "1 second",
@@ -242,6 +264,7 @@ export const run = () =>
                 Deferred.await(stopped),
               ),
             ).pipe(Effect.provide(context));
+            cutPageSocketsSoon();
             // Flush the lifecycle response before closing the listeners.
             yield* Effect.sleep("100 millis");
           }),

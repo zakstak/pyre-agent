@@ -18,16 +18,10 @@ import type { ReviewFile } from "../schema/input.ts";
 import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
-import { anchorAt, attach, attachedRows } from "./anchor.ts";
-import { parseRows, type Row } from "./patch.ts";
-import {
-  type ActionContext,
-  ActionError,
-  appendReply,
-  type ReviewState,
-  type Turn,
-  withRound,
-} from "./state.ts";
+import { anchorAt, attach } from "./anchor.ts";
+import { attachedRows, parseRows, type Row } from "./patch.ts";
+import { type ActionContext, ActionError, appendReply, withRound } from "./state.ts";
+import { type ReviewState, type Turn } from "./queries.ts";
 
 export interface ImportReport {
   readonly comments: number;

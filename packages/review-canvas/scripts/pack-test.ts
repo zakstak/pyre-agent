@@ -1,6 +1,6 @@
 /**
  * Installs the packed tarball as a user would, then runs its command: the help text, a server, a registered review,
- * and the page with its assets. It proves the package works without the TypeScript source. Run after `pnpm build`;
+ * and the page shell with its assets. It proves the package works without the TypeScript source. Run after `pnpm build`;
  * npm needs the registry, or a cache that holds the dependencies.
  *
  * Run: pnpm test:pack
@@ -125,17 +125,19 @@ try {
     ],
     { env, encoding: "utf8" },
   );
+  // The page is the built shell; the browser renders the review from the RPCs, so its assets must be served.
   const page = await get(registered.url);
   assert.equal(page.status, 200);
-  assert.match(page.body, /Write notes atomically/);
-  const stylesheet = /<link rel="stylesheet" href="([^"]+)">/.exec(
-    page.body,
-  )?.[1];
-  assert.ok(stylesheet !== undefined, "the page links no stylesheet");
-  assert.equal(
-    (await get(new URL(stylesheet, registered.url).href)).status,
-    200,
+  const assets = [...page.body.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="(\/assets\/[^"]+)"/g)].map(
+    (match) => match[1] ?? "",
   );
+  assert.ok(assets.some((asset) => asset.endsWith(".js")), "the page loads no script");
+  assert.ok(assets.some((asset) => asset.endsWith(".css")), "the page links no stylesheet");
+  for (const asset of assets) assert.equal((await get(new URL(asset, registered.url).href)).status, 200, asset);
+  // The review itself, as the server holds it.
+  const feedback = await get(new URL(`${new URL(registered.url).pathname}/feedback.json`, registered.url).href);
+  assert.equal(feedback.status, 200);
+  assert.match(feedback.body, /Write notes atomically/);
   console.log(`The packed tarball installs and serves a review: ${tarball}`);
 } finally {
   server?.kill("SIGTERM");

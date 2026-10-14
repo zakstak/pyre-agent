@@ -7,7 +7,7 @@ import type { Comment, Verdict } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
 import type { CommentId, RepoPath, RoundNumber, ThreadId } from "../schema/primitives.ts";
 import { progress, standingOf } from "./progress.ts";
-import { currentSubmission, type ReviewState, type Round } from "./state.ts";
+import { currentSubmission, type ReviewState, type Round } from "./queries.ts";
 import type { StopView } from "./tour.ts";
 
 /** A file's block on the review page. A path is a valid ID, and `#files/PATH` then works without the page script. */

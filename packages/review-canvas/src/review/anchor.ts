@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
 import type { Anchor, Attachment, RoundSnapshot } from "../schema/feedback.ts";
 import type { ReviewFile } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
 import type { PatchDigest } from "../schema/primitives.ts";
-import { joinedRows, parseRows, patchDigest, type Row } from "./patch.ts";
+import { joinedRows, parseRows, type Row } from "./patch.ts";
+
+/** A patch's digest, which names the version of the file row numbers refer to. */
+export const patchDigest = (patch: string): PatchDigest =>
+  createHash("sha256").update(patch, "utf8").digest("hex") as PatchDigest;
 
 /**
  * A selection of whole rows in one file's patch, as the page sends it. Row numbers mean something only in the patch
@@ -229,23 +234,4 @@ export const attach = (
     start: best.at,
     end: best.at + anchor.quote.length,
   };
-};
-
-/** The rows an attachment spans in the file's current patch. */
-export const attachedRows = (
-  rows: ReadonlyArray<Row>,
-  attachment: Attachment,
-): { readonly start: number; readonly end: number } | undefined => {
-  if (attachment.state !== "attached") return undefined;
-  let start: number | undefined;
-  let end: number | undefined;
-  for (const row of rows) {
-    const rowEnd = row.offset + row.text.length;
-    if (rowEnd < attachment.start) continue;
-    if (row.offset >= attachment.end && attachment.end > attachment.start)
-      break;
-    start ??= row.index;
-    end = row.index;
-  }
-  return start === undefined || end === undefined ? undefined : { start, end };
 };

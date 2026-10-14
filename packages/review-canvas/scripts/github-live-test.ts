@@ -12,8 +12,7 @@ import assert from "node:assert/strict";
 import { readComments, runGh } from "../src/cli/github.ts";
 import { collectPullRequest } from "../src/cli/pull-request.ts";
 import { openWorktree } from "../src/collector/collect.ts";
-import { attachedRows } from "../src/review/anchor.ts";
-import { parseRows } from "../src/review/patch.ts";
+import { attachedRows, parseRows } from "../src/review/patch.ts";
 import type { PullRequestUrl } from "../src/schema/primitives.ts";
 import { Store } from "../src/store/store.ts";
 

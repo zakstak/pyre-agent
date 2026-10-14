@@ -25,8 +25,9 @@ import type {
 } from "../schema/primitives.ts";
 import { fixtureBytes } from "../schema/testing.ts";
 import type { RowSelection } from "../review/anchor.ts";
-import { patchDigest } from "../review/patch.ts";
-import { ActionError, turnOf } from "../review/state.ts";
+import { patchDigest } from "../review/anchor.ts";
+import { ActionError } from "../review/state.ts";
+import { turnOf } from "../review/queries.ts";
 import { feedbackOf, StaleRevision, Store } from "./store.ts";
 
 const input = (): ReviewInput => {

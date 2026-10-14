@@ -5,15 +5,7 @@
 import type { Comment } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
 import type { RepoPath } from "../schema/primitives.ts";
-import {
-  approvalHolds,
-  currentRound,
-  currentSubmission,
-  isQuestion,
-  type ReviewState,
-  type Turn,
-  turnOf,
-} from "./state.ts";
+import { approvalHolds, currentRound, currentSubmission, isQuestion, type ReviewState, type Turn, turnOf } from "./queries.ts";
 
 /**
  * Whose move a comment waits for, as the page says it. A plain comment of the reviewer's that nobody answered and
