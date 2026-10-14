@@ -5,7 +5,8 @@
 import { useAtom } from "@effect/atom-react";
 import { Archive, CircleCheck, CircleX, Eye, FileDiff, Hourglass, type LucideIcon, MessageCircle, MessageSquare } from "lucide-react";
 import type { Verdict } from "../../schema/feedback.ts";
-import { formatQuery, hasStanding, matches, parseQuery, type Standing, standing, withoutStanding, withStanding } from "../../review/query.ts";
+import { facetValues, isStateTerm, STATE_OPTIONS, withoutKey, withoutState } from "../../review/facets.ts";
+import { formatQuery, hasStanding, matches, parseQuery, type Query, type Standing, standing, withoutStanding, withStanding } from "../../review/query.ts";
 import type { ReviewSummary } from "../../schema/rpc.ts";
 import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
@@ -16,6 +17,7 @@ import { TargetText } from "../ui/target.tsx";
 import { Time, timeTitle } from "../ui/text.tsx";
 import { AgentVoice } from "../ui/voice.tsx";
 import { reviewQueryAtom } from "./data.ts";
+import { FilterMenu, type MenuRow } from "./FilterMenu.tsx";
 
 const STANDING_ORDER: Readonly<Record<Standing, number>> = { yours: 0, agents: 1, closed: 2 };
 
@@ -150,6 +152,7 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
   const shown = reviews
     .filter((item) => matches(query, item))
     .sort((a, b) => STANDING_ORDER[standing(a)] - STANDING_ORDER[standing(b)]);
+  const menu = { reviews, query, onQuery: (next: Query) => setText(formatQuery(next)) };
   return (
     <section aria-labelledby="reviews-title">
       <h2 id="reviews-title" className="mb-3 text-heading font-semibold">
@@ -178,7 +181,40 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
             );
           })}
         </div>
-        <label className="ml-auto min-w-0 flex-[0_1_24rem]">
+        <div className="ml-auto flex items-center gap-1">
+          <FilterMenu
+            name="repo"
+            label="Repo"
+            finds="repositories"
+            groups={[facetValues(reviews, "repo").map(({ value }): MenuRow => ({ key: "repo", value, exclusive: true, label: value }))]}
+            {...menu}
+            active={query.terms.some((term) => term.key === "repo")}
+            clear={(next) => withoutKey(next, "repo")}
+          />
+          <FilterMenu
+            name="author"
+            label="Author"
+            finds="authors"
+            groups={[
+              facetValues(reviews, "author").map(
+                ({ value }): MenuRow => ({ key: "author", value, exclusive: true, label: value, content: <AgentVoice label={value} /> }),
+              ),
+            ]}
+            {...menu}
+            active={query.terms.some((term) => term.key === "author")}
+            clear={(next) => withoutKey(next, "author")}
+          />
+          <FilterMenu
+            name="state"
+            label="State"
+            finds="states"
+            groups={STATE_OPTIONS}
+            {...menu}
+            active={query.terms.some(isStateTerm)}
+            clear={withoutState}
+          />
+        </div>
+        <label className="max-w-96 min-w-0 flex-[1_1_16rem]">
           <input
             type="search"
             aria-label="Filter reviews"

@@ -122,4 +122,7 @@ test("a standing chip replaces every is: term and is pressed only alone", () => 
   assert.equal(formatQuery(next), "is:yours webhook");
   assert.equal(hasStanding(next, "yours"), true);
   assert.equal(hasStanding(parseQuery("-is:yours"), "yours"), false);
+  // The State menu's is: terms sit beside a chip's: the chip stays pressed and keeps them.
+  assert.equal(hasStanding(parseQuery("is:open is:pr"), "open"), true);
+  assert.equal(formatQuery(withStanding(parseQuery("is:open is:pr"), "closed")), "is:closed is:pr");
 });

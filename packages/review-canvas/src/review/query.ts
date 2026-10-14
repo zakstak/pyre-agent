@@ -61,7 +61,7 @@ const pullRequest = (url: string): { readonly repository: string; readonly numbe
 };
 
 /** What `repo:` reads: the pull request's `owner/name`, or the checkout's folder name. */
-const repositoryOf = (review: ReviewSummary): string => {
+export const repositoryOf = (review: ReviewSummary): string => {
   const { target } = review;
   if (target.kind === "github_pr") return pullRequest(target.url)?.repository ?? target.url;
   return target.root.split("/").filter((part) => part !== "").at(-1) ?? target.root;
@@ -115,16 +115,21 @@ const matchesTerm = (term: Term, review: ReviewSummary): boolean => {
 export const matches = (query: Query, review: ReviewSummary): boolean =>
   query.terms.every((term) => matchesTerm(term, review) !== term.negated);
 
-/** The query without its `is:` terms, which the standing chips count across. */
-export const withoutStanding = (query: Query): Query => ({ terms: query.terms.filter((term) => term.key !== "is") });
+/** The `is:` values the standing chips write; other `is:` terms, such as `is:pr`, sit beside them. */
+const STANDINGS: ReadonlySet<string> = new Set(["open", "closed", "yours", "waiting"]);
 
-/** The query with its `is:` terms replaced by `is:value`, first. */
+const isStanding = (term: Term): boolean => term.key === "is" && STANDINGS.has(term.value.toLowerCase());
+
+/** The query without its standing terms, which the chips count across. */
+export const withoutStanding = (query: Query): Query => ({ terms: query.terms.filter((term) => !isStanding(term)) });
+
+/** The query with its standing terms replaced by `is:value`, first. */
 export const withStanding = (query: Query, value: string): Query => ({
   terms: [{ key: "is", value, negated: false }, ...withoutStanding(query).terms],
 });
 
-/** Whether the query holds `is:value` and no other `is:` term. */
+/** Whether the query holds `is:value` and no other standing term. */
 export const hasStanding = (query: Query, value: string): boolean => {
-  const [only, ...others] = query.terms.filter((term) => term.key === "is");
+  const [only, ...others] = query.terms.filter(isStanding);
   return only !== undefined && others.length === 0 && !only.negated && only.value.toLowerCase() === value;
 };
