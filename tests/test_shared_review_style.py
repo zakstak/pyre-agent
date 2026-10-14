@@ -15,7 +15,7 @@ class SharedStyleTests(unittest.TestCase):
         raw = (STYLE / "references/reference-theme-contract.json").read_bytes()
         self.assertEqual(
             hashlib.sha256(raw).hexdigest(),
-            "2704cfed94bd8723d488fa7a5490a5c1d1deb8707ef53f8bec827b00baddf2e3",
+            "072ad98e03993cd68fed0b78b8d5637611bef203984728f802cdfc9e583ae3ce",
         )
         contract = json.loads(raw)
         tokens = (STYLE / "assets/tokens.css").read_text()

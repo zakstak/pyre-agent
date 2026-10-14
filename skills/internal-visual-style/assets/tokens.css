@@ -48,9 +48,9 @@
   --pyre-sidebar-controls: light-dark(#e5dfed, #332f3c);
   --pyre-sidebar-selection: light-dark(#ddd2e9, #393345);
   --pyre-terminal: light-dark(#f3f1f7, #19191e);
-  --pyre-error: light-dark(#c43d60, #e5637e);
-  --pyre-warning: light-dark(#9a6a12, #e0a94d);
-  --pyre-success: light-dark(#1b8a57, #34c08a);
+  --pyre-error: light-dark(#b83356, #e5637e);
+  --pyre-warning: light-dark(#8a5e0f, #e0a94d);
+  --pyre-success: light-dark(#177a4d, #34c08a);
   --pyre-on-accent: light-dark(#fbfaff, #131318);
   --pyre-on-action: light-dark(#fbfaff, #131318);
   --pyre-focus: light-dark(#664c82, #b69ff0);

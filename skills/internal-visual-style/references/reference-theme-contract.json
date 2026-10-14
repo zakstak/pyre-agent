@@ -73,9 +73,9 @@
       "sidebarControls": "#e5dfed",
       "sidebarSelection": "#ddd2e9",
       "terminal": "#f3f1f7",
-      "error": "#c43d60",
-      "warning": "#9a6a12",
-      "success": "#1b8a57",
+      "error": "#b83356",
+      "warning": "#8a5e0f",
+      "success": "#177a4d",
       "onAccent": "#fbfaff",
       "onAction": "#fbfaff",
       "focus": "#664c82",
@@ -137,9 +137,9 @@
     "sidebarControls": "#e5dfed",
     "sidebarSelection": "#ddd2e9",
     "terminal": "#f3f1f7",
-    "error": "#c43d60",
-    "warning": "#9a6a12",
-    "success": "#1b8a57",
+    "error": "#b83356",
+    "warning": "#8a5e0f",
+    "success": "#177a4d",
     "onAccent": "#fbfaff",
     "onAction": "#fbfaff",
     "focus": "#664c82",
@@ -203,9 +203,9 @@
       "sidebarControls": "#e5dfed",
       "sidebarSelection": "#ddd2e9",
       "terminal": "#f3f1f7",
-      "error": "#c43d60",
-      "warning": "#9a6a12",
-      "success": "#1b8a57",
+      "error": "#b83356",
+      "warning": "#8a5e0f",
+      "success": "#177a4d",
       "onAccent": "#fbfaff",
       "onAction": "#fbfaff",
       "focus": "#664c82"
@@ -1071,20 +1071,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 4.478519778825287,
-          "normalTextAA": false,
+          "ratio": 5.138851782606445,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 4.215717286086318,
-          "normalTextAA": false,
+          "ratio": 5.07942391703054,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1098,11 +1098,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "background",
           "backgroundHex": "#f3f1f7",
-          "ratio": 3.887473381476553,
-          "normalTextAA": false,
+          "ratio": 4.770609250137812,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1143,19 +1143,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 4.833230653166718,
+          "ratio": 5.545862736881493,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 4.549613492505707,
+          "ratio": 5.48172802368635,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1170,11 +1170,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "surface",
           "backgroundHex": "#fbfaff",
-          "ratio": 4.195371783230241,
-          "normalTextAA": false,
+          "ratio": 5.148454400282837,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1215,19 +1215,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 5.0196537149949245,
+          "ratio": 5.75977280782152,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 4.72509712618086,
+          "ratio": 5.693164347672984,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1242,11 +1242,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "raised",
           "backgroundHex": "#ffffff",
-          "ratio": 4.357191921655666,
-          "normalTextAA": false,
+          "ratio": 5.347035991325833,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1287,19 +1287,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 5.0196537149949245,
+          "ratio": 5.75977280782152,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 4.72509712618086,
+          "ratio": 5.693164347672984,
           "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1314,11 +1314,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "overlay",
           "backgroundHex": "#ffffff",
-          "ratio": 4.357191921655666,
-          "normalTextAA": false,
+          "ratio": 5.347035991325833,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1359,20 +1359,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 3.9835001478120016,
-          "normalTextAA": false,
+          "ratio": 4.570844351828713,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 3.749745733324266,
-          "normalTextAA": false,
+          "ratio": 4.517985165535722,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1386,10 +1386,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "input",
           "backgroundHex": "#e8e3ef",
-          "ratio": 3.457783275390373,
+          "ratio": 4.243304393323889,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1431,20 +1431,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 4.057884319685113,
-          "normalTextAA": false,
+          "ratio": 4.656196042366095,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 3.8197649929598554,
-          "normalTextAA": false,
+          "ratio": 4.602349812856739,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1458,10 +1458,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "subtle",
           "backgroundHex": "#eae5f1",
-          "ratio": 3.5223506999950587,
+          "ratio": 4.32253990771851,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1503,19 +1503,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 3.556348147758542,
+          "ratio": 4.0807112441673254,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 3.347659294200836,
+          "ratio": 4.033520165394966,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1530,10 +1530,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "highlight",
           "backgroundHex": "#dfd5ed",
-          "ratio": 3.0870040643877914,
+          "ratio": 3.7882935005944156,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1575,19 +1575,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 3.7613239590708916,
+          "ratio": 4.315909560882131,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 3.5406069897909394,
+          "ratio": 4.2659985488366,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1602,10 +1602,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "message",
           "backgroundHex": "#e4dceb",
-          "ratio": 3.264928479077399,
+          "ratio": 4.006637853146922,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1647,20 +1647,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 4.257855251330496,
-          "normalTextAA": false,
+          "ratio": 4.885651538669586,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 4.0080014985209305,
-          "normalTextAA": false,
+          "ratio": 4.8291517883024895,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1674,11 +1674,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "code",
           "backgroundHex": "#eeebf3",
-          "ratio": 3.6959307470266705,
-          "normalTextAA": false,
+          "ratio": 4.535552961892488,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1719,20 +1719,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 4.257855251330496,
-          "normalTextAA": false,
+          "ratio": 4.885651538669586,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 4.0080014985209305,
-          "normalTextAA": false,
+          "ratio": 4.8291517883024895,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1746,11 +1746,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "sidebar",
           "backgroundHex": "#eeebf3",
-          "ratio": 3.6959307470266705,
-          "normalTextAA": false,
+          "ratio": 4.535552961892488,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1791,19 +1791,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 3.8506858704198326,
+          "ratio": 4.4184473725054785,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 3.6247250852770017,
+          "ratio": 4.367350569636748,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1818,10 +1818,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "sidebarControls",
           "backgroundHex": "#e5dfed",
-          "ratio": 3.3424969768943265,
+          "ratio": 4.1018279565616425,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1863,19 +1863,19 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 3.4587102204337876,
+          "ratio": 3.9686771655739697,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 3.2557508248117437,
+          "ratio": 3.922781696491133,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1890,10 +1890,10 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "sidebarSelection",
           "backgroundHex": "#ddd2e9",
-          "ratio": 3.0022517662530084,
+          "ratio": 3.684287618681813,
           "normalTextAA": false,
           "largeTextAndEssentialNonTextAA": true
         },
@@ -1935,20 +1935,20 @@
         },
         {
           "foreground": "error",
-          "foregroundHex": "#c43d60",
+          "foregroundHex": "#b83356",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 4.478519778825287,
-          "normalTextAA": false,
+          "ratio": 5.138851782606445,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
           "foreground": "warning",
-          "foregroundHex": "#9a6a12",
+          "foregroundHex": "#8a5e0f",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 4.215717286086318,
-          "normalTextAA": false,
+          "ratio": 5.07942391703054,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         },
         {
@@ -1962,11 +1962,11 @@
         },
         {
           "foreground": "success",
-          "foregroundHex": "#1b8a57",
+          "foregroundHex": "#177a4d",
           "background": "terminal",
           "backgroundHex": "#f3f1f7",
-          "ratio": 3.887473381476553,
-          "normalTextAA": false,
+          "ratio": 4.770609250137812,
+          "normalTextAA": true,
           "largeTextAndEssentialNonTextAA": true
         }
       ]
@@ -2083,7 +2083,7 @@
     "QA": "Inspect actual1440/390/320 dark/light pixels at100/200text. Verify typography, focus, meaningful boundaries, source-color restrictions, state/export parity, and palette persistence before publishing.",
     "optionalReadingBases": "Existing explicit reading-base overrides are secondary. The dark Neutral raised fill requires main ink for proposal text; source-muted-to-neutral-raised remains an honestly reported restricted pair."
   },
-  "css": "/* Reference-directed visual treatment. Dark source colors remain exact; light is a derived companion. */\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"] {\n  color-scheme:dark;\n  --pyre-background: #19191e;\n  --pyre-surface: #1e1c24;\n  --pyre-raised: #26242c;\n  --pyre-overlay: #2c2a32;\n  --pyre-text: #dbd9e3;\n  --pyre-muted: #918d9a;\n  --pyre-border: #55525f;\n  --pyre-input: #504b5d;\n  --pyre-subtle: #342e42;\n  --pyre-highlight: #3c354b;\n  --pyre-accent: #b69ff0;\n  --pyre-action: #d7a6bd;\n  --pyre-message: #443c55;\n  --pyre-code: #131318;\n  --pyre-sidebar: #131318;\n  --pyre-sidebar-controls: #332f3c;\n  --pyre-sidebar-selection: #393345;\n  --pyre-terminal: #19191e;\n  --pyre-error: #e5637e;\n  --pyre-warning: #e0a94d;\n  --pyre-success: #34c08a;\n  --pyre-on-accent: #131318;\n  --pyre-on-action: #131318;\n  --pyre-focus: #b69ff0;\n  --pyre-functional-boundary: #b69ff0;\n  --pyre-canvas: #19191e;\n  --pyre-accent-soft: #342e42;\n  --pyre-accent-text: #131318;\n  --pyre-accent-secondary: #d7a6bd;\n  --pyre-line: #55525f;\n  --pyre-functional-border: #b69ff0;\n  --pyre-control-border: #918d9a;\n}\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"light\"] {\n  color-scheme:light;\n  --pyre-background: #f3f1f7;\n  --pyre-surface: #fbfaff;\n  --pyre-raised: #ffffff;\n  --pyre-overlay: #ffffff;\n  --pyre-text: #302938;\n  --pyre-muted: #5c5367;\n  --pyre-border: #7e708a;\n  --pyre-input: #e8e3ef;\n  --pyre-subtle: #eae5f1;\n  --pyre-highlight: #dfd5ed;\n  --pyre-accent: #664c82;\n  --pyre-action: #844463;\n  --pyre-message: #e4dceb;\n  --pyre-code: #eeebf3;\n  --pyre-sidebar: #eeebf3;\n  --pyre-sidebar-controls: #e5dfed;\n  --pyre-sidebar-selection: #ddd2e9;\n  --pyre-terminal: #f3f1f7;\n  --pyre-error: #c43d60;\n  --pyre-warning: #9a6a12;\n  --pyre-success: #1b8a57;\n  --pyre-on-accent: #fbfaff;\n  --pyre-on-action: #fbfaff;\n  --pyre-focus: #664c82;\n  --pyre-functional-boundary: #7e708a;\n  --pyre-canvas: #f3f1f7;\n  --pyre-accent-soft: #eae5f1;\n  --pyre-accent-text: #fbfaff;\n  --pyre-accent-secondary: #844463;\n  --pyre-line: #7e708a;\n  --pyre-functional-border: #7e708a;\n  --pyre-control-border: #7e708a;\n}\n\n[data-mode=\"light\"][data-base=\"neutral\"] { --pyre-canvas:#f3f5f6; --pyre-surface:#ffffff; --pyre-raised:#e9edf0; --pyre-line:#d3d8dc; }\n[data-mode=\"dark\"][data-base=\"neutral\"] { --pyre-canvas:#10151a; --pyre-surface:#181f26; --pyre-raised:#242d36; --pyre-line:#394149; }\n[data-mode=\"light\"][data-base=\"warm\"] { --pyre-canvas:#f8f3e9; --pyre-surface:#fffaf2; --pyre-raised:#efe5d5; --pyre-line:#dbd2c6; }\n[data-mode=\"dark\"][data-base=\"warm\"] { --pyre-canvas:#191610; --pyre-surface:#221d16; --pyre-raised:#30271f; --pyre-line:#494035; }\n\n/* Source border is decorative. Functional boundaries remain legible even with legacy layouts. */\n[data-palette=\"reference-charcoal-violet\"] button,\n[data-palette=\"reference-charcoal-violet\"] .button,\n[data-palette=\"reference-charcoal-violet\"] select,\n[data-palette=\"reference-charcoal-violet\"] .output { border-color:var(--pyre-functional-border); }\n[data-palette=\"reference-charcoal-violet\"] .notice .muted { color:var(--pyre-text); }\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"][data-base=\"neutral\"] #plan .pr-list p { color:var(--pyre-text); }\n\n[data-visual-theme=\"reference-editor\"] { --pyre-radius:8px; --pyre-section-gap:20px; --pyre-row-pad:14px; --pyre-content-width:1180px; --pyre-reading-width:68ch; }\n[data-visual-theme=\"reference-editor\"] body { line-height:1.55; }\n[data-visual-theme=\"reference-editor\"] h1 { font-size:26px; font-weight:650; letter-spacing:-.01em; }\n[data-visual-theme=\"reference-editor\"] .page-header { padding-bottom:20px; }\n[data-visual-theme=\"reference-editor\"] .palette-heading { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] .theme-picker-label { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .refinement-selected { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .theme-number { font-size:14px; opacity:1; }\n[data-visual-theme=\"reference-editor\"] button, [data-visual-theme=\"reference-editor\"] .button { border-radius:8px; background:var(--pyre-raised); border-color:var(--pyre-control-border,var(--pyre-border)); color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] button:hover { background:var(--pyre-surface); }\n[data-visual-theme=\"reference-editor\"] button[aria-pressed=\"true\"] { background:var(--pyre-sidebar-selection,var(--pyre-accent-soft)); color:var(--pyre-text); border-color:var(--pyre-accent); box-shadow:inset 0 -2px var(--pyre-accent); }\n[data-visual-theme=\"reference-editor\"] button.primary { background:var(--pyre-action,var(--pyre-accent)); border-color:var(--pyre-action,var(--pyre-accent)); color:var(--pyre-on-action,var(--pyre-accent-text)); box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] :focus-visible { outline:2px solid var(--pyre-focus); outline-offset:2px; }\n[data-visual-theme=\"reference-editor\"] .quick-controls { background:var(--pyre-canvas); padding:8px 0; border-color:var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers { border:1px solid var(--pyre-line); border-radius:10px; background:var(--pyre-surface); padding:16px; margin-bottom:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option { flex-basis:9em; gap:6px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option .swatch { border-color:var(--pyre-line); border-radius:4px; height:16px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .theme-option { min-height:44px; font-size:15px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details { border:1px solid var(--pyre-line); background:var(--pyre-surface); border-radius:10px; padding:0 16px; margin-top:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details .controls { padding-bottom:16px; border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section { background:var(--pyre-surface); border:1px solid var(--pyre-line); border-radius:10px; padding:18px; margin-top:20px; box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] #plan h2 { font-size:20px; font-weight:650; letter-spacing:0; }\n[data-visual-theme=\"reference-editor\"] #plan h3 { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0 16px 0 0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding-left:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li { padding:14px 0; border-bottom:1px solid var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li:last-child { border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { background:var(--pyre-code,var(--pyre-raised)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:6px; padding:4px 6px; font-size:14px; line-height:1.4; align-self:start; width:fit-content; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list p { margin-top:6px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice { background:var(--pyre-subtle,var(--pyre-accent-soft)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:8px; padding:14px 16px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice .muted { color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] #plan .evidence li { padding:10px 0; }\n[data-visual-theme=\"reference-editor\"] .output { background:var(--pyre-code,var(--pyre-surface)); color:var(--pyre-text); border-color:var(--pyre-functional-border,var(--pyre-border)); border-radius:8px; }\n[data-visual-theme=\"reference-editor\"] .token { border-color:var(--pyre-line); }\n@media(max-width:850px) {\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { padding:4px 6px; border:1px solid var(--pyre-line); }\n}\n@media(max-width:720px) {\n [data-visual-theme=\"reference-editor\"] .page { padding:20px 16px 48px; }\n [data-visual-theme=\"reference-editor\"] .appearance-pickers { padding:12px; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding:14px 12px; }\n [data-visual-theme=\"reference-editor\"] .appearance-details { padding:0 12px; }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding:12px; }\n}\n/* Keep technical ranges whole; grow the gutter with its actual text. */\n[data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:max-content minmax(0,1fr); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { white-space:nowrap; width:max-content; min-width:max-content; }\n@container pyre-margin (max-width:calc(10.5em + 28px)) {\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:minmax(0,1fr); }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list .mono { grid-column:1; grid-row:1; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li > div { grid-column:1; grid-row:2; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-state { grid-column:1; grid-row:3; }\n}\n@media(max-width:380px) {\n /* At ordinary text size these remain12px. Enlarged text gets reading space back. */\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding-inline:clamp(6px,calc(100vw - 10em),12px); }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding-inline:clamp(8px,calc(100vw - 10em),12px); }\n}\n@media print {\n :root { --pyre-action:#333333 !important; --pyre-on-action:#ffffff !important; --pyre-code:#ffffff !important; --pyre-subtle:#eeeeee !important; --pyre-functional-border:#777777 !important; --pyre-control-border:#777777 !important; }\n}\n",
+  "css": "/* Reference-directed visual treatment. Dark source colors remain exact; light is a derived companion. */\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"] {\n  color-scheme:dark;\n  --pyre-background: #19191e;\n  --pyre-surface: #1e1c24;\n  --pyre-raised: #26242c;\n  --pyre-overlay: #2c2a32;\n  --pyre-text: #dbd9e3;\n  --pyre-muted: #918d9a;\n  --pyre-border: #55525f;\n  --pyre-input: #504b5d;\n  --pyre-subtle: #342e42;\n  --pyre-highlight: #3c354b;\n  --pyre-accent: #b69ff0;\n  --pyre-action: #d7a6bd;\n  --pyre-message: #443c55;\n  --pyre-code: #131318;\n  --pyre-sidebar: #131318;\n  --pyre-sidebar-controls: #332f3c;\n  --pyre-sidebar-selection: #393345;\n  --pyre-terminal: #19191e;\n  --pyre-error: #e5637e;\n  --pyre-warning: #e0a94d;\n  --pyre-success: #34c08a;\n  --pyre-on-accent: #131318;\n  --pyre-on-action: #131318;\n  --pyre-focus: #b69ff0;\n  --pyre-functional-boundary: #b69ff0;\n  --pyre-canvas: #19191e;\n  --pyre-accent-soft: #342e42;\n  --pyre-accent-text: #131318;\n  --pyre-accent-secondary: #d7a6bd;\n  --pyre-line: #55525f;\n  --pyre-functional-border: #b69ff0;\n  --pyre-control-border: #918d9a;\n}\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"light\"] {\n  color-scheme:light;\n  --pyre-background: #f3f1f7;\n  --pyre-surface: #fbfaff;\n  --pyre-raised: #ffffff;\n  --pyre-overlay: #ffffff;\n  --pyre-text: #302938;\n  --pyre-muted: #5c5367;\n  --pyre-border: #7e708a;\n  --pyre-input: #e8e3ef;\n  --pyre-subtle: #eae5f1;\n  --pyre-highlight: #dfd5ed;\n  --pyre-accent: #664c82;\n  --pyre-action: #844463;\n  --pyre-message: #e4dceb;\n  --pyre-code: #eeebf3;\n  --pyre-sidebar: #eeebf3;\n  --pyre-sidebar-controls: #e5dfed;\n  --pyre-sidebar-selection: #ddd2e9;\n  --pyre-terminal: #f3f1f7;\n  --pyre-error: #b83356;\n  --pyre-warning: #8a5e0f;\n  --pyre-success: #177a4d;\n  --pyre-on-accent: #fbfaff;\n  --pyre-on-action: #fbfaff;\n  --pyre-focus: #664c82;\n  --pyre-functional-boundary: #7e708a;\n  --pyre-canvas: #f3f1f7;\n  --pyre-accent-soft: #eae5f1;\n  --pyre-accent-text: #fbfaff;\n  --pyre-accent-secondary: #844463;\n  --pyre-line: #7e708a;\n  --pyre-functional-border: #7e708a;\n  --pyre-control-border: #7e708a;\n}\n\n[data-mode=\"light\"][data-base=\"neutral\"] { --pyre-canvas:#f3f5f6; --pyre-surface:#ffffff; --pyre-raised:#e9edf0; --pyre-line:#d3d8dc; }\n[data-mode=\"dark\"][data-base=\"neutral\"] { --pyre-canvas:#10151a; --pyre-surface:#181f26; --pyre-raised:#242d36; --pyre-line:#394149; }\n[data-mode=\"light\"][data-base=\"warm\"] { --pyre-canvas:#f8f3e9; --pyre-surface:#fffaf2; --pyre-raised:#efe5d5; --pyre-line:#dbd2c6; }\n[data-mode=\"dark\"][data-base=\"warm\"] { --pyre-canvas:#191610; --pyre-surface:#221d16; --pyre-raised:#30271f; --pyre-line:#494035; }\n\n/* Source border is decorative. Functional boundaries remain legible even with legacy layouts. */\n[data-palette=\"reference-charcoal-violet\"] button,\n[data-palette=\"reference-charcoal-violet\"] .button,\n[data-palette=\"reference-charcoal-violet\"] select,\n[data-palette=\"reference-charcoal-violet\"] .output { border-color:var(--pyre-functional-border); }\n[data-palette=\"reference-charcoal-violet\"] .notice .muted { color:var(--pyre-text); }\n\n[data-palette=\"reference-charcoal-violet\"][data-mode=\"dark\"][data-base=\"neutral\"] #plan .pr-list p { color:var(--pyre-text); }\n\n[data-visual-theme=\"reference-editor\"] { --pyre-radius:8px; --pyre-section-gap:20px; --pyre-row-pad:14px; --pyre-content-width:1180px; --pyre-reading-width:68ch; }\n[data-visual-theme=\"reference-editor\"] body { line-height:1.55; }\n[data-visual-theme=\"reference-editor\"] h1 { font-size:26px; font-weight:650; letter-spacing:-.01em; }\n[data-visual-theme=\"reference-editor\"] .page-header { padding-bottom:20px; }\n[data-visual-theme=\"reference-editor\"] .palette-heading { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] .theme-picker-label { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .refinement-selected { margin-top:16px; }\n[data-visual-theme=\"reference-editor\"] .theme-number { font-size:14px; opacity:1; }\n[data-visual-theme=\"reference-editor\"] button, [data-visual-theme=\"reference-editor\"] .button { border-radius:8px; background:var(--pyre-raised); border-color:var(--pyre-control-border,var(--pyre-border)); color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] button:hover { background:var(--pyre-surface); }\n[data-visual-theme=\"reference-editor\"] button[aria-pressed=\"true\"] { background:var(--pyre-sidebar-selection,var(--pyre-accent-soft)); color:var(--pyre-text); border-color:var(--pyre-accent); box-shadow:inset 0 -2px var(--pyre-accent); }\n[data-visual-theme=\"reference-editor\"] button.primary { background:var(--pyre-action,var(--pyre-accent)); border-color:var(--pyre-action,var(--pyre-accent)); color:var(--pyre-on-action,var(--pyre-accent-text)); box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] :focus-visible { outline:2px solid var(--pyre-focus); outline-offset:2px; }\n[data-visual-theme=\"reference-editor\"] .quick-controls { background:var(--pyre-canvas); padding:8px 0; border-color:var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers { border:1px solid var(--pyre-line); border-radius:10px; background:var(--pyre-surface); padding:16px; margin-bottom:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option { flex-basis:9em; gap:6px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .palette-option .swatch { border-color:var(--pyre-line); border-radius:4px; height:16px; }\n[data-visual-theme=\"reference-editor\"] .appearance-pickers .theme-option { min-height:44px; font-size:15px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details { border:1px solid var(--pyre-line); background:var(--pyre-surface); border-radius:10px; padding:0 16px; margin-top:12px; }\n[data-visual-theme=\"reference-editor\"] .appearance-details .controls { padding-bottom:16px; border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section { background:var(--pyre-surface); border:1px solid var(--pyre-line); border-radius:10px; padding:18px; margin-top:20px; box-shadow:none; }\n[data-visual-theme=\"reference-editor\"] #plan h2 { font-size:20px; font-weight:650; letter-spacing:0; }\n[data-visual-theme=\"reference-editor\"] #plan h3 { font-size:18px; font-weight:650; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0 16px 0 0; }\n[data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding-left:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li { padding:14px 0; border-bottom:1px solid var(--pyre-line); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list li:last-child { border-bottom:0; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { background:var(--pyre-code,var(--pyre-raised)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:6px; padding:4px 6px; font-size:14px; line-height:1.4; align-self:start; width:fit-content; }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list p { margin-top:6px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice { background:var(--pyre-subtle,var(--pyre-accent-soft)); color:var(--pyre-text); border:1px solid var(--pyre-line); border-radius:8px; padding:14px 16px; }\n[data-visual-theme=\"reference-editor\"] #plan .notice .muted { color:var(--pyre-text); }\n[data-visual-theme=\"reference-editor\"] #plan .evidence li { padding:10px 0; }\n[data-visual-theme=\"reference-editor\"] .output { background:var(--pyre-code,var(--pyre-surface)); color:var(--pyre-text); border-color:var(--pyre-functional-border,var(--pyre-border)); border-radius:8px; }\n[data-visual-theme=\"reference-editor\"] .token { border-color:var(--pyre-line); }\n@media(max-width:850px) {\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-heading { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section > .section-body { border:0; padding:0; }\n [data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { padding:4px 6px; border:1px solid var(--pyre-line); }\n}\n@media(max-width:720px) {\n [data-visual-theme=\"reference-editor\"] .page { padding:20px 16px 48px; }\n [data-visual-theme=\"reference-editor\"] .appearance-pickers { padding:12px; }\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding:14px 12px; }\n [data-visual-theme=\"reference-editor\"] .appearance-details { padding:0 12px; }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding:12px; }\n}\n/* Keep technical ranges whole; grow the gutter with its actual text. */\n[data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:max-content minmax(0,1fr); }\n[data-visual-theme=\"reference-editor\"] #plan .pr-list .mono { white-space:nowrap; width:max-content; min-width:max-content; }\n@container pyre-margin (max-width:calc(10.5em + 28px)) {\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li { grid-template-columns:minmax(0,1fr); }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list .mono { grid-column:1; grid-row:1; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-list li > div { grid-column:1; grid-row:2; }\n [data-visual-theme=\"reference-editor\"][data-style=\"moss\"] #plan .pr-state { grid-column:1; grid-row:3; }\n}\n@media(max-width:380px) {\n /* At ordinary text size these remain12px. Enlarged text gets reading space back. */\n [data-visual-theme=\"reference-editor\"] #plan > .plan-section { padding-inline:clamp(6px,calc(100vw - 10em),12px); }\n [data-visual-theme=\"reference-editor\"] #plan .notice { padding-inline:clamp(8px,calc(100vw - 10em),12px); }\n}\n@media print {\n :root { --pyre-action:#333333 !important; --pyre-on-action:#ffffff !important; --pyre-code:#ffffff !important; --pyre-subtle:#eeeeee !important; --pyre-functional-border:#777777 !important; --pyre-control-border:#777777 !important; }\n}\n",
   "integration": {
     "visualTheme": "reference-editor",
     "underlyingLayout": "moss / 04 Margin notes",
