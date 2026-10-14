@@ -3,6 +3,8 @@
  * the data comes over the RPC socket.
  */
 import "./main.css";
+// Applies a saved theme as the module loads, before the app renders, as on every page with the shared style.
+import "../../../../skills/internal-visual-style/assets/theme.js";
 import { RegistryProvider } from "@effect/atom-react";
 import { Option, Schema } from "effect";
 import { StrictMode } from "react";
@@ -10,6 +12,7 @@ import { createRoot } from "react-dom/client";
 import { ReviewId } from "../schema/primitives.ts";
 import { HomePage } from "./home/HomePage.tsx";
 import { ReviewPage } from "./review/ReviewPage.tsx";
+import { Message } from "./ui/page.tsx";
 import { useDocumentTheme } from "./ui/theme.tsx";
 import { Toasts } from "./ui/toast.tsx";
 
@@ -31,16 +34,7 @@ const App = () => {
     case "review":
       return <ReviewPage id={here.id} />;
     case "missing":
-      return (
-        <main className="mx-auto max-w-work p-8">
-          <h1 className="text-title font-semibold">No such page</h1>
-          <p className="mt-2 text-muted">
-            <a className="text-link underline" href="/">
-              Back to the review canvas
-            </a>
-          </p>
-        </main>
-      );
+      return <Message title="No such page" />;
   }
 };
 

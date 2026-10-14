@@ -3,8 +3,6 @@
  * data-theme attribute is what the tokens read.
  */
 import { useAtom, useAtomValue } from "@effect/atom-react";
-import { Schema } from "effect";
-import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
 import { useEffect, useSyncExternalStore } from "react";
 import { TOUCH_TARGET } from "./button.tsx";
@@ -13,14 +11,30 @@ import { cn } from "./cn.ts";
 const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 
-const storage = Atom.runtime(KeyValueStore.layerStorage(() => localStorage));
+/**
+ * The key and values the shared style's theme.js reads, so the choice is applied before the app renders and is the
+ * same choice every page of this origin made: "light" or "dark", and no entry for the system's.
+ */
+const THEME_KEY = "internal-visual-style-theme";
 
-export const themeAtom = Atom.kvs({
-  runtime: storage,
-  key: "review-canvas-theme",
-  schema: Schema.Literals(THEMES),
-  defaultValue: (): Theme => "system",
-});
+const savedTheme = (): Theme => {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === "light" || saved === "dark" ? saved : "system";
+  } catch {
+    return "system";
+  }
+};
+
+export const themeAtom = Atom.writable(savedTheme, (context, theme: Theme) => {
+  try {
+    if (theme === "system") localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    // Without storage the choice holds for this page.
+  }
+  context.setSelf(theme);
+}).pipe(Atom.keepAlive);
 
 const systemDark = matchMedia("(prefers-color-scheme: dark)");
 const subscribe = (change: () => void) => {

@@ -183,7 +183,7 @@ test("discovery proposes repos without adding them, and only acceptance changes 
       client("repositories.accept", { root: Schema.decodeSync(WorktreeRoot)(join(root, "subdir")), id }),
     );
     assert.ok(Exit.isFailure(refused));
-    assert.match(String(refused.cause), /Choose an existing, readable Git working tree root/);
+    assert.match(String(refused.cause), /This path is no longer a readable Git repository root/);
     const accepted = await rpc(port, (client) =>
       Effect.andThen(client("repositories.accept", { root: checkout, id }), client("home.load", {})),
     );

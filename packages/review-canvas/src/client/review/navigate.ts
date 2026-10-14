@@ -145,7 +145,8 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       const place = parseHash(location.hash);
       switch (place.kind) {
         case "files": {
-          const path = place.file ?? page.input.files[0]?.path;
+          // The first file the page shows, in tour order.
+          const path = place.file ?? page.stops.flatMap((stop) => stop.owns)[0];
           if (path !== undefined) await showFile(path);
           return;
         }

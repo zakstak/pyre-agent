@@ -10,6 +10,7 @@ import { ThemeControl } from "../ui/theme.tsx";
 import { connectionAtom } from "../rpc.ts";
 import { busyAtom, failureText, homeAtom, monitoringAtom } from "./data.ts";
 import { count } from "../names.ts";
+import { SkipLink } from "../ui/page.tsx";
 import { Repositories } from "./Repositories.tsx";
 import { Reviews } from "./Reviews.tsx";
 
@@ -39,12 +40,7 @@ export const HomePage = () => {
   };
   return (
     <>
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-control focus:bg-raised focus:px-3 focus:py-2"
-      >
-        Skip to content
-      </a>
+      <SkipLink />
       <header className="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-5 py-1 text-small max-md:px-4">
         <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
           <h1 className="font-semibold">Review canvas</h1>

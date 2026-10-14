@@ -8,8 +8,9 @@ import { Cause, Option, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReviewInput } from "../../schema/input.ts";
-import { type ReviewId, RoundNumber } from "../../schema/primitives.ts";
+import { type RepoPath, type ReviewId, RoundNumber } from "../../schema/primitives.ts";
 import { Refused, type ReviewSnapshot, type RoundView } from "../../schema/rpc.ts";
+import type { RpcClientError } from "effect/rpc";
 import type { Target } from "../../schema/target.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { fileElementId } from "../../review/next.ts";
@@ -19,6 +20,7 @@ import { connectionAtom } from "../rpc.ts";
 import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Prose, Time } from "../ui/text.tsx";
+import { Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
 import { toast } from "../ui/toast.tsx";
@@ -188,6 +190,7 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   }, [snapshot.state.target.title]);
   return (
     <>
+      <SkipLink />
       <TopBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
       <Frame>
         <header className="col-span-full pt-5">
@@ -384,7 +387,7 @@ const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
     >
       {strip.kind === "go" ? (
         <a
-          href={`#${strip.next.target}`}
+          href={`#${encodeURI(strip.next.target).replaceAll("#", "%23")}`}
           data-next-go
           data-target={strip.next.target}
           data-kind={strip.next.kind}
@@ -431,7 +434,7 @@ const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
         </p>
       )}
       {strip.kind === "go" ? (
-        <span aria-hidden="true" className="text-muted max-lg:hidden">
+        <span aria-hidden="true" className="text-muted max-md:hidden pointer-coarse:hidden">
           <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops
         </span>
       ) : null}
@@ -440,7 +443,7 @@ const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
           value={viewed}
           max={Math.max(total, 1)}
           aria-label="Files viewed"
-          className="h-1.5 w-30 appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-success [&::-webkit-progress-bar]:bg-separator [&::-webkit-progress-value]:bg-success"
+          className="h-1.5 w-30 max-md:hidden appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-success [&::-webkit-progress-bar]:bg-separator [&::-webkit-progress-value]:bg-success"
         >
           {viewed} of {total}
         </progress>
@@ -452,7 +455,7 @@ const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
             <strong>{forYou}</strong> for you
           </span>
         )}
-        {waiting === 0 ? null : <span data-waiting className="text-muted">{waiting} waiting for agents</span>}
+        {waiting === 0 ? null : <span data-waiting className="text-muted max-md:hidden">{waiting} waiting for agents</span>}
       </div>
     </section>
   );
@@ -561,7 +564,7 @@ const Contents = ({
   const foot = (
     <div className="mt-4 flex items-center justify-between border-t border-separator pt-4 text-small">
       <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line max-md:hidden">
-        {(["unified", "split"] as const).map((choice) => (
+        {([["unified", "Unified"], ["split", "Split"]] as const).map(([choice, label]) => (
           <button
             key={choice}
             type="button"
@@ -570,11 +573,11 @@ const Contents = ({
             onClick={() => setLayout(choice)}
             className={cn(
               TOUCH_TARGET,
-              "h-7 cursor-pointer px-2.5 font-medium capitalize",
+              "h-7 cursor-pointer px-2.5 font-medium",
               layout === choice ? "bg-selected text-ink shadow-pressed" : "bg-raised text-muted hover:bg-subtle",
             )}
           >
-            {choice}
+            {label}
           </button>
         ))}
       </div>
@@ -631,7 +634,7 @@ const useStickyBars = () => {
 };
 
 const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
-  const key = { id, round: page.round.round };
+  const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
   const navigate = useNavigate(key, page);
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
@@ -700,26 +703,21 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
     return () => document.removeEventListener("keydown", keys);
   }, [navigate, registry]);
 
-  // A new round: say so, keep the files that were open, and take drafts off patches that changed.
-  const before = useRef<{ readonly round: RoundNumber; readonly open: ReadonlySet<string> } | undefined>(undefined);
+  // A new round keeps the files that were open; the finish section announces it. The open files come from the folds as
+  // they were at the last render of the round before.
+  const before = useRef<{ readonly round: RoundNumber; readonly open: ReadonlySet<RepoPath> } | undefined>(undefined);
   useEffect(() => {
+    const folds = registry.get(foldsAtom(key));
     const open = new Set(
-      [...document.querySelectorAll<HTMLElement>("article[data-path][data-folded='false']")].map((article) => article.dataset.path ?? ""),
+      [...page.files.values()]
+        .filter((model) => (folds[model.file.path] ?? (model.folded ? "closed" : "open")) === "open")
+        .map((model) => model.file.path),
     );
     const was = before.current;
     before.current = { round: page.round.round, open };
     if (was === undefined || was.round === page.round.round) return;
-    const finish = document.getElementById("finish");
-    const kept = finish?.dataset.round;
-    toast(
-      kept !== undefined && kept !== String(page.round.round)
-        ? `Round ${page.round.round} was published. Your finish still names round ${kept}.`
-        : `Round ${page.round.round} was published.`,
-    );
-    const folds = registry.get(foldsAtom(key));
     const carried = { ...folds };
-    const paths = new Set<string>(page.input.files.map((file) => file.path));
-    for (const path of was.open) if (paths.has(path) && carried[path] === undefined) carried[path] = "open";
+    for (const path of was.open) if (!open.has(path) && page.files.has(path) && carried[path] === undefined) carried[path] = "open";
     registry.set(foldsAtom(key), carried);
   });
   useEffect(() => {
@@ -756,9 +754,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
 
   return (
     <ReviewContext.Provider value={context}>
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-control focus:border focus:border-line focus:bg-raised focus:px-3 focus:py-2">
-        Skip to content
-      </a>
+      <SkipLink />
       <TopBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
       <Frame>
         <Title id={id} />
@@ -788,28 +784,27 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   );
 };
 
-const Message = ({ title, children }: { readonly title: string; readonly children?: React.ReactNode }) => (
-  <main className="mx-auto max-w-work p-8">
-    <h1 className="text-title font-semibold">{title}</h1>
-    {children === undefined ? null : <div className="mt-2 text-muted">{children}</div>}
-    <p className="mt-4">
-      <a className="text-link underline" href="/">
-        Back to the review canvas
-      </a>
-    </p>
-  </main>
-);
-
-/** A round's input, its digests, and the round before's input once the server sent them. */
 const roundNumber = Schema.decodeSync(RoundNumber);
 
+/** No round to read: what a review without one, or a first round's round before, stands for. */
+const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, Refused | RpcClientError.RpcClientError>>(
+  AsyncResult.initial(),
+);
+
+/**
+ * A round's input and digests, and the input of the round before, once the server sent them. A round that does not
+ * exist is never asked for: the server would refuse it, and a refusal is kept until the next reconnect.
+ */
 const useRound = (id: ReviewId, round: Round | undefined) => {
-  // Hooks run on every render, so a page without a round, or on its first, reads round 1 and ignores it.
-  const current = useAtomValue(roundAtom({ id, round: round?.round ?? roundNumber(1) }));
-  const before = useAtomValue(roundAtom({ id, round: roundNumber(round === undefined || round.round <= 1 ? 1 : round.round - 1) }));
+  const current = useAtomValue(round === undefined ? noRound : roundAtom({ id, round: round.round }));
+  const before = useAtomValue(
+    round === undefined || round.round <= 1 ? noRound : roundAtom({ id, round: roundNumber(round.round - 1) }),
+  );
   const view = AsyncResult.value(current).pipe(Option.getOrUndefined);
-  const previous: ReviewInput | undefined =
-    round === undefined || round.round <= 1 ? undefined : AsyncResult.value(before).pipe(Option.map((item: RoundView) => item.input), Option.getOrUndefined);
+  const previous: ReviewInput | undefined = AsyncResult.value(before).pipe(
+    Option.map((item) => item.input),
+    Option.getOrUndefined,
+  );
   const waitingForPrevious = round !== undefined && round.round > 1 && previous === undefined && !AsyncResult.isFailure(before);
   return { view, previous, ready: view !== undefined && !waitingForPrevious, failure: AsyncResult.isFailure(current) ? current.cause : undefined };
 };
@@ -828,7 +823,9 @@ const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: Re
   if (fresh !== undefined && fresh !== last) setLast(fresh);
   const page = fresh ?? last;
   if (round === undefined) return <Waiting snapshot={snapshot} />;
-  if (failure !== undefined) return <Message title="This review did not load">{failureMessage(failure)}</Message>;
+  // A page already showing keeps showing while the next round fails to load; the reconnect reads it again.
+  if (page === undefined && failure !== undefined)
+    return <Message title="This review did not load">{failureMessage(failure)}</Message>;
   if (page === undefined) return <p className="p-8 text-muted">Loading round {round.round}…</p>;
   return <Review id={id} page={page} />;
 };

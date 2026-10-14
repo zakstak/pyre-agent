@@ -47,7 +47,8 @@ export const layoutAtom = Atom.kvs({
   runtime: local,
   key: "review-canvas-layout",
   schema: Layout,
-  defaultValue: (): Layout => "unified",
+  // Before this page rendered in the browser, the choice was a cookie of the same name that the server read.
+  defaultValue: (): Layout => (/(?:^|;\s*)review-canvas-layout=split(?:;|$)/.test(document.cookie) ? "split" : "unified"),
 });
 
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
@@ -88,6 +89,8 @@ export interface Draft {
   readonly submitting: boolean;
   /** The ID of the + button that opened it, where focus returns when it closes. */
   readonly opener: string;
+  /** Until the composer first shows. It takes focus then, and not when a layout change redraws it. */
+  readonly focusPending: boolean;
 }
 
 export const draftsAtom = Atom.make<ReadonlyArray<Draft>>([]).pipe(Atom.keepAlive);

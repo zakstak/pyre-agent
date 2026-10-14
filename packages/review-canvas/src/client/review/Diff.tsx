@@ -10,6 +10,7 @@ import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Equal } from "effect";
 import { Atom } from "effect/reactivity";
 import { Fragment, useContext, useEffect, useMemo, useRef } from "react";
+import { flushSync } from "react-dom";
 import type { Row } from "../../review/patch.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -60,14 +61,17 @@ type Registry = NonNullable<React.ContextType<typeof RegistryContext>>;
  * Opens the composer under rows. An unsent draft in another composer moves into it, so picking other lines never
  * loses text, and so does text kept from a draft whose code changed.
  */
-const openDraft = (registry: Registry, draft: Omit<Draft, "id" | "body" | "submitting">) => {
+const openDraft = (registry: Registry, draft: Omit<Draft, "id" | "body" | "submitting" | "focusPending">) => {
   const drafts = registry.get(draftsAtom);
   let body = drafts.find((item) => !item.submitting)?.body ?? "";
   if (body === "") {
     body = registry.get(stashAtom);
     registry.set(stashAtom, "");
   }
-  registry.set(draftsAtom, [...drafts.filter((item) => item.submitting), { ...draft, id: ++nextDraft, body, submitting: false }]);
+  registry.set(draftsAtom, [
+    ...drafts.filter((item) => item.submitting),
+    { ...draft, id: ++nextDraft, body, submitting: false, focusPending: true },
+  ]);
 };
 
 /** The selected lines as the server will anchor them: old-side when only deleted lines are selected, else new-side. */
@@ -435,9 +439,13 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
   const act = useAct();
   const area = useRef<HTMLTextAreaElement>(null);
   const textId = `composer-${draft.id}`;
-  // Only when it opens: focus stays where the reviewer puts it afterwards.
+  // A composer that is no longer on the page, because a new round changed its rows, cannot take its refusal back.
+  const mounted = useRef(true);
   useEffect(() => {
-    if (!draft.submitting) area.current?.focus();
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
   const update = (change: (draft: Draft) => Draft | undefined) =>
     registry.set(
@@ -448,10 +456,22 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
         return next === undefined ? [] : [next];
       }),
     );
+  // When it opens, and only then: a redraw, such as a layout change, leaves focus where the reviewer put it.
+  useEffect(() => {
+    if (!draft.focusPending) return;
+    area.current?.focus();
+    update((item) => ({ ...item, focusPending: false }));
+  }, [draft.focusPending]);
+  /** Closes the composer; focus goes back to the + that opened it, or the one on its last line in this layout. */
   const close = () => {
     const inside = area.current?.closest("tr")?.contains(document.activeElement) === true || document.activeElement === document.body;
-    update(() => undefined);
-    if (inside) requestAnimationFrame(() => document.getElementById(draft.opener)?.focus());
+    // Removed in the same frame as focus moves, so focus never rests on the page itself.
+    flushSync(() => update(() => undefined));
+    if (inside)
+      (
+        document.getElementById(draft.opener) ??
+        document.querySelector<HTMLElement>(`table[data-table="${table.id}"] [data-row="${draft.end}"] [data-add-comment]`)
+      )?.focus();
   };
   const send = async (question: boolean) => {
     // The atom, not this render's props: Ctrl+Enter twice must send once.
@@ -468,12 +488,12 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
       },
       { quiet: true },
     );
-    const still = registry.get(draftsAtom).some((item) => item.id === draft.id);
     if (outcome.ok) return close();
-    if (still) {
+    if (mounted.current) {
       update((item) => ({ ...item, submitting: false }));
       toast(outcome.message, "danger");
     } else {
+      update(() => undefined);
       registry.set(stashAtom, body);
       toast(
         `Your comment was not added: ${outcome.message} Your text is kept: select lines to comment on, and it fills the new comment.`,
@@ -511,7 +531,8 @@ const Composer = ({ table, draft }: { readonly table: TableContext; readonly dra
               }}
               onKeyDown={(event) => {
                 submitOnModEnter(event);
-                if (event.key === "Escape" && !draft.submitting) {
+                // While a comment is being moved, Esc ends the move and leaves the composer open.
+                if (event.key === "Escape" && !draft.submitting && registry.get(reattachAtom) === undefined) {
                   event.preventDefault();
                   close();
                 }
@@ -625,14 +646,16 @@ export const DiffTable = ({
     },
   };
 
-  // A drag ends wherever the pointer is released.
+  // A drag ends wherever the pointer is released. The read-only patch above the diff takes no selection.
   useEffect(() => {
+    if (readOnly) return;
     const release = () => {
       const now = registry.get(dragAtom);
       if (now === undefined || now.path !== model.file.path) return;
       registry.set(dragAtom, undefined);
       const end = Math.max(now.from, now.to);
-      void choose(Math.min(now.from, now.to), end, plusId(id, end, split ? "new" : "unified"));
+      const side = !split ? "unified" : layout.rows[end]?.kind === "del" ? "old" : "new";
+      void choose(Math.min(now.from, now.to), end, plusId(id, end, side));
     };
     document.addEventListener("mouseup", release);
     return () => document.removeEventListener("mouseup", release);

@@ -1,6 +1,7 @@
 /** Comment threads: the comment, every reply, and the reviewer's next move, as GitHub shows a review thread. */
-import { useAtom } from "@effect/atom-react";
-import { useEffect, useRef, useState } from "react";
+import { RegistryContext, useAtom } from "@effect/atom-react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Comment, Disposition, Reply } from "../../schema/feedback.ts";
 import type { Thread as AgentThread } from "../../schema/thread.ts";
 import { commentElementId } from "../../review/next.ts";
@@ -12,7 +13,7 @@ import { cn } from "../ui/cn.ts";
 import { Time } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import type { InlineComment } from "./diff-model.ts";
-import { replyAtom } from "./ui.ts";
+import { reattachAtom, replyAtom } from "./ui.ts";
 import { orphanPlace } from "./view.ts";
 
 type Tone = "neutral" | "ok" | "warn" | "turn" | "wait";
@@ -163,12 +164,18 @@ const Moves = ({
   readonly onMoved: (outcome: "sent" | "refused") => void;
 }) => {
   const act = useAct();
+  const registry = useContext(RegistryContext);
   const [reply, setReply] = useAtom(replyAtom(comment.id));
   const [busy, setBusy] = useState(false);
   // Set at once, unlike `busy`: Ctrl+Enter twice must send once.
   const sending = useRef(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
+  /** Hides the editor, keeping its text, and puts focus back on Reply in the same frame. */
+  const closeEditor = () => {
+    flushSync(() => setReply((now) => ({ ...now, open: false })));
+    opener.current?.focus();
+  };
   /** Sends a move. `typed` is the reply box's text as it was, so text typed meanwhile stays in the box. */
   const send = async (action: "reply" | "accept" | "reopen", body: string, typed?: string) => {
     if (sending.current) return;
@@ -208,7 +215,6 @@ const Moves = ({
           <textarea
             ref={area}
             id={editorId}
-            autoFocus
             readOnly={busy}
             rows={3}
             value={reply.body}
@@ -216,10 +222,10 @@ const Moves = ({
             onChange={(event) => setReply({ open: true, body: event.currentTarget.value })}
             onKeyDown={(event) => {
               submitOnModEnter(event);
-              if (event.key === "Escape") {
+              // While a comment is being moved, Esc ends the move and leaves the reply open.
+              if (event.key === "Escape" && registry.get(reattachAtom) === undefined) {
                 event.preventDefault();
-                setReply((now) => ({ ...now, open: false }));
-                requestAnimationFrame(() => opener.current?.focus());
+                closeEditor();
               }
             }}
             className="block w-full max-w-reading resize-y rounded-control border border-line bg-code px-3 py-2 text-base"
@@ -231,10 +237,7 @@ const Moves = ({
             <Button
               size="sm"
               variant="quiet"
-              onClick={() => {
-                setReply((now) => ({ ...now, open: false }));
-                requestAnimationFrame(() => opener.current?.focus());
-              }}
+              onClick={closeEditor}
             >
               Cancel
             </Button>
@@ -244,15 +247,23 @@ const Moves = ({
       ) : (
         <div data-thread-actions className={ACTIONS_CLASS}>
           {turn === "reviewer" ? (
-            <Button size="sm" disabled={busy} title="The answer settles the comment" onClick={() => void send("accept", reply.body.trim())}>
+            <Button size="sm" disabled={busy} title="The answer settles the comment" onClick={() => void send("accept", reply.body.trim(), reply.body)}>
               Accept
             </Button>
           ) : null}
-          <Button ref={opener} size="sm" variant="quiet" onClick={() => setReply((now) => ({ ...now, open: true }))}>
+          <Button
+            ref={opener}
+            size="sm"
+            variant="quiet"
+            onClick={() => {
+              flushSync(() => setReply((now) => ({ ...now, open: true })));
+              area.current?.focus();
+            }}
+          >
             Reply
           </Button>
           {turn === "agent" ? (
-            <Button size="sm" variant="quiet" disabled={busy} title="Take the comment back" onClick={() => void send("accept", reply.body.trim())}>
+            <Button size="sm" variant="quiet" disabled={busy} title="Take the comment back" onClick={() => void send("accept", reply.body.trim(), reply.body)}>
               Withdraw
             </Button>
           ) : null}

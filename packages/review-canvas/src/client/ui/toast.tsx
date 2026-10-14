@@ -9,8 +9,12 @@ const manager = Toast.createToastManager();
 
 export type ToastKind = "info" | "danger";
 
+/** The toast on screen. A new one replaces it, so only the latest message shows and is announced. */
+let current: string | undefined;
+
 export const toast = (message: string, kind: ToastKind = "info"): void => {
-  manager.add({ description: message, type: kind, timeout: kind === "danger" ? 8000 : 3500 });
+  if (current !== undefined) manager.close(current);
+  current = manager.add({ description: message, type: kind, timeout: kind === "danger" ? 8000 : 3500 });
 };
 
 const List = () => {

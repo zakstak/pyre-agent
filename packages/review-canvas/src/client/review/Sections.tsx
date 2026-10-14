@@ -93,7 +93,7 @@ export const StopSection = ({
     >
       <div data-stop-head className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`stop-${stop.index + 1}-title`} tabIndex={-1} className="scroll-mt-(--sticky-top) text-heading font-semibold">
-          <span className="mr-2 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>
+          <span className="mr-1 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>{" "}
           <span>{stop.title}</span>
         </h2>
         <span className="text-small text-muted">
@@ -260,6 +260,18 @@ export const Finish = () => {
   const [engaged, setEngaged] = useState(false);
   const [shownRound, setShownRound] = useState<RoundNumber>(page.round.round);
   const behind = shownRound !== page.round.round;
+  // A new round is announced here, where it is known whether the finish keeps the round the reviewer read: it does
+  // while they are in the section or have written a summary.
+  const announced = useRef(page.round.round);
+  useEffect(() => {
+    if (announced.current === page.round.round) return;
+    announced.current = page.round.round;
+    toast(
+      engaged || draft.body !== ""
+        ? `Round ${page.round.round} was published. Your finish still names round ${shownRound}.`
+        : `Round ${page.round.round} was published.`,
+    );
+  }, [page.round.round]);
   // A new round while the reviewer is not choosing a verdict or writing a summary: the section shows it at once.
   useEffect(() => {
     if (!engaged && draft.body === "" && behind) setShownRound(page.round.round);

@@ -4,7 +4,7 @@
  */
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { ChevronDown } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
@@ -88,9 +88,9 @@ const About = ({ model, id }: { readonly model: FileModel; readonly id: string }
         <details>
           <summary className="cursor-pointer font-semibold">Trace</summary>
           <dl className="mt-1 grid gap-1">
-            {(["input", "before", "after"] as const).map((part) => (
+            {([["input", "Input"], ["before", "Before"], ["after", "After"]] as const).map(([part, label]) => (
               <div key={part}>
-                <dt className="text-small font-semibold capitalize">{part}</dt>
+                <dt className="text-small font-semibold">{label}</dt>
                 <dd className="m-0">
                   <pre className="overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">{file.trace?.[part]}</pre>
                 </dd>
@@ -103,7 +103,17 @@ const About = ({ model, id }: { readonly model: FileModel; readonly id: string }
   );
 };
 
-const Viewed = ({ model }: { readonly model: FileModel }) => {
+/**
+ * `onRequest` says which viewed state the reviewer asked for, until the page shows it; undefined when a refusal ends
+ * the request.
+ */
+const Viewed = ({
+  model,
+  onRequest,
+}: {
+  readonly model: FileModel;
+  readonly onRequest: (viewed: boolean | undefined) => void;
+}) => {
   const { page } = usePage();
   const act = useAct();
   const { set } = useFold(model);
@@ -124,12 +134,14 @@ const Viewed = ({ model }: { readonly model: FileModel }) => {
       aria-pressed={model.approved}
       title={model.approved ? "Viewed. Activate to mark it not viewed" : "Mark this version of the file viewed"}
       onClick={async () => {
+        onRequest(!model.approved);
         const outcome = await act(
           model.approved ? { kind: "unapprove", path: file.path } : { kind: "approve", path: file.path, fingerprint },
         );
         // Once the server took it, marking a file viewed or not hands its fold back to the page: viewing folds it.
         // A refused change leaves the file as the reviewer had it.
         if (outcome.ok) set(undefined);
+        else onRequest(undefined);
       }}
       className={cn(
         TOUCH_TARGET,
@@ -158,10 +170,16 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
   const [aboutOpen, setAbout] = useAtom(extraAtom({ path: file.path, block: "about" }));
   const [sinceOpen, setSince] = useAtom(extraAtom({ path: file.path, block: "since" }));
   const setMoving = useAtomSet(reattachAtom);
+  // The viewed state the reviewer asked for, until the page shows it. Meanwhile the file stays as it is: the page
+  // still shows the file held open, and holding it would undo the fold that marking it viewed brings.
+  const [requested, setRequested] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (requested !== undefined && model.approved === requested) setRequested(undefined);
+  }, [requested, model.approved]);
   // A file held open stays open from then on, until the reviewer folds it or marks it viewed.
   useEffect(() => {
-    if (model.held && !chosen) set("open");
-  });
+    if (model.held && !chosen && requested === undefined) set("open");
+  }, [model.held, chosen, requested]);
   const table = `f${model.index}`;
   const body = `body-${table}`;
   const hasAbout =
@@ -223,7 +241,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
               About
             </Word>
           ) : null}
-          <Viewed model={model} />
+          <Viewed model={model} onRequest={setRequested} />
         </span>
       </header>
       {hasAbout && aboutOpen ? <About model={model} id={`about-${table}`} /> : null}

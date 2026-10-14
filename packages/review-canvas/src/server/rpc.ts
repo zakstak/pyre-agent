@@ -58,12 +58,12 @@ const handlers = (roots: ReadonlyArray<string>) =>
               const repository = yield* Effect.tryPromise({
                 try: () => identifyRepository(root),
                 catch: () =>
-                  new Refused({ kind: "repository", message: "Choose an existing, readable Git working tree root." }),
+                  new Refused({ kind: "repository", message: "This path is no longer a readable Git repository root. Scan again." }),
               });
               if (repositoryId(repository.identity) !== id)
                 return yield* new Refused({
                   kind: "identity",
-                  message: "This checkout's repository identity changed. Scan again.",
+                  message: "This checkout's repository identity changed. Rescan and try again.",
                 });
               const group = groupRepositories([...store.monitoredRepositories(), repository]).find(
                 (item) => repositoryId(item.identity) === id,
