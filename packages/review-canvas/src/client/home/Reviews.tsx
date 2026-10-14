@@ -1,10 +1,10 @@
 /** The reviews, with what each needs from the reviewer: those that need them first, closed ones last. */
-import { Fragment } from "react";
 import type { ReviewSummary } from "../../schema/rpc.ts";
-import { cn } from "../ui/cn.ts";
 import { count, VERDICT_TEXT } from "../names.ts";
+import { TOUCH_TARGET } from "../ui/button.tsx";
+import { cn } from "../ui/cn.ts";
 import { TargetText, ThreadName } from "../ui/target.tsx";
-import { Time } from "../ui/text.tsx";
+import { Joined, Time } from "../ui/text.tsx";
 
 /** Whose move a review waits for, which its dot shows. */
 type Standing = "yours" | "agents" | "closed";
@@ -42,7 +42,6 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
   const closed = item.closed_at !== undefined;
   return (
     <li
-      data-review-row=""
       data-standing={state}
       className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 px-3.5 py-3 max-md:grid-cols-[1.25rem_minmax(0,1fr)]"
     >
@@ -60,9 +59,8 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
         <a
           href={`/reviews/${item.id}`}
           className={cn(
-            "relative font-semibold text-ink no-underline hyphens-auto wrap-anywhere hover:underline",
-            "pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:top-1/2",
-            "pointer-coarse:after:min-h-11 pointer-coarse:after:-translate-y-1/2",
+            TOUCH_TARGET,
+            "font-semibold text-ink no-underline hyphens-auto wrap-anywhere hover:underline",
             closed && "text-muted",
           )}
         >
@@ -72,12 +70,7 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
           <TargetText target={item.target} />
           {item.threads.length === 0 ? null : (
             <span>
-              {item.threads.map((thread, at) => (
-                <Fragment key={thread.id}>
-                  {at === 0 ? "" : ", "}
-                  <ThreadName thread={thread} />
-                </Fragment>
-              ))}
+              <Joined items={item.threads.map((thread) => <ThreadName thread={thread} />)} />
             </span>
           )}
           {closed ? (

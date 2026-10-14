@@ -2,23 +2,22 @@
  * A changed file as one block of the review page: a header with its fold toggle, path, counts, and Viewed control,
  * and a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left.
  */
-import { useAtom, useAtomSet } from "@effect/atom-react";
+import { useAtom } from "@effect/atom-react";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
-import { Button, TOUCH_TARGET } from "../ui/button.tsx";
+import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { Inline, Prose } from "../ui/text.tsx";
-import { toast } from "../ui/toast.tsx";
+import { Inline, LineCounts, Prose } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
 import { Orphan } from "./Thread.tsx";
-import { extraAtom, foldsAtom, reattachAtom } from "./ui.ts";
+import { extraAtom, foldsAtom } from "./ui.ts";
 import { type FileModel, PATCH_NOTE_TEXT } from "./view.ts";
 
 /** Whether a file shows folded: the reviewer's choice for this round, or else the page's. */
-export const useFold = (model: FileModel) => {
+const useFold = (model: FileModel) => {
   const { id, page } = usePage();
   const [folds, setFolds] = useAtom(foldsAtom({ id, round: page.round.round }));
   const path = model.file.path;
@@ -33,7 +32,7 @@ export const useFold = (model: FileModel) => {
   return { folded, chosen: choice !== undefined, set };
 };
 
-export const FilePath = ({ path }: { readonly path: string }) => {
+const FilePath = ({ path }: { readonly path: string }) => {
   const { dir, base } = splitPath(path);
   return (
     <code title={path} className="break-all">
@@ -61,7 +60,7 @@ const Word = ({
     aria-expanded={open}
     aria-controls={controls}
     onClick={onToggle}
-    className={cn(TOUCH_TARGET, "cursor-pointer text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
+    className={cn(TOUCH_TARGET, "text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
   >
     {children}
     <span aria-hidden="true"> {open ? "▴" : "▾"}</span>
@@ -80,13 +79,13 @@ const About = ({ model, id }: { readonly model: FileModel; readonly id: string }
       ))}
       {file.pseudocode === undefined ? null : (
         <details>
-          <summary className="cursor-pointer font-semibold">Pseudocode</summary>
+          <summary className="font-semibold">Pseudocode</summary>
           <pre className="mt-1 overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">{file.pseudocode}</pre>
         </details>
       )}
       {file.trace === undefined ? null : (
         <details>
-          <summary className="cursor-pointer font-semibold">Trace</summary>
+          <summary className="font-semibold">Trace</summary>
           <dl className="mt-1 grid gap-1">
             {([["input", "Input"], ["before", "Before"], ["after", "After"]] as const).map(([part, label]) => (
               <div key={part}>
@@ -145,7 +144,7 @@ const Viewed = ({
       }}
       className={cn(
         TOUCH_TARGET,
-        "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-control border px-2 text-small font-medium",
+        "inline-flex h-7 items-center gap-1.5 rounded-control border px-2 text-small font-medium",
         model.approved ? "border-accent bg-selected text-ink" : "border-line bg-raised text-ink hover:bg-subtle",
       )}
     >
@@ -169,7 +168,6 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
   const { folded, chosen, set } = useFold(model);
   const [aboutOpen, setAbout] = useAtom(extraAtom({ path: file.path, block: "about" }));
   const [sinceOpen, setSince] = useAtom(extraAtom({ path: file.path, block: "since" }));
-  const setMoving = useAtomSet(reattachAtom);
   // The viewed state the reviewer asked for, until the page shows it. Meanwhile the file stays as it is: the page
   // still shows the file held open, and holding it would undo the fold that marking it viewed brings.
   const [requested, setRequested] = useState<boolean | undefined>(undefined);
@@ -188,7 +186,6 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
   return (
     <article
       id={fileElementId(file.path)}
-      data-file={model.index}
       data-path={file.path}
       data-folded={folded}
       data-viewed={model.approved}
@@ -209,7 +206,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
             aria-expanded={!folded}
             aria-label={folded ? "Show diff" : "Hide diff"}
             onClick={() => set(folded ? "open" : "closed")}
-            className={cn(TOUCH_TARGET, "inline-grid size-7 cursor-pointer place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink")}
+            className={cn(TOUCH_TARGET, "inline-grid size-7 place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink")}
           >
             <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", folded && "-rotate-90")} />
           </button>
@@ -232,9 +229,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         {model.talk === undefined || !folded ? null : <span className="text-small text-muted">{model.talk}</span>}
         <span className="ml-auto flex items-center gap-3 max-md:w-full max-md:justify-end">
           {file.patch === undefined ? null : (
-            <span className="font-mono text-technical">
-              <span className="text-success">+{file.additions}</span> <span className="text-danger">−{file.deletions}</span>
-            </span>
+            <LineCounts additions={file.additions} deletions={file.deletions} className="text-technical" />
           )}
           {hasAbout ? (
             <Word open={aboutOpen} controls={`about-${table}`} onToggle={() => setAbout(!aboutOpen)}>
@@ -258,16 +253,9 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
           )}
           {file.patch === undefined ? null : <DiffTable model={model} split={split} />}
           {model.orphans.length === 0 ? null : (
-            <div data-orphans>
+            <div>
               {model.orphans.map((comment) => (
-                <Orphan
-                  key={comment.id}
-                  comment={comment}
-                  onMove={() => {
-                    setMoving(comment.id);
-                    toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");
-                  }}
-                />
+                <Orphan key={comment.id} comment={comment} />
               ))}
             </div>
           )}

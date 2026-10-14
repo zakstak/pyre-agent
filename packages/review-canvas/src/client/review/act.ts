@@ -3,26 +3,24 @@
  * with the server's refusal in words when it did not.
  */
 import { useAtomValue } from "@effect/atom-react";
-import { Cause, Exit, Option } from "effect";
+import { Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { createContext, useCallback, useContext } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
-import { type ImportReport, type PageAction, Refused } from "../../schema/rpc.ts";
+import type { PageAction } from "../../schema/rpc.ts";
+import { type CallError, failureText, NO_ANSWER } from "../rpc.ts";
 import { toast } from "../ui/toast.tsx";
 import { actionsAtom } from "./data.ts";
 import type { PageModel } from "./view.ts";
 
-export type Outcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+/** What a change came to: its result, or why it did not go through. */
+type Outcome<A> = { readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string };
 
-const NO_ANSWER = "The server did not answer. Is it still running?";
-
-/** Why a failed call failed, as the page says it: the server's refusal, or that it did not answer. */
-export const failureMessage = (cause: Cause.Cause<unknown>): string =>
-  Cause.findErrorOption(cause).pipe(
-    Option.filter((error): error is Refused => error instanceof Refused),
-    Option.map((refused) => refused.message),
-    Option.getOrElse(() => NO_ANSWER),
-  );
+/** A change's exit as an outcome. No exit means the change could not be sent: the socket was not ready. */
+const outcomeOf = <A>(exit: Exit.Exit<A, CallError> | undefined): Outcome<A> => {
+  if (exit === undefined) return { ok: false, message: NO_ANSWER };
+  return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : { ok: false, message: failureText(exit.cause) };
+};
 
 /** The page for one review: its ID and what it shows now. */
 export const ReviewContext = createContext<{ readonly id: ReviewId; readonly page: PageModel } | null>(null);
@@ -44,12 +42,10 @@ const useActions = () => {
 export const useAct = () => {
   const { actions, shown } = useActions();
   return useCallback(
-    async (action: PageAction, options: { readonly quiet?: boolean } = {}): Promise<Outcome> => {
-      const exit = actions === undefined ? undefined : await actions.act(action, shown);
-      if (exit !== undefined && Exit.isSuccess(exit)) return { ok: true };
-      const message = exit === undefined ? NO_ANSWER : failureMessage(exit.cause);
-      if (options.quiet !== true) toast(message, "danger");
-      return { ok: false, message };
+    async (action: PageAction, options: { readonly quiet?: boolean } = {}) => {
+      const outcome = outcomeOf(actions === undefined ? undefined : await actions.act(action, shown));
+      if (!outcome.ok && options.quiet !== true) toast(outcome.message, "danger");
+      return outcome;
     },
     [actions, shown],
   );
@@ -59,11 +55,28 @@ export const useAct = () => {
 export const useImport = () => {
   const { actions, shown } = useActions();
   return useCallback(
-    async (text: string): Promise<{ readonly ok: true; readonly report: ImportReport } | { readonly ok: false; readonly message: string }> => {
-      const exit = actions === undefined ? undefined : await actions.importFeedback(text, shown);
-      if (exit !== undefined && Exit.isSuccess(exit)) return { ok: true, report: exit.value };
-      return { ok: false, message: exit === undefined ? NO_ANSWER : failureMessage(exit.cause) };
-    },
+    async (text: string) => outcomeOf(actions === undefined ? undefined : await actions.importFeedback(text, shown)),
     [actions, shown],
   );
+};
+
+/**
+ * One send at a time from a form: `run` does nothing while a send is under way, and `busy` redraws the form's
+ * controls. The flag is a ref because state changes only on the next render: Ctrl+Enter twice must send once.
+ */
+export const useSending = () => {
+  const sending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const run = async <A>(send: () => Promise<A>): Promise<A | undefined> => {
+    if (sending.current) return undefined;
+    sending.current = true;
+    setBusy(true);
+    try {
+      return await send();
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  };
+  return { busy, run };
 };

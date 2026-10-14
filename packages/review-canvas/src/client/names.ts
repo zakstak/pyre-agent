@@ -18,6 +18,15 @@ export const threadNameOf = (threads: ReadonlyArray<Thread>, id: string): string
 /** "1 file", "2 files". */
 export const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
+/**
+ * Line numbers as the pages write them: "12" or "12–14", after `noun` when there is one, which takes an "s" for a
+ * range: "line 12", "Lines 12–14". A location such as `path:12–14` has no noun.
+ */
+export const lineRange = (first: number, last: number, noun?: string): string => {
+  const numbers = first === last ? `${first}` : `${first}–${last}`;
+  return noun === undefined ? numbers : `${first === last ? noun : `${noun}s`} ${numbers}`;
+};
+
 /** The parts of a target the pages show: `acme/ledger #412`, or a checkout's name and branch. */
 export type TargetName =
   | { readonly kind: "pr"; readonly repository: string; readonly number: string; readonly url: string }
@@ -57,9 +66,9 @@ export const VERDICT_TEXT: Readonly<Record<Verdict, string>> = {
   comment: "comment only",
 };
 
-/** What the reviewer did, in the past tense. */
+/** What the reviewer did, in the past tense, after "you" or "You". */
 export const VERDICT_DONE: Readonly<Record<Verdict, string>> = {
-  approve: "you approved",
-  request_changes: "you requested changes",
-  comment: "you commented",
+  approve: "approved",
+  request_changes: "requested changes",
+  comment: "commented",
 };

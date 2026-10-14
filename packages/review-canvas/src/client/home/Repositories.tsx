@@ -12,9 +12,9 @@ import type { ReviewId } from "../../schema/primitives.ts";
 import type { Checkout, CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../../schema/rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { failureText } from "../rpc.ts";
 import {
   busyAtom,
-  failureText,
   type Filter,
   filterAtom,
   homeAtom,
@@ -27,8 +27,6 @@ import { count, targetName } from "../names.ts";
 
 const FIELD =
   "min-h-11 w-full rounded-control border border-line bg-raised px-2.5 text-small text-ink placeholder:text-muted";
-
-// --------------------------------------------------------------------------------------------------------- filter
 
 /** A checkout's state as the filter names it. */
 const stateOf = (status: CheckoutStatus): "changed" | "clean" | "unavailable" =>
@@ -56,8 +54,6 @@ const matches = (entry: RepositoryEntry, query: string, filter: Option.Option<Fi
     })
   );
 };
-
-// ----------------------------------------------------------------------------------------------------------- rows
 
 /** A checkout's state in a few words, coloured only when it needs a look. */
 const CheckoutState = ({ status }: { readonly status: CheckoutStatus }) => {
@@ -142,7 +138,6 @@ const RepositoryRow = ({
     <li
       data-repository=""
       data-monitoring={entry.monitored ? "monitored" : "discovered"}
-      data-status={statesOf(entry).join(" ")}
       className="px-3.5 py-3"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -186,8 +181,6 @@ const RepositoryRow = ({
   );
 };
 
-// ----------------------------------------------------------------------------------------------------------- scan
-
 /** The directories scanned, and a form to scan another; open when nothing was found. */
 const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"> & { readonly open: boolean }) => {
   const [root, setRoot] = useAtom(rootAtom);
@@ -202,7 +195,7 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
   };
   return (
     <Collapsible.Root defaultOpen={open} className="mt-4">
-      <Collapsible.Trigger className="group flex cursor-pointer items-center gap-1 text-left">
+      <Collapsible.Trigger className="group flex items-center gap-1 text-left">
         <ChevronRight aria-hidden="true" className="size-4 shrink-0 transition-transform group-data-panel-open:rotate-90" />
         <span>
           Scan directories
@@ -248,8 +241,6 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
   );
 };
 
-// -------------------------------------------------------------------------------------------------------- section
-
 export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) => {
   const [query, setQuery] = useAtom(queryAtom);
   const filter = useAtomValue(filterAtom);
@@ -287,8 +278,6 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
           <span className="sr-only">Filter repositories</span>
           <input
             type="search"
-            data-repository-search=""
-            data-filter={Option.getOrElse(filter, () => "")}
             placeholder="Filter by name, path, or branch"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
@@ -296,14 +285,14 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
           />
         </label>
       </div>
-      <p className="sr-only" role="status" data-repository-count="">
+      <p className="sr-only" role="status">
         {shown} of {repositories.length} repositories shown
       </p>
-      <p className="mb-2 text-danger empty:hidden" role="alert" data-repository-error="">
+      <p className="mb-2 text-danger empty:hidden" role="alert">
         {error}
       </p>
       {shown > 0 || none ? null : (
-        <p className="text-muted" data-repository-empty="">
+        <p className="text-muted">
           No repositories match this filter.
         </p>
       )}

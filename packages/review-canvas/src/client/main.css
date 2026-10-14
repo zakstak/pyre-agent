@@ -16,7 +16,6 @@
   --font-mono: var(--font-technical);
   --text-title: var(--size-title);
   --text-heading: var(--size-heading);
-  --text-subheading: var(--size-subheading);
   --text-reading: var(--size-reading);
   --text-small: var(--size-small);
   --text-technical: var(--size-technical);
@@ -37,17 +36,14 @@
   --color-link: var(--link);
   --color-focus: var(--focus);
   --color-accent: var(--pyre-accent);
-  --color-accent-soft: var(--pyre-accent-soft);
   --color-on-accent: var(--pyre-on-accent);
   --color-action: var(--pyre-action);
   --color-on-action: var(--pyre-on-action);
-  --color-message: var(--pyre-message);
   --color-diff-addition: var(--pyre-diff-addition);
   --color-diff-deletion: var(--pyre-diff-deletion);
   --color-success: var(--status-success);
   --color-warning: var(--status-warning);
   --color-danger: var(--status-danger);
-  --radius-chip: var(--radius-chip);
   --radius-control: var(--radius);
   --radius-panel: var(--radius-panel);
   /* The bar on a row a comment sits on, and the bar under a pressed segment. */
@@ -86,5 +82,11 @@
   /* Headings and regions the page moves focus to take it without an outline; the page scrolls them into view. */
   [tabindex="-1"]:focus {
     outline: none;
+  }
+  /* What a click acts on shows the hand: buttons that take one, disclosures, and labels that hold a choice or a file. */
+  button:not(:disabled),
+  summary,
+  label:has(input:is([type="radio"], [type="checkbox"], [type="file"])) {
+    cursor: pointer;
   }
 }

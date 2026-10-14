@@ -3,7 +3,7 @@ import { extendTailwindMerge } from "tailwind-merge";
 
 // The theme's font sizes. Unregistered, tailwind-merge reads text-small as a colour and drops it beside text-muted.
 const merge = extendTailwindMerge({
-  extend: { theme: { text: ["title", "heading", "subheading", "reading", "small", "technical", "chip"] } },
+  extend: { theme: { text: ["title", "heading", "reading", "small", "technical", "chip"] } },
 });
 
 /** Class names joined, with later Tailwind utilities winning over earlier ones that set the same property. */

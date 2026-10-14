@@ -47,12 +47,8 @@ import { type ActionContext, ActionError, addGeneralComment, addInlineComment, a
 import { approvalHolds, currentRound, currentSubmission, type ReviewState, turnOf, type Round } from "../review/queries.ts";
 import { tourView } from "../review/tour.ts";
 import { progress } from "../review/progress.ts";
-import type { ReviewSummary } from "../schema/rpc.ts";
-import {
-  type ImportReport,
-  importFeedback,
-  importGitHub,
-} from "../review/imports.ts";
+import type { ImportReport, ReviewSnapshot, ReviewSummary } from "../schema/rpc.ts";
+import { importFeedback, importGitHub } from "../review/imports.ts";
 import type { GitHubItem } from "../schema/github.ts";
 import { pullRequestKey } from "../schema/target.ts";
 
@@ -254,13 +250,6 @@ export const feedbackOf = (
   };
 };
 
-/** A review's state, revision, and threads, without decoding its round's input. */
-export interface ReviewSnapshot {
-  readonly state: ReviewState;
-  readonly revision: Revision;
-  readonly threads: ReadonlyArray<Thread>;
-}
-
 export class Store {
   readonly #db: DatabaseSync;
   readonly #listeners = new Set<ChangeListener>();
@@ -438,14 +427,20 @@ export class Store {
     return row === undefined ? undefined : this.#view(row);
   }
 
-  /** What an open page follows: everything a review's actions change, without its round's input. */
+  /**
+   * What an open page follows: everything a review's actions change, without decoding its round's input, and for a
+   * closed review the one that replaced it.
+   */
   snapshot(id: string): ReviewSnapshot | undefined {
     const row = this.#row(id);
     if (row === undefined) return undefined;
+    const state = JSON.parse(row.state) as ReviewState;
+    const replaced = state.closed_at === undefined ? undefined : this.#replacedBy(row.id);
     return {
-      state: JSON.parse(row.state) as ReviewState,
+      state,
       revision: row.revision as Revision,
       threads: this.#threads(row.id),
+      ...(replaced === undefined ? {} : { replaced_by: replaced }),
     };
   }
 
@@ -470,7 +465,7 @@ export class Store {
   }
 
   /** The review that replaced this one with a fresh start, if any. */
-  replacedBy(id: string): ReviewId | undefined {
+  #replacedBy(id: string): ReviewId | undefined {
     const row = this.#db
       .prepare("SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1")
       .get(id) as { id: string } | undefined;

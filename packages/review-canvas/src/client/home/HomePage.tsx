@@ -5,22 +5,14 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { Button } from "../ui/button.tsx";
-import { ThemeControl } from "../ui/theme.tsx";
-import { connectionAtom } from "../rpc.ts";
-import { busyAtom, failureText, homeAtom, monitoringAtom } from "./data.ts";
 import { count } from "../names.ts";
+import { CONNECTION_TEXT, connectionAtom, failureText } from "../rpc.ts";
+import { Button } from "../ui/button.tsx";
 import { SkipLink } from "../ui/page.tsx";
+import { ThemeControl } from "../ui/theme.tsx";
+import { busyAtom, homeAtom, monitoringAtom } from "./data.ts";
 import { Repositories } from "./Repositories.tsx";
 import { Reviews } from "./Reviews.tsx";
-
-/** The socket's state in words, empty while it is up. */
-const CONNECTION_TEXT = {
-  connecting: "",
-  connected: "",
-  reconnecting: "Reconnecting…",
-  disconnected: "Disconnected",
-} as const;
 
 export const HomePage = () => {
   const result = useAtomValue(homeAtom);
@@ -57,13 +49,7 @@ export const HomePage = () => {
           <span className="text-muted empty:hidden" role="status" data-connection="">
             {CONNECTION_TEXT[connection.state]}
           </span>
-          <Button
-            size="sm"
-            className="text-muted hover:text-ink"
-            data-repository-refresh=""
-            disabled={busy}
-            onClick={rescan}
-          >
+          <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
             Rescan
           </Button>
         </div>

@@ -12,7 +12,7 @@ import { type Next, nextStep } from "../../review/next.ts";
 import { type Progress, progress, type Standing, standingOf } from "../../review/progress.ts";
 import { currentSubmission, type Round } from "../../review/queries.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
-import { count, threadNameOf } from "../names.ts";
+import { count, lineRange, threadNameOf } from "../names.ts";
 import { type InlineComment, type PlacedComment, placeComments } from "./diff-model.ts";
 
 /** A note of the tour, shown in the diff under the row it explains. */
@@ -194,7 +194,7 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
       const place =
         next.place.kind === "general"
           ? "on the whole change"
-          : `${next.place.path}:${next.place.start === next.place.end ? next.place.start : `${next.place.start}–${next.place.end}`}`;
+          : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
       return {
         kind: "go",
         what: next.github ? "Read the reply" : `Read ${threadNameOf(threads, next.thread ?? "")}’s answer`,
@@ -293,8 +293,7 @@ export const finishState = (counts: Progress): string => {
 /** Where an orphaned comment pointed, in the round it was made in. */
 export const orphanPlace = (comment: InlineComment, round: number): string => {
   const { anchor } = comment;
-  const lines =
-    anchor.start_line === anchor.end_line ? `Line ${anchor.start_line}` : `Lines ${anchor.start_line}–${anchor.end_line}`;
+  const lines = lineRange(anchor.start_line, anchor.end_line, "Line");
   const side = anchor.side === "old" ? " (old side)" : "";
   const when = anchor.snapshot.round === round - 1 ? "the previous round" : `round ${anchor.snapshot.round}`;
   return `${lines}${side} of ${when}`;

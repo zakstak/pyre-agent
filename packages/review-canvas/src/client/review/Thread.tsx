@@ -1,6 +1,6 @@
 /** Comment threads: the comment, every reply, and the reviewer's next move, as GitHub shows a review thread. */
-import { RegistryContext, useAtom } from "@effect/atom-react";
-import { useContext, useEffect, useRef, useState } from "react";
+import { RegistryContext, useAtom, useAtomSet } from "@effect/atom-react";
+import { useContext, useEffect, useRef } from "react";
 import { flushSync } from "react-dom";
 import type { Comment, Disposition, Reply } from "../../schema/feedback.ts";
 import type { Thread as AgentThread } from "../../schema/thread.ts";
@@ -10,8 +10,11 @@ import { type Turn, turnOf } from "../../review/queries.ts";
 import { threadName, threadNameOf } from "../names.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { ThreadName } from "../ui/target.tsx";
 import { Time } from "../ui/text.tsx";
-import { useAct, usePage } from "./act.ts";
+import { Textarea } from "../ui/textarea.tsx";
+import { toast } from "../ui/toast.tsx";
+import { useAct, usePage, useSending } from "./act.ts";
 import type { InlineComment } from "./diff-model.ts";
 import { reattachAtom, replyAtom } from "./ui.ts";
 import { orphanPlace } from "./view.ts";
@@ -84,12 +87,12 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
   const { page } = usePage();
   switch (item.actor) {
     case "agent": {
-      const label = page.snapshot.threads.find((thread) => thread.id === item.thread)?.label ?? item.thread;
+      const thread = page.snapshot.threads.find((candidate) => candidate.id === item.thread);
       const disposition = DISPOSITION[item.disposition];
       return (
-        <li data-reply="agent" data-thread={item.thread} className="border-t border-separator pt-2">
+        <li data-reply="agent" className="border-t border-separator pt-2">
           <By>
-            <strong title={label}>{threadName(label)}</strong>
+            <strong>{thread === undefined ? item.thread : <ThreadName thread={thread} />}</strong>
             <Chip tone={disposition.tone}>{disposition.label}</Chip>
             <Time at={item.created_at} />
           </By>
@@ -166,9 +169,7 @@ const Moves = ({
   const act = useAct();
   const registry = useContext(RegistryContext);
   const [reply, setReply] = useAtom(replyAtom(comment.id));
-  const [busy, setBusy] = useState(false);
-  // Set at once, unlike `busy`: Ctrl+Enter twice must send once.
-  const sending = useRef(false);
+  const { busy, run } = useSending();
   const area = useRef<HTMLTextAreaElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
   /** Hides the editor, keeping its text, and puts focus back on Reply in the same frame. */
@@ -178,13 +179,11 @@ const Moves = ({
   };
   /** Sends a move. `typed` is the reply box's text as it was, so text typed meanwhile stays in the box. */
   const send = async (action: "reply" | "accept" | "reopen", body: string, typed?: string) => {
-    if (sending.current) return;
-    sending.current = true;
-    setBusy(true);
-    onMoved("sent");
-    const outcome = await act({ kind: "reply", comment: comment.id, action, body });
-    sending.current = false;
-    setBusy(false);
+    const outcome = await run(() => {
+      onMoved("sent");
+      return act({ kind: "reply", comment: comment.id, action, body });
+    });
+    if (outcome === undefined) return;
     if (!outcome.ok) return onMoved("refused");
     if (typed !== undefined) setReply((now) => (now.body === typed ? { open: false, body: "" } : { ...now, open: false }));
   };
@@ -212,7 +211,7 @@ const Moves = ({
           <label className="sr-only" htmlFor={editorId}>
             Reply
           </label>
-          <textarea
+          <Textarea
             ref={area}
             id={editorId}
             readOnly={busy}
@@ -228,7 +227,6 @@ const Moves = ({
                 closeEditor();
               }
             }}
-            className="block w-full max-w-reading resize-y rounded-control border border-line bg-code px-3 py-2 text-base"
           />
           <div data-thread-actions className={ACTIONS_CLASS}>
             <Button type="submit" size="sm" variant="primary" disabled={busy}>
@@ -247,7 +245,7 @@ const Moves = ({
       ) : (
         <div data-thread-actions className={ACTIONS_CLASS}>
           {turn === "reviewer" ? (
-            <Button size="sm" disabled={busy} title="The answer settles the comment" onClick={() => void send("accept", reply.body.trim(), reply.body)}>
+            <Button size="sm" disabled={busy} title="The answer settles the comment" data-accept onClick={() => void send("accept", reply.body.trim(), reply.body)}>
               Accept
             </Button>
           ) : null}
@@ -344,18 +342,15 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
 };
 
 /** An inline comment whose lines are not in this round, with where it pointed and a way to move it. */
-export const Orphan = ({
-  comment,
-  withPath = false,
-  onMove,
-}: {
-  readonly comment: InlineComment;
-  readonly withPath?: boolean;
-  readonly onMove: () => void;
-}) => {
+export const Orphan = ({ comment, withPath = false }: { readonly comment: InlineComment; readonly withPath?: boolean }) => {
   const { page } = usePage();
+  const setMoving = useAtomSet(reattachAtom);
+  const move = () => {
+    setMoving(comment.id);
+    toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");
+  };
   return (
-    <div data-orphan className="border-t border-separator px-3 py-3 first:border-t-0">
+    <div className="border-t border-separator px-3 py-3 first:border-t-0">
       <p className="text-small text-muted">
         {withPath ? (
           <>
@@ -372,7 +367,7 @@ export const Orphan = ({
         comment={comment}
         extra={
           page.writable ? (
-            <Button size="sm" variant="quiet" onClick={onMove}>
+            <Button size="sm" variant="quiet" onClick={move}>
               Move to other lines
             </Button>
           ) : null

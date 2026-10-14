@@ -6,6 +6,7 @@
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
+import type { Verdict } from "../../schema/feedback.ts";
 import type { CommentId, PatchDigest, RepoPath } from "../../schema/primitives.ts";
 import type { GapStage } from "./diff-model.ts";
 import type { RoundKey } from "./data.ts";
@@ -105,7 +106,7 @@ export const replyAtom = Atom.family((_comment: CommentId) => Atom.make({ open: 
 export const generalDraftAtom = Atom.make("").pipe(Atom.keepAlive);
 
 /** The verdict and summary of a finish being written, which carry over when a new round replaces the section. */
-export const finishDraftAtom = Atom.make<{ readonly verdict: "approve" | "request_changes" | "comment"; readonly body: string }>({
+export const finishDraftAtom = Atom.make<{ readonly verdict: Verdict; readonly body: string }>({
   verdict: "comment",
   body: "",
 }).pipe(Atom.keepAlive);

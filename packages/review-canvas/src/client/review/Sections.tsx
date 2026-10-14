@@ -1,21 +1,21 @@
 /** The sections of the review page's one scroll: the stops with their files, then the whole change and the finish. */
-import { useAtom, useAtomSet } from "@effect/atom-react";
+import { useAtom } from "@effect/atom-react";
 import { useEffect, useRef, useState } from "react";
 import type { Verdict } from "../../schema/feedback.ts";
 import type { RoundNumber } from "../../schema/primitives.ts";
 import { parseRows } from "../../review/patch.ts";
 import type { StopView } from "../../review/tour.ts";
-import { count } from "../names.ts";
+import { count, lineRange, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { Inline, Prose, Time } from "../ui/text.tsx";
+import { Inline, Joined, Prose, Time } from "../ui/text.tsx";
+import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import { useAct, usePage } from "./act.ts";
+import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlock } from "./FileBlock.tsx";
 import { ACTIONS_CLASS, Orphan, submitOnModEnter, ThreadView } from "./Thread.tsx";
-import { finishDraftAtom, generalDraftAtom, reattachAtom } from "./ui.ts";
+import { finishDraftAtom, generalDraftAtom } from "./ui.ts";
 import { finishState } from "./view.ts";
-import { VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 
 const ATTENTION_LEAD = {
   tradeoff: "Tradeoff",
@@ -25,44 +25,37 @@ const ATTENTION_LEAD = {
   accessibility: "Accessibility",
 } as const;
 
-export const TEXTAREA =
-  "block w-full max-w-reading resize-y rounded-control border border-line bg-code px-3 py-2 text-base placeholder:text-muted";
-
 /** For an excerpt of a file an earlier stop owns: one line that points at those rows instead of a second diff. */
 const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (path: string, index: number, start: number, end: number) => void }) => {
   const { page } = usePage();
   const elsewhere = stop.excerpts.filter((excerpt) => !stop.owns.includes(excerpt.path));
   if (elsewhere.length === 0) return null;
+  const links = elsewhere.flatMap((excerpt) => {
+    const model = page.files.get(excerpt.path);
+    if (model === undefined) return [];
+    const lines = parseRows(model.file.patch ?? "")
+      .slice(excerpt.start_row, excerpt.end_row + 1)
+      .map((row) => row[excerpt.side])
+      .filter((line) => line !== undefined);
+    const first = lines[0];
+    const last = lines.at(-1);
+    return [
+      <a
+        href={`#f${model.index}-r${excerpt.start_row}`}
+        onClick={(event) => {
+          event.preventDefault();
+          onFlash(excerpt.path, model.index, excerpt.start_row, excerpt.end_row);
+        }}
+        className="text-link underline underline-offset-3"
+      >
+        <code>{excerpt.path}</code>
+        {first === undefined || last === undefined ? "" : ` ${lineRange(first, last, "line")}`} ↑
+      </a>,
+    ];
+  });
   return (
     <p data-also className="mt-3 text-small">
-      Also in this stop:{" "}
-      {elsewhere.map((excerpt, at) => {
-        const model = page.files.get(excerpt.path);
-        if (model === undefined) return null;
-        const lines = parseRows(model.file.patch ?? "")
-          .slice(excerpt.start_row, excerpt.end_row + 1)
-          .map((row) => row[excerpt.side])
-          .filter((line) => line !== undefined);
-        const first = lines[0];
-        const last = lines.at(-1);
-        const span = first === undefined ? "" : first === last ? ` line ${first}` : ` lines ${first}–${last}`;
-        return (
-          <span key={at}>
-            {at === 0 ? null : ", "}
-            <a
-              href={`#f${model.index}-r${excerpt.start_row}`}
-              onClick={(event) => {
-                event.preventDefault();
-                onFlash(excerpt.path, model.index, excerpt.start_row, excerpt.end_row);
-              }}
-              className="text-link underline underline-offset-3"
-            >
-              <code>{excerpt.path}</code>
-              {span} ↑
-            </a>
-          </span>
-        );
-      })}
+      Also in this stop: <Joined items={links} />
     </p>
   );
 };
@@ -88,7 +81,6 @@ export const StopSection = ({
     <section
       id={`stop-${stop.index + 1}`}
       data-stop={stop.index}
-      data-closing={stop.closing ? "" : undefined}
       className="mt-10 scroll-mt-(--sticky-top) border-t border-separator pt-6 first:mt-0"
     >
       <div data-stop-head className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -123,7 +115,7 @@ export const StopSection = ({
               type="button"
               data-question={question}
               onClick={() => onAsk(question)}
-              className={cn(TOUCH_TARGET, "inline-flex min-h-7 cursor-pointer items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
+              className={cn(TOUCH_TARGET, "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
             >
               <span aria-hidden="true" className="font-bold text-accent">
                 ?
@@ -145,22 +137,13 @@ const END_SECTION = "mt-12 scroll-mt-(--sticky-top) border-t border-separator pt
  */
 export const Departed = () => {
   const { page } = usePage();
-  const setMoving = useAtomSet(reattachAtom);
   if (page.departed.length === 0) return null;
   return (
     <section id="departed" data-end-section className={END_SECTION}>
       <h2 className="text-heading font-semibold">Files that left the round</h2>
       <div className="mt-3 rounded-panel border border-separator bg-surface">
         {page.departed.map((comment) => (
-          <Orphan
-            key={comment.id}
-            comment={comment}
-            withPath
-            onMove={() => {
-              setMoving(comment.id);
-              toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");
-            }}
-          />
+          <Orphan key={comment.id} comment={comment} withPath />
         ))}
       </div>
     </section>
@@ -171,21 +154,14 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
   const { page } = usePage();
   const act = useAct();
   const [body, setBody] = useAtom(generalDraftAtom);
-  const [busy, setBusy] = useState(false);
-  // Set at once, unlike `busy`: Ctrl+Enter twice must send once.
-  const sending = useRef(false);
+  const { busy, run } = useSending();
   // A closed review has nothing to add: the section shows only what was said.
   if (!page.writable && page.general.length === 0) return null;
   const send = async (question: boolean) => {
     const text = body.trim();
     if (text === "") return textarea.current?.focus();
-    if (sending.current) return;
-    sending.current = true;
-    setBusy(true);
-    const outcome = await act({ kind: "general_comment", body: text, ...(question ? { question: true } : {}) });
-    sending.current = false;
-    setBusy(false);
-    if (outcome.ok) setBody((now) => (now === body ? "" : now));
+    const outcome = await run(() => act({ kind: "general_comment", body: text, ...(question ? { question: true } : {}) }));
+    if (outcome?.ok === true) setBody((now) => (now === body ? "" : now));
   };
   return (
     <section id="general" data-end-section className={END_SECTION}>
@@ -210,7 +186,7 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
           <label className="sr-only" htmlFor="general-body">
             Comment on the whole change
           </label>
-          <textarea
+          <Textarea
             ref={textarea}
             id="general-body"
             rows={2}
@@ -219,7 +195,6 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
             placeholder="A question, a concern, or a direction for the agents"
             onChange={(event) => setBody(event.currentTarget.value)}
             onKeyDown={submitOnModEnter}
-            className={TEXTAREA}
           />
           <div className={ACTIONS_CLASS}>
             <Button type="submit" size="sm" variant="primary" disabled={busy}>
@@ -253,8 +228,7 @@ export const Finish = () => {
   const { page } = usePage();
   const act = useAct();
   const [draft, setDraft] = useAtom(finishDraftAtom);
-  const [busy, setBusy] = useState(false);
-  const sending = useRef(false);
+  const { busy, run } = useSending();
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [engaged, setEngaged] = useState(false);
@@ -293,7 +267,7 @@ export const Finish = () => {
           Round {page.round.round} finished · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
         </h2>
         <p data-submission className="mt-2 max-w-reading">
-          {VERDICT_DONE[submission.verdict].replace(/^you/, "You")} at <Time at={submission.submitted_at} />
+          You {VERDICT_DONE[submission.verdict]} at <Time at={submission.submitted_at} />
           {submission.body.trim() === "" ? "." : `: ${submission.body}`}
         </p>
       </section>
@@ -323,12 +297,10 @@ export const Finish = () => {
         className="mt-3"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (sending.current) return;
-          sending.current = true;
-          setBusy(true);
-          const outcome = await act({ kind: "submit", round: shownRound, verdict: draft.verdict, body: draft.body });
-          sending.current = false;
-          setBusy(false);
+          const outcome = await run(() =>
+            act({ kind: "submit", round: shownRound, verdict: draft.verdict, body: draft.body }),
+          );
+          if (outcome === undefined) return;
           if (!outcome.ok) return catchUp();
           toast("Review finished. The agents have the turn.");
           setDraft({ verdict: "comment", body: "" });
@@ -341,7 +313,7 @@ export const Finish = () => {
             <label
               key={verdict.value}
               className={cn(
-                "inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-control border px-3 font-semibold",
+                "inline-flex min-h-11 items-center gap-2 rounded-control border px-3 font-semibold",
                 draft.verdict === verdict.value ? "border-accent bg-selected" : "border-line bg-raised hover:bg-subtle",
               )}
             >
@@ -361,7 +333,7 @@ export const Finish = () => {
         <label className="sr-only" htmlFor="finish-body">
           Summary
         </label>
-        <textarea
+        <Textarea
           id="finish-body"
           rows={3}
           readOnly={busy}
@@ -372,7 +344,7 @@ export const Finish = () => {
             setDraft((now) => ({ ...now, body }));
           }}
           onKeyDown={submitOnModEnter}
-          className={cn(TEXTAREA, "mt-3")}
+          className="mt-3"
         />
         <div className={ACTIONS_CLASS}>
           <Button type="submit" variant="primary" disabled={busy}>

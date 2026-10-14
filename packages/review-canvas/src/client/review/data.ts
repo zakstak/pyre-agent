@@ -5,9 +5,8 @@
 import { Effect, type Exit, Option, Ref, Semaphore, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type { ReviewId, Revision, RoundNumber } from "../../schema/primitives.ts";
-import type { RpcClientError } from "effect/rpc";
-import type { ImportReport, PageAction, Refused } from "../../schema/rpc.ts";
-import { epochAtom, PageClient } from "../rpc.ts";
+import type { ImportReport, PageAction } from "../../schema/rpc.ts";
+import { type CallError, epochAtom, PageClient } from "../rpc.ts";
 
 /**
  * The review now, and again after every change, while the page shows it. A dropped socket ends the watch; the next
@@ -54,7 +53,7 @@ export const roundAtom = Atom.family((key: RoundKey) =>
   ),
 );
 
-/** The rounds before `round`: their summaries and file versions. */
+/** The rounds before `round`: their summaries. */
 export const earlierAtom = Atom.family((key: RoundKey) =>
   readOnce(
     Effect.gen(function* () {
@@ -73,12 +72,12 @@ export interface ReviewActions {
   readonly act: (
     action: PageAction,
     shown: Revision,
-  ) => Promise<Exit.Exit<Revision, Refused | RpcClientError.RpcClientError>>;
+  ) => Promise<Exit.Exit<Revision, CallError>>;
   /** Imports a feedback file's text after the changes before it, and answers with what it added. */
   readonly importFeedback: (
     text: string,
     shown: Revision,
-  ) => Promise<Exit.Exit<ImportReport, Refused | RpcClientError.RpcClientError>>;
+  ) => Promise<Exit.Exit<ImportReport, CallError>>;
 }
 
 /**

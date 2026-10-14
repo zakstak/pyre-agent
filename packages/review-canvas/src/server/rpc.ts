@@ -36,9 +36,7 @@ const noSuchReview = (id: string) => new Refused({ kind: "not_found", message: `
 
 const snapshotOf = (store: Store, id: ReviewId): Effect.Effect<ReviewSnapshot, Refused> => {
   const snapshot = store.snapshot(id);
-  if (snapshot === undefined) return Effect.fail(noSuchReview(id));
-  const replaced = snapshot.state.closed_at === undefined ? undefined : store.replacedBy(id);
-  return Effect.succeed(replaced === undefined ? snapshot : { ...snapshot, replaced_by: replaced });
+  return snapshot === undefined ? Effect.fail(noSuchReview(id)) : Effect.succeed(snapshot);
 };
 
 const handlers = (roots: ReadonlyArray<string>) =>

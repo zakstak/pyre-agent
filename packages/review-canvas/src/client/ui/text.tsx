@@ -55,6 +55,21 @@ export const Time = ({ at }: { readonly at: string }) => {
   );
 };
 
+/** The lines a change added and deleted, as `+12 −3` in their colours. */
+export const LineCounts = ({
+  additions,
+  deletions,
+  className,
+}: {
+  readonly additions: number;
+  readonly deletions: number;
+  readonly className?: string;
+}) => (
+  <code className={className}>
+    <span className="text-success">+{additions}</span> <span className="text-danger">−{deletions}</span>
+  </code>
+);
+
 /** A list joined with commas, as in running text. */
 export const Joined = ({ items }: { readonly items: ReadonlyArray<React.ReactNode> }) => (
   <>

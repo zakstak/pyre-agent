@@ -6,129 +6,39 @@
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { ReviewInput } from "../../schema/input.ts";
 import { type RepoPath, type ReviewId, RoundNumber } from "../../schema/primitives.ts";
 import { Refused, type ReviewSnapshot, type RoundView } from "../../schema/rpc.ts";
-import type { RpcClientError } from "effect/rpc";
-import type { Target } from "../../schema/target.ts";
-import type { Thread } from "../../schema/thread.ts";
 import { fileElementId } from "../../review/next.ts";
 import type { Round } from "../../review/queries.ts";
-import { count, shortPath, targetName, threadName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
-import { connectionAtom } from "../rpc.ts";
-import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
-import { cn } from "../ui/cn.ts";
-import { Prose, Time } from "../ui/text.tsx";
+import { count, threadName } from "../names.ts";
+import { type CallError, failureText } from "../rpc.ts";
+import { useMedia } from "../ui/media.ts";
 import { Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
+import { Prose, Time } from "../ui/text.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
 import { toast } from "../ui/toast.tsx";
-import { failureMessage, ReviewContext, useImport, usePage } from "./act.ts";
-import { earlierAtom, reviewAtom, roundAtom } from "./data.ts";
-import { useNavigate } from "./navigate.ts";
+import { ReviewContext, useImport } from "./act.ts";
+import { Contents } from "./Contents.tsx";
+import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
+import { NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
+import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { Departed, Finish, General, StopSection } from "./Sections.tsx";
-import { draftsAtom, foldsAtom, layoutAtom, NARROW_QUERY, reattachAtom, seenAtom, stashAtom, WIDE_QUERY } from "./ui.ts";
+import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
 import { type PageModel, pageModel } from "./view.ts";
-
-const LOST =
-  "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
-
-const useMedia = (query: string) => {
-  const media = useMemo(() => matchMedia(query), [query]);
-  return useSyncExternalStore(
-    (change) => {
-      media.addEventListener("change", change);
-      return () => media.removeEventListener("change", change);
-    },
-    () => media.matches,
-  );
-};
-
-// ------------------------------------------------------------------------------------------------------- top bar
-
-/** The connection state: quiet while connected, a live region that speaks when the socket is lost. */
-const Connection = ({ updated }: { readonly updated: string | undefined }) => {
-  const connection = useAtomValue(connectionAtom);
-  const lost = connection.state === "reconnecting" ? "Reconnecting…" : connection.state === "disconnected" ? "Disconnected" : "";
-  const said = useRef("");
-  useEffect(() => {
-    if (lost === "Disconnected" && said.current !== lost) toast(LOST, "danger");
-    said.current = lost;
-  }, [lost]);
-  return (
-    <span className="text-small text-muted">
-      {lost === "" && updated !== undefined ? (
-        <span>
-          Connected · updated <Time at={updated} />
-        </span>
-      ) : null}
-      <span data-connection role="status" title={lost === "" ? undefined : LOST} className="font-semibold text-warning">
-        {lost}
-      </span>
-    </span>
-  );
-};
-
-const TopBar = ({
-  target,
-  updated,
-  onFinish,
-}: {
-  readonly target: Target;
-  readonly updated: string | undefined;
-  readonly onFinish: (() => void) | undefined;
-}) => {
-  const name = targetName(target);
-  return (
-    <header
-      data-topbar
-      className="z-20 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-separator bg-surface px-5 py-1 text-small md:sticky md:top-0 md:min-h-11"
-    >
-      <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
-        <a href="/" className="text-muted underline underline-offset-3">
-          Review canvas
-        </a>
-        <span aria-hidden="true" className="text-muted">
-          /
-        </span>
-        <TargetText target={target} />
-        {name.kind === "pr" ? (
-          <a href={name.url} rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub" className="px-1 text-muted no-underline">
-            ↗
-          </a>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <Connection updated={updated} />
-        {onFinish === undefined ? null : (
-          <a
-            href="#finish"
-            data-open-finish
-            onClick={(event) => {
-              event.preventDefault();
-              onFinish();
-            }}
-            className={buttonVariants({ variant: "primary", size: "sm" })}
-          >
-            Finish review
-          </a>
-        )}
-      </div>
-    </header>
-  );
-};
 
 /** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
 const ImportFeedback = () => {
   const runImport = useImport();
   return (
-    <label className="cursor-pointer rounded-sm font-normal underline underline-offset-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus">
+    <label className="rounded-sm font-normal underline underline-offset-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus">
       Import feedback
       <input
         type="file"
         accept="application/json,.json"
-        data-import
         className="sr-only"
         onChange={async (event) => {
           const input = event.currentTarget;
@@ -137,7 +47,7 @@ const ImportFeedback = () => {
           if (file === undefined) return;
           const imported = await runImport(await file.text());
           if (!imported.ok) return toast(`Not imported: ${imported.message}`, "danger");
-          const { report } = imported;
+          const report = imported.value;
           const added = `Imported ${count(report.comments, "comment")}, ${count(report.replies, "reply", "replies")}, and ${count(report.approvals, "approval")}.`;
           const already = report.already === 0 ? "" : ` ${report.already} already here.`;
           toast(`${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`);
@@ -164,20 +74,6 @@ const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round
 const Frame = ({ children }: { readonly children: React.ReactNode }) => (
   <div className="mx-auto grid max-w-[96rem] grid-cols-1 gap-x-8 px-5 pb-16 lg:grid-cols-[15.5rem_minmax(0,1fr)]">{children}</div>
 );
-
-const Who = ({ thread, children }: { readonly thread: Thread | undefined; readonly children: React.ReactNode }) => (
-  <span className="inline-flex items-baseline gap-1.5">
-    <span aria-hidden="true" className="inline-block size-2 rounded-full bg-accent" />
-    {thread === undefined ? null : (
-      <strong className="text-ink" title={thread.label === threadName(thread.label) ? undefined : thread.label}>
-        {threadName(thread.label)}
-      </strong>
-    )}
-    {children}
-  </span>
-);
-
-// --------------------------------------------------------------------------------------------------------- waiting
 
 /** A review no thread has published a round to yet: the title, one sentence, and the footer. */
 const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
@@ -215,497 +111,15 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   );
 };
 
-// ------------------------------------------------------------------------------------------------------------ title
-
-const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
-  const { page } = usePage();
-  const { state, threads } = page.snapshot;
-  const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
-  const earlier = useAtomValue(earlierAtom({ id, round: page.round.round }));
-  const summaries = new Map(
-    AsyncResult.value(earlier).pipe(
-      Option.map((rounds) => rounds.map((item) => [item.round, item.summary] as const)),
-      Option.getOrElse(() => []),
-    ),
-  );
-  const submissionOf = (round: number) => state.submissions.findLast((item) => item.round === round);
-  return (
-    <>
-      <div data-rounds className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-small">
-        {state.rounds.map((round) => {
-          const submission = submissionOf(round.round);
-          const done = submission === undefined ? undefined : VERDICT_DONE[submission.verdict];
-          if (round.round === page.round.round)
-            return (
-              <span key={round.round} data-round-current aria-current="true" className="border-b-2 border-accent pb-1 font-semibold text-ink">
-                Round {round.round} · {done ?? (state.closed_at === undefined ? "open" : "closed")}
-              </span>
-            );
-          const expanded = open.has(round.round);
-          return (
-            <button
-              key={round.round}
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={`round-${round.round}-detail`}
-              onClick={() =>
-                setOpen((now) => {
-                  const next = new Set(now);
-                  if (expanded) next.delete(round.round);
-                  else next.add(round.round);
-                  return next;
-                })
-              }
-              className="cursor-pointer pb-1 text-muted hover:text-ink"
-            >
-              Round {round.round} · {done ?? "not finished"} · <Time at={submission?.submitted_at ?? round.published_at} />
-              <span aria-hidden="true"> {expanded ? "▴" : "▾"}</span>
-            </button>
-          );
-        })}
-      </div>
-      {state.rounds
-        .filter((round) => round.round !== page.round.round && open.has(round.round))
-        .map((round) => {
-          const submission = submissionOf(round.round);
-          const summary = summaries.get(round.round);
-          const publisher = threads.find((item) => item.id === round.thread);
-          return (
-            <div key={round.round} id={`round-${round.round}-detail`} className="mt-2 flex flex-col gap-2 rounded-panel border border-separator bg-surface px-4 py-3">
-              <p className="text-small text-muted">
-                Round {round.round}, published <Time at={round.published_at} /> by {publisher === undefined ? round.thread : threadName(publisher.label)}
-              </p>
-              {summary === undefined ? <p className="text-muted">No summary.</p> : <Prose text={summary} />}
-              {submission === undefined ? null : (
-                <p className="max-w-reading">
-                  <strong>You</strong>{" "}
-                  <span className="text-muted">
-                    · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
-                  </span>
-                  {submission.body.trim() === "" ? null : (
-                    <>
-                      <br />
-                      {submission.body}
-                    </>
-                  )}
-                </p>
-              )}
-            </div>
-          );
-        })}
-    </>
-  );
-};
-
-/** What an agent found changed since this round, as one line until the next round replaces it. */
-const DriftLine = () => {
-  const { page } = usePage();
-  const drift = page.snapshot.state.drift;
-  if (drift === undefined || drift.round !== page.round.round) return null;
-  const shown = drift.paths.slice(0, 4);
-  return (
-    <p id="drift" className="mt-2 text-small">
-      <strong className="text-warning">Changed since this round:</strong>{" "}
-      {drift.paths.length === 0 ? (
-        <span className="text-muted">the code</span>
-      ) : (
-        <>
-          {shown.map((path, at) => (
-            <span key={path}>
-              {at === 0 ? null : ", "}
-              {page.files.has(path) ? (
-                <a href={`#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`} className="text-link underline underline-offset-3">
-                  <code>{path}</code>
-                </a>
-              ) : (
-                <code>{path}</code>
-              )}
-            </span>
-          ))}
-          {drift.paths.length > shown.length ? ` and ${drift.paths.length - shown.length} more` : ""}
-        </>
-      )}
-      {drift.head_sha === undefined ? null : (
-        <>
-          {" "}
-          <span className="text-muted">· head</span> <code>{drift.head_sha.slice(0, 7)}</code>
-        </>
-      )}{" "}
-      <span className="text-muted">
-        · checked <Time at={drift.checked_at} /> · the agents publish a new round with the change.
-      </span>
-    </p>
-  );
-};
-
-const Title = ({ id }: { readonly id: ReviewId }) => {
-  const { page } = usePage();
-  const { input, round, snapshot } = page;
-  const publisher = snapshot.threads.find((item) => item.id === round.thread);
-  const additions = input.files.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = input.files.reduce((sum, file) => sum + file.deletions, 0);
-  const sha = input.target.head_sha;
-  return (
-    <header className="col-span-full min-w-0 pt-5">
-      <h1 className="mb-1.5 text-title leading-tight font-semibold tracking-tight break-words">{input.target.title}</h1>
-      <p className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5 text-small text-muted">
-        <Who thread={publisher}>
-          {publisher === undefined ? <strong className="text-ink">{round.thread}</strong> : null} published round {round.round} at{" "}
-          <Time at={round.published_at} />
-        </Who>
-        <span>
-          <strong className="text-ink">{count(input.files.length, "file")}</strong> ·{" "}
-          <code>
-            <span className="text-success">+{additions}</span> <span className="text-danger">−{deletions}</span>
-          </code>
-        </span>
-        <code title={sha}>{sha.slice(0, 7)}</code>
-      </p>
-      <RoundsLine id={id} />
-      <DriftLine />
-      {input.files_complete ? null : <p className="mt-2 text-small text-muted">The file list may be incomplete.</p>}
-    </header>
-  );
-};
-
-// ------------------------------------------------------------------------------------------------------ next strip
-
-const Kbd = ({ children }: { readonly children: string }) => (
-  <kbd className="inline-block rounded-sm border border-line px-[0.3em] leading-[1.3] font-semibold text-muted">{children}</kbd>
-);
-
-const NextStrip = ({ onGo }: { readonly onGo: () => void }) => {
-  const { page } = usePage();
-  const { strip } = page;
-  const { viewable: total, forYou, waiting } = page.progress;
-  const viewed = page.progress.viewed.size;
-  return (
-    <section
-      data-next
-      aria-label="Next"
-      className="sticky top-(--topbar-height) z-10 col-span-full mt-3.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 rounded-control border border-separator bg-raised py-1 pr-3 pl-2 text-small max-md:static"
-    >
-      {strip.kind === "go" ? (
-        <a
-          href={`#${encodeURI(strip.next.target).replaceAll("#", "%23")}`}
-          data-next-go
-          data-target={strip.next.target}
-          data-kind={strip.next.kind}
-          onClick={(event) => {
-            event.preventDefault();
-            onGo();
-          }}
-          className="inline-flex min-h-11 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-control px-2 py-1 font-semibold text-ink no-underline hover:bg-subtle"
-        >
-          <span aria-hidden="true" className="inline-grid size-6 flex-none place-items-center rounded-control bg-accent text-chip text-on-accent">
-            →
-          </span>
-          <span className="min-w-0 break-words">
-            {strip.what}
-            {strip.code === undefined ? null : (
-              <>
-                {" "}
-                <code className="font-semibold">{strip.code}</code>
-              </>
-            )}
-          </span>{" "}
-          <span className="min-w-0 font-normal text-muted">
-            <span aria-hidden="true">· </span>
-            {strip.why}
-          </span>
-        </a>
-      ) : strip.kind === "finished" ? (
-        <p className="px-2 py-2.5">
-          <strong>You finished round {strip.round}</strong>{" "}
-          <span className="text-muted">· {VERDICT_TEXT[strip.verdict]} · the agents have the turn</span>
-        </p>
-      ) : (
-        <p className="px-2 py-2.5">
-          <strong>Closed</strong> <span className="text-muted">· replaced by a fresh start</span>
-          {page.snapshot.replaced_by === undefined ? null : (
-            <>
-              {" "}
-              ·{" "}
-              <a href={`/reviews/${page.snapshot.replaced_by}`} className="text-link underline underline-offset-3">
-                Open the newer review
-              </a>
-            </>
-          )}
-        </p>
-      )}
-      {strip.kind === "go" ? (
-        <span aria-hidden="true" className="text-muted max-md:hidden pointer-coarse:hidden">
-          <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops
-        </span>
-      ) : null}
-      <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-        <progress
-          value={viewed}
-          max={Math.max(total, 1)}
-          aria-label="Files viewed"
-          className="h-1.5 w-30 max-md:hidden appearance-none overflow-hidden rounded-full [&::-moz-progress-bar]:bg-success [&::-webkit-progress-bar]:bg-separator [&::-webkit-progress-value]:bg-success"
-        >
-          {viewed} of {total}
-        </progress>
-        <span data-viewed-count>
-          <strong>{viewed}</strong> of {total} viewed
-        </span>
-        {forYou === 0 ? null : (
-          <span data-for-you>
-            <strong>{forYou}</strong> for you
-          </span>
-        )}
-        {waiting === 0 ? null : <span data-waiting className="text-muted max-md:hidden">{waiting} waiting for agents</span>}
-      </div>
-    </section>
-  );
-};
-
-// -------------------------------------------------------------------------------------------------------- contents
-
-/** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
-const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
-
-const Contents = ({
-  onStop,
-  onFile,
-}: {
-  readonly onStop: (index: number) => void;
-  readonly onFile: (path: string) => void;
-}) => {
-  const { id, page } = usePage();
-  const current = useAtomValue(spiedAtom);
-  const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
-  const [layout, setLayout] = useAtom(layoutAtom);
-  const wide = useMedia(WIDE_QUERY);
-  const [open, setOpen] = useState(false);
-  const viewed = page.progress.viewed.size;
-  const total = page.progress.viewable;
-  const nav = useRef<HTMLElement>(null);
-  // A wide page keeps the spied row in view in the pane.
-  useEffect(() => {
-    if (!wide) return;
-    nav.current?.querySelector<HTMLElement>("[aria-current='location']")?.scrollIntoView({ block: "nearest" });
-  }, [current, wide]);
-  const list = (
-    <nav ref={nav} aria-label="Stops and files" className="text-small">
-      <ol className="m-0 flex list-none flex-col p-0">
-        {page.stops.map((stop) => (
-          <li key={stop.index} className="mt-2 first:mt-0">
-            <a
-              href={`#stop-${stop.index + 1}`}
-              data-stop-link={stop.index}
-              data-read={read.has(stop.index) ? "" : undefined}
-              aria-current={current === `stop:${stop.index}` ? "location" : undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                setOpen(false);
-                onStop(stop.index);
-              }}
-              className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
-            >
-              <span className={cn("font-mono text-technical font-normal", read.has(stop.index) ? "text-accent" : "text-muted")}>{stop.index + 1}</span>
-              <span className="min-w-0">{stop.title}</span>
-              <span className="font-normal text-muted">{stop.owns.length}</span>
-            </a>
-            {stop.owns.length === 0 ? null : (
-              <ol className="m-0 list-none p-0">
-                {stop.owns.map((path) => {
-                  const model = page.files.get(path);
-                  if (model === undefined) return null;
-                  const name = shortPath(path);
-                  return (
-                    <li key={path} className="m-0">
-                      <a
-                        href={`#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`}
-                        data-toc-file={path}
-                        title={path}
-                        aria-current={current === `file:${path}` ? "location" : undefined}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          setOpen(false);
-                          onFile(path);
-                        }}
-                        className={cn(
-                          "flex h-7 items-center gap-2 rounded-control pr-1 pl-7 font-mono text-technical no-underline hover:bg-subtle aria-[current]:bg-selected",
-                          model.approved ? "text-muted" : "text-ink",
-                        )}
-                      >
-                        {/*
-                          The folder and name when both fit, else the name alone, cut at its end; never part of the
-                          folder. The name comes first in a wrapping line laid out right to left and packed to the
-                          left, so the folder is what wraps, onto a second line the row clips.
-                        */}
-                        <span className="flex max-h-7 min-w-0 flex-1 flex-row-reverse flex-wrap justify-end overflow-hidden leading-7 whitespace-nowrap">
-                          <span className="flex-none text-muted">{name.dir}</span>
-                          <span className="-order-1 min-w-0 truncate">{name.base}</span>
-                        </span>
-                        {model.approved ? (
-                          <span aria-label="viewed" className="text-ink">
-                            ✓
-                          </span>
-                        ) : model.open > 0 ? (
-                          <span aria-label={count(model.open, "open comment")} className="inline-flex items-center gap-1 text-ink">
-                            <span aria-hidden="true" className="inline-block size-1.5 rounded-full bg-accent" />
-                            {model.open}
-                          </span>
-                        ) : null}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </li>
-        ))}
-      </ol>
-    </nav>
-  );
-  const foot = (
-    <div className="mt-4 flex items-center justify-between border-t border-separator pt-4 text-small">
-      <div role="group" aria-label="Diff layout" className="inline-flex overflow-hidden rounded-control border border-line max-md:hidden">
-        {([["unified", "Unified"], ["split", "Split"]] as const).map(([choice, label]) => (
-          <button
-            key={choice}
-            type="button"
-            data-layout={choice}
-            aria-pressed={layout === choice}
-            onClick={() => setLayout(choice)}
-            className={cn(
-              TOUCH_TARGET,
-              "h-7 cursor-pointer px-2.5 font-medium",
-              layout === choice ? "bg-selected text-ink shadow-pressed" : "bg-raised text-muted hover:bg-subtle",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <span className="text-muted">
-        {viewed} / {total}
-      </span>
-    </div>
-  );
-  return (
-    <div data-contents className="min-w-0 lg:sticky lg:top-(--sticky-top) lg:mt-6 lg:max-h-[calc(100vh-var(--sticky-top)-1rem)] lg:self-start lg:overflow-y-auto">
-      {wide ? (
-        <>
-          {list}
-          {foot}
-        </>
-      ) : (
-        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-4 rounded-panel border border-separator bg-surface px-3">
-          <summary className="flex min-h-11 cursor-pointer items-center font-semibold">
-            Contents · {viewed} / {total}
-          </summary>
-          <div className="pb-3">
-            {list}
-            {foot}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-};
-
-// ------------------------------------------------------------------------------------------------------------ page
-
-/** The sticky bars' heights, for what sticks under them and what the page scrolls to. */
-const useStickyBars = () => {
-  useLayoutEffect(() => {
-    const measure = () => {
-      const bar = document.querySelector<HTMLElement>("[data-topbar]");
-      const strip = document.querySelector<HTMLElement>("[data-next]");
-      const barSticks = bar !== null && getComputedStyle(bar).position === "sticky";
-      const stripSticks = strip !== null && getComputedStyle(strip).position === "sticky";
-      const top = barSticks ? (bar?.offsetHeight ?? 0) : 0;
-      document.documentElement.style.setProperty("--topbar-height", `${top}px`);
-      document.documentElement.style.setProperty("--sticky-top", `${top + (stripSticks ? (strip?.offsetHeight ?? 0) : 0) + 8}px`);
-    };
-    const observer = new ResizeObserver(measure);
-    for (const element of document.querySelectorAll("[data-topbar], [data-next]")) observer.observe(element);
-    measure();
-    addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      removeEventListener("resize", measure);
-    };
-  });
-};
-
-const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
-  const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
-  const navigate = useNavigate(key, page);
+/**
+ * What a new round changes on the page. It keeps the files that were open; the finish section announces it. The open
+ * files come from the folds as they were at the last render of the round before. A draft whose code changed cannot
+ * stay on its rows: its text goes to the stash, which fills the next comment the reviewer opens.
+ */
+const useRoundChange = (key: RoundKey, page: PageModel) => {
   const registry = useContext(RegistryContext);
-  const general = useRef<HTMLTextAreaElement>(null);
-  const [layout] = useAtom(layoutAtom);
-  const narrow = useMedia(NARROW_QUERY);
-  const split = layout === "split" && !narrow;
-  useStickyBars();
-  const context = useMemo(() => ({ id, page }), [id, page]);
-
-  useEffect(() => {
-    document.title = `${page.input.target.title} · Review canvas`;
-  }, [page.input.target.title]);
-
-  // The hash, once the page first shows and whenever it changes.
-  const applied = useRef(false);
-  useEffect(() => {
-    if (!applied.current) {
-      applied.current = true;
-      void navigate.applyHash();
-    }
-    const change = () => void navigate.applyHash();
-    addEventListener("hashchange", change);
-    return () => removeEventListener("hashchange", change);
-  }, [navigate]);
-
-  // The scroll-spy, on scroll and resize, a frame at a time.
-  useEffect(() => {
-    let queued = false;
-    const run = () => {
-      if (queued) return;
-      queued = true;
-      requestAnimationFrame(() => {
-        queued = false;
-        const spied = navigate.spy();
-        if (registry.get(spiedAtom) !== spied) registry.set(spiedAtom, spied);
-      });
-    };
-    run();
-    addEventListener("scroll", run, { passive: true });
-    addEventListener("resize", run);
-    return () => {
-      removeEventListener("scroll", run);
-      removeEventListener("resize", run);
-    };
-  }, [navigate]);
-
-  // J and K between stops, N for the next thing to do, Esc to stop moving a comment.
-  useEffect(() => {
-    const keys = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && registry.get(reattachAtom) !== undefined) {
-        registry.set(reattachAtom, undefined);
-        toast("The comment stays where it was.");
-        return;
-      }
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("textarea, input, select, [contenteditable='true']") !== null) return;
-      const key = event.key.toLowerCase();
-      if (key === "j") void navigate.next();
-      else if (key === "k") void navigate.previous();
-      else if (key === "n") void navigate.goNext();
-      else return;
-      event.preventDefault();
-    };
-    document.addEventListener("keydown", keys);
-    return () => document.removeEventListener("keydown", keys);
-  }, [navigate, registry]);
-
-  // A new round keeps the files that were open; the finish section announces it. The open files come from the folds as
-  // they were at the last render of the round before.
   const before = useRef<{ readonly round: RoundNumber; readonly open: ReadonlySet<RepoPath> } | undefined>(undefined);
+  // Every render, so the open files are the ones of the last render before the round changed.
   useEffect(() => {
     const folds = registry.get(foldsAtom(key));
     const open = new Set(
@@ -722,11 +136,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
   });
   useEffect(() => {
     const drafts = registry.get(draftsAtom);
-    const fits = (draft: (typeof drafts)[number]) => {
-      const model = [...page.files.values()].find((item) => item.file.path === draft.path);
-      return model !== undefined && model.digest === draft.digest;
-    };
-    const lost = drafts.filter((draft) => !draft.submitting && !fits(draft));
+    const lost = drafts.filter((draft) => !draft.submitting && page.files.get(draft.path)?.digest !== draft.digest);
     if (lost.length === 0) return;
     registry.set(draftsAtom, drafts.filter((draft) => !lost.includes(draft)));
     const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
@@ -738,15 +148,35 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
       );
     }
   }, [page.files, registry]);
+};
 
+const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
+  const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
+  const navigate = useNavigate(key, page);
+  const registry = useContext(RegistryContext);
+  const general = useRef<HTMLTextAreaElement>(null);
+  const [layout] = useAtom(layoutAtom);
+  const narrow = useMedia(NARROW_QUERY);
+  const split = layout === "split" && !narrow;
+  useStickyBars();
+  const context = useMemo(() => ({ id, page }), [id, page]);
+
+  useEffect(() => {
+    document.title = `${page.input.target.title} · Review canvas`;
+  }, [page.input.target.title]);
+  useHash(navigate);
+  useScrollSpy(navigate);
+  useKeys(navigate);
+  useRoundChange(key, page);
+
+  /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
   const ask = (question: string) => {
     const area = general.current;
     if (area === null) return;
-    const now = area.value;
+    const now = registry.get(generalDraftAtom);
     const next = now.startsWith(question) ? now : now === "" ? question : `${question}\n\n${now}`;
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    setter?.call(area, next);
-    area.dispatchEvent(new Event("input", { bubbles: true }));
+    // Drawn at once, so the caret goes after the text the box now holds.
+    flushSync(() => registry.set(generalDraftAtom, next));
     area.scrollIntoView({ block: "center" });
     area.focus();
     area.setSelectionRange(next.length, next.length);
@@ -787,9 +217,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
 const roundNumber = Schema.decodeSync(RoundNumber);
 
 /** No round to read: what a review without one, or a first round's round before, stands for. */
-const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, Refused | RpcClientError.RpcClientError>>(
-  AsyncResult.initial(),
-);
+const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, CallError>>(AsyncResult.initial());
 
 /**
  * A round's input and digests, and the input of the round before, once the server sent them. A round that does not
@@ -825,7 +253,7 @@ const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: Re
   if (round === undefined) return <Waiting snapshot={snapshot} />;
   // A page already showing keeps showing while the next round fails to load; the reconnect reads it again.
   if (page === undefined && failure !== undefined)
-    return <Message title="This review did not load">{failureMessage(failure)}</Message>;
+    return <Message title="This review did not load">{failureText(failure)}</Message>;
   if (page === undefined) return <p className="p-8 text-muted">Loading round {round.round}…</p>;
   return <Review id={id} page={page} />;
 };
@@ -839,7 +267,7 @@ export const ReviewPage = ({ id }: { readonly id: ReviewId }) => {
     return Option.isSome(refused) && refused.value.kind === "not_found" ? (
       <Message title="No such review" />
     ) : (
-      <Message title="This review did not load">{failureMessage(result.cause)}</Message>
+      <Message title="This review did not load">{failureText(result.cause)}</Message>
     );
   }
   return <p className="p-8 text-muted">Loading the review…</p>;

@@ -6,19 +6,24 @@
  * gap opens, and the element is there to scroll to on the next frame.
  */
 import { RegistryContext } from "@effect/atom-react";
-import { useContext, useMemo } from "react";
+import { Atom } from "effect/reactivity";
+import { useContext, useEffect, useMemo, useRef } from "react";
 import { commentElementId, FINISH_ELEMENT_ID, fileElementId } from "../../review/next.ts";
+import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
-import { layoutDiff } from "./diff-model.ts";
+import { layoutDiff, nextStage } from "./diff-model.ts";
 import { parseHash } from "./places.ts";
-import { flashAtom, foldsAtom, gapAtom, seenAtom } from "./ui.ts";
-import type { PageModel } from "./view.ts";
+import { flashAtom, foldsAtom, gapAtom, reattachAtom, seenAtom } from "./ui.ts";
+import type { FileModel, PageModel } from "./view.ts";
 
-/** The block of the file at a path, if the round has the file. */
-const fileAt = (page: PageModel, path: string) => [...page.files.values()].find((model) => model.file.path === path);
+/** The block of the file at a path, if the round has the file. A path from the hash can be any text. */
+const fileAt = (page: PageModel, path: string): FileModel | undefined => {
+  const files: ReadonlyMap<string, FileModel> = page.files;
+  return files.get(path);
+};
 
 /** The file and row an element ID names, when the element is in a file's body. */
-export const placeOf = (page: PageModel, id: string): { readonly path: string; readonly row?: number } | undefined => {
+const placeOf = (page: PageModel, id: string): { readonly path: string; readonly row?: number } | undefined => {
   if (id.startsWith("files/")) return fileAt(page, id.slice(6)) === undefined ? undefined : { path: id.slice(6) };
   for (const model of page.files.values()) {
     const note = model.notes.find((item) => item.id === id);
@@ -47,16 +52,18 @@ const shown = (id: string): Promise<HTMLElement | null> =>
     look();
   });
 
-/** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
-const tour = { current: -1, steeringUntil: 0 };
-
-const steer = () => {
-  tour.steeringUntil = Date.now() + 900;
-};
+/** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
+export const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
 
 export const useNavigate = (key: RoundKey, page: PageModel) => {
   const registry = useContext(RegistryContext);
+  /** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
+  const tour = useRef({ stop: -1, steeringUntil: 0 });
   return useMemo(() => {
+    const steer = () => {
+      tour.current.steeringUntil = Date.now() + 900;
+    };
+
     const markRead = (indexes: ReadonlyArray<number>) => {
       const seen = registry.get(seenAtom(key));
       const next = [...new Set([...seen, ...indexes])].sort((a, b) => a - b);
@@ -79,7 +86,7 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
         const holds = segment.parts.some((part) => part.kind === "folded" && part.rows.some((item) => item.index === row));
         if (!holds) continue;
         const gap = gapAtom({ path: model.file.path, digest: model.digest, gap: segment.key });
-        if (registry.get(gap) === 0) registry.set(gap, segment.context === 0 ? 2 : 1);
+        if (registry.get(gap) === 0) registry.set(gap, nextStage(0, segment));
       }
     };
 
@@ -90,11 +97,12 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
 
     const showStop = async (index: number, options: { readonly keepHash?: boolean; readonly scroll?: boolean } = {}) => {
       if (page.stops.length === 0) return;
-      tour.current = Math.max(0, Math.min(index, page.stops.length - 1));
-      markRead([tour.current]);
-      if (options.keepHash !== true) history.replaceState(null, "", `#tour/${tour.current + 1}`);
+      const stop = Math.max(0, Math.min(index, page.stops.length - 1));
+      tour.current.stop = stop;
+      markRead([stop]);
+      if (options.keepHash !== true) history.replaceState(null, "", `#tour/${stop + 1}`);
       if (options.scroll === false) return;
-      const heading = await shown(`stop-${tour.current + 1}-title`);
+      const heading = await shown(`stop-${stop + 1}-title`);
       steer();
       heading?.scrollIntoView({ block: "start" });
       heading?.focus({ preventScroll: true });
@@ -104,7 +112,7 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       const article = await reveal(fileElementId(path));
       if (article === null) return;
       const stop = stopOfPath(page, path);
-      if (stop !== -1) tour.current = stop;
+      if (stop !== -1) tour.current.stop = stop;
       steer();
       article.scrollIntoView({ block: "start" });
       article.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
@@ -129,11 +137,11 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       if (target === null) return;
       if (next.kind === "file") {
         const stop = stopOfPath(page, next.path);
-        if (stop !== -1) tour.current = stop;
+        if (stop !== -1) tour.current.stop = stop;
       }
       const focus =
         next.kind === "answer"
-          ? (target.querySelector<HTMLElement>("[data-thread-actions] button[title='The answer settles the comment']") ?? target)
+          ? (target.querySelector<HTMLElement>("[data-accept]") ?? target)
           : (target.querySelector<HTMLElement>("[data-viewed]") ?? target.querySelector<HTMLElement>("h3") ?? target);
       steer();
       target.scrollIntoView({ block: next.kind === "file" ? "start" : "center" });
@@ -159,8 +167,8 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
           if (element === null) return;
           const section = element.closest<HTMLElement>("section[data-stop]");
           if (section !== null) {
-            tour.current = Number(section.dataset.stop);
-            if (element === section) markRead([tour.current]);
+            tour.current.stop = Number(section.dataset.stop);
+            if (element === section) markRead([tour.current.stop]);
           }
           if (element.id === "main") return;
           steer();
@@ -192,9 +200,9 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       const heads = page.stops.map((_, at) => document.getElementById(`stop-${at + 1}-title`));
       const passed = heads.flatMap((head, at) => (head !== null && head.getBoundingClientRect().top <= line ? [at] : []));
       if (passed.length > 0) markRead(passed);
-      if (Date.now() > tour.steeringUntil) {
+      if (Date.now() > tour.current.steeringUntil) {
         const first = heads[0];
-        tour.current =
+        tour.current.stop =
           passed.at(-1) ??
           (first !== null && first !== undefined && first.getBoundingClientRect().top < innerHeight ? 0 : -1);
       }
@@ -228,8 +236,73 @@ export const useNavigate = (key: RoundKey, page: PageModel) => {
       applyHash,
       flash,
       spy,
-      next: () => showStop(tour.current + 1),
-      previous: () => showStop(tour.current - 1),
+      next: () => showStop(tour.current.stop + 1),
+      previous: () => showStop(tour.current.stop - 1),
     };
   }, [registry, key, page]);
+};
+
+type Navigation = ReturnType<typeof useNavigate>;
+
+/** Goes where the hash says once the page first shows, and again whenever the hash changes. */
+export const useHash = (navigate: Navigation) => {
+  const applied = useRef(false);
+  useEffect(() => {
+    if (!applied.current) {
+      applied.current = true;
+      void navigate.applyHash();
+    }
+    const change = () => void navigate.applyHash();
+    addEventListener("hashchange", change);
+    return () => removeEventListener("hashchange", change);
+  }, [navigate]);
+};
+
+/** Runs the scroll-spy on scroll and resize, a frame at a time, and marks the contents row it finds. */
+export const useScrollSpy = (navigate: Navigation) => {
+  const registry = useContext(RegistryContext);
+  useEffect(() => {
+    let queued = false;
+    const run = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const spied = navigate.spy();
+        if (registry.get(spiedAtom) !== spied) registry.set(spiedAtom, spied);
+      });
+    };
+    run();
+    addEventListener("scroll", run, { passive: true });
+    addEventListener("resize", run);
+    return () => {
+      removeEventListener("scroll", run);
+      removeEventListener("resize", run);
+    };
+  }, [navigate, registry]);
+};
+
+/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
+export const useKeys = (navigate: Navigation) => {
+  const registry = useContext(RegistryContext);
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && registry.get(reattachAtom) !== undefined) {
+        registry.set(reattachAtom, undefined);
+        toast("The comment stays where it was.");
+        return;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("textarea, input, select, [contenteditable='true']") !== null) return;
+      const key = event.key.toLowerCase();
+      if (key === "j") void navigate.next();
+      else if (key === "k") void navigate.previous();
+      else if (key === "n") void navigate.goNext();
+      else return;
+      event.preventDefault();
+    };
+    document.addEventListener("keydown", keys);
+    return () => document.removeEventListener("keydown", keys);
+  }, [navigate, registry]);
 };

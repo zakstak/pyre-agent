@@ -4,9 +4,10 @@
  */
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { TOUCH_TARGET } from "./button.tsx";
 import { cn } from "./cn.ts";
+import { useMedia } from "./media.ts";
 
 const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
@@ -26,7 +27,7 @@ const savedTheme = (): Theme => {
   }
 };
 
-export const themeAtom = Atom.writable(savedTheme, (context, theme: Theme) => {
+const themeAtom = Atom.writable(savedTheme, (context, theme: Theme) => {
   try {
     if (theme === "system") localStorage.removeItem(THEME_KEY);
     else localStorage.setItem(THEME_KEY, theme);
@@ -36,16 +37,10 @@ export const themeAtom = Atom.writable(savedTheme, (context, theme: Theme) => {
   context.setSelf(theme);
 }).pipe(Atom.keepAlive);
 
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
-const subscribe = (change: () => void) => {
-  systemDark.addEventListener("change", change);
-  return () => systemDark.removeEventListener("change", change);
-};
-
 /** Applies the chosen theme to the document while the page is open. */
 export const useDocumentTheme = () => {
   const theme = useAtomValue(themeAtom);
-  const dark = useSyncExternalStore(subscribe, () => systemDark.matches);
+  const dark = useMedia("(prefers-color-scheme: dark)");
   useEffect(() => {
     document.documentElement.dataset.theme = theme === "system" ? (dark ? "dark" : "light") : theme;
   }, [theme, dark]);
@@ -65,7 +60,7 @@ export const ThemeControl = () => {
             onClick={() => setTheme(choice)}
             className={cn(
               TOUCH_TARGET,
-              "cursor-pointer px-1 underline-offset-3",
+              "px-1 underline-offset-3",
               theme === choice ? "font-semibold text-ink" : "underline hover:text-ink",
             )}
           >

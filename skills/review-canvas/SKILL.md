@@ -14,7 +14,7 @@ metadata:
 
 A review canvas is a page the reviewer walks stop by stop. The agent gathers
 the change, writes a tour of it, and publishes a round to a local server. The
-server renders the page, keeps every comment and approval, and tells the agent
+server serves the page, keeps every comment and approval, and tells the agent
 when the reviewer finishes or asks a question. The agent answers each comment
 and publishes the next round. The browser has no GitHub credentials, and the
 server never goes online.

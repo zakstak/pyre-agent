@@ -28,8 +28,6 @@ import { ReviewState } from "./state.ts";
 import { Target } from "./target.ts";
 import { Thread } from "./thread.ts";
 
-// ------------------------------------------------------------------------------------------------------------ errors
-
 /**
  * Why the server refused a request, in words the page shows. `kind` names the rule; `revision` is the review's
  * current revision when the refusal is that the page acted on an older one.
@@ -39,8 +37,6 @@ export class Refused extends Schema.TaggedError<Refused>()("Refused", {
   message: Schema.String,
   revision: Schema.optional(Revision),
 }) {}
-
-// ----------------------------------------------------------------------------------------------------------- actions
 
 const Row = integer(0, Limits.MAX_ROW);
 const Body = text(Limits.MAX_TEXT_UNITS);
@@ -98,8 +94,6 @@ export const PageAction = Schema.Union([
 });
 export type PageAction = typeof PageAction.Type;
 
-// ------------------------------------------------------------------------------------------------------------ review
-
 /** A review as an open page follows it: everything that changes, at one revision. Round inputs come separately. */
 export const ReviewSnapshot = Schema.Struct({
   state: ReviewState,
@@ -139,8 +133,6 @@ export const ImportReport = Schema.Struct({
   skipped: Schema.Array(Schema.String),
 });
 export type ImportReport = typeof ImportReport.Type;
-
-// -------------------------------------------------------------------------------------------------------------- home
 
 /** How far the reviewer is with a review's current round, as the home page counts it. */
 export const SummaryProgress = Schema.Struct({
@@ -223,8 +215,6 @@ export const HomeSnapshot = Schema.Struct({
   warnings: Schema.Array(Schema.String),
 });
 export type HomeSnapshot = typeof HomeSnapshot.Type;
-
-// --------------------------------------------------------------------------------------------------------------- rpc
 
 const reviewId = { id: ReviewId };
 

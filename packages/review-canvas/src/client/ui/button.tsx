@@ -15,7 +15,7 @@ export const TOUCH_TARGET =
  */
 export const buttonVariants = cva(
   [
-    "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap",
+    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap",
     "rounded-control border font-semibold leading-tight no-underline transition-colors",
     "disabled:cursor-not-allowed disabled:border-separator disabled:bg-surface disabled:text-muted",
     TOUCH_TARGET,
@@ -26,15 +26,12 @@ export const buttonVariants = cva(
         default: "border-line bg-raised text-ink hover:bg-subtle",
         primary: "border-action bg-action text-on-action hover:brightness-110",
         quiet: "border-transparent bg-transparent text-ink hover:bg-subtle",
-        link: "border-transparent bg-transparent px-0 font-medium text-link underline underline-offset-3 hover:decoration-2",
       },
       size: {
         default: "min-h-11 px-4 py-2 text-base",
         sm: "h-7 px-2.5 text-small font-medium",
-        icon: "size-7 p-0",
       },
     },
-    compoundVariants: [{ variant: "link", class: "h-auto px-0" }],
     defaultVariants: { variant: "default", size: "default" },
   },
 );
