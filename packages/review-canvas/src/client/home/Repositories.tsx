@@ -1,17 +1,18 @@
 /**
- * The repositories on this machine: the monitored ones with each checkout's branch and state and their reviews, then
+ * The repositories on this machine: the monitored ones, each a heading over a small table of its checkouts, then
  * those found but not monitored, then the scan form. One search field narrows them by name, path, or branch; an
  * older link's `filter` still narrows them, with no control for it.
  */
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, CircleAlert, ClipboardCheck, FileDiff, GitBranch, GitPullRequest } from "lucide-react";
 import type { FormEvent } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Checkout, CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../../schema/rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { Stat } from "../ui/stat.tsx";
 import { failureText } from "../rpc.ts";
 import {
   busyAtom,
@@ -23,7 +24,7 @@ import {
   queryAtom,
   rootAtom,
 } from "./data.ts";
-import { count, targetName, underRoot } from "../names.ts";
+import { count, underRoot } from "../names.ts";
 
 const FIELD =
   "min-h-11 w-full rounded-control border border-line bg-raised px-2.5 text-small text-ink placeholder:text-muted";
@@ -55,52 +56,44 @@ const matches = (entry: RepositoryEntry, query: string, filter: Option.Option<Fi
   );
 };
 
-/** A checkout's state in a few words, coloured only when it needs a look. */
-const CheckoutState = ({ status }: { readonly status: CheckoutStatus }) => {
-  const place = "ml-auto whitespace-nowrap text-small max-md:ml-0 max-md:whitespace-normal";
-  if (status.kind === "unavailable")
-    return (
-      <span className={cn(place, "text-danger")} title={status.message}>
-        unavailable · {status.reason}
-      </span>
-    );
-  const branch = status.branch ?? "detached";
-  return status.changed > 0 ? (
-    <span className={cn(place, "text-warning")}>
-      {branch} · {status.changed} changed
-    </span>
-  ) : (
-    <span className={cn(place, "text-muted")}>{branch} · clean</span>
-  );
-};
+/** The word a checkout row shows for why it is unavailable; the full message is its title. */
+const unavailableWord = (reason: string): string =>
+  reason === "directory missing" ? "missing" : reason === "status unreadable" ? "unreadable" : reason;
 
-const ReviewLinks = ({
+/** Review titles in one title attribute. */
+const titles = (reviews: ReadonlyArray<ReviewSummary>): string => reviews.map((item) => item.target.title).join(" · ");
+
+/** A checkout's state as icons and numbers: files changed, why it is unavailable, its reviews. Blank is clean. */
+const CheckoutStats = ({
+  status,
   reviews,
-  label,
 }: {
+  readonly status: CheckoutStatus | undefined;
   readonly reviews: ReadonlyArray<ReviewSummary>;
-  readonly label?: string;
-}) =>
-  reviews.length === 0 ? null : (
-    <ul aria-label={label} className="pl-4 text-small">
-      {reviews.map((item) => {
-        const name = targetName(item.target);
-        return (
-          <li key={item.id} data-repository-review="">
-            <a href={`/reviews/${item.id}`} className="inline-flex min-h-11 items-center text-link underline">
-              {item.target.title}
-            </a>{" "}
-            <span className="text-muted">
-              {name.kind === "pr" ? `${name.number} · ` : ""}
-              {item.closed_at !== undefined ? "closed" : item.round === undefined ? "waiting" : `round ${item.round}`}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
+}) => (
+  <span className="flex items-center justify-end gap-x-2.5">
+    {status?.kind === "ready" && status.changed > 0 ? (
+      <Stat icon={FileDiff} tone="warning" title={`${count(status.changed, "file")} changed`}>
+        {status.changed}
+      </Stat>
+    ) : null}
+    {status?.kind === "unavailable" ? (
+      <Stat icon={CircleAlert} tone="danger" title={status.message}>
+        {unavailableWord(status.reason)}
+      </Stat>
+    ) : null}
+    {reviews.length === 0 ? null : (
+      <Stat icon={ClipboardCheck} title={titles(reviews)}>
+        {reviews.length}
+      </Stat>
+    )}
+  </span>
+);
 
-/** A checkout on one line: its path under the scan directory that holds it, then its branch and state. */
+/**
+ * A checkout as a table row: its branch, its path under the scan directory that holds it, then its stats. Below
+ * `md` the path drops to a second line.
+ */
 const CheckoutLine = ({
   checkout,
   roots,
@@ -109,19 +102,38 @@ const CheckoutLine = ({
   readonly checkout: Checkout;
   readonly roots: ReadonlyArray<string>;
   readonly reviews: ReadonlyArray<ReviewSummary>;
-}) => (
-  <li data-checkout="">
-    <div className="flex items-baseline gap-x-4 max-md:flex-wrap">
-      <code className="min-w-0 flex-1 truncate text-technical text-muted" title={checkout.root}>
+}) => {
+  const { status } = checkout;
+  const branch = status?.kind === "ready" ? (status.branch ?? undefined) : undefined;
+  return (
+    <li
+      data-checkout=""
+      className="grid grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] items-center gap-x-4 md:h-7 max-md:grid-cols-[minmax(0,1fr)_auto] max-md:py-1"
+    >
+      {/* A found repository's checkouts have no status to show: the path alone, first on a narrow screen. */}
+      <span className={cn("flex min-w-0 items-center gap-1.5", status === undefined && "max-md:hidden")} title={branch}>
+        {status === undefined ? null : <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted" />}
+        {status === undefined ? null : status.kind === "unavailable" ? (
+          <span className="text-small text-muted">—</span>
+        ) : branch === undefined ? (
+          <span className="text-small text-muted">detached</span>
+        ) : (
+          <span className="truncate text-small text-ink">{branch}</span>
+        )}
+      </span>
+      <code
+        className={cn("truncate font-mono text-technical text-muted max-md:col-span-2", status !== undefined && "max-md:row-start-2")}
+        title={checkout.root}
+      >
         {underRoot(checkout.shown, roots)}
       </code>
-      {checkout.status === undefined ? null : <CheckoutState status={checkout.status} />}
-    </div>
-    <ReviewLinks
-      reviews={reviews.filter((item) => item.target.kind === "worktree" && item.target.root === checkout.root)}
-    />
-  </li>
-);
+      <CheckoutStats
+        status={status}
+        reviews={reviews.filter((item) => item.target.kind === "worktree" && item.target.root === checkout.root)}
+      />
+    </li>
+  );
+};
 
 const RepositoryRow = ({
   entry,
@@ -139,25 +151,38 @@ const RepositoryRow = ({
   readonly change: (change: MonitoringChange) => void;
 }) => {
   const root = entry.checkouts[0].root;
+  const pullRequests = entry.pull_requests.flatMap((id) => {
+    const item = byId.get(id);
+    return item === undefined ? [] : [item];
+  });
   return (
     <li
       data-repository=""
       data-monitoring={entry.monitored ? "monitored" : "discovered"}
-      className="py-3"
+      className="group py-3"
     >
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+      <div className="flex items-center gap-x-2.5">
         <h3 className="min-w-0 text-reading font-semibold wrap-anywhere" title={entry.full_name}>
           {entry.name}
           {entry.host === "" ? null : (
             <>
               {" "}
-              <code className="ml-1.5 font-normal text-muted">{entry.host}</code>
+              <span className="ml-1 text-small font-normal text-muted">{entry.host}</span>
             </>
           )}
         </h3>
+        {pullRequests.length === 0 ? null : (
+          <Stat icon={GitPullRequest} title={titles(pullRequests)} className="shrink-0">
+            {pullRequests.length}
+          </Stat>
+        )}
         <Button
           size="sm"
-          className={cn("ml-auto", entry.monitored && "text-muted hover:text-ink")}
+          className={cn(
+            "ml-auto shrink-0",
+            entry.monitored &&
+              "text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:text-ink focus-visible:opacity-100 pointer-coarse:opacity-100",
+          )}
           data-repository-action={entry.monitored ? "remove" : "accept"}
           data-id={entry.id}
           data-root={root}
@@ -170,18 +195,11 @@ const RepositoryRow = ({
           {entry.monitored ? "Remove" : "Monitor"}
         </Button>
       </div>
-      <ul className="mt-2">
+      <ul className="mt-1 pl-4">
         {entry.checkouts.map((checkout) => (
           <CheckoutLine key={checkout.root} checkout={checkout} roots={roots} reviews={reviews} />
         ))}
       </ul>
-      <ReviewLinks
-        label="Pull request reviews"
-        reviews={entry.pull_requests.flatMap((id) => {
-          const item = byId.get(id);
-          return item === undefined ? [] : [item];
-        })}
-      />
     </li>
   );
 };

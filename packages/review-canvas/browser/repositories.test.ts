@@ -82,7 +82,7 @@ test("home discovers without enrollment, monitors explicitly, keeps the filter i
   await page.getByLabel("Filter repositories").fill("");
   writeFileSync(join(alpha, "new"), "new\n");
   await page.reload();
-  await page.getByText("main · 1 changed", { exact: true }).waitFor();
+  await page.getByRole("img", { name: "1 file changed", exact: true }).waitFor();
   await page.goto(`${server.origin}/?filter=changed`);
   await loaded(page);
   assert.equal(await page.locator("[data-repository]:visible").count(), 1);
@@ -90,7 +90,7 @@ test("home discovers without enrollment, monitors explicitly, keeps the filter i
   await page.goto(`${server.origin}/?filter=unavailable`);
   await loaded(page);
   assert.equal(await page.locator("[data-repository]:visible").count(), 1);
-  await page.locator("[data-repository]:visible").getByText("unavailable · directory missing", { exact: true }).waitFor();
+  await page.locator("[data-repository]:visible").getByText("missing", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Remove github.com/owner/alpha", exact: true }).click();
   await page.getByText("0 monitored", { exact: true }).waitFor();
   await page.goto(`${server.origin}/?filter=discovered`);
@@ -156,15 +156,17 @@ test("PR reviews belong to one repository across copies, separate from forks and
   const repository = page.locator("[data-repository]").filter({ has: page.getByRole("heading", { name: "owner/alpha github.com", exact: true }) });
   assert.equal(await page.locator("[data-repository]").count(), 4);
   assert.equal(await repository.locator("[data-checkout]").count(), 2);
-  assert.equal(await page.locator("[data-repository-review]").count(), 1);
-  assert.equal(await repository.getByRole("link", { name: "Demo PR", exact: true }).getAttribute("href"), `/reviews/${agent.review}`);
+  // The repository counts its pull-request reviews, titled by them; the Reviews section opens them.
+  assert.equal(await page.locator("[data-repository] [title='Demo PR']").count(), 1);
+  assert.equal(await repository.getByRole("img", { name: "Demo PR", exact: true }).textContent(), "1");
   await repository.getByRole("button", { name: "Monitor github.com/owner/alpha", exact: true }).click();
   await page.getByText("1 monitored", { exact: true }).waitFor();
   await server.stop();
   await server.start();
   await page.reload();
   await page.getByText("1 monitored", { exact: true }).waitFor();
-  assert.equal(await page.locator("[data-repository-review]").count(), 1);
-  await repository.getByRole("link", { name: "Demo PR", exact: true }).click();
+  assert.equal(await page.locator("[data-repository] [title='Demo PR']").count(), 1);
+  assert.equal(await page.getByRole("link", { name: "Demo PR", exact: true }).getAttribute("href"), `/reviews/${agent.review}`);
+  await page.getByRole("link", { name: "Demo PR", exact: true }).click();
   await page.locator("[data-round-current]").getByText("Round 1 · open", { exact: true }).waitFor();
 });
