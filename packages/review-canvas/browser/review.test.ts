@@ -152,10 +152,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       (await toast(page).textContent()) ?? "",
       /The code under your comment changed/,
     );
-    // The second stop's excerpt is another file, folded as unchanged since round 1: commenting there, once it is
-    // open, brings the kept text along.
+    // The second stop's excerpt is another file, unchanged since round 1, which the new round's markup folds; it was
+    // open on the page, so it stays open. Commenting there brings the kept text along.
     await page.keyboard.press("j");
-    await page.locator("article.file[data-path='src/notes/format.py'] [data-fold]").click();
+    assert.equal(await page.locator("article.file[data-path='src/notes/format.py']").getAttribute("data-folded"), "false");
     await page
       .locator(`${table("src/notes/format.py")} [data-selectable] button.add-comment`)
       .first()
@@ -236,8 +236,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("#finish input[value='approve']").check();
     await page.locator("#finish textarea").fill("Ship it.");
     await page.locator("#finish button[type=submit]").click();
-    // The section shows the submission, and the strip says the agents have the turn.
+    // The section shows the submission, and the strip says the agents have the turn. Focus stays in the section.
     await page.locator("#finish .submission").waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === "finish-title");
+    assert.match((await page.locator("#finish-title").textContent()) ?? "", /^Round 2 finished · approve · /);
     assert.match((await page.locator("#finish .submission").textContent()) ?? "", /^You approved at .*: Ship it\.$/);
     assert.equal(await page.locator("#finish form").count(), 0);
     assert.match(
@@ -252,7 +254,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
-  test("the next strip names an answer, a drift, the first file not viewed, then the finish, and n goes there", async () => {
+  test("the next strip names an answer, the first file not viewed, then the finish, and n goes there; a drift is a line", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
     await agent.publish(input);
@@ -289,14 +291,18 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.press("Enter");
     await page.locator("article.thread[data-turn='resolved']").waitFor();
     await page.waitForFunction(() => /Review/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
+    // Focus lands on the thread's next move, not on the page.
+    await page.waitForFunction(() => document.activeElement?.matches("[data-action='reopen']") === true);
 
-    // A drift in this round comes before the files.
+    // A drift is one line under the rounds, its file a link; the strip has nothing to do about it and goes on.
     await agent.call("POST", "/drift", { paths: ["src/notes/store.py"] });
-    await page.waitForFunction(() => /Look at what changed/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
-    assert.equal(await text(), "→Look at what changed · 1 file changed since this round");
-    await page.locator("body").click({ position: { x: 5, y: 300 } });
-    await page.keyboard.press("n");
-    assert.equal(await focused(), "p#drift");
+    await page.locator("#drift").waitFor();
+    assert.match(
+      ((await page.locator("#drift").textContent()) ?? "").replace(/\s+/g, " "),
+      /^Changed since this round: src\/notes\/store\.py · checked .+ · the agents publish a new round with the change\.$/,
+    );
+    assert.equal(await page.locator("#drift a").getAttribute("href"), "#files/src/notes/store.py");
+    assert.equal(await text(), "→Review src/notes/store.py · stop 1 · 10 files left");
 
     // A new round replaces the drift; with every file viewed, the strip asks for the finish.
     await agent.publish(changedStore(input));
@@ -367,6 +373,12 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.press("Control+Enter");
     await page.locator(`#comment-${question}[data-turn='agent']`).waitFor();
     assert.match((await page.locator(`#comment-${question} .reply.reviewer`).textContent()) ?? "", /And on Windows\?/);
+    // The editor closes with the reply sent, and focus goes to the thread's next move.
+    await page.waitForFunction(
+      (id) => document.activeElement?.closest(`#comment-${id} .thread-actions`) != null,
+      question,
+    );
+    assert.equal(await editor.isVisible(), false);
     await page.close();
   });
 
@@ -388,10 +400,15 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       disposition: "answered",
       body: "Yes; mkstemp leaves it otherwise.",
     });
-    await page.locator("#general .reply.agent").waitFor();
+    // A question waits for the agent at once; its answer is the reviewer's turn. One chip says so each time.
     assert.equal(
-      await page.locator("#general article.thread .tag").first().textContent(),
-      "Question",
+      await page.locator("#general article.thread > .msg .tag").textContent(),
+      "Waiting for Claude Code",
+    );
+    await page.locator("#general .reply.agent").waitFor();
+    assert.deepEqual(
+      await page.locator("#general article.thread .tag").allTextContents(),
+      ["Your turn", "Answered"],
     );
     await page.close();
   });
@@ -484,8 +501,9 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const page = await open(`${agent.url}#files/long.txt`);
     const file = page.locator("article.file[data-path='long.txt']");
     const expand = file.locator("[data-expand='0']");
-    assert.equal(await expand.textContent(), "Show 8 unchanged lines");
+    assert.equal(await expand.textContent(), "Show 8 more lines");
     await expand.click();
+    assert.equal(await expand.textContent(), "Hide 8 lines");
     assert.equal(await file.locator("tbody[data-gap-lines='0'] tr").count(), 8);
     assert.equal(
       await file.locator("tbody[data-gap-lines='0']").isVisible(),
@@ -738,6 +756,248 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     )
       await page.waitForTimeout(100);
     assert.deepEqual((await agent.status()).approved, ["src/notes/cli.py"]);
+    await page.close();
+  });
+
+  test("folds hold: what the reviewer opened or closed survives a reload, and a file an answer held open stays open after Accept", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    const file = (path: string) => page.locator(`article.file[data-path='${path}']`);
+    const folded = (path: string) => file(path).getAttribute("data-folded");
+    // cli.py is listed without an excerpt, so it starts folded; store.py is excerpted, so it starts open.
+    assert.equal(await folded("src/notes/cli.py"), "true");
+    assert.equal(await folded("src/notes/store.py"), "false");
+    await file("src/notes/cli.py").locator("[data-fold]").click();
+    await file("src/notes/store.py").locator("[data-fold]").click();
+    await page.reload();
+    await file("src/notes/cli.py").waitFor();
+    assert.equal(await folded("src/notes/cli.py"), "false");
+    assert.equal(await folded("src/notes/store.py"), "true");
+    // A question on legacy.py, in the closing stop, which folds.
+    assert.equal(await folded("src/notes/legacy.py"), "true");
+    await file("src/notes/legacy.py").locator("[data-fold]").click();
+    await file("src/notes/legacy.py").locator("button.add-comment").first().focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Still needed?");
+    await page.locator(".composer-row button[data-ask]").click();
+    await file("src/notes/legacy.py").locator("article.thread").waitFor();
+    const [question] = (await agent.status()).questions;
+    await agent.answer(question, { disposition: "answered", body: "No." });
+    await page.close();
+
+    // A fresh tab: the answer holds legacy.py open, though the page would fold it.
+    const fresh = await open(agent.url);
+    const legacy = fresh.locator("article.file[data-path='src/notes/legacy.py']");
+    assert.equal(await legacy.getAttribute("data-folded"), "false");
+    await fresh.keyboard.press("n");
+    await fresh.keyboard.press("Enter");
+    await fresh.locator(`#comment-${question}[data-turn='resolved']`).waitFor();
+    // Accepting moved the strip on; the file the reviewer was reading stays open, and focus stays in the thread.
+    assert.equal(await legacy.getAttribute("data-folded"), "false");
+    await fresh.waitForFunction(() => document.activeElement?.matches("[data-action='reopen']") === true);
+    await fresh.reload();
+    await legacy.waitFor();
+    assert.equal(await legacy.getAttribute("data-folded"), "false");
+    // Marking it viewed folds it.
+    await legacy.locator("[data-action='approve']").click();
+    await fresh.waitForFunction(
+      () => document.querySelector("article.file[data-path='src/notes/legacy.py']")?.getAttribute("data-folded") === "true",
+    );
+    await fresh.close();
+  });
+
+  test("Esc in a composer a refresh rebuilt returns focus to its line", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    const plus = page.locator(`${table("src/notes/store.py")} tr[data-row='13'] button.add-comment`);
+    await plus.focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Half a thought");
+    const revision = await page.evaluate(() => document.body.dataset.revision);
+    await agent.call("POST", "/drift", { paths: ["src/notes/store.py"] });
+    await page.waitForFunction((before) => document.body.dataset.revision !== before, revision);
+    assert.equal(await page.locator(".composer-row textarea").inputValue(), "Half a thought");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".composer-row").count(), 0);
+    assert.equal(await plus.evaluate((button) => document.activeElement === button), true);
+    await page.close();
+  });
+
+  test("answers come in page order whatever their age, and a drift leaves the strip on them", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    // The older question is on the whole change, at the end of the page; the newer one is in the first stop.
+    await page.locator(".general-composer textarea").fill("Why a rename?");
+    await page.locator(".general-composer button[data-ask]").click();
+    await page.locator("#general article.thread").waitFor();
+    await page.locator(`${table("src/notes/store.py")} tr[data-row='13'] button.add-comment`).focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Lock first?");
+    await page.locator(".composer-row button[data-ask]").click();
+    await page.locator(`${table("src/notes/store.py")} article.thread`).waitFor();
+    const questions: Array<string> = (await agent.status()).questions;
+    for (const id of questions) await agent.answer(id, { disposition: "answered", body: "Because." });
+    await agent.call("POST", "/drift", { paths: ["src/notes/format.py"] });
+    await page.locator("#drift").waitFor();
+    await page.waitForFunction(() => /2 for you/.test(document.querySelector(".next-stats")?.textContent ?? ""));
+    const text = ((await page.locator("[data-next-go]").textContent()) ?? "").replace(/\s+/g, " ").trim();
+    assert.equal(text, "→Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
+    const inline = await page.locator(`${table("src/notes/store.py")} article.thread`).getAttribute("id");
+    assert.equal(await page.locator("[data-next-go]").getAttribute("data-target"), inline);
+    await page.close();
+  });
+
+  test("a plain comment is pending until the finish, and counts as neither the reviewer's nor the agents'", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator(`${table("src/notes/store.py")} tr[data-row='13'] button.add-comment`).focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Lock first.");
+    await page.keyboard.press("Control+Enter");
+    const comment = page.locator(`${table("src/notes/store.py")} article.thread`);
+    await comment.waitFor();
+    assert.equal(await comment.getAttribute("data-standing"), "pending");
+    assert.equal(await comment.locator(".tag").textContent(), "Pending");
+    assert.equal(await comment.locator(".tag").getAttribute("title"), "Sent with your review");
+    assert.equal(await page.locator(".next-stats .for-you, .next-stats .waiting").count(), 0);
+    // A question goes out at once: it waits for the agent.
+    await page.locator(".general-composer textarea").fill("Why?");
+    await page.locator(".general-composer button[data-ask]").click();
+    await page.locator("#general article.thread").waitFor();
+    await page.waitForFunction(() => /1 waiting for agents/.test(document.querySelector(".next-stats")?.textContent ?? ""));
+    // The finish carries the comment: now it waits for the agent too.
+    await page.locator("#finish button[type=submit]").click();
+    await page.locator("#finish .submission").waitFor();
+    await page.waitForFunction(() => /2 waiting for agents/.test(document.querySelector(".next-stats")?.textContent ?? ""));
+    assert.equal(await comment.locator(".tag").textContent(), "Waiting for Claude Code");
+    // After the finish, the general composer no longer explains what a comment waits for.
+    assert.equal(await page.locator(".general-composer .hint").count(), 0);
+    await page.close();
+  });
+
+  test("hidden lines at a gap are one control: the folded rows first, then the unchanged lines", async () => {
+    const input = fixtureInput();
+    const lines = Array.from({ length: 12 }, (_, at) => `l${at + 1}`);
+    input.files_complete = false;
+    input.files.push({
+      path: "gap.txt",
+      status: "modified",
+      group: "core",
+      additions: 1,
+      deletions: 1,
+      fingerprint: "3".repeat(64),
+      patch: "@@ -4,8 +4,8 @@\n l4\n l5\n l6\n l7\n l8\n-l9\n+L9\n l10\n l11\n",
+      new_content: `${lines.map((line, at) => (at === 8 ? "L9" : line)).join("\n")}\n`,
+    });
+    input.stops[0].excerpts.push({ path: "gap.txt", side: "new", start: 9, end: 9, caption: "" });
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(`${agent.url}#files/gap.txt`);
+    const gapTable = page.locator(table("gap.txt"));
+    await gapTable.waitFor();
+    // Above the hunk: three unchanged lines and the folded rows of the patch, behind one control.
+    const controls = gapTable.locator("[data-expand]");
+    const first = controls.first();
+    const folded = Number(await first.getAttribute("data-folded"));
+    const context = Number(await first.getAttribute("data-context"));
+    assert.ok(folded > 0 && context === 3, `${folded} folded, ${context} unchanged`);
+    assert.equal(await first.textContent(), `Show ${folded + context} more lines`);
+    // No two controls sit next to each other.
+    const adjacent = await gapTable.evaluate((element) =>
+      [...element.querySelectorAll("tbody.gap")].some((gap) => {
+        let next = gap.nextElementSibling;
+        while (next?.matches("tbody[hidden]")) next = next.nextElementSibling;
+        return next?.matches("tbody.gap") ?? false;
+      }),
+    );
+    assert.equal(adjacent, false);
+    await first.click();
+    assert.equal(await gapTable.locator("tbody.gap-lines.folded[data-gap='0']").isVisible(), true);
+    assert.equal(await gapTable.locator("tbody.gap-lines:not(.folded)[data-gap='0']").isVisible(), false);
+    assert.equal(await first.textContent(), "Show 3 more lines");
+    await first.click();
+    assert.equal(await gapTable.locator("tbody.gap-lines:not(.folded)[data-gap='0']").isVisible(), true);
+    assert.equal(await first.textContent(), `Hide ${folded + context} lines`);
+    await page.close();
+  });
+
+  test("a file's header sticks under the next strip while its diff is in view", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await browser.newPage({ viewport: { width: 1280, height: 420 } });
+    await page.goto(`${agent.url}#files/src/notes/store.py`);
+    const article = page.locator("article.file[data-path='src/notes/store.py']");
+    await article.waitFor();
+    await page.evaluate(() => {
+      const block = document.querySelector<HTMLElement>("article.file[data-path='src/notes/store.py']");
+      if (block !== null) window.scrollTo({ top: window.scrollY + block.getBoundingClientRect().top + 200 });
+    });
+    await page.waitForFunction(() =>
+      document.querySelector("article.file[data-path='src/notes/store.py']")?.classList.contains("is-stuck"),
+    );
+    const [head, strip, block] = await page.evaluate(() => [
+      document.querySelector("article.file[data-path='src/notes/store.py'] > .file-head")?.getBoundingClientRect().top ?? 0,
+      document.querySelector(".next")?.getBoundingClientRect().bottom ?? 0,
+      document.querySelector("article.file[data-path='src/notes/store.py']")?.getBoundingClientRect().top ?? 0,
+    ]);
+    assert.ok(Math.abs(head - strip) <= 1, `header at ${head}, strip ends at ${strip}`);
+    assert.ok(block < head, "the block scrolled under its header");
+    await page.close();
+  });
+
+  test("a narrow page shows one line-number column, and the + button sits over it", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(`${agent.url}#files/src/notes/store.py`);
+    const store = page.locator(table("src/notes/store.py"));
+    await store.waitFor();
+    const shown = (selector: string) =>
+      store.locator(selector).first().evaluate((element) => getComputedStyle(element).display !== "none");
+    // An added line shows its new number; a deleted line its old one; never both.
+    assert.equal(await shown("tr.addition .ln-new"), true);
+    assert.equal(await shown("tr.addition .ln-old"), false);
+    assert.equal(await shown("tr.deletion .ln-old"), true);
+    assert.equal(await shown("tr.deletion .ln-new"), false);
+    const row = store.locator("tr[data-row='13']");
+    const plus = row.locator("button.add-comment");
+    await plus.focus();
+    const [gutter, button, marker, number] = await row.evaluate((element) => [
+      element.querySelector("td.line-number")?.getBoundingClientRect().toJSON(),
+      element.querySelector("button.add-comment")?.getBoundingClientRect().toJSON(),
+      element.querySelector("td.marker")?.getBoundingClientRect().toJSON(),
+      element.querySelector(".ln-new")?.getBoundingClientRect().toJSON(),
+    ]);
+    assert.ok(Math.abs(button.left - gutter.left) <= 0.5 && button.right >= number.right - 0.5, "the + covers the number");
+    assert.ok(button.width >= 24 && button.height >= 24, `the + is ${button.width}×${button.height}`);
+    assert.ok(gutter.width + marker.width <= 64, `the gutters take ${gutter.width + marker.width}px`);
+    await page.close();
+  });
+
+  test("a first J from above the first stop goes to the first stop", async () => {
+    const input = fixtureInput();
+    input.summary = Array.from({ length: 30 }, (_, at) => `Line ${at + 1} of a long summary.`).join("\n");
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator("section.stop").first().waitFor();
+    assert.ok(
+      await page.evaluate(() => (document.querySelector("#stop-1 h2")?.getBoundingClientRect().top ?? 0) > window.innerHeight),
+      "stop 1 starts below the screen",
+    );
+    await page.keyboard.press("j");
+    assert.equal(await focusedStop(page), "save() becomes atomic");
+    assert.match(page.url(), /#tour\/1$/);
     await page.close();
   });
 });
