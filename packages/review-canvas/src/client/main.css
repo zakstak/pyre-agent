@@ -5,524 +5,1157 @@
 @source "../server";
 
 @layer components {
-  /* Layout: a sticky rail beside the main column on wide screens; one column below 1024px. */
-  .layout {
+  /* ------------------------------------------------------------------------------------------------ basics */
+  :root {
+    /* The sticky bars' heights; the page script measures them, so wrapped bars never overlap what follows. */
+    --topbar-height: 2.75rem;
+    --sticky-top: 7rem;
+  }
+  /* Code, paths, and technical values stay at 14px or more, wherever they sit. */
+  code,
+  kbd,
+  samp {
+    font-size: max(var(--size-technical), 0.9em);
+  }
+  kbd {
+    display: inline-block;
+    padding: 0 0.3em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  /* Links in running text are underlined; navigation rows and the strip carry their own cues. */
+  .also a,
+  .foot a,
+  .next-state a,
+  .row-reviews a,
+  .home-link,
+  .msg a,
+  .prose a {
+    text-decoration: underline;
+  }
+  .reading,
+  .prose {
+    max-width: var(--measure-reading);
+  }
+  p {
+    margin: 0;
+  }
+  .prose {
+    white-space: pre-line;
+  }
+  .prose + .prose {
+    margin-block-start: var(--space-2);
+  }
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
+  /* Headings and regions take focus only from the page script, which also scrolls them into view. */
+  [tabindex="-1"]:focus {
+    outline: none;
+  }
+  /*
+   * A compact control: its box is a 44px target, and the chip drawn inside it stays 28px tall, so dense rows keep
+   * their look. The chip is the ::before layer; the box itself has no fill or border.
+   */
+  .small-button,
+  .viewed,
+  .question,
+  .layout-switch button,
+  .button.finish-link {
+    position: relative;
+    isolation: isolate;
+    min-block-size: 2.75rem;
+    min-inline-size: 2.75rem;
+    padding: 0 0.625rem;
+    font-size: var(--size-small);
+    font-weight: 500;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    box-shadow: none;
+  }
+  .small-button::before,
+  .viewed::before,
+  .question::before,
+  .layout-switch button::before,
+  .button.finish-link::before {
+    content: "";
+    position: absolute;
+    inset: 0.5rem 0;
+    z-index: -1;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .small-button:hover,
+  .viewed:hover,
+  .question:hover,
+  .layout-switch button:hover,
+  .button.finish-link:hover {
+    background: transparent;
+  }
+  .small-button:hover::before,
+  .viewed:hover::before,
+  .question:hover::before,
+  .layout-switch button:hover::before {
+    background: var(--pyre-subtle);
+  }
+  .small-button.quiet::before {
+    background: transparent;
+    border-color: transparent;
+  }
+  .small-button.quiet:hover::before {
+    background: var(--pyre-subtle);
+  }
+  .small-button.primary,
+  .button.finish-link {
+    font-weight: 600;
+    color: var(--pyre-on-action);
+  }
+  .small-button.primary::before,
+  .button.finish-link::before {
+    background: var(--pyre-action);
+    border-color: var(--pyre-action);
+  }
+  .small-button:disabled {
+    color: var(--text-secondary);
+    background: transparent;
+  }
+  .small-button:disabled::before {
+    background: var(--bg-surface);
+    border-color: var(--separator);
+  }
+  /*
+   * A link or link-like button in a line of text: its box reaches 44px without moving the line, by padding it and
+   * taking the padding back with a negative margin.
+   */
+  .home-link,
+  .crumbs .external,
+  .drift a,
+  .also a,
+  .next-state a,
+  .foot a,
+  .import-label,
+  .theme-control .link-button,
+  .row-title {
+    display: inline-block;
+    min-inline-size: 2.75rem;
+    padding-block: max(0px, calc((2.75rem - 1lh) / 2));
+    margin-block: min(0px, calc((1lh - 2.75rem) / 2));
+  }
+  .crumbs .external,
+  .theme-control .link-button {
+    text-align: center;
+  }
+  .quiet {
+    color: var(--text-secondary);
+  }
+  .quiet:hover {
+    color: var(--text-primary);
+  }
+  .link-button {
+    min-block-size: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    background: none;
+    border: 0;
+    border-radius: 2px;
+  }
+  .link-button:hover {
+    color: var(--text-primary);
+    background: none;
+  }
+  .link-button[aria-pressed="true"] {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 600;
+    background: none;
+    box-shadow: none;
+  }
+  .stat {
+    font-family: var(--font-technical);
+    font-size: var(--size-technical);
+    white-space: nowrap;
+  }
+  .stat .added,
+  .added {
+    color: var(--status-success);
+  }
+  .stat .deleted,
+  .deleted {
+    color: var(--status-danger);
+  }
+  .hint {
+    font-size: var(--size-small);
+  }
+  textarea {
+    inline-size: 100%;
+    max-inline-size: 72ch;
+    min-block-size: 4.5rem;
+    padding: var(--space-2) 0.625rem;
+    font-size: var(--size-small);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  input[type="search"],
+  input[type="text"] {
+    min-block-size: 2.75rem;
+    padding: 0 0.625rem;
+    font-size: var(--size-small);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  /* ---------------------------------------------------------------------------------------------- top bar */
+  .topbar {
+    min-block-size: var(--topbar-height);
+    padding: 0.25rem 1.25rem;
+    gap: var(--space-1) var(--space-4);
+    background: var(--bg-surface);
+    font-size: var(--size-small);
+  }
+  .crumbs,
+  .brand {
+    display: flex;
+    flex: 1 1 12rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    min-width: 0;
+    font-weight: 400;
+  }
+  .brand-name {
+    font-size: inherit;
+    font-weight: 650;
+    line-height: inherit;
+  }
+  .home-link {
+    color: var(--text-secondary);
+  }
+  .crumbs .target {
+    font-size: var(--size-technical);
+    overflow-wrap: anywhere;
+  }
+  .crumbs .external {
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+  .topbar-actions {
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+  }
+  .button.finish-link {
+    padding: 0 var(--space-3);
+  }
+  .button.finish-link::before {
+    inset-block: 0.375rem;
+  }
+  /* The quiet "Connected" text shows while the live region is empty; the region speaks only when it is not. */
+  .connection [data-connection]:empty {
+    display: none;
+  }
+  .connection:has([data-connection]:not(:empty)) .connected {
+    display: none;
+  }
+  .connection [data-connection] {
+    color: var(--status-warning);
+    font-weight: 600;
+  }
+
+  /* ----------------------------------------------------------------------------------------- page frame */
+  .frame {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-    max-width: var(--measure-work);
+    column-gap: var(--space-6);
+    max-width: 96rem;
     margin-inline: auto;
-    padding: var(--space-5) var(--space-5) var(--space-7);
+    padding: 0 1.25rem 4rem;
   }
-  /* Narrow: the rail is a disclosure above the tour, its summary the reviewer's place and the approvals. */
-  .rail-summary {
-    padding: var(--space-2) var(--space-3);
-    background: var(--bg-surface);
-    border: 1px solid var(--separator);
-    border-radius: var(--radius);
-    cursor: pointer;
+  .frame > .head,
+  .frame > .next,
+  .frame > .foot {
+    grid-column: 1 / -1;
   }
-  .rail-disclosure[open] > .rail-summary {
-    margin-block-end: var(--space-4);
+  .main {
+    min-width: 0;
+    padding-block-start: var(--space-6);
+  }
+  .main:focus {
+    outline: none;
   }
   @media (min-width: 64rem) {
-    .layout {
-      grid-template-columns: 17rem minmax(0, 1fr);
-      gap: var(--space-6);
+    .frame[data-frame="review"] {
+      grid-template-columns: 15.5rem minmax(0, 1fr);
     }
-    .rail {
-      position: sticky;
-      inset-block-start: 4.5rem;
-      align-self: start;
-      max-block-size: calc(100vh - 5.5rem);
-      overflow-y: auto;
-      padding-inline-end: var(--space-2);
+    .frame[data-frame="review"] > .toc-pane {
+      grid-column: 1;
+      grid-row: 3;
     }
-    /* Wide: always open, so the summary has nothing to do. The page script opens it too. */
-    .rail-summary {
-      display: none;
+    .frame[data-frame="review"] > .main {
+      grid-column: 2;
     }
   }
-  /* A touch screen has no J and K to press. */
+
+  /* ---------------------------------------------------------------------------------------- title block */
+  .head {
+    padding-block-start: 1.25rem;
+    min-width: 0;
+  }
+  .head h1 {
+    margin-block-end: 0.375rem;
+    font-size: var(--size-title);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.375rem 0.875rem;
+    font-size: var(--size-small);
+    color: var(--text-secondary);
+  }
+  .meta strong {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .meta .who {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 0.375rem;
+  }
+  .dot {
+    display: inline-block;
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    background: var(--pyre-accent);
+    border-radius: 50%;
+  }
+  .rounds {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) 0.875rem;
+    margin-block-start: 0.625rem;
+    font-size: var(--size-small);
+  }
+  .round {
+    gap: 0;
+    padding: 0.125rem 0;
+    font-size: inherit;
+    font-weight: 400;
+    color: var(--text-secondary);
+    background: none;
+    border: 0;
+    border-radius: 0;
+  }
+  /* A 44px target that keeps the line as tall as its text. */
+  button.round {
+    min-block-size: 2.75rem;
+    padding-block: 0;
+    margin-block: min(0px, calc((1lh - 2.75rem) / 2));
+  }
+  button.round:hover {
+    color: var(--text-primary);
+    background: none;
+  }
+  button.round[aria-expanded="true"] {
+    color: var(--text-primary);
+  }
+  button.round::after {
+    content: " ▾";
+  }
+  button.round[aria-expanded="true"]::after {
+    content: " ▴";
+  }
+  .round.current {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-block-end: 2px solid var(--pyre-accent);
+  }
+  .round-detail {
+    max-width: var(--measure-reading);
+    margin-block-start: var(--space-3);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 3px solid var(--separator);
+  }
+  .round-detail > * + * {
+    margin-block-start: var(--space-2);
+  }
+  .incomplete {
+    margin-block-start: var(--space-2);
+  }
+  .drift {
+    margin-block-start: var(--space-2);
+    font-size: var(--size-small);
+    overflow-wrap: anywhere;
+  }
+  .drift > strong:first-child {
+    color: var(--status-warning);
+  }
+
+  /* ----------------------------------------------------------------------------------------- next strip */
+  .next {
+    position: sticky;
+    inset-block-start: var(--topbar-height);
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+    min-width: 0;
+    margin-block-start: 0.875rem;
+    padding: 0.25rem var(--space-3) 0.25rem var(--space-2);
+    font-size: var(--size-small);
+    background: var(--bg-raised);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+  }
+  .next.unstuck {
+    position: static;
+  }
+  .next-go {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.625rem;
+    min-width: 0;
+    min-block-size: 2.75rem;
+    padding: 0.25rem 0.5rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    text-decoration: none;
+    border-radius: 6px;
+  }
+  .next-go:hover {
+    background: var(--pyre-subtle);
+  }
+  .next-go code {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .next-arrow {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    font-size: 0.8125rem;
+    color: var(--pyre-on-accent);
+    background: var(--pyre-accent);
+    border-radius: 6px;
+  }
+  .next-what {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .next-why {
+    min-width: 0;
+    font-weight: 400;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .next-state {
+    padding-inline-start: var(--space-2);
+  }
+  .next-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) 0.875rem;
+    margin-inline-start: auto;
+    color: var(--text-secondary);
+  }
+  .next-stats strong {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .progress {
+    appearance: none;
+    inline-size: 7.5rem;
+    block-size: 0.375rem;
+    overflow: hidden;
+    background: var(--pyre-subtle);
+    border: 0;
+    border-radius: 3px;
+  }
+  .progress::-webkit-progress-bar {
+    background: var(--pyre-subtle);
+  }
+  .progress::-webkit-progress-value {
+    background: var(--status-success);
+    border-radius: 3px;
+  }
+  .progress::-moz-progress-bar {
+    background: var(--status-success);
+  }
+  /* A touch screen has no keys to press. */
   @media (pointer: coarse) {
     .keys-hint {
       display: none;
     }
   }
-  /* Too narrow for two halves side by side: the page shows the unified layout, so the toggle does nothing. */
   @media (width < 48rem) {
-    .layout-toggle {
+    .next .keys-hint,
+    .next .waiting,
+    .next .progress {
+      display: none;
+    }
+    .next-stats {
+      margin-inline-start: 0;
+    }
+    .next-go .next-why {
+      flex-basis: 100%;
+      padding-inline-start: 2.125rem;
+    }
+    .next-go .next-why .sep {
       display: none;
     }
   }
-  .main {
-    min-width: 0;
-  }
-  .topbar-title a {
-    text-decoration: none;
-  }
-  .topbar .chip {
-    min-block-size: 1.5rem;
-  }
 
-  /* The rail: the tour's stops, then the changed files. */
-  .rail nav + nav {
-    margin-block-start: var(--space-5);
-    padding-block-start: var(--space-4);
-    border-block-start: 1px solid var(--separator);
+  /* ------------------------------------------------------------------------------------------- contents */
+  .toc-pane {
+    min-width: 0;
+    padding-block-start: var(--space-3);
+    font-size: var(--size-technical);
   }
-  .rail-count {
+  .contents-summary {
+    min-block-size: 2.75rem;
+    padding: 0 var(--space-3);
+    font-size: var(--size-small);
+    background: var(--bg-surface);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+  }
+  .contents-disclosure[open] > .contents-summary {
     margin-block-end: var(--space-2);
   }
-  .rail-group {
-    margin-block: var(--space-3) var(--space-1);
-    font-weight: 600;
-    color: var(--text-secondary);
+  @media (min-width: 64rem) {
+    .toc-pane {
+      position: sticky;
+      inset-block-start: var(--sticky-top);
+      align-self: start;
+      max-block-size: calc(100vh - var(--sticky-top) - 1rem);
+      overflow-y: auto;
+      margin-block-start: var(--space-5);
+      padding-block-start: 0;
+      padding-inline-end: var(--space-1);
+      scrollbar-width: thin;
+    }
+    /* Wide: always open, so the summary has nothing to do. The page script opens it too. */
+    .contents-summary {
+      display: none;
+    }
   }
-  .stops,
-  .file-links {
+  .toc ol {
+    margin: 0;
     padding: 0;
     list-style: none;
   }
-  .stops li + li,
-  .file-links li + li {
-    margin-block-start: 2px;
-  }
-  .stop-link {
-    display: flex;
-    gap: var(--space-2);
-    inline-size: 100%;
-    min-block-size: 0;
-    padding: var(--space-2);
-    font-weight: 500;
-    text-align: start;
-    background: transparent;
-    border-color: transparent;
-    border-radius: var(--radius);
-  }
-  .stop-link:hover {
-    background: var(--pyre-subtle);
-  }
-  .stop-link[aria-current="step"] {
-    background: var(--pyre-sidebar-selection);
-    border-color: var(--pyre-accent);
-  }
-  .stop-bullet {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    inline-size: 1.375rem;
-    block-size: 1.375rem;
-    margin-block-start: 0.1rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-  }
-  .stop-link.seen .stop-bullet {
-    color: var(--status-success);
-    border-color: var(--status-success);
-  }
-  .stop-text {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-  }
-  .stop-title {
-    line-height: var(--leading-tight);
-  }
-  .stop-text .chip {
-    min-block-size: 1.25rem;
-    padding-block: 0;
-    font-size: 0.75rem;
-  }
-  .file-link {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-1) var(--space-2);
-    font-size: var(--size-small);
-    color: var(--text-primary);
-    text-decoration: none;
-    border-radius: var(--radius);
-  }
-  .file-link:hover {
-    background: var(--pyre-subtle);
-  }
-  .file-link-name {
-    display: grid;
-    flex: 1;
-    min-width: 0;
-  }
-  .file-link-name code {
-    overflow-wrap: anywhere;
-  }
-  .file-link-name .file-base {
-    font-size: var(--size-technical);
-    font-weight: 600;
-  }
-  .file-link-name .file-dir {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-  .file-link-meta {
-    display: inline-flex;
-    gap: var(--space-1);
-    flex: none;
-  }
-  .file-link .check {
-    color: var(--status-success);
-    font-weight: 600;
-  }
-  .open-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-inline-size: 1.25rem;
-    padding-inline: 0.3rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--status-warning);
-    background: var(--status-warning-bg);
-    border-radius: var(--radius-chip);
-  }
-
-  /* Agent prose keeps its single line breaks; it is plain text with code spans. */
-  .prose {
-    white-space: pre-line;
-  }
-  .prose code {
-    overflow-wrap: anywhere;
-    font-size: var(--size-technical);
-  }
-
-  /* Overview */
-  .overview {
-    padding-block-end: var(--space-4);
-    border-block-end: 1px solid var(--separator);
-  }
-  .summary p + p {
+  .toc-stops > li + li {
     margin-block-start: var(--space-3);
   }
-  .view-switch {
+  .toc li li + li {
+    margin-block-start: 0;
+  }
+  /*
+   * A dense list, like a diff's gutter: each row is 1.75rem apart, and the selection and hover fill a 1.5rem band in
+   * its middle.
+   */
+  .toc-stop,
+  .toc-file {
+    position: relative;
+    isolation: isolate;
+    min-block-size: 1.75rem;
+  }
+  .toc-stop::before,
+  .toc-file::before {
+    content: "";
+    position: absolute;
+    inset: calc((1.75rem - var(--target-dense)) / 2) 0;
+    z-index: -1;
+    border-radius: 5px;
+  }
+  .toc-stop {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 0.375rem 0 0;
+    font-family: var(--font-reading);
+    font-size: var(--size-technical);
+    font-weight: 600;
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 5px;
+  }
+  .toc-stop .n {
+    flex: none;
+    inline-size: 1.25rem;
+    font-family: var(--font-technical);
+    font-weight: 400;
+    text-align: end;
+    color: var(--text-secondary);
+  }
+  .toc-stop .t {
+    min-width: 0;
+  }
+  .toc-stop .c {
+    margin-inline-start: auto;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+  .toc-stop.read .n {
+    color: var(--status-success);
+  }
+  .toc-stop:hover::before,
+  .toc-file:hover::before {
+    background: var(--pyre-subtle);
+  }
+  .toc-file {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 0.375rem 0 1.5rem;
+    font-family: var(--font-technical);
+    font-size: var(--size-technical);
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 5px;
+  }
+  .toc a:focus-visible {
+    outline-offset: -2px;
+  }
+  /*
+   * A row shows `dir/name` when both fit, else the name alone, cut at its end; never part of the folder. The name
+   * comes first in a wrapping line laid out right to left and packed to the left, so the folder is the item that
+   * wraps, onto a second line the row clips.
+   */
+  .toc-name {
+    display: flex;
+    flex: 1 1 auto;
+    flex-flow: row-reverse wrap;
+    justify-content: flex-end;
+    min-width: 0;
+    max-block-size: var(--target-dense);
+    overflow: hidden;
+    line-height: var(--target-dense);
+    white-space: nowrap;
+  }
+  .toc-name .dir {
+    flex: none;
+  }
+  .toc-name .base {
+    order: -1;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .toc-name .dir,
+  .toc-file.is-viewed {
+    color: var(--text-secondary);
+  }
+  .toc-file[aria-current]::before {
+    background: var(--pyre-sidebar-selection);
+    box-shadow: inset 3px 0 var(--pyre-accent);
+  }
+  .toc-mark {
     display: inline-flex;
-    padding: 2px;
-    background: var(--bg-surface);
-    border: 1px solid var(--separator);
-    border-radius: var(--radius);
+    align-items: center;
+    gap: 0.25rem;
+    flex: none;
+    margin-inline-start: auto;
+    font-family: var(--font-reading);
   }
-  .view-switch button {
-    min-block-size: 2.25rem;
-    padding: 0 var(--space-3);
+  .toc-mark.ok {
+    color: var(--status-success);
   }
-  .view-switch button[aria-pressed="true"] {
+  .toc-mark.open {
+    color: var(--text-primary);
+  }
+  .toc-dot {
+    inline-size: 0.4375rem;
+    block-size: 0.4375rem;
+    background: var(--pyre-accent);
+    border-radius: 50%;
+  }
+  .contents-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-block-start: 0.875rem;
+    padding-block: 0.625rem var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--size-small);
+    border-block-start: 1px solid var(--separator);
+  }
+  .contents-foot > .muted {
+    margin-inline-start: auto;
+  }
+  /* Two 44px targets in one 28px outline. */
+  .layout-switch {
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+  }
+  .layout-switch::before {
+    content: "";
+    position: absolute;
+    inset: 0.5rem 0;
+    z-index: -1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .layout-switch button {
+    color: var(--text-secondary);
+  }
+  .layout-switch button::before {
+    inset: calc(0.5rem + 1px) 1px;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+  }
+  .layout-switch button[aria-pressed="true"] {
+    color: var(--text-primary);
+    background: transparent;
     box-shadow: none;
   }
-
-  /* Stops */
-  .stop {
-    max-width: 100%;
+  .layout-switch button[aria-pressed="true"]::before {
+    background: var(--pyre-subtle);
   }
-  .stop > * + * {
-    margin-block-start: var(--space-4);
+  /* Too narrow for two halves side by side: the page shows the unified layout, so the switch does nothing. */
+  @media (width < 48rem) {
+    .layout-switch {
+      display: none;
+    }
+  }
+
+  /* ------------------------------------------------------------------------------------- overview, stops */
+  .overview {
+    padding-block-end: var(--space-2);
+  }
+  .stop {
+    margin-block-start: 2.25rem;
+    scroll-margin-block-start: var(--sticky-top);
   }
   .stop-head {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-  .stop-nav .quiet {
-    min-block-size: 2.25rem;
-    padding-inline: var(--space-3);
-  }
-  .stop-nav kbd {
-    display: inline-block;
-    min-inline-size: 1.4em;
-    padding: 0 0.3em;
-    font-size: 0.8em;
-    text-align: center;
-    border: 1px solid var(--border);
-    border-block-end-width: 2px;
-    border-radius: 4px;
-  }
-  .stop h2 {
-    max-width: var(--measure-reading);
-  }
-  .stop-summary {
-    max-width: var(--measure-reading);
-  }
-  .stop-summary p + p {
-    margin-block-start: var(--space-3);
-  }
-  .attention {
-    max-width: var(--measure-reading);
-  }
-  .stop-foot {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding-block-start: var(--space-4);
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    margin-block-end: var(--space-2);
+    padding-block-start: 0.875rem;
     border-block-start: 1px solid var(--separator);
   }
-  .stop-foot .quiet {
-    text-align: start;
-  }
-
-  /* Excerpts: a figure with its caption, a slice of the diff, and the notes it carries. */
-  .excerpt {
-    background: var(--bg-surface);
-    border: 1px solid var(--separator);
-    border-radius: var(--radius-panel);
-    overflow: hidden;
-  }
-  .excerpt figcaption {
+  .stop-head > h2 {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-4);
-    padding: var(--space-2) var(--space-4);
-    font-size: var(--size-small);
-    background: var(--bg-raised);
-    border-block-end: 1px solid var(--separator);
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    min-width: 0;
+    font-size: var(--size-heading);
+    font-weight: 600;
+    scroll-margin-block-start: var(--sticky-top);
   }
-  .excerpt-path code {
-    font-size: var(--size-technical);
-  }
-  .excerpt-caption {
-    flex: 1 1 12rem;
+  .stop-number {
+    font-family: var(--font-technical);
+    font-size: 1rem;
+    font-weight: 400;
     color: var(--text-secondary);
   }
-  .excerpt .diff-scroll {
-    border-radius: 0;
+  .stop-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
-  .notes {
-    padding: var(--space-3) var(--space-4);
-    list-style: none;
-    border-block-start: 1px solid var(--separator);
+  .stop-count {
+    margin-inline-start: auto;
+    font-size: var(--size-technical);
+    font-weight: 400;
+    color: var(--text-secondary);
   }
-  .notes li {
-    display: flex;
-    gap: var(--space-2);
-    align-items: baseline;
+  .attention {
+    margin-block: var(--space-2) var(--space-3);
+    padding: 0.125rem 0 0.125rem var(--space-3);
+    font-size: 1rem;
+    border-inline-start: 3px solid var(--pyre-action);
   }
-  .notes li + li {
+  .attention > strong:first-child {
+    color: var(--pyre-action);
+  }
+  .also {
     margin-block-start: var(--space-2);
+    color: var(--text-secondary);
   }
-  .notes li:target {
-    background: var(--pyre-subtle);
-    margin-inline: calc(-1 * var(--space-2));
-    padding-inline: var(--space-2);
-    border-radius: var(--radius);
+  .questions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-block-start: 0.625rem;
   }
-  .note-marker {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
-    font-family: var(--font-reading);
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--pyre-on-accent);
-    background: var(--pyre-accent);
-    border-radius: 50%;
-    text-decoration: none;
-    vertical-align: middle;
+  .question {
+    padding: 0.375rem 0.75rem;
+    font-size: var(--size-technical);
+    font-weight: 400;
+    color: var(--pyre-accent);
+    text-align: start;
+  }
+  .question::before {
+    inset-block: 0.25rem;
+    background: transparent;
+    border-style: dashed;
+    border-radius: 999px;
+  }
+  .question .q {
+    color: var(--text-secondary);
   }
 
-  /* Files */
+  /* ----------------------------------------------------------------------------------------- file block */
+  /* The block clips to its rounded corners without becoming a scroll container, so its header can stick. */
   .file {
-    overflow: hidden;
+    margin-block: var(--space-4);
+    overflow: clip;
+    background: var(--bg-code);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+    scroll-margin-block-start: var(--sticky-top);
   }
+  .file + .file {
+    margin-block-start: var(--space-3);
+  }
+  .file[data-folded="true"] + .file[data-folded="true"] {
+    margin-block-start: var(--space-2);
+  }
+  /*
+   * One row, whatever the file has: the fold chevron at the far left, then the path, and quiet words; anything they
+   * open goes below the row.
+   */
   .file-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2) var(--space-4);
-    padding: var(--space-3) var(--space-4);
+    gap: 0 var(--space-3);
+    min-width: 0;
+    min-block-size: 2.75rem;
+    padding: 0 0.375rem 0 0.75rem;
+    font-size: var(--size-technical);
     background: var(--bg-raised);
+  }
+  .file:has(> .file-body:not([hidden]), > .file-extra:not([hidden])) > .file-head {
     border-block-end: 1px solid var(--separator);
   }
-  .file.approved .file-head {
-    box-shadow: inset 3px 0 var(--status-success);
+  /* While its diff is in view, a file's header stays under the next strip, as GitHub's does. */
+  @media (min-width: 48rem) {
+    .file[data-folded="false"] > .file-head {
+      position: sticky;
+      inset-block-start: calc(var(--sticky-top) - 0.5rem);
+      z-index: 5;
+    }
+    .file.is-stuck > .file-head {
+      box-shadow: 0 -1px var(--separator);
+    }
+    .file[data-folded="false"] tr[data-row],
+    .file[data-folded="false"] tr.note,
+    .file[data-folded="false"] .thread {
+      scroll-margin-block-start: calc(var(--sticky-top) + 2.75rem);
+    }
   }
   .file-path {
-    font-size: var(--size-technical);
-    font-weight: 600;
+    min-width: 0;
+    font-size: inherit;
+    font-weight: 400;
+    overflow-wrap: anywhere;
   }
   .file-path code {
     font-size: var(--size-technical);
   }
-  .file-head .cluster {
-    gap: var(--space-2);
+  .file-path .dir,
+  .file-caption,
+  .file-status,
+  .file-talk {
+    color: var(--text-secondary);
   }
-  .stat {
-    font-family: var(--font-technical);
+  .file-caption,
+  .file-status,
+  .file-talk {
+    min-width: 0;
     font-size: var(--size-technical);
-    font-variant-numeric: tabular-nums;
   }
-  .stat .added {
+  .file[data-folded="false"] .file-talk {
+    display: none;
+  }
+  .file-end {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0 var(--space-2);
+    margin-inline-start: auto;
+  }
+  .file-end > .stat {
+    margin-inline-end: var(--space-1);
+  }
+  /* A 24px chevron in a 44px target, its glyph lined up with the header's edge as GitHub's is. */
+  .fold-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    inline-size: 2.75rem;
+    block-size: 2.75rem;
+    margin-inline: -0.75rem -0.5rem;
+    padding: 0;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+  }
+  .fold-toggle:hover {
+    color: var(--text-primary);
+    background: transparent;
+  }
+  .fold-toggle .chevron {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    transition: transform 120ms ease;
+  }
+  .fold-toggle[aria-expanded="false"] .chevron {
+    transform: rotate(-90deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fold-toggle .chevron {
+      transition: none;
+    }
+  }
+  /* "About" and "changed since round 1": muted words with 44px targets. */
+  .file-word {
+    gap: 0;
+    min-block-size: 2.75rem;
+    min-inline-size: 2.75rem;
+    padding: 0 0.375rem;
+    font-size: var(--size-technical);
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+  }
+  .file-word:hover {
+    color: var(--text-primary);
+    background: transparent;
+    text-decoration: underline;
+  }
+  .file-word[aria-expanded="true"] {
+    color: var(--text-primary);
+  }
+  .file-word.warning,
+  .file-status.warning {
+    color: var(--status-warning);
+  }
+  .file-word[data-extra]::after {
+    content: "\00a0▾";
+  }
+  .file-word[aria-expanded="true"]::after {
+    content: "\00a0▴";
+  }
+  .viewed {
+    gap: 0.375rem;
+    font-size: var(--size-technical);
+    color: var(--text-secondary);
+  }
+  .viewed::before {
+    background: transparent;
+  }
+  .viewed[aria-pressed="true"] {
+    color: var(--status-success);
+    background: transparent;
+    box-shadow: none;
+  }
+  .viewed[aria-pressed="true"]::before {
+    border-color: color-mix(in oklab, var(--status-success) 50%, transparent);
+  }
+  .viewed .box {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+    font-size: 0.6875rem;
+    line-height: 1;
+    border: 1.5px solid currentColor;
+    border-radius: 3px;
+  }
+  /* On a closed review, Viewed is a fact, not a control. */
+  .viewed-state {
+    padding-inline: 0.375rem;
+    font-size: var(--size-technical);
+    font-weight: 500;
     color: var(--status-success);
   }
-  .stat .deleted {
-    color: var(--status-danger);
-  }
-  .approve {
-    min-block-size: 2.25rem;
-    padding-inline: var(--space-3);
-    font-size: var(--size-small);
-  }
-  .approve.approved {
-    color: var(--status-success);
-    border-color: var(--status-success);
-  }
-  .file-summary,
-  .callouts,
-  .file-detail,
-  .patch-note {
+  /* What a header control opens, above the diff: the agent's notes on the file, or what changed since the last round. */
+  .file-extra {
+    display: grid;
+    gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
+    font-family: var(--font-reading);
+    font-size: var(--size-reading);
+    background: var(--bg-surface);
+    border-block-end: 1px solid var(--separator);
   }
-  .file-summary + .callouts,
-  .callouts + .file-detail,
-  .file-summary + .file-detail {
-    padding-block-start: 0;
+  .file-extra.since {
+    padding-inline: 0;
+    padding-block-end: 0;
+    background: var(--bg-code);
   }
-  .callouts {
-    list-style: none;
-    padding-inline-start: var(--space-4);
+  .file-extra.since > p {
+    padding-inline: var(--space-4);
   }
-  .callouts li + li {
-    margin-block-start: var(--space-2);
+  .about-part > summary {
+    min-block-size: 2.75rem;
+    font-size: var(--size-small);
+    font-weight: 500;
+    color: var(--text-secondary);
   }
-  .file-detail summary {
-    min-block-size: 2.25rem;
+  .callout {
+    max-width: var(--measure-reading);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 3px solid var(--status-warning);
   }
   .trace {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-2) var(--space-4);
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
   }
-  .trace dt {
-    font-weight: 600;
+  .trace dd {
+    min-width: 0;
+    margin: 0;
+    overflow-x: auto;
   }
-  .trace pre {
-    white-space: pre-wrap;
-  }
-  .file .diff-scroll {
-    border-block-start: 1px solid var(--separator);
+  .file-body > .patch-note {
+    padding: var(--space-2) var(--space-3);
   }
   .orphans {
-    padding: var(--space-3) var(--space-4);
     border-block-start: 1px solid var(--separator);
   }
-  .orphans > * + * {
-    margin-block-start: var(--space-3);
-  }
-  .files .file + .file {
-    margin-block-start: var(--space-5);
-  }
-
-  /* A stop's file list opens into the file's panel. */
-  .file-list {
-    padding: 0;
-    list-style: none;
-  }
-  .file-list li + li {
-    margin-block-start: var(--space-2);
-  }
-  .file-disclosure {
-    border: 1px solid var(--separator);
-    border-radius: var(--radius-panel);
+  .orphan {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-3) 2.875rem;
     background: var(--bg-surface);
   }
-  .file-disclosure > summary {
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    font-weight: 500;
-  }
-  .file-disclosure > summary .file-path {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .file-disclosure > p {
-    padding: 0 var(--space-4) var(--space-2);
-  }
-  .file-disclosure-body .panel {
-    border: 0;
+  .orphan + .orphan {
     border-block-start: 1px solid var(--separator);
-    border-radius: 0;
   }
-
-  /* Questions */
-  .questions ul {
-    padding: 0;
-    list-style: none;
-  }
-  .question {
-    min-block-size: 2.25rem;
-    text-align: start;
-    font-weight: 500;
+  .orphan-quote {
+    max-block-size: 10rem;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    overflow: auto;
+    background: var(--bg-code);
     border: 1px solid var(--separator);
+    border-radius: 6px;
   }
-  .question::before {
-    content: "?";
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--pyre-accent);
-    border: 1px solid currentColor;
-    border-radius: 50%;
+  .orphan .thread {
+    padding: 0;
   }
 
-  /* Diff rows: selectable gutters, a + button that appears on hover, and a selection tint. */
-  .diff td.marker {
-    inline-size: 1%;
+  /* -------------------------------------------------------------------------------------------- diffs */
+  .diff-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    background: var(--bg-code);
+  }
+  .diff-scroll:focus-visible {
+    outline-offset: -2px;
+  }
+  .diff {
+    font-size: var(--size-technical);
+  }
+  /* One gutter cell holds both line numbers, so a narrow page can show one and keep the + button over it. */
+  .diff td.line-number {
+    position: relative;
+    min-inline-size: 0;
+    padding: 0 var(--space-1) 0 1.75rem;
+  }
+  .diff .ln-old,
+  .diff .ln-new {
+    display: inline-block;
     min-inline-size: 2.75rem;
+    padding-inline-start: var(--space-1);
+  }
+  .diff td.marker {
+    position: relative;
+    inline-size: 1%;
+    min-inline-size: 2.25rem;
     padding-inline: var(--space-1);
     text-align: end;
-    color: var(--text-secondary);
     white-space: nowrap;
+    color: var(--text-secondary);
     user-select: none;
-    position: relative;
   }
-  .diff td.marker > span {
+  .diff td.marker > span[aria-hidden] {
     display: inline-block;
     inline-size: 1em;
     text-align: center;
   }
-  .diff td.marker .note-marker {
-    position: absolute;
-    inset-inline-start: 0.2rem;
-    inset-block-start: 0.125rem;
+  .diff .note-marker {
+    display: inline-grid;
+    place-items: center;
+    min-inline-size: 1.125rem;
+    block-size: 1.125rem;
+    margin-inline-end: 0.125rem;
+    padding-inline: 0.125rem;
+    font-family: var(--font-technical);
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--pyre-accent);
+    vertical-align: 0.125rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
   }
-  .diff td.line-number:first-child {
-    position: relative;
-    padding-inline-start: 1.6rem;
+  .diff tr.addition > td:first-child,
+  .diff tr.deletion > td:first-child {
+    box-shadow: none;
   }
   .diff tr[data-selectable] td.line-number,
   .diff tr[data-selectable] td.marker {
     cursor: pointer;
   }
+  .diff tr.hunk > td {
+    color: var(--pyre-accent);
+    background: var(--bg-surface);
+  }
+  .diff tr.hunk td.source code {
+    color: var(--pyre-accent);
+  }
+  /* A 24px target, as tall as the row. */
   .diff .add-comment {
     position: absolute;
-    inset-block-start: 0.125rem;
-    inset-inline-start: 0.2rem;
+    inset-block-start: 0;
+    inset-inline-start: 0.125rem;
     min-block-size: 0;
-    inline-size: 1.25rem;
-    block-size: 1.25rem;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
     padding: 0;
+    font-family: var(--font-reading);
     font-size: 0.875rem;
+    font-weight: 700;
     line-height: 1;
     color: var(--pyre-on-accent);
     background: var(--pyre-accent);
@@ -531,241 +1164,110 @@
     opacity: 0;
   }
   .diff tr:hover .add-comment,
+  .diff td.half:hover .add-comment,
   .diff .add-comment:focus-visible {
     opacity: 1;
   }
-  .diff tr.selected > td {
+  .diff tr.selected > td,
+  .diff td.selected {
     background: var(--pyre-selection) !important;
   }
-  .diff tr.selected > td:first-child {
-    box-shadow: inset 3px 0 var(--pyre-accent);
+  .diff tr.flash > td,
+  .diff td.flash {
+    background: var(--pyre-highlight) !important;
   }
-  .diff tr.commented > td.marker::after {
-    content: "";
-    position: absolute;
-    inset-inline-end: 2px;
-    inset-block-start: 0.55rem;
-    inline-size: 0.4rem;
-    block-size: 0.4rem;
-    background: var(--status-warning);
-    border-radius: 50%;
+  .diff tr.unchanged > td {
+    color: var(--text-secondary);
   }
-  .diff tr.hunk td.source code {
-    color: var(--pyre-accent);
+  .diff tr.unchanged code {
+    color: var(--text-primary);
   }
+  /* Notes and threads under their rows: reading text on the surface, between thin rules. */
+  .diff-scroll {
+    container-type: inline-size;
+  }
+  .diff tr.note > td,
   .diff tr.thread-row > td,
   .diff tr.composer-row > td {
-    padding: var(--space-3) var(--space-4);
+    padding: 0;
     font-family: var(--font-reading);
-    font-size: var(--size-reading);
-    line-height: var(--leading-reading);
+    font-size: var(--size-small);
+    line-height: 1.45;
     white-space: normal;
     background: var(--bg-surface);
     border-block: 1px solid var(--separator);
   }
-
-  /* Threads */
-  .thread {
-    max-width: var(--measure-reading);
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-raised);
-    border: 1px solid var(--separator);
-    border-inline-start: 3px solid var(--pyre-accent);
-    border-radius: var(--radius);
+  /* What sits under a row stays as wide as the block and in view, however far the code scrolls sideways. */
+  .row-body {
+    position: sticky;
+    inset-inline-start: 0;
+    box-sizing: border-box;
+    max-inline-size: 100cqi;
+    padding: 0.375rem 0.75rem 0.5rem 2.875rem;
   }
-  .thread + .thread {
-    margin-block-start: var(--space-3);
+  .diff tr.thread-row .row-body {
+    padding-block: var(--space-2) 0.625rem;
   }
-  .thread.turn-resolved {
-    border-inline-start-color: var(--status-success);
+  .diff tr.composer-row .row-body {
+    padding-block: 0.625rem var(--space-3);
   }
-  .thread.turn-reviewer {
-    border-inline-start-color: var(--status-warning);
-  }
-  .thread-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    margin-block-end: var(--space-2);
-  }
-  .thread .meta {
-    margin: 0;
-  }
-  .thread .body {
-    white-space: pre-wrap;
-  }
-  .replies {
-    margin-block-start: var(--space-3);
-    padding: 0;
-    list-style: none;
-  }
-  .reply {
-    padding: var(--space-2) var(--space-3);
-    border-inline-start: 2px solid var(--separator);
-  }
-  .reply + .reply {
-    margin-block-start: var(--space-2);
-  }
-  .reply .meta {
-    margin-block-end: var(--space-1);
-  }
-  .reply .body {
-    white-space: pre-wrap;
-  }
-  .reply.agent {
-    border-inline-start-color: var(--pyre-accent-secondary, var(--pyre-accent));
-  }
-  .reply.reviewer {
-    border-inline-start-color: var(--status-warning);
-  }
-  .reply-form {
-    margin-block-start: var(--space-3);
-    display: grid;
-    gap: var(--space-2);
-  }
-  .reply-form textarea {
-    min-block-size: 3rem;
-  }
-  .thread-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-  .thread-actions button {
-    min-block-size: 2.25rem;
-    padding-inline: var(--space-3);
-    font-size: var(--size-small);
-  }
-
-  /* Composers */
-  .composer {
-    display: grid;
-    gap: var(--space-2);
-    max-width: var(--measure-reading);
-  }
-  .composer textarea {
-    min-block-size: 4.5rem;
-  }
-  .general-composer {
-    padding-block-start: var(--space-3);
-  }
-
-  /* The finish dialog */
-  dialog#finish {
-    inline-size: min(36rem, calc(100vw - 2rem));
-    margin: auto;
-    padding: 0;
-    color: var(--text-primary);
-  }
-  dialog#finish::backdrop {
-    background: rgb(0 0 0 / 0.55);
-  }
-  .verdicts {
-    display: grid;
-    gap: var(--space-2);
-    padding: 0;
-    border: 0;
-  }
-  .verdicts legend {
-    padding: 0;
-    margin-block-end: var(--space-1);
+  .diff tr.note strong {
     font-weight: 600;
   }
-  .verdicts label {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-1) var(--space-3);
-    align-items: center;
-    padding: var(--space-2) var(--space-3);
-    font-weight: 500;
-    border: 1px solid var(--separator);
-    border-radius: var(--radius);
-    cursor: pointer;
+  .note-letter {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    margin-inline-end: var(--space-2);
+    font-family: var(--font-technical);
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--pyre-accent);
+    vertical-align: 0.0625rem;
+    border: 1px solid currentColor;
+    border-radius: 50%;
   }
-  .verdicts label:has(input:checked) {
-    border-color: var(--pyre-accent);
-    background: var(--pyre-sidebar-selection);
+  .diff tr.note,
+  .diff tr[data-row] {
+    scroll-margin-block: var(--sticky-top) var(--space-5);
   }
-  .verdicts .hint {
-    grid-column: 2;
+  /* Folded rows and unchanged lines, behind a toggle row. */
+  .diff tr.gap-toggle > td {
+    padding: 0;
+    background: var(--bg-surface);
   }
-  .verdicts input {
-    accent-color: var(--pyre-accent);
+  .diff .expand {
+    gap: 0;
+    inline-size: 100%;
+    min-block-size: 1.75rem;
+    justify-content: flex-start;
+    padding: 0 var(--space-3) 0 2.875rem;
+    font-family: var(--font-reading);
+    font-size: var(--size-small);
+    font-weight: 400;
+    color: var(--pyre-accent);
+    border-radius: 0;
   }
-
-  /* Toast */
-  .toast {
-    position: fixed;
-    inset-block-end: var(--space-5);
-    inset-inline-start: 50%;
-    transform: translateX(-50%);
-    z-index: 50;
-    max-width: min(40rem, calc(100vw - 2rem));
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+  .diff .expand:focus-visible {
+    outline-offset: -2px;
   }
-  .toast[data-kind="danger"] {
-    border-color: var(--status-danger);
+  .diff .expand::after {
+    content: "\00a0▾";
   }
-
-  /* Lost connection: stays until the event stream opens again. */
-  .connection-lost {
-    position: fixed;
-    inset-block-start: var(--space-3);
-    inset-inline-start: 50%;
-    transform: translateX(-50%);
-    z-index: 60;
-    max-width: min(40rem, calc(100vw - 2rem));
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-raised);
-    border: 1px solid var(--status-danger);
-    border-radius: var(--radius);
+  .diff .expand[aria-expanded="true"]::after {
+    content: "\00a0▴";
   }
-  .connection-lost:empty {
-    display: none;
-  }
-
-  /* Anything the page scrolls to lands below the sticky app bar. */
-  .stop,
-  .file,
-  .notes li,
-  .thread,
-  .general,
-  .departed {
-    scroll-margin-block-start: 4.5rem;
-  }
-
-  /* Comments on files that left the round */
-  .departed {
-    padding-block-start: var(--space-4);
-    border-block-start: 1px solid var(--separator);
-  }
-  .orphan > * + * {
-    margin-block-start: var(--space-2);
-  }
-  .orphan-quote {
-    max-block-size: 12rem;
-  }
-  .orphan-quote code {
-    display: block;
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--size-technical);
-    white-space: pre;
-  }
-
   /* Split layout: each row is two halves, old and new, each with its gutter. */
   .diff.split {
     table-layout: fixed;
   }
   .diff.split td.half {
+    position: relative;
     inline-size: 50%;
     padding: 0;
     vertical-align: top;
-    position: relative;
   }
   .diff.split td.half > * {
     vertical-align: top;
@@ -773,8 +1275,8 @@
   .diff.split td.half .ln {
     display: inline-block;
     position: relative;
-    inline-size: 4.5em;
-    padding: 0 var(--space-2) 0 1.6rem;
+    inline-size: 5em;
+    padding: 0 var(--space-2) 0 1.75rem;
     text-align: end;
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
@@ -782,7 +1284,8 @@
   }
   .diff.split td.half .mk {
     display: inline-block;
-    inline-size: 1.25em;
+    position: relative;
+    min-inline-size: 1.25em;
     text-align: center;
     color: var(--text-secondary);
     user-select: none;
@@ -800,78 +1303,20 @@
   }
   .diff.split td.half.addition {
     background: var(--pyre-diff-addition);
-    box-shadow: inset 3px 0 var(--pyre-success);
   }
   .diff.split td.half.deletion {
     background: var(--pyre-diff-deletion);
-    box-shadow: inset 3px 0 var(--pyre-error);
   }
   .diff.split td.half.empty {
     background: var(--bg-surface);
   }
-  .diff.split td.half .add-comment {
-    inset-inline-start: 0.2rem;
-  }
-  .diff.split td.half:hover .add-comment {
-    opacity: 1;
-  }
   .diff.split td.half + td.half {
     border-inline-start: 1px solid var(--separator);
   }
-  .diff td.selected {
-    background: var(--pyre-selection) !important;
-  }
   .diff.split tr.hunk > td,
   .diff.split tr.meta > td {
-    padding-inline: var(--space-3);
+    padding-inline: var(--space-3) var(--space-3);
   }
-  .layout-toggle {
-    min-block-size: 2.25rem;
-    padding-inline: var(--space-3);
-  }
-
-  /* Unchanged lines between hunks, behind a toggle */
-  .diff tr.gap-toggle > td {
-    padding: 0;
-    background: var(--pyre-subtle);
-  }
-  .diff .expand {
-    inline-size: 100%;
-    min-block-size: 1.75rem;
-    justify-content: flex-start;
-    padding: 0 var(--space-3);
-    font-family: var(--font-reading);
-    font-size: var(--size-small);
-    font-weight: 500;
-    color: var(--text-primary);
-    border-radius: 0;
-  }
-  .diff tr.unchanged > td {
-    color: var(--text-secondary);
-  }
-  .diff tr.unchanged code {
-    color: var(--text-primary);
-  }
-
-  /* A file's body folds away; an approved file starts folded. */
-  .file-body > summary.file-toggle {
-    min-block-size: 2.25rem;
-    padding: 0 var(--space-4);
-    font-size: var(--size-small);
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-  .file-body > summary.file-toggle:hover {
-    color: var(--text-primary);
-  }
-  .file-body[open] > summary .when-closed,
-  .file-body:not([open]) > summary .when-open {
-    display: none;
-  }
-  .file-body[open] > summary {
-    border-block-end: 1px solid var(--separator);
-  }
-
   /* Moving a comment: the gutters invite a selection. */
   body[data-reattaching] .diff [data-gutter] {
     cursor: crosshair;
@@ -881,89 +1326,512 @@
     background: var(--status-warning);
   }
 
+  /* ------------------------------------------------------------------------------------------ threads */
+  .thread {
+    max-width: 72ch;
+    scroll-margin-block: var(--sticky-top) var(--space-5);
+  }
+  .thread + .thread {
+    margin-block-start: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--separator);
+  }
+  .msg {
+    padding-block: 0.375rem;
+    font-size: var(--size-small);
+    line-height: 1.5;
+  }
+  .replies {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .replies > .msg,
+  .msg + .replies > .msg:first-child {
+    margin-block-start: var(--space-1);
+    padding-block-start: 0.625rem;
+    border-block-start: 1px solid var(--separator);
+  }
+  .by {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.125rem var(--space-2);
+    margin-block-end: 0.125rem;
+    font-size: var(--size-technical);
+    color: var(--text-secondary);
+  }
+  .by strong {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .msg .body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .msg > p + p {
+    margin-block-start: var(--space-1);
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.4375rem;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .tag.ok {
+    color: var(--status-success);
+    border-color: color-mix(in oklab, var(--status-success) 50%, transparent);
+  }
+  .tag.turn {
+    font-weight: 600;
+    color: var(--pyre-action);
+    border-color: color-mix(in oklab, var(--pyre-action) 60%, transparent);
+  }
+  .tag.wait,
+  .tag.warn {
+    color: var(--status-warning);
+    border-color: color-mix(in oklab, var(--status-warning) 60%, transparent);
+  }
+  .thread-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+  }
+  .moved {
+    color: var(--text-secondary);
+    text-decoration: underline dotted;
+    text-underline-offset: 0.18em;
+    cursor: help;
+  }
+  .reply-editor {
+    margin-block-start: var(--space-2);
+  }
+  .composer-range {
+    margin-block-end: 0.375rem;
+  }
+
+  /* ------------------------------------------------------------------------------- end of the page */
+  .end-section {
+    margin-block-start: 2.25rem;
+    padding-block-start: 0.875rem;
+    border-block-start: 1px solid var(--separator);
+    scroll-margin-block-start: var(--sticky-top);
+  }
+  .end-section > h2 {
+    margin-block-end: 0.625rem;
+    font-size: var(--size-heading);
+    font-weight: 600;
+  }
+  .general-thread {
+    max-width: 72ch;
+    margin-block-end: 0.625rem;
+    padding: 0.375rem var(--space-3) 0.625rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+  }
+  .general-composer {
+    max-width: 72ch;
+  }
+  .departed .orphan {
+    padding-inline-start: var(--space-3);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+  }
+  .departed .orphan + .orphan {
+    margin-block-start: var(--space-3);
+  }
+  .finish-state {
+    margin-block-end: 0.625rem;
+  }
+  .verdicts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0 0 0.625rem;
+    padding: 0;
+    border: 0;
+  }
+  .verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 2.75rem;
+    padding: 0 0.875rem;
+    font-size: var(--size-small);
+    font-weight: 400;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .verdict:has(input:checked) {
+    background: var(--pyre-subtle);
+    border-color: var(--pyre-accent);
+  }
+  .verdict input {
+    margin: 0;
+    accent-color: var(--pyre-accent);
+  }
+  .finish .primary {
+    min-block-size: 2.75rem;
+    margin-block-start: var(--space-2);
+    padding: 0 var(--space-4);
+    font-size: var(--size-small);
+  }
+  .submission {
+    white-space: pre-wrap;
+  }
+
+  /* --------------------------------------------------------------------------------------------- footer */
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) 1.125rem;
+    margin-block-start: 2.5rem;
+    padding-block-start: var(--space-3);
+    font-size: 0.8125rem;
+    border-block-start: 1px solid var(--separator);
+  }
+  .foot a {
+    color: inherit;
+  }
+  .review-id {
+    margin-inline-start: auto;
+    overflow-wrap: anywhere;
+  }
   .import-label {
-    color: var(--link);
+    font-weight: 400;
     text-decoration: underline;
     text-underline-offset: 0.18em;
     cursor: pointer;
-    font-weight: 400;
   }
   .import-label:focus-within {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
-  .drift code {
-    font-size: var(--size-technical);
+  .waiting-line {
+    margin-block-start: var(--space-4);
   }
 
-  /* Review list */
-  .repository-heading {
-    align-items: center;
+  /* ---------------------------------------------------------------------------------------------- toast */
+  .toast {
+    position: fixed;
+    inset-block-end: var(--space-5);
+    inset-inline-start: 50%;
+    z-index: 50;
+    max-width: min(40rem, calc(100vw - 2rem));
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--size-small);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transform: translateX(-50%);
   }
-  .repository-filters {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(12rem, auto);
-    gap: var(--space-4);
+  .toast[data-kind="danger"] {
+    border-color: var(--status-danger);
   }
-  .repository-filters label,
-  .repository-field,
-  .repository-scan label {
-    display: grid;
-    gap: var(--space-2);
+
+  /* ------------------------------------------------------------------------------------------- home page */
+  .home-main {
+    max-width: 76rem;
+    margin-inline: auto;
+    padding: 2.5rem 1.25rem 3rem;
   }
-  .repository-body,
-  .repository-scan {
+  .home-main:focus {
+    outline: none;
+  }
+  .home-foot {
+    max-width: 76rem;
+    margin: 0 auto 2rem;
+    padding-inline: 1.25rem;
+    border: 0;
+  }
+  .home-section + .home-section {
+    margin-block-start: 2.25rem;
+  }
+  .section-head {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) 0.75rem;
+    margin-block-end: var(--space-3);
   }
-  .repository-info,
-  .repository-scan label {
-    min-inline-size: 0;
-    flex: 1;
+  .section-head h2 {
+    font-size: var(--size-heading);
+    font-weight: 600;
   }
-  .repository-body > button {
-    flex: none;
+  .section-head > .muted {
+    font-size: var(--size-small);
   }
-  .repository-path {
-    overflow-wrap: anywhere;
+  .found-head {
+    margin-block-start: var(--space-5);
   }
-  .repository-card h3 {
-    font-size: var(--size-subheading);
-    overflow-wrap: anywhere;
+  .search {
+    flex: 0 1 19rem;
+    min-width: 0;
+    margin-inline-start: auto;
+    font-weight: 400;
   }
-  .repository-copies > ul {
-    padding-block-start: var(--space-3);
+  .search input {
+    inline-size: 100%;
   }
-  .checkout + .checkout {
-    padding-block-start: var(--space-3);
+  .rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    background: var(--bg-surface);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+  }
+  .rows > li + li {
     border-block-start: 1px solid var(--separator);
   }
-  .repository-discovery > div {
-    padding: var(--space-4);
+  .review-row {
+    display: grid;
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    gap: 0.125rem var(--space-3);
+    padding: 0.75rem 0.875rem;
   }
-  @media (width < 40rem) {
-    .repository-filters {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .repository-body,
-    .repository-scan {
-      align-items: stretch;
-      flex-direction: column;
-    }
-    .repository-scan label {
-      inline-size: 100%;
-    }
+  .status-dot {
+    align-self: start;
+    inline-size: 0.625rem;
+    block-size: 0.625rem;
+    margin-block-start: 0.5rem;
+    border-radius: 50%;
   }
-  .review-list {
+  .status-dot.yours {
+    background: var(--pyre-action);
+  }
+  .status-dot.agents {
+    border: 2px solid var(--text-secondary);
+  }
+  .status-dot.closed {
+    border: 2px dashed var(--text-secondary);
+  }
+  .row-main {
+    min-width: 0;
+  }
+  .row-title,
+  .head h1 {
+    hyphens: auto;
+  }
+  .row-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .row-title:hover {
+    text-decoration: underline;
+  }
+  .review-row.closed .row-title {
+    color: var(--text-secondary);
+  }
+  .row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.625rem;
+    font-size: var(--size-small);
+    color: var(--text-secondary);
+  }
+  .row-meta .target {
+    overflow-wrap: anywhere;
+  }
+  .row-side {
+    text-align: end;
+    font-size: var(--size-small);
+  }
+  .row-need {
+    font-weight: 600;
+  }
+  .row-need.yours {
+    color: var(--pyre-action);
+  }
+  .row-when {
+    color: var(--text-secondary);
+  }
+  .repository {
+    padding: 0.75rem 0.875rem;
+  }
+  .repository-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) 0.625rem;
+  }
+  .repository-name {
+    min-width: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .repository-host {
+    margin-inline-start: 0.375rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+  .repository-head > button {
+    margin-inline-start: auto;
+  }
+  .repository-head > button:not(.quiet) {
+    padding: 0 var(--space-3);
+  }
+  .checkouts {
+    margin: var(--space-2) 0 0;
     padding: 0;
     list-style: none;
   }
-  .review-card h2 {
-    font-size: var(--size-subheading);
+  .checkout-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-4);
   }
-  .review-card.closed h2 a {
+  .checkout-path {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .checkout-state {
+    margin-inline-start: auto;
+    font-size: var(--size-small);
     color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .checkout-state.warning {
+    color: var(--status-warning);
+  }
+  .checkout-state.danger {
+    color: var(--status-danger);
+  }
+  .row-reviews {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    list-style: none;
+    font-size: var(--size-small);
+  }
+  .row-reviews > li + li {
+    margin-block-start: 0;
+  }
+  .row-reviews a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
+  }
+  .repository-error {
+    margin-block-end: var(--space-2);
+    color: var(--status-danger);
+  }
+  .scan {
+    margin-block-start: var(--space-4);
+  }
+  .scan > summary {
+    font-weight: 400;
+    flex-wrap: wrap;
+  }
+  .scan > summary code {
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .scan-body {
+    display: grid;
+    gap: var(--space-3);
+    padding-block: var(--space-2);
+  }
+  .repository-scan {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: var(--space-2);
+  }
+  .repository-scan .field {
+    flex: 1 1 18rem;
+    min-width: 0;
+    font-weight: 400;
+    font-size: var(--size-small);
+  }
+  .repository-scan button {
+    min-block-size: 2.75rem;
+  }
+
+  /* --------------------------------------------------------------------------------------- narrow pages */
+  @media (width < 48rem) {
+    .topbar {
+      padding-inline: 1rem;
+    }
+    .frame {
+      padding-inline: 1rem;
+    }
+    .home-main,
+    .home-foot {
+      padding-inline: 1rem;
+    }
+    .review-row {
+      grid-template-columns: 1.25rem minmax(0, 1fr);
+    }
+    .row-side {
+      grid-column: 2;
+      text-align: start;
+    }
+    .checkout-state {
+      margin-inline-start: 0;
+      white-space: normal;
+    }
+    /* File headers put the Viewed button on a line of its own. */
+    .file-end {
+      flex-basis: 100%;
+      justify-content: flex-start;
+      margin-inline-start: 0;
+    }
+    .row-body,
+    .orphan {
+      padding-inline-start: var(--space-3);
+    }
+    /* Narrow diffs: one line number (the new line, or the old one on a deleted line), with the + over it. */
+    .diff td.line-number {
+      padding-inline: 0 0.125rem;
+    }
+    .diff .ln-old,
+    .diff tr.deletion .ln-new {
+      display: none;
+    }
+    .diff tr.deletion .ln-old {
+      display: inline-block;
+    }
+    .diff .ln-old,
+    .diff .ln-new {
+      min-inline-size: 2ch;
+      padding-inline-start: 0;
+    }
+    .diff .add-comment {
+      inset-inline-start: 0;
+    }
+    .diff td.marker {
+      min-inline-size: 1ch;
+      padding-inline: 0;
+      text-align: center;
+    }
+    .diff td.marker > span[aria-hidden] {
+      inline-size: 1ch;
+    }
+    /* The note's own row under the line still shows its letter. */
+    .diff td.marker > span.note-marker[aria-hidden] {
+      display: none;
+    }
+    .diff .source {
+      padding-inline: 0.25rem var(--space-3);
+    }
+  }
+  @media (max-width: 23.75rem) {
+    .frame,
+    .home-main,
+    .home-foot {
+      padding-inline: clamp(0.375rem, calc(100vw - 10em), 1rem);
+    }
   }
 }

@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
 import { html } from "./html.ts";
-import { inline } from "./pages/review.ts";
+import { inline } from "./pages/prose.ts";
 import { activityLayer, storeLayer } from "./services.ts";
 import { gitEnvironment } from "../collector/git.ts";
 import { identifyRepository } from "./repositories.ts";
@@ -124,21 +124,20 @@ test("discovery proposes repos without adding them, and only same-origin accepta
     });
     const discovered = await get(port, "/");
     assert.match(discovered.body, /0 monitored/);
-    assert.match(discovered.body, /1 discovered/);
-    assert.match(discovered.body, /Add to monitoring/);
+    assert.match(discovered.body, /Found, not monitored/);
+    assert.match(discovered.body, />Monitor</);
     assert.equal((await act("accept", root, "https://evil.example")).status, 403);
     assert.equal((await act("accept", join(root, "subdir"))).status, 400);
     assert.match((await get(port, "/")).body, /0 monitored/);
     assert.equal((await act("accept", root)).status, 200);
     const monitored = await get(port, "/");
     assert.match(monitored.body, /1 monitored/);
-    assert.match(monitored.body, /0 discovered/);
+    assert.doesNotMatch(monitored.body, /Found, not monitored/);
     assert.match(monitored.body, /data-monitoring="monitored"/);
-    assert.match(monitored.body, />main<\/span>/);
-    assert.match(monitored.body, />Clean<\/span>/);
+    assert.match(monitored.body, />main · clean<\/span>/);
     assert.equal((await act("ignore", root)).status, 400);
     rmSync(root, { recursive: true });
-    assert.match((await get(port, "/")).body, />Unavailable<\/span>/);
+    assert.match((await get(port, "/")).body, />unavailable · directory missing<\/span>/);
     assert.equal((await act("remove", root)).status, 200);
     assert.match((await get(port, "/")).body, /0 monitored/);
   }, [directory]);
@@ -228,7 +227,10 @@ test("html escapes interpolations unless they are markup", () => {
     html`<ul>${["a", "b"].map((item) => html`<li>${item}</li>`)}</ul>`.value,
     "<ul><li>a</li><li>b</li></ul>",
   );
-  assert.equal(html`${null}${undefined}${false}${0}`.value, "0");
+  assert.equal(html`${null}${undefined}${0}`.value, "0");
+  // A boolean has no text of its own, so the template refuses it.
+  // @ts-expect-error: a boolean is not an interpolation.
+  html`<button aria-pressed="${false}"></button>`;
 });
 
 test("agent prose shows backtick spans as code, and everything else as escaped text", () => {

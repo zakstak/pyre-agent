@@ -50,18 +50,22 @@ import {
   addInlineComment,
   agentAnswer,
   approve,
+  approvalHolds,
   carriedApprovals,
   currentRound,
+  currentSubmission,
   publishRound,
   reattach,
   reportDrift,
   reviewerReply,
   type ReviewState,
+  turnOf,
   type Round,
   submit,
   unapprove,
 } from "../review/state.ts";
 import { tourView } from "../review/tour.ts";
+import { type Progress, progress } from "../review/progress.ts";
 import {
   type ImportReport,
   importFeedback,
@@ -133,6 +137,16 @@ export interface ReviewSummary {
   readonly files: number | undefined;
   readonly submitted: boolean;
   readonly threads: ReadonlyArray<Thread>;
+  /** The review this one replaced with a fresh start, if any. */
+  readonly carry_from: ReviewId | undefined;
+  /** When the current round was published. */
+  readonly published_at: Timestamp | undefined;
+  /** The verdict the reviewer finished the current round with. */
+  readonly verdict: Verdict | undefined;
+  /** How far the reviewer is with the current round, as the review page counts it. */
+  readonly progress: Omit<Progress, "viewed"> & { readonly viewed: number } | undefined;
+  /** Files an agent found changed since the current round. */
+  readonly drift: number | undefined;
 }
 
 /** A review with everything a page or an agent reads: its state, threads, and the current round's input. */
@@ -289,6 +303,8 @@ export class Store {
   readonly #listeners = new Set<ChangeListener>();
   /** Changes made by the open transaction, announced only once it commits. */
   #pending: Array<readonly [ReviewId, Revision]> = [];
+  /** Each review's last progress count, by the round input and revision it counted. */
+  readonly #progressCache = new Map<string, { readonly key: string; readonly progress: ReviewSummary["progress"] }>();
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
@@ -464,6 +480,29 @@ export class Store {
     return this.#input(id, round);
   }
 
+  /**
+   * A review's progress for the list page. A round's input holds whole patches and file texts, so it is read and
+   * decoded only when the review changed since the last count.
+   */
+  #progress(row: ReviewRow, state: ReviewState, round: Round): ReviewSummary["progress"] {
+    const key = `${round.input_sha256}:${row.revision}`;
+    const known = this.#progressCache.get(row.id);
+    if (known?.key === key) return known.progress;
+    const input = this.#input(row.id, round.round);
+    const counts = input === undefined ? undefined : progress(state, input);
+    const result = counts === undefined ? undefined : { ...counts, viewed: counts.viewed.size };
+    this.#progressCache.set(row.id, { key, progress: result });
+    return result;
+  }
+
+  /** The review that replaced this one with a fresh start, if any. */
+  replacedBy(id: string): ReviewId | undefined {
+    const row = this.#db
+      .prepare("SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1")
+      .get(id) as { id: string } | undefined;
+    return row?.id as ReviewId | undefined;
+  }
+
   reviews(): ReadonlyArray<ReviewSummary> {
     const rows = this.#db
       .prepare("SELECT * FROM reviews ORDER BY created_at DESC, id")
@@ -491,6 +530,14 @@ export class Store {
           round !== undefined &&
           state.submissions.some((item) => item.round === round.round),
         threads: this.#threads(row.id),
+        carry_from: state.carry_from,
+        published_at: round?.published_at,
+        verdict: currentSubmission(state)?.verdict,
+        progress: round === undefined || state.closed_at !== undefined ? undefined : this.#progress(row, state, round),
+        drift:
+          state.drift !== undefined && state.drift.round === round?.round
+            ? state.drift.paths.length
+            : undefined,
       };
     });
   }

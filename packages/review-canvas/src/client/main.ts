@@ -15,17 +15,17 @@ import {
   installComments,
   replyDrafts,
   restoreComposers,
-  restoreGaps,
   restoreGeneral,
   restoreReplyDrafts,
 } from "./comments.ts";
+import { openFiles, restoreFolds, restoreGaps } from "./folds.ts";
 import {
   LAYOUT_COOKIE,
   NARROW_HEADER,
   NARROW_QUERY,
 } from "../review/layout.ts";
 import { retryDelay } from "./revisions.ts";
-import { applyHash, installTour, syncRail } from "./tour.ts";
+import { afterRefresh, installTour } from "./tour.ts";
 import { installRepositories } from "./repositories.ts";
 
 /** A page too narrow for two halves side by side, which shows the unified layout whatever the cookie says. */
@@ -33,45 +33,132 @@ const narrow = matchMedia(NARROW_QUERY);
 
 const review = document.body.dataset.review;
 
-/** Times as the reader's clock shows them. The server writes UTC. */
+/** Times as the reader's clock shows them: the time alone today, with the date otherwise. The server writes UTC. */
 const localizeTimes = () => {
-  const format = new Intl.DateTimeFormat(undefined, {
+  const now = new Date();
+  const clock = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+  const day = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const full = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
   for (const time of document.querySelectorAll<HTMLTimeElement>(
     "time[datetime]",
   )) {
-    const at = Date.parse(time.dateTime);
-    if (Number.isFinite(at)) time.textContent = format.format(at);
+    const at = new Date(time.dateTime);
+    if (!Number.isFinite(at.getTime())) continue;
+    const format =
+      at.toDateString() === now.toDateString()
+        ? clock
+        : at.getFullYear() === now.getFullYear()
+          ? day
+          : full;
+    time.textContent = format.format(at);
+    time.title = full.format(at);
   }
 };
 
-/** The finish dialog a refresh brought while the old one was open. */
-let deferredDialog: Element | undefined;
+/**
+ * The theme, chosen in the footer: the system's, light, or dark. The shared style's script applies a saved choice
+ * when the page loads; this keeps the same storage and attribute.
+ */
+const THEME_KEY = "internal-visual-style-theme";
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
 
-/** The finish dialog is looked up on each use: a refresh replaces it. */
-const installFinish = () => {
-  const dialog = () => document.querySelector<HTMLDialogElement>("#finish");
-  // A dialog's close event does not bubble, so listen while it travels down.
-  document.addEventListener(
-    "close",
-    (event) => {
-      if (
-        event.target instanceof HTMLDialogElement &&
-        event.target.id === "finish" &&
-        deferredDialog !== undefined
-      ) {
-        event.target.replaceWith(deferredDialog);
-        deferredDialog = undefined;
-      }
-    },
-    true,
-  );
+const themeChoice = (): "system" | "light" | "dark" => {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === "light" || saved === "dark" ? saved : "system";
+  } catch {
+    return "system";
+  }
+};
+
+const syncTheme = () => {
+  const choice = themeChoice();
+  document.documentElement.dataset.theme =
+    choice === "system" ? (systemDark.matches ? "dark" : "light") : choice;
+  for (const button of document.querySelectorAll<HTMLElement>(
+    "[data-theme-choice]",
+  ))
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.themeChoice === choice),
+    );
+};
+
+const installTheme = () => {
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest("[data-open-finish]")) dialog()?.showModal();
-    else if (target?.closest("[data-close-finish]")) dialog()?.close();
+    const button = target?.closest<HTMLElement>("[data-theme-choice]");
+    if (button == null) return;
+    try {
+      if (button.dataset.themeChoice === "system")
+        localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, button.dataset.themeChoice ?? "");
+    } catch {
+      /* The choice holds for this page. */
+    }
+    syncTheme();
+  });
+  systemDark.addEventListener("change", syncTheme);
+  syncTheme();
+};
+
+/**
+ * A finish section a refresh brought while the reviewer was in the old one. The old one stays, so the verdict covers
+ * the round the reviewer was reading; the newer one takes its place once focus leaves it or the server refuses it.
+ */
+let deferredFinish: HTMLElement | undefined;
+
+const finishSection = () => document.querySelector<HTMLElement>("#finish");
+
+/** Swaps in the newer finish section, carrying over the verdict and summary the reviewer chose. */
+const catchUpFinish = () => {
+  const old = finishSection();
+  const fresh = deferredFinish;
+  deferredFinish = undefined;
+  if (old === null || fresh === undefined) return;
+  const verdict = old.querySelector<HTMLInputElement>(
+    "input[name='verdict']:checked",
+  )?.value;
+  const body = old.querySelector<HTMLTextAreaElement>("textarea")?.value ?? "";
+  const focused = old.contains(document.activeElement);
+  old.replaceWith(fresh);
+  if (verdict !== undefined) {
+    const input = fresh.querySelector<HTMLInputElement>(
+      `input[name='verdict'][value='${CSS.escape(verdict)}']`,
+    );
+    if (input !== null) input.checked = true;
+  }
+  const textarea = fresh.querySelector<HTMLTextAreaElement>("textarea");
+  if (textarea !== null) textarea.value = body;
+  if (focused)
+    (
+      fresh.querySelector<HTMLElement>("input[name='verdict']:checked") ??
+      fresh.querySelector<HTMLElement>("h2")
+    )?.focus();
+  localizeTimes();
+};
+
+const installFinish = () => {
+  document.addEventListener("focusout", (event) => {
+    const finish = finishSection();
+    if (deferredFinish === undefined || finish === null) return;
+    const next =
+      event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (
+      event.target instanceof Node &&
+      finish.contains(event.target) &&
+      next !== null &&
+      !finish.contains(next)
+    )
+      queueMicrotask(catchUpFinish);
   });
   document.addEventListener("submit", (event) => {
     const form = event.target instanceof HTMLFormElement ? event.target : null;
@@ -80,42 +167,125 @@ const installFinish = () => {
     const data = new FormData(form);
     void tryAct({
       kind: "submit",
-      // The round the dialog was opened on: a verdict never covers a round the reviewer has not read.
+      // The round the section was rendered for: a verdict never covers a round the reviewer has not read.
       round: Number(form.dataset.round),
       verdict: String(data.get("verdict") ?? "comment"),
       body: String(data.get("body") ?? ""),
     }).then((done) => {
       if (done) {
-        dialog()?.close();
         toast("Review finished. The agents have the turn.");
-      }
+        // The form goes when the refresh shows the finish; its heading keeps the reviewer in the section.
+        finishSection()?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+      } else catchUpFinish();
     });
   });
 };
 
-const installThreadFilter = () => {
-  const select = document.querySelector<HTMLSelectElement>(
-    "[data-thread-filter]",
-  );
-  if (select === null) return;
-  const apply = () => {
-    const chosen = select.value;
-    for (const reply of document.querySelectorAll<HTMLElement>(
-      ".reply.agent[data-thread]",
-    ))
-      reply.hidden = chosen !== "" && reply.dataset.thread !== chosen;
-  };
-  select.addEventListener("change", apply);
-  apply();
-};
+/** Elements a reviewer can be focused on. */
+const FOCUSABLE = "a[href], button, input, textarea, select, summary, [tabindex]";
+
+/** Attributes that name a control better than its place among its neighbours. */
+const NAMING = [
+  "data-action",
+  "data-path",
+  "data-reply",
+  "data-reply-open",
+  "data-fold",
+  "data-layout",
+  "data-theme-choice",
+  "data-next-go",
+  "data-stop-link",
+  "data-toc-file",
+];
 
 /**
- * Replaces the page's content with the server's current rendering, keeping what the reviewer was doing: the view
- * and stop in the hash, open disclosures, drafts, and the scroll position.
+ * What the reviewer is focused on, as a refresh can find it again: an ID, or a control inside an element with one,
+ * and the elements with IDs around it, outermost last, for when the control itself is gone.
  */
+interface FocusKey {
+  readonly id: string;
+  readonly match?: string;
+  readonly index?: number;
+  readonly around: ReadonlyArray<string>;
+}
+
+const idsAround = (element: Element): ReadonlyArray<string> => {
+  const ids: Array<string> = [];
+  for (let at = element.parentElement?.closest("[id]"); at != null; at = at.parentElement?.closest("[id]"))
+    ids.push(at.id);
+  return ids;
+};
+
+const focusKey = (): FocusKey | undefined => {
+  const element = document.activeElement;
+  if (!(element instanceof HTMLElement) || element === document.body)
+    return undefined;
+  const around = idsAround(element);
+  if (element.id !== "") return { id: element.id, around };
+  const anchor = element.parentElement?.closest<HTMLElement>("[id]");
+  if (anchor == null) return undefined;
+  const match = NAMING.filter((name) => element.hasAttribute(name))
+    .map((name) => `[${name}="${CSS.escape(element.getAttribute(name) ?? "")}"]`)
+    .join("");
+  return {
+    id: anchor.id,
+    match,
+    index: [...anchor.querySelectorAll(FOCUSABLE)].indexOf(element),
+    around,
+  };
+};
+
+const shown = (element: Element) => element.closest("[hidden]") === null;
+
+/**
+ * Where focus goes when what had it is gone or hidden, as after Accept, a sent reply, Withdraw, Reopen, or a finish:
+ * a thread's next action, or the thread itself; a section's heading; or the element, when it takes focus.
+ */
+const focusWithin = (container: HTMLElement): HTMLElement | null => {
+  if (container.matches("article.thread"))
+    return (
+      [...container.querySelectorAll<HTMLElement>(".thread-actions button")].find(shown) ?? container
+    );
+  if (container.hasAttribute("tabindex")) return container;
+  return container.querySelector<HTMLElement>(":scope > h2[tabindex], :scope > .stop-head > h2[tabindex]");
+};
+
+/** Focuses an element after a refresh, or else the nearest thing around it that the reviewer can act on. */
+const restoreFocus = (key: FocusKey | undefined) => {
+  if (key === undefined) return;
+  const anchor = document.getElementById(key.id);
+  const found =
+    anchor === null
+      ? null
+      : key.index === undefined
+        ? anchor
+        : ((key.match === undefined || key.match === ""
+            ? null
+            : anchor.querySelector<HTMLElement>(key.match)) ??
+          (key.match === undefined || key.match === ""
+            ? (anchor.querySelectorAll<HTMLElement>(FOCUSABLE)[key.index] ?? null)
+            : null));
+  if (found !== null && shown(found)) {
+    found.focus({ preventScroll: true });
+    if (document.activeElement === found) return;
+  }
+  for (const id of [key.id, ...key.around]) {
+    const container = document.getElementById(id);
+    if (container === null || !shown(container)) continue;
+    const target = focusWithin(container);
+    if (target === null) continue;
+    target.focus({ preventScroll: true });
+    if (document.activeElement === target) return;
+  }
+};
+
 /** Set when the page needs the server's markup even at the same revision, as after a layout change. */
 let redraw = false;
 
+/**
+ * Replaces the page's content with the server's current rendering, keeping what the reviewer was doing: drafts,
+ * folds and open disclosures, a finish in progress, the scroll position, and focus.
+ */
 const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   const force = redraw;
   redraw = false;
@@ -137,11 +307,26 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   if (nextRevision < rendered() || (nextRevision === rendered() && !force))
     return "current";
   const previousRound = document.body.dataset.round;
+  const frame = document.querySelector<HTMLElement>(".frame");
+  const freshFrame = fresh.querySelector<HTMLElement>(".frame");
+  // A review that got its first round is a page of another kind; load it whole.
+  if (
+    frame === null ||
+    freshFrame === null ||
+    frame.dataset.frame !== freshFrame.dataset.frame
+  ) {
+    location.reload();
+    return "updated";
+  }
   const drafts = composerDrafts();
   const general = generalDraft();
   const replies = replyDrafts();
-  const open = new Set(
-    [...document.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+  const disclosures = new Set(
+    [
+      ...document.querySelectorAll<HTMLDetailsElement>(
+        "details[open]:not(.contents-disclosure)",
+      ),
+    ].map(
       (details) =>
         details.id ||
         details.querySelector("summary")?.textContent?.trim() ||
@@ -149,34 +334,31 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
     ),
   );
   const scrollY = window.scrollY;
-  const focused =
-    document.activeElement instanceof HTMLElement
-      ? document.activeElement.id
-      : "";
-  const layout = document.querySelector(".layout");
-  const freshLayout = fresh.querySelector(".layout");
-  const dialog = document.querySelector("#finish");
-  const freshDialog = fresh.querySelector("#finish");
-  if (layout === null || freshLayout === null) {
-    location.reload();
-    return "updated";
-  }
-  layout.replaceWith(freshLayout);
-  // An open dialog keeps the round the reviewer is finishing; the newer one takes its place once it closes.
-  if (dialog instanceof HTMLDialogElement && dialog.open)
-    deferredDialog = freshDialog ?? undefined;
-  else if (dialog !== null && freshDialog !== null) {
-    dialog.replaceWith(freshDialog);
-    deferredDialog = undefined;
-  }
+  const focused = focusKey();
+  const open = openFiles();
+  // A new round while the reviewer is choosing a verdict or writing a summary: keep that section until they leave it.
+  const finish = finishSection();
+  const engaged =
+    finish !== null &&
+    (fresh.body.dataset.round !== previousRound || deferredFinish !== undefined) &&
+    (finish.contains(document.activeElement) ||
+      (finish.querySelector<HTMLTextAreaElement>("textarea")?.value ?? "") !==
+        "" ||
+      deferredFinish !== undefined);
+  frame.replaceWith(freshFrame);
+  const freshFinish = finishSection();
+  if (engaged && finish !== null && freshFinish !== null) {
+    deferredFinish = freshFinish;
+    freshFinish.replaceWith(finish);
+  } else deferredFinish = undefined;
   const topbar = document.querySelector("header.topbar");
   const freshTopbar = fresh.querySelector("header.topbar");
   if (topbar !== null && freshTopbar !== null) {
-    const toggle = topbar.querySelector("#theme-toggle");
+    // The connection's live region keeps its state; the live code owns it.
+    const status = topbar.querySelector("[data-connection]");
     topbar.replaceWith(freshTopbar);
-    // The theme script bound its button once; keep it.
-    if (toggle !== null)
-      freshTopbar.querySelector("#theme-toggle")?.replaceWith(toggle);
+    if (status !== null)
+      freshTopbar.querySelector("[data-connection]")?.replaceWith(status);
   }
   // The markup's facts travel with it: its revision, round, and whether it can change.
   for (const key of Object.keys(document.body.dataset))
@@ -185,32 +367,40 @@ const refresh = async (): Promise<"updated" | "current" | "failed"> => {
   document.body.className = fresh.body.className;
   refreshed(nextRevision);
   // Announced before drafts come back, so a notice about a draft whose code changed is the one left showing.
-  if (document.body.dataset.round !== previousRound)
-    toast(`Round ${document.body.dataset.round ?? ""} was published.`);
+  if (document.body.dataset.round !== previousRound) {
+    const kept = finishSection()?.dataset.round;
+    toast(
+      kept !== undefined && kept !== document.body.dataset.round
+        ? `Round ${document.body.dataset.round ?? ""} was published. Your finish still names round ${kept}.`
+        : `Round ${document.body.dataset.round ?? ""} was published.`,
+    );
+  }
   for (const details of document.querySelectorAll<HTMLDetailsElement>(
-    "details",
+    "details:not(.contents-disclosure)",
   )) {
     const key =
       details.id || details.querySelector("summary")?.textContent?.trim() || "";
-    if (open.has(key)) details.open = true;
+    if (disclosures.has(key)) details.open = true;
   }
-  for (const heading of document.querySelectorAll<HTMLElement>(
-    "article.stop h2, article.file h3",
-  ))
-    heading.tabIndex = -1;
   localizeTimes();
-  installThreadFilter();
-  syncRail();
-  applyHash({ scroll: false });
+  syncTheme();
+  restoreFolds(open);
+  restoreGaps();
+  afterRefresh();
   restoreComposers(drafts);
   restoreGeneral(general);
   restoreReplyDrafts(replies);
-  restoreGaps();
   window.scrollTo({ top: scrollY });
-  if (focused !== "")
-    document.getElementById(focused)?.focus({ preventScroll: true });
+  restoreFocus(focused);
   return "updated";
 };
+
+/** The live region in the top bar that says the connection is lost. Looked up on each use: a refresh moves it. */
+const connectionStatus = () =>
+  document.querySelector<HTMLElement>("[data-connection]");
+
+const LOST =
+  "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
 
 /**
  * Keeps the page current. A page that is hidden, including one opened in a background tab, holds no event stream,
@@ -258,13 +448,16 @@ const installLive = () => {
   let streamFailures = 0;
   let reopen: number | undefined;
   // Errors since the stream last opened. The browser retries a dropped stream every few seconds; two failed tries in
-  // a row mean the server is gone, not a blip. The live region is in the page before it says anything.
+  // a row mean the server is gone, not a blip: the page says it is reconnecting, and once the browser gives the
+  // stream up, that it is disconnected, with what to do in the toast and the status's title.
   let unanswered = 0;
-  const lost = document.createElement("div");
-  lost.className = "connection-lost";
-  lost.setAttribute("role", "status");
-  lost.dataset.connection = "";
-  document.body.append(lost);
+  const say = (text: string) => {
+    const status = connectionStatus();
+    if (status === null || status.textContent === text) return;
+    status.textContent = text;
+    status.title = text === "" ? "" : LOST;
+    if (text === "Disconnected") toast(LOST, "danger");
+  };
   const open = () => {
     if (source !== undefined || document.hidden) return;
     const stream = new EventSource(`/reviews/${review}/events`);
@@ -272,7 +465,7 @@ const installLive = () => {
     stream.addEventListener("open", () => {
       streamFailures = 0;
       unanswered = 0;
-      lost.textContent = "";
+      say("");
     });
     // The first event names the current revision, so a stream that reconnects catches up on what it missed.
     stream.addEventListener("change", (event) => {
@@ -288,8 +481,7 @@ const installLive = () => {
       if (source !== stream) return;
       unanswered++;
       if (unanswered >= 2)
-        lost.textContent =
-          "Lost connection to the review server. It stops after a long idle time; ask the agent to run any review-canvas command, such as review-canvas status, to start it again. This page reconnects on its own when the server returns on this port; otherwise open the URL that command prints.";
+        say(streamFailures >= 1 || unanswered >= 4 ? "Disconnected" : "Reconnecting…");
       if (stream.readyState !== EventSource.CLOSED) return;
       source = undefined;
       streamFailures++;
@@ -321,8 +513,7 @@ const installLive = () => {
 };
 
 /**
- * Whole files side by side, or unified. The choice is a cookie the server reads when it renders, so every refresh
- * keeps it.
+ * Whole files split or unified. The choice is a cookie the server reads when it renders, so every refresh keeps it.
  */
 const installLayout = () => {
   // The server renders the cookie's layout; a narrow page asks again for the unified one, and a page that crosses the
@@ -334,12 +525,13 @@ const installLayout = () => {
   narrow.addEventListener("change", redraw);
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    const toggle = target?.closest<HTMLElement>("[data-layout-toggle]");
-    if (toggle == null) return;
-    const split = toggle.getAttribute("aria-pressed") !== "true";
+    const button = target?.closest<HTMLElement>("[data-layout]");
+    if (button == null || button.getAttribute("aria-pressed") === "true") return;
+    const split = button.dataset.layout === "split";
     document.cookie = `${LAYOUT_COOKIE}=${split ? "split" : "unified"}; path=/; samesite=strict; max-age=31536000`;
-    toggle.setAttribute("aria-pressed", String(split));
-    document.dispatchEvent(new CustomEvent("review:redraw"));
+    for (const other of document.querySelectorAll<HTMLElement>("[data-layout]"))
+      other.setAttribute("aria-pressed", String(other === button));
+    redraw();
   });
 };
 
@@ -375,12 +567,14 @@ const installImport = () => {
 };
 
 localizeTimes();
+installTheme();
 installRepositories();
 if (document.body.classList.contains("review")) {
+  // The reviewer's folds come back before the hash is applied, so a hash or the strip still opens what it points at.
+  restoreFolds();
   installTour();
   installComments();
   installFinish();
-  installThreadFilter();
   installLayout();
   installImport();
 }
