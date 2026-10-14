@@ -20,4 +20,4 @@ jobs:
           python3 -m unittest tests/test_skill_versions.py
           python3 tests/check_skill_versions.py --base "origin/$BASE_REF"
       - name: Check the native plugin package
-        run: python3 -m unittest tests/test_plugins.py
+        run: python3 -m unittest tests/test_plugins.py tests/test_skill_package.py

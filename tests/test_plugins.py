@@ -11,6 +11,8 @@ import threading
 import unittest
 from pathlib import Path
 
+from tests.check_skill_package import package_errors
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ID = "pyre-agent@pyre-agent-local"
 CONTEXT_ID = "pyre-context@pyre-agent-local"
@@ -40,6 +42,9 @@ def native_cli(name, variable):
 
 
 class PackageTests(unittest.TestCase):
+    def test_skill_companions_and_redistribution_notices_are_packaged(self):
+        self.assertEqual(package_errors(ROOT), [])
+
     def test_native_tests_refuse_a_wrapper_that_overrides_the_test_home(self):
         with tempfile.TemporaryDirectory(prefix="pyre-plugin-wrapper-") as temp:
             wrapper = Path(temp) / "codex"
@@ -154,6 +159,13 @@ class NativePluginTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 
+    def assert_skill_package(self, installed_path):
+        self.assertEqual(package_errors(installed_path), [])
+        for name in ("LICENSE", "README.md"):
+            self.assertEqual(
+                (installed_path / name).read_bytes(), (self.repo / name).read_bytes()
+            )
+
     def inspect_codex_components(self):
         """Ask the installed harness for its skills and hooks, never start a turn."""
         process = subprocess.Popen(
@@ -219,6 +231,7 @@ class NativePluginTests(unittest.TestCase):
         installed_path = Path(installed["installedPath"])
         self.assertTrue(installed_path.is_relative_to(self.codex))
         self.assertNotEqual(installed_path, self.repo)
+        self.assert_skill_package(installed_path)
         inventory = json.loads(
             self.run_cli(
                 "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
@@ -266,6 +279,12 @@ class NativePluginTests(unittest.TestCase):
 
         self.run_cli("claude", "plugin", "marketplace", "add", str(self.repo))
         self.run_cli("claude", "plugin", "install", PLUGIN_ID, "--json")
+        (claude_install,) = read_json(self.claude / "plugins/installed_plugins.json")[
+            "plugins"
+        ][PLUGIN_ID]
+        claude_installed_path = Path(claude_install["installPath"])
+        self.assertTrue(claude_installed_path.is_relative_to(self.claude))
+        self.assert_skill_package(claude_installed_path)
         inventory = self.run_cli("claude", "plugin", "details", "pyre-agent")
         for path in self.repo.glob("skills/*/SKILL.md"):
             self.assertIn(path.parent.name, inventory)
