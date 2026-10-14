@@ -49,7 +49,7 @@ export interface Agent {
 
 export interface Server {
   readonly origin: string;
-  readonly register: (input: unknown, label?: string) => Promise<Agent>;
+  readonly register: (input: unknown, label?: string, options?: { readonly fresh?: boolean }) => Promise<Agent>;
   readonly stop: () => Promise<void>;
   /** Starts the server again after stop, on the same port, socket, and database. */
   readonly start: () => Promise<void>;
@@ -118,11 +118,12 @@ export const startServer = async (options: { readonly repositoryRoots?: Readonly
 
   return {
     origin: `http://127.0.0.1:${port}`,
-    register: async (input: any, label = "Claude Code: browser test") => {
+    register: async (input: any, label = "Claude Code: browser test", options = {}) => {
       const registered = await send("POST", "/agent/register", {
         target: input.target,
         label,
         host: { kind: "claude-code" },
+        ...options,
       });
       if (registered.ok !== true) throw new Error(JSON.stringify(registered));
       const { review, token, url } = registered as {

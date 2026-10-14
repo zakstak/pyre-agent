@@ -202,7 +202,7 @@ ${since === undefined ? "" : sinceBlock(view, page, since)}
 ${
   !hasBody
     ? ""
-    : html`<div class="file-body" id="${body}"${view.folded ? html` hidden` : ""}>
+    : html`<div class="file-body" id="${body}">
 ${file.patch_note === undefined ? "" : html`<p class="patch-note small muted">${PATCH_NOTE_TEXT[file.patch_note]}</p>`}
 ${
   file.patch === undefined

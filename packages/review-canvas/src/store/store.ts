@@ -533,7 +533,7 @@ export class Store {
         carry_from: state.carry_from,
         published_at: round?.published_at,
         verdict: currentSubmission(state)?.verdict,
-        progress: round === undefined ? undefined : this.#progress(row, state, round),
+        progress: round === undefined || state.closed_at !== undefined ? undefined : this.#progress(row, state, round),
         drift:
           state.drift !== undefined && state.drift.round === round?.round
             ? state.drift.paths.length

@@ -253,3 +253,18 @@ test("a comment is pending until a finish carries it; one made after the round i
   const finishedNow = { ...finishedEarlier, round: 2 };
   assert.equal(standingOf(state({ comments: [later], submissions: [finishedNow] }))(later), "agent");
 });
+
+test("a comment sent after finishing stays waiting when the next round is published", () => {
+  const sent = general("c-sent", 6, []);
+  const pending = general("c-pending", 9, []);
+  const current = state({
+    rounds: [{ ...round, published_at: at(7) }],
+    submissions: [{ round: 1, verdict: "comment", body: "", submitted_at: at(5), revision: 2 }],
+    comments: [sent, pending],
+  });
+  assert.equal(standingOf(current)(sent), "agent");
+  assert.equal(standingOf(current)(pending), "pending");
+  const counts = progress(current, input);
+  assert.equal(counts.waiting, 1);
+  assert.equal(counts.pending, 1);
+});

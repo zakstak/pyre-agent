@@ -7,6 +7,7 @@ import type { ReviewInput } from "../schema/input.ts";
 import type { RepoPath } from "../schema/primitives.ts";
 import {
   approvalHolds,
+  currentRound,
   currentSubmission,
   isQuestion,
   type ReviewState,
@@ -18,6 +19,7 @@ import {
  * Whose move a comment waits for, as the page says it. A plain comment of the reviewer's that nobody answered and
  * that no finished review carried yet is pending: the agents see it when the reviewer finishes, so it waits for
  * neither side. A question goes out at once, and so does a comment made after the reviewer finished the round.
+ * A new publication keeps earlier comments waiting for the agents; only comments after it can be pending.
  */
 export type Standing = Turn | "pending";
 
@@ -27,13 +29,15 @@ export const standingOf = (
 ): ((comment: Comment) => Standing) => {
   const finished = currentSubmission(state) !== undefined;
   const lastSent = state.submissions.at(-1)?.submitted_at;
+  const published = currentRound(state)?.published_at;
   return (comment) => {
     const held =
       !finished &&
       comment.source.kind === "reviewer" &&
       !isQuestion(comment) &&
       comment.replies.length === 0 &&
-      (lastSent === undefined || comment.created_at > lastSent);
+      (lastSent === undefined || comment.created_at > lastSent) &&
+      (published === undefined || comment.created_at > published);
     return held ? "pending" : turnOf(comment);
   };
 };

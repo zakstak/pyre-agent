@@ -1,7 +1,8 @@
 /**
  * What is folded on the review page: a file's body behind its header, runs of hidden lines behind a "Show N more
- * lines" control, and a file's "About" and "changed since" blocks. The server renders each file folded or open; once
- * the reviewer opens or closes a file, or the page opens one for them, that choice holds across live refreshes and
+ * lines" control, and a file's "About" and "changed since" blocks. The server names each file's initial fold but
+ * leaves its body readable until this script applies it. Once the reviewer opens or closes a file, or the page opens
+ * one for them, that choice holds across live refreshes and
  * reloads, remembered per round in sessionStorage, until they mark the file viewed.
  */
 
@@ -70,6 +71,7 @@ export const openFiles = (): ReadonlySet<string> =>
 export const restoreFolds = (openBefore: ReadonlySet<string> = new Set()) => {
   const all = overrides();
   for (const article of document.querySelectorAll<HTMLElement>("article.file[data-path]")) {
+    setFolded(article, article.dataset.folded === "true", false);
     const path = article.dataset.path ?? "";
     const viewed = following.get(path);
     if (viewed !== undefined) {

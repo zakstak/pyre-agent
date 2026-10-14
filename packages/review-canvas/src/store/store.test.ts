@@ -268,6 +268,25 @@ test("a review runs from registration through a submitted round and an answered 
   store.close();
 });
 
+test("listing reviews after a restart only reads round inputs for open reviews", (t) => {
+  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-progress-")), "reviews.sqlite");
+  const store = Store.open(path);
+  const first = input();
+  const old = store.register({ target: first.target, label: "old", host });
+  store.publish(old.review.state.id, old.thread.id, first);
+  const fresh = store.register({ target: first.target, label: "fresh", host, fresh: true });
+  store.publish(fresh.review.state.id, fresh.thread.id, first);
+  store.close();
+
+  const restarted = Store.open(path);
+  t.after(() => restarted.close());
+  const prepare = t.mock.method(DatabaseSync.prototype, "prepare");
+  const summaries = restarted.reviews();
+  assert.equal(summaries.find((item) => item.id === old.review.state.id)?.progress, undefined);
+  assert.equal(summaries.find((item) => item.id === fresh.review.state.id)?.progress?.viewable, first.files.filter((file) => file.fingerprint !== undefined).length);
+  assert.equal(prepare.mock.calls.filter((call) => call.arguments[0].startsWith("SELECT input FROM rounds")).length, 1);
+});
+
 test("a second round reattaches comments, and a fresh start carries matching approvals", async () => {
   const store = Store.open(":memory:");
   const first = input();

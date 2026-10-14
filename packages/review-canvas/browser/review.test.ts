@@ -168,6 +168,42 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("an inline draft survives a fresh start that closes its review", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator(`${table("src/notes/store.py")} tr[data-row='13'] button.add-comment`).focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Keep this unfinished comment.");
+    await server.register(input, "Fresh start", { fresh: true });
+    await page.waitForFunction(() => document.body.dataset.writable === "false");
+    assert.equal(await page.locator(".composer-row textarea").inputValue(), "Keep this unfinished comment.");
+    await page.close();
+  });
+
+  test("folded diffs remain readable when JavaScript is disabled or the bundle fails", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    // A second round folds unchanged files as well as the closing and non-excerpted files.
+    await agent.publish(input);
+    for (const javaScriptEnabled of [false, true]) {
+      const context = await browser.newContext({ javaScriptEnabled });
+      const page = await context.newPage();
+      if (javaScriptEnabled) await page.route("**/assets/*.js", (route) => route.abort());
+      await page.goto(agent.url);
+      const bodies = page.locator("article.file[data-folded='true'] > .file-body");
+      assert.ok(await bodies.count() > 0);
+      for (const body of await bodies.all()) {
+        assert.equal(await body.isVisible(), true);
+        for (const diff of await body.locator("table.diff").all())
+          assert.equal(await diff.isVisible(), true);
+      }
+      await context.close();
+    }
+  });
+
   test("an action from old markup is refused while its refresh is held back", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
@@ -880,6 +916,16 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await comment.locator(".tag").textContent(), "Waiting for Claude Code");
     // After the finish, the general composer no longer explains what a comment waits for.
     assert.equal(await page.locator(".general-composer .hint").count(), 0);
+    await page.locator(".general-composer textarea").fill("Sent after finishing.");
+    await page.locator(".general-composer button[type=submit]").click();
+    const sent = page.locator("#general article.thread").filter({ hasText: "Sent after finishing." });
+    await sent.waitFor();
+    assert.equal(await sent.getAttribute("data-standing"), "agent");
+    await agent.publish(input);
+    await page.waitForFunction(() => document.body.dataset.round === "2");
+    assert.equal(await sent.getAttribute("data-standing"), "agent");
+    assert.match((await sent.locator(".tag").textContent()) ?? "", /Waiting for/);
+    await page.waitForFunction(() => /3 waiting for agents/.test(document.querySelector(".next-stats")?.textContent ?? ""));
     await page.close();
   });
 
