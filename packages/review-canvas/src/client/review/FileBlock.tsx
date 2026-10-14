@@ -3,15 +3,18 @@
  * and a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left.
  */
 import { useAtom } from "@effect/atom-react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
 import { splitPath } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { Stat } from "../ui/stat.tsx";
 import { Inline, LineCounts, Prose } from "../ui/text.tsx";
 import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
+import { Narration } from "./Header.tsx";
+import { showGuideStop } from "./navigate.ts";
 import { Orphan } from "./Thread.tsx";
 import { extraAtom, foldsAtom } from "./ui.ts";
 import { type FileModel, PATCH_NOTE_TEXT } from "./view.ts";
@@ -60,20 +63,21 @@ const Word = ({
     aria-expanded={open}
     aria-controls={controls}
     onClick={onToggle}
-    className={cn(TOUCH_TARGET, "text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
+    className={cn(TOUCH_TARGET, "inline-flex items-center gap-1 text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
   >
     {children}
-    <span aria-hidden="true"> {open ? "▴" : "▾"}</span>
+    <ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
   </button>
 );
 
 const About = ({ model, id }: { readonly model: FileModel; readonly id: string }) => {
   const { file } = model;
   return (
-    <div id={id} className="flex flex-col gap-2 border-b border-separator bg-surface px-4 py-3">
+    <div id={id} className="flex flex-col gap-2 bg-surface px-4 py-3">
+      <Narration>About this file</Narration>
       {file.summary === undefined ? null : <Prose text={file.summary} />}
       {(file.callouts ?? []).map((callout, at) => (
-        <p key={at} className="max-w-reading">
+        <p key={at}>
           <strong>{callout.tag}.</strong> <Inline text={callout.text} />
         </p>
       ))}
@@ -121,8 +125,8 @@ const Viewed = ({
   // A closed review cannot change: its Viewed is a word, not a control.
   if (!page.writable)
     return model.approved ? (
-      <span className="text-small text-muted">
-        <span aria-hidden="true">✓</span> Viewed
+      <span className="inline-flex items-center gap-1 text-small text-muted">
+        <Check aria-hidden="true" className="size-3.5" /> Viewed
       </span>
     ) : null;
   const fingerprint = file.fingerprint;
@@ -151,14 +155,33 @@ const Viewed = ({
       <span
         aria-hidden="true"
         className={cn(
-          "inline-grid size-3.5 place-items-center rounded-sm border text-[0.625rem] leading-none",
+          "inline-grid size-3.5 place-items-center rounded-sm border",
           model.approved ? "border-accent bg-accent text-on-accent" : "border-line",
         )}
       >
-        {model.approved ? "✓" : ""}
+        {model.approved ? <Check className="size-3" strokeWidth={3} /> : null}
       </span>
       Viewed
     </button>
+  );
+};
+
+/** In the source view, where files are in path order: a link to the stop of the guide that owns the file. */
+const StopLink = ({ path }: { readonly path: string }) => {
+  const { page, view } = usePage();
+  const stop = page.stops.findIndex((item) => item.owns.some((owned) => owned === path));
+  if (view !== "source" || stop === -1) return null;
+  return (
+    <a
+      href={`#guide-stop-${stop + 1}`}
+      data-stop-link={stop}
+      onClick={(event) => {
+        if (showGuideStop(stop)) event.preventDefault();
+      }}
+      className="text-small text-muted no-underline hover:underline"
+    >
+      Stop {stop + 1}
+    </a>
   );
 };
 
@@ -189,13 +212,16 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
       data-path={file.path}
       data-folded={folded}
       data-viewed={model.approved}
-      className="mt-4 scroll-mt-(--sticky-top) rounded-panel border border-separator bg-surface"
+      className="mt-3 scroll-mt-(--sticky-top) rounded-panel bg-surface first-of-type:mt-4"
     >
       <header
         data-file-head
         className={cn(
           "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-t-panel bg-surface px-2 py-1.5",
-          folded ? "rounded-b-panel" : "border-b border-separator md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
+          // An open file's header has a hairline under it, so where it sticks it reads as a bar over the rows.
+          folded
+            ? "rounded-b-panel"
+            : "border-b border-separator md:sticky md:top-[calc(var(--sticky-top)-0.5rem)] md:z-[5]",
         )}
       >
         {model.hasBody ? (
@@ -214,6 +240,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         <h3 tabIndex={-1} className="min-w-0 text-technical font-normal">
           <FilePath path={file.path} />
         </h3>
+        <StopLink path={file.path} />
         {model.caption === undefined || model.caption === "" ? null : (
           <span title={model.caption} className="min-w-0 flex-[1_1_8rem] truncate text-small text-muted">
             <Inline text={model.caption} />
@@ -226,7 +253,11 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         ) : (
           <span className={cn("text-small", status.warning ? "text-warning" : "text-muted")}>{status.text}</span>
         )}
-        {model.talk === undefined || !folded ? null : <span className="text-small text-muted">{model.talk}</span>}
+        {model.talk === undefined || !folded ? null : (
+          <Stat icon={MessageSquare} title={model.talk}>
+            {model.open}
+          </Stat>
+        )}
         <span className="ml-auto flex items-center gap-3 max-md:w-full max-md:justify-end">
           {file.patch === undefined ? null : (
             <LineCounts additions={file.additions} deletions={file.deletions} className="text-technical" />
@@ -241,7 +272,7 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
       </header>
       {hasAbout && aboutOpen ? <About model={model} id={`about-${table}`} /> : null}
       {status?.kind === "since" && sinceOpen ? (
-        <div id={`since-${table}`} className="border-b border-separator">
+        <div id={`since-${table}`}>
           <p className="bg-surface px-4 py-2 text-small text-muted">Changes since round {page.round.round - 1}</p>
           <DiffTable model={model} split={false} patch={status.patch} />
         </div>

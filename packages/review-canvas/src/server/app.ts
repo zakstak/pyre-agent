@@ -148,6 +148,7 @@ const Export = HttpRouter.add(
 export const App = (options: { readonly clientDir: string; readonly repositoryRoots?: ReadonlyArray<string> }) =>
   Layer.mergeAll(
     shellAt("/"),
+    shellAt("/repositories"),
     shellAt("/reviews/:id"),
     Export,
     PageRpcServer(options.repositoryRoots ?? []),

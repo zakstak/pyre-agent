@@ -1,7 +1,7 @@
 /**
- * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout across
- * visits, and in memory the gaps opened, the drafts, and whether a comment is being moved. None of it is the
- * review's state; the server never sees it.
+ * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout and
+ * whether whitespace changes show across visits, and in memory the gaps opened, the drafts, and whether a comment is
+ * being moved. None of it is the review's state; the server never sees it.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -52,6 +52,31 @@ export const layoutAtom = Atom.kvs({
   defaultValue: (): Layout => (/(?:^|;\s*)review-canvas-layout=split(?:;|$)/.test(document.cookie) ? "split" : "unified"),
 });
 
+const Whitespace = Schema.Literals(["show", "hide"]);
+export type Whitespace = typeof Whitespace.Type;
+
+/** Whether changes of whitespace alone show as changes, as the reviewer chose for every review. */
+export const whitespaceAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-whitespace",
+  schema: Whitespace,
+  defaultValue: (): Whitespace => "show",
+});
+
+const View = Schema.Literals(["guided", "source"]);
+export type View = typeof View.Type;
+
+/**
+ * How a review reads, as the reviewer chose for every review: guided, the stops in tour order each with its files, or
+ * source, the walkthrough beside one plain diff of every file in path order. A narrow page reads guided anyway.
+ */
+export const viewAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-view",
+  schema: View,
+  defaultValue: (): View => "guided",
+});
+
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
 export const NARROW_QUERY = "(width < 48rem)";
 
@@ -72,6 +97,9 @@ export const extraAtom = Atom.family((_key: { readonly path: RepoPath; readonly 
 export const flashAtom = Atom.make<{ readonly path: string; readonly start: number; readonly end: number } | undefined>(
   undefined,
 ).pipe(Atom.keepAlive);
+
+/** The tour's notes the reviewer opened in the source view, by element ID; that view shows a note only on demand. */
+export const openNotesAtom = Atom.make<ReadonlySet<string>>(new Set<string>()).pipe(Atom.keepAlive);
 
 /** A comment the reviewer is moving to other lines: the next line selection places it instead of opening a composer. */
 export const reattachAtom = Atom.make<CommentId | undefined>(undefined).pipe(Atom.keepAlive);

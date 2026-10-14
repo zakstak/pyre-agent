@@ -14,7 +14,10 @@ export const Inline = ({ text }: { readonly text: string }) => {
   return <>{parts}</>;
 };
 
-/** Prose from the agent: paragraphs split on blank lines, each keeping its line breaks and code spans. */
+/**
+ * Prose from the agent: paragraphs split on blank lines, each keeping its line breaks and code spans. It fills where it
+ * sits; prose on the page's canvas sits in a reading measure, prose in a card fills the card.
+ */
 export const Prose = ({ text, className }: { readonly text: string; readonly className?: string }) => (
   <>
     {text
@@ -22,7 +25,7 @@ export const Prose = ({ text, className }: { readonly text: string; readonly cla
       .map((paragraph) => paragraph.trim())
       .filter((paragraph) => paragraph !== "")
       .map((paragraph, at) => (
-        <p key={at} className={cn("max-w-reading whitespace-pre-line [&+&]:mt-2", className)}>
+        <p key={at} className={cn("whitespace-pre-line [&+&]:mt-2", className)}>
           <Inline text={paragraph} />
         </p>
       ))}
@@ -40,6 +43,12 @@ export const Lead = ({ title }: { readonly title: string }) => (
 const clock = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const full = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/** A time on the reader's clock, in full, for a title. */
+export const timeTitle = (at: string): string => {
+  const when = new Date(at);
+  return Number.isFinite(when.getTime()) ? full.format(when) : at;
+};
 
 /** A time on the reader's clock: the time alone today, the day and time this year, the full date otherwise. */
 export const Time = ({ at }: { readonly at: string }) => {

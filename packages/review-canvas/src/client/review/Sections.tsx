@@ -1,5 +1,6 @@
 /** The sections of the review page's one scroll: the stops with their files, then the whole change and the finish. */
 import { useAtom } from "@effect/atom-react";
+import { ArrowUp, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Verdict } from "../../schema/feedback.ts";
 import type { RoundNumber } from "../../schema/primitives.ts";
@@ -8,11 +9,13 @@ import type { StopView } from "../../review/tour.ts";
 import { count, lineRange, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { Stat } from "../ui/stat.tsx";
 import { Inline, Joined, Prose, Time } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlock } from "./FileBlock.tsx";
+import { Narration } from "./Header.tsx";
 import { ACTIONS_CLASS, Orphan, submitOnModEnter, ThreadView } from "./Thread.tsx";
 import { finishDraftAtom, generalDraftAtom } from "./ui.ts";
 import { finishState } from "./view.ts";
@@ -49,7 +52,8 @@ const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (p
         className="text-link underline underline-offset-3"
       >
         <code>{excerpt.path}</code>
-        {first === undefined || last === undefined ? "" : ` ${lineRange(first, last, "line")}`} ↑
+        {first === undefined || last === undefined ? "" : ` ${lineRange(first, last, "line")}`}{" "}
+        <ArrowUp aria-hidden="true" className="inline size-3 align-[-0.0625em]" />
       </a>,
     ];
   });
@@ -60,14 +64,59 @@ const Also = ({ stop, onFlash }: { readonly stop: StopView; readonly onFlash: (p
   );
 };
 
+/** A stop's summary, as the agent wrote it. */
+export const StopProse = ({ stop }: { readonly stop: StopView }) =>
+  stop.summary.trim() === "" ? null : (
+    <div className="mt-2 max-w-reading">
+      <Prose text={stop.summary} />
+    </div>
+  );
+
+/** What the agent asks the reviewer to weigh at a stop, led by its kind. */
+export const Attention = ({ stop }: { readonly stop: StopView }) =>
+  stop.attention === null ? null : (
+    <p data-attention className="mt-3 max-w-reading border-l-2 border-warning pl-3.5">
+      <strong className="text-warning">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
+    </p>
+  );
+
+/** The questions a stop suggests, each of which starts the comment on the whole change. A closed review asks none. */
+export const Questions = ({ stop, onAsk }: { readonly stop: StopView; readonly onAsk: (question: string) => void }) => {
+  const { page } = usePage();
+  return stop.questions.length === 0 || !page.writable ? null : (
+    <div role="group" aria-label="Questions to ask" className="mt-3 flex flex-wrap gap-2">
+      {stop.questions.map((question) => (
+        <button
+          key={question}
+          type="button"
+          data-question={question}
+          onClick={() => onAsk(question)}
+          className={cn(TOUCH_TARGET, "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
+        >
+          <span aria-hidden="true" className="font-bold text-accent">
+            ?
+          </span>
+          <Inline text={question} />
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/** A rule over a section of the page's one scroll, after the one before it. */
+const RULED = "mt-10 border-t border-separator pt-8";
+
 export const StopSection = ({
   stop,
   split,
+  ruled,
   onFlash,
   onAsk,
 }: {
   readonly stop: StopView;
   readonly split: boolean;
+  /** A rule parts the stop from what comes before it: every stop but a first with no round summary over it. */
+  readonly ruled: boolean;
   readonly onFlash: (path: string, index: number, start: number, end: number) => void;
   readonly onAsk: (question: string) => void;
 }) => {
@@ -81,55 +130,35 @@ export const StopSection = ({
     <section
       id={`stop-${stop.index + 1}`}
       data-stop={stop.index}
-      className="mt-10 scroll-mt-(--sticky-top) border-t border-separator pt-6 first:mt-0"
+      className={cn("scroll-mt-(--sticky-top)", ruled ? RULED : "mt-0", ruled && stop.index === 0 && "mt-8")}
     >
+      <Narration className="mb-1">
+        Walkthrough · stop {stop.index + 1} of {page.stops.length}
+      </Narration>
       <div data-stop-head className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`stop-${stop.index + 1}-title`} tabIndex={-1} className="scroll-mt-(--sticky-top) text-heading font-semibold">
           <span className="mr-1 font-mono text-reading font-normal text-muted">{stop.index + 1}</span>{" "}
           <span>{stop.title}</span>
         </h2>
-        <span className="text-small text-muted">
-          {count(owned.length, "file")}
-          {viewed === 0 ? "" : ` · ${viewed} viewed`}
-        </span>
+        <Stat icon={Check} title={`${viewed} of ${count(owned.length, "file")} viewed`}>
+          {viewed}/{owned.length}
+        </Stat>
       </div>
-      {stop.summary.trim() === "" ? null : (
-        <div className="mt-2">
-          <Prose text={stop.summary} />
-        </div>
-      )}
-      {stop.attention === null ? null : (
-        <p data-attention className="mt-3 max-w-reading border-l-2 border-action pl-3.5">
-          <strong className="text-action">{ATTENTION_LEAD[stop.attention.kind]}.</strong> <Inline text={stop.attention.note} />
-        </p>
-      )}
+      <StopProse stop={stop} />
+      <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />
       {owned.map((model) => (
         <FileBlock key={model.file.path} model={model} split={split} />
       ))}
-      {stop.questions.length === 0 || !page.writable ? null : (
-        <div role="group" aria-label="Questions to ask" className="mt-3 flex flex-wrap gap-2">
-          {stop.questions.map((question) => (
-            <button
-              key={question}
-              type="button"
-              data-question={question}
-              onClick={() => onAsk(question)}
-              className={cn(TOUCH_TARGET, "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle")}
-            >
-              <span aria-hidden="true" className="font-bold text-accent">
-                ?
-              </span>
-              <Inline text={question} />
-            </button>
-          ))}
-        </div>
-      )}
+      <Questions stop={stop} onAsk={onAsk} />
     </section>
   );
 };
 
-const END_SECTION = "mt-12 scroll-mt-(--sticky-top) border-t border-separator pt-6";
+const END_SECTION = cn(RULED, "scroll-mt-(--sticky-top)");
+
+/** The finish as a card, open or finished, so the page ends on something to act on. It follows the whole change. */
+const FINISH_CARD = "mt-6 scroll-mt-(--sticky-top) rounded-panel bg-surface p-5";
 
 /**
  * Inline comments on files that left the round, such as a reverted or renamed file. No file block shows them, so
@@ -141,7 +170,7 @@ export const Departed = () => {
   return (
     <section id="departed" data-end-section className={END_SECTION}>
       <h2 className="text-heading font-semibold">Files that left the round</h2>
-      <div className="mt-3 rounded-panel border border-separator bg-surface">
+      <div className="mt-3 rounded-panel bg-surface">
         {page.departed.map((comment) => (
           <Orphan key={comment.id} comment={comment} withPath />
         ))}
@@ -169,7 +198,7 @@ export const General = ({ textarea }: { readonly textarea: React.RefObject<HTMLT
       {page.general.length === 0 ? null : (
         <div className="mt-3 flex flex-col gap-3">
           {page.general.map((comment) => (
-            <div key={comment.id} className="rounded-panel border border-separator bg-surface px-3 py-2">
+            <div key={comment.id} className="rounded-panel bg-surface px-4 py-3">
               <ThreadView comment={comment} />
             </div>
           ))}
@@ -262,11 +291,11 @@ export const Finish = () => {
   const submission = page.snapshot.state.submissions.findLast((item) => item.round === page.round.round);
   if (submission !== undefined && !behind)
     return (
-      <section id="finish" ref={section} data-end-section data-round={page.round.round} className={END_SECTION}>
+      <section id="finish" ref={section} data-end-section data-round={page.round.round} className={FINISH_CARD}>
         <h2 id="finish-title" ref={heading} tabIndex={-1} className="text-heading font-semibold">
           Round {page.round.round} finished · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
         </h2>
-        <p data-submission className="mt-2 max-w-reading">
+        <p data-submission className="mt-2">
           You {VERDICT_DONE[submission.verdict]} at <Time at={submission.submitted_at} />
           {submission.body.trim() === "" ? "." : `: ${submission.body}`}
         </p>
@@ -278,7 +307,7 @@ export const Finish = () => {
       ref={section}
       data-end-section
       data-round={shownRound}
-      className={END_SECTION}
+      className={FINISH_CARD}
       onFocus={() => setEngaged(true)}
       onBlur={(event) => {
         const next = event.relatedTarget;
@@ -294,7 +323,7 @@ export const Finish = () => {
       <p className="mt-1 text-small text-muted">{finishState(page.progress)}</p>
       <form
         data-round={shownRound}
-        className="mt-3"
+        className="mt-4"
         onSubmit={async (event) => {
           event.preventDefault();
           const outcome = await run(() =>

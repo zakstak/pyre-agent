@@ -243,8 +243,9 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(agent.url);
-    await page.locator("[data-open-finish]").click();
-    // Finish review in the top bar goes to the finish section and its first verdict.
+    // The top bar has no action: Finish is the strip's last step, and it goes to the finish section and its first verdict.
+    assert.equal(await page.locator("[data-topbar] [data-open-finish]").count(), 0);
+    await page.locator("[data-next] [data-open-finish]").click();
     await page.waitForFunction(() => (document.activeElement as HTMLInputElement | null)?.name === "verdict");
     await agent.publish(changedStore(input));
     await onRound(page, 2);
@@ -278,9 +279,13 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const focusIs = (selector: string) =>
       page.waitForFunction((selector) => document.activeElement?.matches(selector) === true, selector);
     // Nothing viewed and nothing to read: the first file of the first stop.
-    assert.equal(await strip(), "→Review src/notes/store.py · stop 1 · 10 files left");
+    assert.equal(await strip(), "Review src/notes/store.py · stop 1 · 10 files left");
     assert.equal(await next.getAttribute("data-target"), "files/src/notes/store.py");
     assert.equal(await next.getAttribute("data-kind"), "file");
+    // The round's steps: no answers to read, so the files and the finish.
+    const steps = page.locator("[data-next] ol[aria-label='Round 1'] > li");
+    assert.equal(await steps.count(), 2);
+    assert.equal(await text(page, "[data-next] [data-open-finish]"), "Finish");
     await page.keyboard.press("n");
     await focusIs("article[data-path='src/notes/store.py'] button[data-viewed]");
 
@@ -293,12 +298,19 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const [question] = (await agent.status()).questions;
     await agent.answer(question, { disposition: "answered", body: "No need." });
     await page.waitForFunction(() => /Read/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
-    assert.equal(await strip(), "→Read Claude Code’s answer · src/notes/store.py:12");
+    assert.equal(await strip(), "Read Claude Code’s answer · src/notes/store.py:12");
     assert.equal(await next.getAttribute("data-target"), `comment-${question}`);
     assert.equal(await next.getAttribute("data-kind"), "answer");
+    assert.equal(await steps.count(), 3);
+    assert.equal(await page.locator("[data-next] [data-for-you]").getAttribute("aria-label"), "1 answer to read");
+    // A step works whatever the strip names: Files goes to the first file not viewed.
+    await steps.filter({ has: page.locator("[data-viewed-count]") }).locator("a").click();
+    await focusIs("article[data-path='src/notes/store.py'] button[data-viewed]");
     await page.locator("body").click({ position: { x: 5, y: 300 } });
     await page.keyboard.press("n");
     await focusIs(`#comment-${question} button[title='The answer settles the comment']`);
+    // The thread it lands on shows itself for a moment.
+    assert.notEqual(await page.locator(`#comment-${question}`).getAttribute("data-landed"), null);
     await page.keyboard.press("Enter");
     await page.locator("article[data-comment][data-turn='resolved']").waitFor();
     await page.waitForFunction(() => /Review/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
@@ -319,7 +331,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       /^Changed since this round: src\/notes\/store\.py · checked .+ · the agents publish a new round with the change\.$/,
     );
     assert.equal(await page.locator("#drift a").getAttribute("href"), "#files/src/notes/store.py");
-    assert.equal(await strip(), "→Review src/notes/store.py · stop 1 · 10 files left");
+    assert.equal(await strip(), "Review src/notes/store.py · stop 1 · 10 files left");
 
     // A new round replaces the drift; with every file viewed, the strip asks for the finish.
     await agent.publish(changedStore(input));
@@ -327,9 +339,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await page.locator("#drift").count(), 0);
     await viewAll(page);
     await page.waitForFunction(() => /Finish round 2/.test(document.querySelector("[data-next-go]")?.textContent ?? ""));
-    assert.equal(await strip(), "→Finish round 2 · everything viewed, nothing waiting");
+    assert.equal(await strip(), "Finish round 2 · everything viewed, nothing waiting");
     assert.equal(await next.getAttribute("data-target"), "finish");
-    assert.match(await text(page, "[data-viewed-count]"), /^10 of 10 viewed$/);
+    assert.equal(await page.locator("[data-viewed-count]").getAttribute("aria-label"), "10 of 10 files viewed");
+    assert.equal(await text(page, "[data-viewed-count]"), "10/10");
     await page.locator("body").click({ position: { x: 5, y: 300 } });
     await page.keyboard.press("n");
     await focusIs("#finish input[name='verdict']");
@@ -345,7 +358,8 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     // store.py renders once, in the stop that owns it.
     assert.equal(await page.locator(table("src/notes/store.py")).count(), 1);
     const back = page.locator("#stop-2 [data-also] a");
-    assert.equal(await text(page, "#stop-2 [data-also] a"), "src/notes/store.py lines 14–15 ↑");
+    assert.equal(await text(page, "#stop-2 [data-also] a"), "src/notes/store.py lines 14–15");
+    assert.equal(await back.locator("svg").count(), 1);
     /** The new line numbers of the rows painted with the highlight colour. */
     const lit = () =>
       page.evaluate((selector) => {
@@ -366,6 +380,86 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const deadline = Date.now() + 4000;
     while ((await lit()).length > 0 && Date.now() < deadline) await page.waitForTimeout(100);
     assert.deepEqual(await lit(), []);
+    await page.close();
+  });
+
+  test("the source view parts the walkthrough from one plain diff of every file in path order", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator("[role='group'][aria-label='View'] button[data-view='source']").click();
+    await page.locator("[data-guide-stop]").first().waitFor();
+    await settle(page);
+    // The diff is every file once, in the contents' order, with no stops in it.
+    assert.equal(await page.locator("main [data-stop]").count(), 0);
+    assert.deepEqual(
+      await page.locator("main article[data-path]").evaluateAll((articles) => articles.map((article) => (article as HTMLElement).dataset.path)),
+      [
+        ".env.local",
+        "docs/current",
+        "docs/logo.png",
+        "notes/.keep",
+        "scripts/release.sh",
+        "src/notes/cli.py",
+        "src/notes/format.py",
+        "src/notes/legacy.py",
+        "src/notes/store.py",
+        "tests/data/windows.txt",
+      ],
+    );
+    assert.deepEqual(await page.locator("[data-guide-stop] h2").allTextContents(), ["save() becomes atomic", "The rename", "Other files"]);
+    // A note shows only when its letter on the row is pressed.
+    assert.equal(await page.locator("main [data-note]").count(), 0);
+    const marker = page.locator(`${table("src/notes/store.py")} button[data-note-marker]`);
+    assert.equal(await marker.getAttribute("aria-expanded"), "false");
+    await marker.click();
+    await page.locator("#s0e0-note-A").waitFor();
+    assert.equal(await marker.getAttribute("aria-expanded"), "true");
+    await marker.click();
+    await page.locator("#s0e0-note-A").waitFor({ state: "detached" });
+    // An excerpt's caption lights its rows and brings the first under the sticky bars.
+    const link = page.locator("#guide-stop-1 [data-excerpt-link]");
+    assert.match(await text(page, "#guide-stop-1 [data-excerpt-link]"), /^src\/notes\/store\.py · lines 11–17$/);
+    await link.click();
+    /** The new line numbers of store.py's rows painted with the highlight colour, and where the first of them is. */
+    const lit = () =>
+      page.evaluate((selector) => {
+        const probe = document.createElement("div");
+        probe.style.background = "var(--pyre-highlight)";
+        document.body.append(probe);
+        const highlight = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const rows = [...document.querySelectorAll<HTMLElement>(`${selector} tr[data-row]`)].filter(
+          (row) => getComputedStyle(row).backgroundColor === highlight,
+        );
+        // A deleted row in the range has no new line number.
+        const lines = rows.map((row) => row.querySelector("[data-ln='new']")?.textContent ?? "").filter((line) => line !== "");
+        return { lines, top: rows[0]?.getBoundingClientRect().top ?? -1 };
+      }, table("src/notes/store.py"));
+    // Focus moves once the page scrolled there.
+    await page.waitForFunction(() => document.activeElement?.closest("tr")?.querySelector("[data-ln='new']")?.textContent === "11");
+    const flashed = await lit();
+    assert.deepEqual(flashed.lines, ["11", "12", "13", "14", "15", "16", "17"]);
+    assert.ok(flashed.top > 0 && flashed.top < 450, `the first lit row is at ${flashed.top}px`);
+    // A note in the guide opens its row in the diff.
+    await page.locator("#guide-stop-1 [data-guide-note]").click();
+    await page.waitForFunction(() => document.activeElement?.id === "s0e0-note-A");
+    // J goes to the next stop: the guide marks it, and the diff shows its first file.
+    await page.keyboard.press("j");
+    assert.match(page.url(), /#tour\/2$/);
+    await page.locator("#guide-stop-2[aria-current='location']").waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.closest("[data-guide-stop]")?.id), "guide-stop-2");
+    const top = await page.locator("article[data-path='src/notes/format.py']").evaluate((article) => article.getBoundingClientRect().top);
+    assert.ok(top >= 0 && top < 300, `format.py is at ${top}px`);
+    // The choice holds across a reload, and Guided brings the stops back.
+    await page.reload();
+    await page.locator("[data-guide-stop]").first().waitFor();
+    assert.equal(await page.locator("button[data-view='source']").getAttribute("aria-pressed"), "true");
+    await page.locator("button[data-view='guided']").click();
+    await page.locator("section[data-stop]").first().waitFor();
+    assert.equal(await page.locator("[data-guide]").count(), 0);
+    assert.equal(await page.locator("main [data-note]").count(), 2);
     await page.close();
   });
 
@@ -434,6 +528,23 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       "Your turn",
       "Answered",
     ]);
+    await page.close();
+  });
+
+  test("hiding whitespace keeps across reloads", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(`${agent.url}#files`);
+    const box = page.locator("input[data-whitespace]");
+    assert.equal(await box.isChecked(), false);
+    await page.getByLabel("Hide whitespace").check();
+    assert.equal(await page.evaluate(() => localStorage.getItem("review-canvas-whitespace")), JSON.stringify("hide"));
+    await page.reload();
+    await box.waitFor();
+    assert.equal(await box.isChecked(), true);
+    await box.uncheck();
+    assert.equal(await page.evaluate(() => localStorage.getItem("review-canvas-whitespace")), JSON.stringify("show"));
     await page.close();
   });
 
@@ -533,7 +644,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await file.locator("button[data-fold]").getAttribute("aria-label"), "Show diff");
     assert.equal(await file.locator("button[data-fold]").getAttribute("aria-expanded"), "false");
     assert.equal(await file.getAttribute("data-viewed"), "true");
-    assert.equal(await page.locator("[data-toc-file='long.txt'] [aria-label='viewed']").textContent(), "✓");
+    assert.equal(await page.locator("[data-toc-file='long.txt'] svg[aria-label='viewed']").count(), 1);
     assert.deepEqual((await agent.status()).approved, ["long.txt"]);
     await page.close();
   });
@@ -760,10 +871,18 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     for (const id of questions) await agent.answer(id, { disposition: "answered", body: "Because." });
     await agent.call("POST", "/drift", { paths: ["src/notes/format.py"] });
     await page.locator("#drift").waitFor();
-    await page.waitForFunction(() => /2 for you/.test(document.querySelector("[data-for-you]")?.textContent ?? ""));
-    assert.equal(await text(page, "[data-next-go]"), "→Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
+    await page.waitForFunction(() => document.querySelector("[data-for-you]")?.getAttribute("aria-label") === "2 answers to read");
+    assert.equal(await text(page, "[data-next-go]"), "Read Claude Code’s answer · src/notes/store.py:12 · 1 more after this");
     const inline = await page.locator(`${table("src/notes/store.py")} article[data-comment]`).getAttribute("id");
     assert.equal(await page.locator("[data-next-go]").getAttribute("data-target"), inline);
+    // N, then Accept, then N again reaches the next answer without the strip in between.
+    await page.locator("body").click({ position: { x: 5, y: 300 } });
+    await page.keyboard.press("n");
+    await page.waitForFunction((id) => document.activeElement?.closest(`#${id}`) != null, inline);
+    await page.keyboard.press("Enter");
+    await page.locator(`#${inline}[data-turn='resolved']`).waitFor();
+    await page.keyboard.press("n");
+    await page.waitForFunction(() => document.activeElement?.closest("#general article[data-comment]") != null);
     await page.close();
   });
 
@@ -781,16 +900,16 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await comment.getAttribute("data-standing"), "pending");
     assert.equal(await comment.locator("[data-chip]").textContent(), "Pending");
     assert.equal(await comment.locator("[data-chip]").getAttribute("title"), "Sent with your review");
-    assert.equal(await page.locator("[data-next] [data-for-you], [data-next] [data-waiting]").count(), 0);
+    assert.equal(await page.locator("[data-next] [data-for-you]").count(), 0);
     // A question goes out at once: it waits for the agent.
     await page.locator("#general-body").fill("Why?");
     await page.locator("#general form").getByRole("button", { name: "Ask now", exact: true }).click();
     await page.locator("#general article[data-comment]").waitFor();
-    await page.waitForFunction(() => /^1 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
+    // The finish says what waits for the agents.
+    await page.locator("#finish").getByText(/· 1 comment waiting for agents\. You can finish anyway\.$/).waitFor();
     // The finish carries the comment: now it waits for the agent too.
     await page.locator("#finish button[type=submit]").click();
     await page.locator("#finish [data-submission]").waitFor();
-    await page.waitForFunction(() => /^2 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
     assert.equal(await comment.locator("[data-chip]").textContent(), "Waiting for Claude Code");
     // After the finish, the general composer no longer explains what a comment waits for.
     assert.equal(await page.locator("#general").getByText(/A comment waits for Finish review/).count(), 0);
@@ -803,7 +922,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await onRound(page, 2);
     assert.equal(await sent.getAttribute("data-standing"), "agent");
     assert.match((await sent.locator("[data-chip]").textContent()) ?? "", /Waiting for/);
-    await page.waitForFunction(() => /^3 waiting for agents$/.test(document.querySelector("[data-waiting]")?.textContent ?? ""));
+    await page.locator("#finish").getByText(/· 3 comments waiting for agents\. You can finish anyway\.$/).waitFor();
     await page.close();
   });
 
@@ -834,8 +953,8 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const context = Number(await first.getAttribute("data-context"));
     assert.ok(folded > 0 && context === 3, `${folded} folded, ${context} unchanged`);
     const control = gapTable.locator(`tbody[data-gap='${key}'] button`);
-    // The words, without the aria-hidden arrow after them.
-    const label = () => control.evaluate((button) => button.firstChild?.textContent ?? "");
+    // The control is an icon in the gutter; its words are its label.
+    const label = async () => (await control.getAttribute("aria-label")) ?? "";
     assert.equal(await label(), `Show ${folded + context} more lines`);
     // No two controls sit next to each other.
     const adjacent = await gapTable.evaluate((element) =>
@@ -879,7 +998,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
-  test("sidebar rows are dense, and a name too long for its row drops its whole folder before it cuts the name's end", async () => {
+  test("the contents list the stops, then every file once by folder, in dense rows that cut a long name at its end", async () => {
     const input = fixtureInput();
     input.files_complete = false;
     input.files.push({
@@ -900,32 +1019,30 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("[data-toc-file]").first().waitFor();
     const rows = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("[data-toc-file]")].map((row) => {
-        // The name's folder and file name, in that order, inside the row's first child.
-        const [dir, base] = [...(row.firstElementChild?.children ?? [])] as Array<HTMLElement>;
-        const box = row.getBoundingClientRect();
-        const hasDir = dir !== undefined && dir.textContent !== "";
+        const name = row.firstElementChild as HTMLElement | null;
+        // The folder line the row sits under, if any.
+        const folder = row.closest("ul")?.previousElementSibling?.textContent ?? "";
         return {
           path: row.dataset.tocFile ?? "",
-          height: box.height,
+          name: name?.textContent ?? "",
+          folder,
+          height: row.getBoundingClientRect().height,
           fontSize: getComputedStyle(row).fontSize,
-          // A folder that shows sits on the name's line, wholly inside the row.
-          dirShown: !hasDir
-            ? null
-            : Math.abs(dir.getBoundingClientRect().top - (base?.getBoundingClientRect().top ?? 0)) < 1 &&
-              dir.getBoundingClientRect().bottom <= box.bottom + 0.5,
-          dirWhole: !hasDir ? null : dir.scrollWidth <= dir.clientWidth + 1 && dir.getBoundingClientRect().right <= box.right + 0.5,
-          baseCut: base === undefined ? false : base.scrollWidth > base.clientWidth + 1,
+          cut: name === null ? false : name.scrollWidth > name.clientWidth + 1,
         };
       }),
     );
+    assert.equal(new Set(rows.map((row) => row.path)).size, rows.length, "every file is listed once");
     for (const row of rows) {
       assert.equal(row.height, 28, `${row.path} is ${row.height}px tall`);
       assert.equal(row.fontSize, "14px");
-      if (row.dirShown === true) assert.equal(row.dirWhole, true, `${row.path} shows part of its folder`);
+      assert.equal(`${row.folder}${row.name}`, row.path, `${row.path} shows under its folder by its file name`);
     }
     const long = rows.find((row) => row.path.endsWith("contents-sidebar.ts"));
-    assert.deepEqual([long?.dirShown, long?.baseCut], [false, true]);
-    assert.ok(rows.some((row) => row.dirShown === true), "short names keep their folder");
+    assert.equal(long?.cut, true);
+    const kickers = await page.locator("nav[aria-label='Stops and files'] > p").allTextContents();
+    assert.deepEqual(kickers, ["Walkthrough", "Files"]);
+    assert.equal(await page.locator("[data-stop-link] ~ * [data-toc-file], li:has(> [data-stop-link]) [data-toc-file]").count(), 0);
     await page.close();
   });
 

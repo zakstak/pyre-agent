@@ -167,3 +167,30 @@ export const attachedRows = (
   }
   return start === undefined || end === undefined ? undefined : { start, end };
 };
+
+/**
+ * The rows whose change is whitespace only: each run of deletions followed at once by as many additions, when every
+ * deletion and the addition in its place hold the same text once all whitespace is removed. A view of the rows, not
+ * a new diff: indexes and anchors stay as they are.
+ */
+export const whitespaceOnly = (rows: ReadonlyArray<Row>): ReadonlySet<number> => {
+  const found = new Set<number>();
+  const run = (from: number, kind: RowKind) => {
+    let to = from;
+    while (rows[to]?.kind === kind) to++;
+    return rows.slice(from, to);
+  };
+  const bare = (row: Row | undefined) => row?.content.replace(/\s+/g, "");
+  for (let at = 0; at < rows.length; ) {
+    const dels = run(at, "del");
+    if (dels.length === 0) {
+      at++;
+      continue;
+    }
+    const adds = run(at + dels.length, "add");
+    at += dels.length + adds.length;
+    if (dels.length === adds.length && dels.every((row, pair) => bare(row) === bare(adds[pair])))
+      for (const row of [...dels, ...adds]) found.add(row.index);
+  }
+  return found;
+};

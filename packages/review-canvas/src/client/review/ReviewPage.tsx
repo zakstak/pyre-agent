@@ -2,6 +2,8 @@
  * The review page: one scroll in the order the agent's stops tell the story. Each stop is a section with the agent's
  * prose and the files it owns as whole diffs, the notes in the code; the conversation sits under the rows it is about;
  * the whole change and the finish come last. A strip under the title always names the one thing to do next.
+ *
+ * The source view parts the two: the walkthrough is a guide beside the diff, and the diff is every file in path order.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
@@ -16,7 +18,8 @@ import type { Round } from "../../review/queries.ts";
 import { count, threadName } from "../names.ts";
 import { type CallError, failureText } from "../rpc.ts";
 import { useMedia } from "../ui/media.ts";
-import { Message, SkipLink } from "../ui/page.tsx";
+import { cn } from "../ui/cn.ts";
+import { frame, Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Prose, Time } from "../ui/text.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
@@ -24,11 +27,13 @@ import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
-import { NextStrip, Title, TopBar, useStickyBars, Who } from "./Header.tsx";
+import { Guide } from "./Guide.tsx";
+import { Narration, NextStrip, ReviewBar, Title, useStickyBars, ViewControl, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
+import { FileBlock } from "./FileBlock.tsx";
 import { Departed, Finish, General, StopSection } from "./Sections.tsx";
-import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom } from "./ui.ts";
-import { type PageModel, pageModel } from "./view.ts";
+import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom, type View, viewAtom } from "./ui.ts";
+import { type PageModel, pageModel, pathOrder } from "./view.ts";
 
 /** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
 const ImportFeedback = () => {
@@ -57,9 +62,12 @@ const ImportFeedback = () => {
   );
 };
 
-/** The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. */
+/**
+ * The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. It
+ * sits in the frame but outside its grid, so the contents, which stick within the grid, end where the review ends.
+ */
 const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round: boolean; readonly writable: boolean }) => (
-  <footer className="mt-16 flex flex-wrap items-center gap-x-6 gap-y-2 text-small text-muted">
+  <footer className={cn(frame({ width: "review" }), "mt-12 flex flex-wrap items-center gap-x-6 gap-y-2 pb-16 text-small text-muted")}>
     <ThemeControl />
     {round ? (
       <a href={`/reviews/${id}/feedback.json`} download className="underline underline-offset-3">
@@ -71,8 +79,20 @@ const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round
   </footer>
 );
 
-const Frame = ({ children }: { readonly children: React.ReactNode }) => (
-  <div className="mx-auto grid max-w-[96rem] grid-cols-1 gap-x-8 px-5 pb-16 lg:grid-cols-[15.5rem_minmax(0,1fr)]">{children}</div>
+/**
+ * The page under the top bar: the contents beside the review on a wide page, everything else across both. The source
+ * view's guide is wider than the contents: it holds prose and code.
+ */
+const Frame = ({ view = "guided", children }: { readonly view?: View; readonly children: React.ReactNode }) => (
+  <div
+    className={cn(
+      frame({ width: "review" }),
+      "grid grid-cols-1 gap-x-8",
+      view === "source" ? "lg:grid-cols-[24rem_minmax(0,1fr)]" : "lg:grid-cols-[15rem_minmax(0,1fr)]",
+    )}
+  >
+    {children}
+  </div>
 );
 
 /** A review no thread has published a round to yet: the title, one sentence, and the footer. */
@@ -87,26 +107,24 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   return (
     <>
       <SkipLink />
-      <TopBar target={snapshot.state.target} updated={snapshot.state.created_at} onFinish={undefined} />
+      <ReviewBar target={snapshot.state.target} updated={snapshot.state.created_at} />
       <Frame>
-        <header className="col-span-full pt-5">
+        <header className="col-span-full pt-6">
           <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3.5 text-small text-muted">
             {first === undefined ? null : (
-              <Who thread={first}>
+              <Who thread={first} id={first.id}>
                 started this review at <Time at={snapshot.state.created_at} />
               </Who>
             )}
             <TargetText target={snapshot.state.target} />
           </p>
         </header>
-        <main id="main" tabIndex={-1} className="col-span-full pt-8">
+        <main id="main" tabIndex={-1} className="col-span-full pt-6">
           <p className="max-w-reading">Waiting for {who}’s first round. This page updates itself.</p>
         </main>
-        <div className="col-span-full">
-          <Footer id={snapshot.state.id} round={false} writable={false} />
-        </div>
       </Frame>
+      <Footer id={snapshot.state.id} round={false} writable={false} />
     </>
   );
 };
@@ -152,14 +170,16 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
 
 const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
   const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
-  const navigate = useNavigate(key, page);
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
+  const [chosen] = useAtom(viewAtom);
   const narrow = useMedia(NARROW_QUERY);
   const split = layout === "split" && !narrow;
+  const view: View = narrow ? "guided" : chosen;
+  const navigate = useNavigate(key, page, view);
   useStickyBars();
-  const context = useMemo(() => ({ id, page }), [id, page]);
+  const context = useMemo(() => ({ id, page, view }), [id, page, view]);
 
   useEffect(() => {
     document.title = `${page.input.target.title} · Review canvas`;
@@ -182,34 +202,57 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
     area.setSelectionRange(next.length, next.length);
   };
 
+  /** Goes to a file from the contents or the guide, and names it in the hash. */
+  const showFile = (path: RepoPath) => {
+    history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
+    void navigate.showFile(path);
+  };
+
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <TopBar target={page.snapshot.state.target} updated={page.updated} onFinish={page.writable && !page.finished ? () => void navigate.goFinish() : undefined} />
-      <Frame>
+      <ReviewBar target={page.snapshot.state.target} updated={page.updated}>
+        <ViewControl />
+      </ReviewBar>
+      <Frame view={view}>
         <Title id={id} />
-        <NextStrip onGo={() => void navigate.goNext()} />
-        <Contents onStop={(index) => void navigate.showStop(index)} onFile={(path) => {
-          history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
-          void navigate.showFile(path);
-        }} />
-        <main id="main" tabIndex={-1} className="min-w-0 pt-8 outline-none">
-          {page.input.summary === undefined ? null : (
-            <div className="mb-10">
-              <Prose text={page.input.summary} />
-            </div>
+        <NextStrip
+          onGo={() => void navigate.goNext()}
+          onStep={(step) => void navigate.goStep(step)}
+          onFinish={() => void navigate.goFinish()}
+        />
+        {view === "source" ? (
+          <Guide onFile={showFile} onExcerpt={(target) => void navigate.showExcerpt(target)} onAsk={ask} steering={navigate.steering} />
+        ) : (
+          <Contents onStop={(index) => void navigate.showStop(index)} onFile={showFile} />
+        )}
+        <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
+          {view === "source" ? (
+            pathOrder(page.files.keys()).map((path) => {
+              const model = page.files.get(path);
+              return model === undefined ? null : <FileBlock key={path} model={model} split={split} />;
+            })
+          ) : (
+            <>
+              {page.input.summary === undefined ? null : (
+                <div className="max-w-reading">
+                  <Narration className="mb-1.5">
+                    · Round {page.round.round} · published <Time at={page.round.published_at} />
+                  </Narration>
+                  <Prose text={page.input.summary} />
+                </div>
+              )}
+              {page.stops.map((stop) => (
+                <StopSection key={stop.index} stop={stop} split={split} ruled={stop.index > 0 || page.input.summary !== undefined} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
+              ))}
+            </>
           )}
-          {page.stops.map((stop) => (
-            <StopSection key={stop.index} stop={stop} split={split} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
-          ))}
           <Departed />
           <General textarea={general} />
           <Finish key={page.writable ? "open" : "closed"} />
         </main>
-        <div className="col-span-full">
-          <Footer id={id} round writable={page.writable} />
-        </div>
       </Frame>
+      <Footer id={id} round writable={page.writable} />
     </ReviewContext.Provider>
   );
 };

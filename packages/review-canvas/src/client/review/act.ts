@@ -11,6 +11,7 @@ import type { PageAction } from "../../schema/rpc.ts";
 import { type CallError, failureText, NO_ANSWER } from "../rpc.ts";
 import { toast } from "../ui/toast.tsx";
 import { actionsAtom } from "./data.ts";
+import type { View } from "./ui.ts";
 import type { PageModel } from "./view.ts";
 
 /** What a change came to: its result, or why it did not go through. */
@@ -22,8 +23,11 @@ const outcomeOf = <A>(exit: Exit.Exit<A, CallError> | undefined): Outcome<A> => 
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : { ok: false, message: failureText(exit.cause) };
 };
 
-/** The page for one review: its ID and what it shows now. */
-export const ReviewContext = createContext<{ readonly id: ReviewId; readonly page: PageModel } | null>(null);
+/**
+ * The page for one review: its ID, what it shows now, and how it reads: the reviewer's view, except that a narrow
+ * page reads guided.
+ */
+export const ReviewContext = createContext<{ readonly id: ReviewId; readonly page: PageModel; readonly view: View } | null>(null);
 
 export const usePage = () => {
   const value = useContext(ReviewContext);

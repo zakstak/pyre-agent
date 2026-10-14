@@ -52,11 +52,13 @@ export const splitPath = (path: string): { readonly dir: string; readonly base: 
   return at === -1 ? { dir: "", base: path } : { dir: path.slice(0, at + 1), base: path.slice(at + 1) };
 };
 
-/** The last folder of a path and its file name, for a narrow list. */
-export const shortPath = (path: string): { readonly dir: string; readonly base: string } => {
-  const parts = path.split("/");
-  const folder = parts.at(-2);
-  return { dir: folder === undefined ? "" : `${folder}/`, base: parts.at(-1) ?? path };
+/** A path below the longest of `roots` that holds it, else the path as it is. */
+export const underRoot = (path: string, roots: ReadonlyArray<string>): string => {
+  const root = roots
+    .map((candidate) => candidate.replace(/\/+$/, ""))
+    .filter((candidate) => path.startsWith(`${candidate}/`))
+    .reduce<string | undefined>((longest, candidate) => (longest === undefined || candidate.length > longest.length ? candidate : longest), undefined);
+  return root === undefined ? path : path.slice(root.length + 1);
 };
 
 /** A verdict as the strip and the home page say it. */
