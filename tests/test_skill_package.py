@@ -81,7 +81,7 @@ class SkillPackageTests(unittest.TestCase):
     def test_urls_and_fragments_do_not_need_local_files(self):
         self.write(
             "skills/first/SKILL.md",
-            "[web](https://example.invalid/no-file) [thread](t3-thread://v1/id) "
+            "[web](https://example.invalid/no-file) [message](mailto:dev@example.invalid) "
             "[heading](#heading) [local](references/file%20name.md#section)",
         )
         self.write("skills/first/references/file name.md", "# Section")

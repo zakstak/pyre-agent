@@ -34,8 +34,8 @@ I like trying new technology and finding ways to improve developer experience.
 
 ## Browser use
 
-- Prefer T3's shared browser. Use the dedicated Chrome fallback as Linux user
-  `agent` when T3 is unavailable or I request Chrome.
+- Prefer the current harness's browser tools. Use the dedicated Chrome fallback
+  as Linux user `agent` when those tools are unavailable or I request Chrome.
 - The fallback launcher is `/home/agent/.local/bin/agent-chrome`; its profile is
   `/home/agent/.local/share/agent-chrome/profile`.
 - Keep Brave as my personal default browser. Do not inspect or reuse its normal
@@ -75,4 +75,4 @@ If a plan has multiple viable choices or boils down to an unresolved decision:
   conversation.
 - Let me select, review, and revise my choice.
 
-Pyre Context release: 1.0.0.
+Pyre Context release: 1.0.1.

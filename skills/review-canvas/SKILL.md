@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "4.3.0"
+  version: "5.0.0"
 ---
 
 # Review canvas
@@ -246,7 +246,7 @@ input's target, or starts a review when there is none, and writes
 `session.json`. Its URL shows a waiting page until the first round. Pass
 `--fresh` to start a new review of a target that already has one; the earlier
 review closes, and approvals that still match carry over. Pass `--host codex`
-or `--host t3` when that is where you run; `claude-code` is the default.
+when that is where you run; `claude-code` is the default.
 `--session-id` takes the host's session ID only when the host gives it to you
 as such; leave it out otherwise. The label is what the reviewer sees on every
 answer.

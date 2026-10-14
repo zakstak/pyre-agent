@@ -666,8 +666,7 @@ const added: ReadonlyArray<{
   {
     name: "a thread runs in a known host",
     edit: change(["threads", 1, "host", "kind"], "cursor"),
-    message:
-      /threads\[1\]\.host\.kind: Expected "claude-code" \| "codex" \| "t3"/,
+    message: /threads\[1\]\.host\.kind: Expected "claude-code" \| "codex"/,
   },
   {
     name: "a thread has a label",
@@ -1289,7 +1288,7 @@ test("feedback: reply, answer, and thread counts are limited", () => {
   const thread = (index: number): Json => ({
     id: `t${index}`,
     label: "T",
-    host: { kind: "t3" },
+    host: { kind: "codex" },
   });
   set(
     threads,
