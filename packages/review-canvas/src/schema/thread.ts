@@ -3,7 +3,7 @@ import * as Limits from "./limits.ts";
 import { HostSessionId, nonEmptyText, ThreadId } from "./primitives.ts";
 
 /** The agent hosts a thread can run in. */
-export const HOSTS = ["claude-code", "codex", "t3"] as const;
+export const HOSTS = ["claude-code", "codex"] as const;
 
 /** Where a thread runs, and the host's own session ID when the agent can read it. */
 export const ThreadHost = Schema.Struct({

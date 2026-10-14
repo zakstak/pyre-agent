@@ -27,8 +27,8 @@ review names it in `carried_from`. Approval is display only and blocks nothing.
 
 ## Threads
 
-Each thread holds `id`, `label`, and `host` (`kind` of `claude-code`, `codex`,
-or `t3`, with an optional `session_id`). Tokens never appear. Every agent reply
+Each thread holds `id`, `label`, and `host` (`kind` of `claude-code` or `codex`,
+with an optional `session_id`). Tokens never appear. Every agent reply
 names its thread.
 
 ## Comments
