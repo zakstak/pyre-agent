@@ -90,6 +90,8 @@ test("the filter menus write repo: and author: terms into the query and read the
   const focused = () => page.evaluate(() => document.activeElement?.textContent);
   const first = `${input.target.root.split("/").at(-1)}1`;
   assert.equal(await page.locator("button[data-row]").first().textContent(), first);
+  // The popup moves focus a frame after it opens.
+  await page.locator("button[data-row]:focus").waitFor();
   assert.equal(await focused(), first);
   const ledger = page.locator("button[data-row]", { hasText: "acme/ledger" });
   await ledger.click();

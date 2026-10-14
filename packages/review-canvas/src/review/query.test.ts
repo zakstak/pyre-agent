@@ -21,7 +21,7 @@ const summary = (fields: Record<string, unknown>): ReviewSummary =>
 
 const claude = { id: "t1", label: "Claude Code: fix the retry loop", host: { kind: "claude-code" } };
 const codex = { id: "t2", label: "Codex", host: { kind: "codex" } };
-const t3 = { id: "t3", label: "T3 Code", host: { kind: "t3" } };
+const second = { id: "t3", label: "Claude Code: split the dispatcher", host: { kind: "claude-code" } };
 
 /** A pull request that needs the reviewer: Claude Code published round 2, nobody finished it. */
 const webhook = summary({
@@ -30,14 +30,14 @@ const webhook = summary({
   round: 2,
   threads: [claude],
 });
-/** A working tree the reviewer finished, waiting for Codex and T3 Code. */
+/** A working tree the reviewer finished, waiting for Codex and a second Claude Code thread. */
 const branch = summary({
   id: "branch",
   target: { kind: "worktree", title: "Split the dispatcher", root: "/home/zak/src/ledger-feat", head_sha: SHA, branch: "feat/dispatch" },
   round: 1,
   submitted: true,
   verdict: "request_changes",
-  threads: [codex, t3],
+  threads: [codex, second],
 });
 /** A closed pull request review that Codex took part in. */
 const closed = summary({
@@ -72,7 +72,7 @@ test("the brief's examples", () => {
   assert.deepEqual(shown("is:open -author:codex"), ["webhook"]);
   assert.deepEqual(shown("repo:ledger is:yours"), ["webhook"]);
   assert.deepEqual(shown("-is:closed webhook"), ["webhook"]);
-  assert.deepEqual(shown("host:t3"), ["branch"]);
+  assert.deepEqual(shown("host:codex"), ["branch", "closed"]);
   assert.deepEqual(shown("branch:feat/ -is:finished"), []);
   assert.deepEqual(shown("branch:feat/"), ["branch"]);
 });
@@ -83,7 +83,7 @@ test("bare words match the title, repository, checkout, branch, PR number, and t
   assert.deepEqual(shown("dispatch"), ["branch"]);
   assert.deepEqual(shown("#412"), ["webhook"]);
   assert.deepEqual(shown("412"), ["webhook"]);
-  assert.deepEqual(shown("claude"), ["webhook"]);
+  assert.deepEqual(shown("claude"), ["webhook", "branch"]);
   assert.deepEqual(shown('"signature freshness"'), ["webhook"]);
   assert.deepEqual(shown(""), ["webhook", "branch", "closed"]);
 });
@@ -100,9 +100,9 @@ test("each key matches its own field, enumerations exactly", () => {
   assert.deepEqual(shown("repo:ledger-feat"), ["branch"]);
   assert.deepEqual(shown("repo:billing"), ["closed"]);
   assert.deepEqual(shown("author:codex"), ["branch", "closed"]);
-  assert.deepEqual(shown("author:T3"), ["branch"]);
+  assert.deepEqual(shown("author:dispatcher"), ["branch"]);
   assert.deepEqual(shown("host:claude"), []);
-  assert.deepEqual(shown("host:claude-code"), ["webhook"]);
+  assert.deepEqual(shown("host:claude-code"), ["webhook", "branch"]);
   assert.deepEqual(shown("verdict:approve"), ["closed"]);
   assert.deepEqual(shown("verdict:request"), []);
   assert.deepEqual(shown("round:2"), ["webhook"]);
