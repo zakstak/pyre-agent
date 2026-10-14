@@ -94,11 +94,11 @@ test("with the file's text, unchanged lines sit between the hunks, hidden until 
   const page = render("unified", { new_content: content });
   assert.match(
     page,
-    /data-expand="0" aria-expanded="false">Show 1 unchanged line</,
+    /data-expand="0" data-count="1" data-noun="unchanged" aria-expanded="false">Show 1 unchanged line</,
   );
   assert.match(
     page,
-    /data-expand="1" aria-expanded="false">Show 2 unchanged lines</,
+    /data-expand="1" data-count="2" data-noun="unchanged" aria-expanded="false">Show 2 unchanged lines</,
   );
   assert.match(
     page,

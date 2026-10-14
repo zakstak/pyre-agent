@@ -1419,6 +1419,8 @@
     overflow-wrap: anywhere;
   }
   .repository-host {
+    margin-inline-start: 0.375rem;
+    font-weight: 400;
     color: var(--text-secondary);
   }
   .repository-head > button {

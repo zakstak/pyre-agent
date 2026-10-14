@@ -19,7 +19,7 @@ type Standing = "yours" | "agents" | "closed";
 const standing = (item: ReviewSummary): Standing =>
   item.closed_at !== undefined
     ? "closed"
-    : item.for_you > 0 || (item.round !== undefined && !item.submitted)
+    : item.round !== undefined && !item.submitted
       ? "yours"
       : "agents";
 
@@ -27,8 +27,9 @@ const standing = (item: ReviewSummary): Standing =>
 const needs = (item: ReviewSummary): { readonly text: string; readonly yours: boolean } | undefined => {
   if (item.closed_at !== undefined) return undefined;
   if (item.round === undefined) return { text: "Waiting for the first round", yours: false };
-  if (item.for_you > 0) return { text: `${count(item.for_you, "answer")} to read`, yours: true };
+  // As on the review page: a finished round is the agents' turn, whatever waits after it.
   if (item.verdict !== undefined) return { text: `Round ${item.round} finished · ${VERDICT_TEXT[item.verdict]}`, yours: false };
+  if (item.for_you > 0) return { text: `${count(item.for_you, "answer")} to read`, yours: true };
   if (item.drift !== undefined) return { text: `${count(item.drift, "file")} changed since the round`, yours: true };
   const left = (item.round_files ?? 0) - (item.viewed ?? 0);
   return left > 0
@@ -126,7 +127,7 @@ const repositoryRow = (
   const monitored = statuses !== undefined;
   return html`<li class="repository" data-repository data-monitoring="${monitored ? "monitored" : "discovered"}" data-status="${[...new Set(states)].join(" ")}" data-search="${search}">
 <div class="repository-head">
-<h3 class="repository-name" title="${full}">${name}</h3>${host === "" ? "" : html`<code class="repository-host">${host}</code>`}
+<h3 class="repository-name" title="${full}">${name}${host === "" ? "" : html` <code class="repository-host">${host}</code>`}</h3>
 <button type="button" class="${monitored ? "small-button quiet" : "small-button"}" data-repository-action="${monitored ? "remove" : "accept"}" data-id="${repositoryId(repository.identity)}" data-root="${repository.checkouts[0]}" aria-label="${monitored ? "Remove" : "Monitor"} ${full}" disabled>${monitored ? "Remove" : "Monitor"}</button>
 </div>
 <ul class="checkouts">${repository.checkouts.map((root) => {

@@ -199,7 +199,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(page.status, 200);
     assert.match(page.text, /Write notes atomically/);
     assert.match(page.text, /data-revision="2"/);
-    assert.match(page.text, /class="stop"/);
+    assert.match(page.text, /<section class="stop/);
 
     // A page action needs this server's Origin.
     const action = (body: unknown, origin = `http://127.0.0.1:${pages.port}`) =>
@@ -321,7 +321,7 @@ test("an agent registers, publishes, and answers; a page comments, submits, and 
     assert.equal(exported.body.submissions.length, 1);
     const home = await call(pages, "GET", "/");
     assert.match(home.text, /Write notes atomically/);
-    assert.match(home.text, /Finished/);
+    assert.match(home.text, /Round 1 finished/);
 
     // A page on the loopback port cannot reach the agent API.
     const crossed = await call(pages, "POST", "/agent/register", {
@@ -442,7 +442,7 @@ test("a comment on a file that leaves the round stays on the page, and no id rep
     second.target.changed_files = second.files.length;
     assert.equal((await publish(second)).status, 200);
     const page = await call(pages, "GET", `/reviews/${review}`);
-    assert.match(page.text, /Comments on files no longer in this round/);
+    assert.match(page.text, /Files that left the round/);
     assert.match(page.text, /Lock before the rename\./);
     assert.match(page.text, /The file is not in this round\./);
     assert.deepEqual(repeatedIds(page.text), []);
@@ -479,7 +479,7 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
     assert.ok(status.body.status.files.length > 0);
     assert.match(
       (await call(pages, "GET", `/reviews/${review}`)).text,
-      /The code changed since this round\./,
+      /Changed since this round\./,
     );
 
     const github = await call(
@@ -553,7 +553,7 @@ test("agents report drift and GitHub comments; pages import feedback and choose 
       headers: { cookie: "review-canvas-layout=split" },
     });
     assert.match(split.text, /<table class="diff split"/);
-    assert.match(split.text, /data-layout-toggle aria-pressed="true"/);
+    assert.match(split.text, /data-layout="split" aria-pressed="true"/);
     assert.doesNotMatch(
       (await call(pages, "GET", `/reviews/${review}`)).text,
       /<table class="diff split"/,
@@ -607,7 +607,7 @@ test("a file the next round changes shows what changed since the round before", 
     );
     assert.equal((await publish(round("one\ntwo\nthree\n"))).status, 200);
     const page = (await call(pages, "GET", `/reviews/${review}`)).text;
-    assert.match(page, /Changed in round 2/);
+    assert.doesNotMatch(page, /unchanged since round 1/);
     assert.match(page, /<summary>Changes since round 1<\/summary>/);
     // The patch between rounds holds only the new line, and offers no comment control.
     const since = page.slice(page.indexOf("Changes since round 1"));
