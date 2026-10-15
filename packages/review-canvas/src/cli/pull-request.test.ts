@@ -13,6 +13,7 @@ import { Fixture, PRIVATE_KEY, script } from "../collector/testing.ts";
 import { decodeBytes, InputDocument } from "../schema/document.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
 import { GhFailed, type Gh } from "./github.ts";
+import type { ForgeClients } from "./hosted.ts";
 import { collectPullRequest, reconcile } from "./pull-request.ts";
 
 const PR = "https://github.com/example/notes/pull/7" as PullRequestUrl;
@@ -49,7 +50,7 @@ const fakeGh = (options: {
     readonly previous_filename?: string;
   }>;
   readonly changedFiles?: number;
-}): Gh & { readonly calls: Array<ReadonlyArray<string>> } => {
+}): ForgeClients & { readonly calls: Array<ReadonlyArray<string>> } => {
   const calls: Array<ReadonlyArray<string>> = [];
   let views = 0;
   const gh = (args: ReadonlyArray<string>, cwd?: string) => {
@@ -71,7 +72,7 @@ const fakeGh = (options: {
       return options.files.map((file) => JSON.stringify(file)).join("\n");
     throw new GhFailed(`unexpected gh ${args.join(" ")}`);
   };
-  return Object.assign(gh, { calls });
+  return { gh, api: () => { throw new Error("REST is not used for GitHub"); }, calls };
 };
 
 const FILES = [

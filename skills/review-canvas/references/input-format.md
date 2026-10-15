@@ -17,14 +17,20 @@ local clone that holds the PR's base and head commits.
 
 ## Target
 
-`target.kind` is `github_pr` or `worktree`. Both require `title`.
+`target.kind` is `github_pr`, `pull_request`, or `worktree`. All require `title`.
 
-| Kind        | Required                            | Optional                    |
-| ----------- | ----------------------------------- | --------------------------- |
-| `github_pr` | `kind`, `title`, `url`, `head_sha`  | `base_sha`, `changed_files` |
-| `worktree`  | `kind`, `title`, `root`, `head_sha` | `branch`, `changed_files`   |
+| Kind           | Required                                       | Optional                    |
+| -------------- | ---------------------------------------------- | --------------------------- |
+| `github_pr`    | `kind`, `title`, `url`, `head_sha`             | `base_sha`, `changed_files` |
+| `pull_request` | `kind`, `provider`, `title`, `url`, `head_sha` | `base_sha`, `changed_files` |
+| `worktree`     | `kind`, `title`, `root`, `head_sha`            | `branch`, `changed_files`   |
 
-- `url` identifies a PR at `https://github.com/OWNER/REPO/pull/NUMBER`.
+- `url` identifies an HTTPS review on the selected host. GitHub uses
+  `/OWNER/REPO/pull/NUMBER`, GitLab uses `/GROUP/PROJECT/-/merge_requests/NUMBER`,
+  and Gitea/Forgejo uses `/OWNER/REPO/pulls/NUMBER`. GitLab permits subgroups.
+- `provider` is `github`, `gitlab`, or `gitea` and must match the URL route.
+  `github_pr` is the original GitHub target format, also accepted for GitHub
+  Enterprise. Its review keys remain unchanged.
 - `head_sha` and `base_sha` are full commit hashes. For a working tree,
   `head_sha` is the `HEAD` commit the uncommitted changes are compared with.
 - `root` is the working tree's absolute POSIX path, as
@@ -56,7 +62,7 @@ Each file requires:
 
 Each file in a `worktree` target also requires `fingerprint`, 64 lowercase
 hexadecimal characters that identify one exact version of the change to the
-file. It is optional for a `github_pr` target; a file without one cannot be
+file. It is optional for a hosted review target; a file without one cannot be
 approved.
 
 Optional fields:
