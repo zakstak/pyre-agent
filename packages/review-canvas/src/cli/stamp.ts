@@ -10,7 +10,7 @@
  *   node src/cli/stamp.ts --write   writes the hash into dist/build.json, after a build
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -64,8 +64,18 @@ export const writeStamp = (root = here): void => {
 /** Whether the build in dist was made from the sources beside it. */
 export const fresh = (root = here): boolean => readStamp(root) === inputsHash(root);
 
-const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+/** Whether this module is the one the command ran, by real path: the given path may go through a symlink, as macOS's temp folder does. */
+const isEntry = (): boolean => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return pathToFileURL(realpathSync(entry)).href === pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href;
+  } catch {
+    return false;
+  }
+};
+
+if (isEntry()) {
   const mode = process.argv[2];
   if (mode === "--write") writeStamp();
   else if (mode === "--check") process.exitCode = fresh() ? 0 : 1;

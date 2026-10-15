@@ -1,7 +1,7 @@
 /** The build stamp answers from contents, never from file times. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -21,7 +21,11 @@ const fixture = (t: TestContext) => {
   writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
   writeFileSync(join(dir, "src/client/page.ts"), "export const page = 1;\n");
   writeFileSync(join(dir, "src/client/page.test.ts"), "test();\n");
-  const stamp = (mode: string) => spawnSync(process.execPath, [join(dir, "src/cli/stamp.ts"), mode], { encoding: "utf8" });
+  // The command may be run through a symlink, as it is on macOS, whose temp folder is one: the check still runs.
+  const link = `${dir}-link`;
+  symlinkSync(dir, link, "dir");
+  t.after(() => rmSync(link, { force: true }));
+  const stamp = (mode: string, at = link) => spawnSync(process.execPath, [join(at, "src/cli/stamp.ts"), mode], { encoding: "utf8" });
   return { dir, stamp };
 };
 
@@ -45,8 +49,10 @@ test("the hash follows the inputs' contents and paths, not their times or their 
 test("the command says whether dist was built from these sources", (t) => {
   const { dir, stamp } = fixture(t);
   assert.equal(stamp("--check").status, 1, "no build yet");
+  assert.equal(stamp("--check", dir).status, 1, "no build yet, by the real path either");
   assert.equal(stamp("--write").status, 0);
   assert.equal(stamp("--check").status, 0, "built from these sources");
+  assert.equal(stamp("--check", dir).status, 0);
   assert.equal(fresh(dir), true);
   writeFileSync(join(dir, "src/client/page.ts"), "export const page = 3;\n");
   assert.equal(stamp("--check").status, 1, "a source changed since the build");
