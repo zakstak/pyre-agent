@@ -3,17 +3,20 @@
 ## Requirements
 
 Requires Python 3.11+, Git supporting `--no-lazy-fetch`, and an already
-installed/authenticated Codex CLI with access to `gpt-6.1-sol`. CLI flags were
-checked on 0.159.2; bounded live inference also passed on 0.162.0 on 2026-10-09.
-This integration never installs tools, logs in, changes `CODEX_HOME`, reads auth
-files, or writes configuration. Account entitlement can only be established by a
-successful call; model catalog membership alone is insufficient.
+installed/authenticated Codex CLI with access to the model pinned in the paired
+TOML, `gpt-6.1-sol` when last checked. CLI flags were checked on 0.159.2;
+bounded live inference also passed on 0.162.0 on 2026-10-09. This integration
+never installs tools, logs in, changes `CODEX_HOME`, reads auth files, or writes
+configuration. Account entitlement can only be established by a successful call;
+model catalog membership alone is insufficient.
 
 An explicit
 `--profile-file /absolute/path/to/adversarial-branch-review.config.toml` can
-select a paired profile from a trusted location. The bridge checks its exact
-model and safety settings. Resolution order: explicit path, then the bundled
-profile. A missing profile fails explicitly.
+select a paired profile from a trusted location. The selected file pins the
+exact model and reviewer personality; the bridge validates its safety settings.
+When an explicit path is supplied, the bundled profile is not read. Otherwise,
+the bundled profile is selected. A missing or malformed selected profile fails
+explicitly, with no model or profile fallback.
 
 Cloning does not activate this skill. Explicit Claude invocation and disabled
 nested delegation prevent recursive calls; the reviewer also forbids invoking
@@ -43,6 +46,28 @@ work in the target repository is excluded and flagged. Submodule worktrees are
 not inspected; the review covers committed gitlink changes in the target
 repository. Nothing switches the checkout.
 
+Request example:
+
+```json
+{
+  "repo": "/absolute/path/to/project",
+  "base": "origin/main",
+  "head": "HEAD",
+  "focus": ["Authorization boundaries", "Backwards compatibility"],
+  "context": "The route must remain compatible with existing API clients.",
+  "subagents": [
+    {
+      "name": "security",
+      "task": "Look for authorization bypasses introduced by this diff"
+    },
+    {
+      "name": "compatibility",
+      "task": "Check old clients and migration failure paths"
+    }
+  ]
+}
+```
+
 Each specialist is an independent Codex subprocess, not a native Codex agent
 role. Specialists run concurrently; the lead starts only after all return valid
 results. Every subprocess uses the same model and read-only reviewer
@@ -57,8 +82,9 @@ Success exits 0 with one JSON object and these fields:
 
 - `schema_version`: `1`
 - `status`: `review_completed` (or `preflight_passed` with `--check`)
-- `model_requested`: always `gpt-6.1-sol`; this is the exact CLI request, not a
-  claim of independent verification of the service's internal routing
+- `model_requested`: the model pinned in the paired TOML; this is the exact CLI
+  request, not a claim of independent verification of the service's internal
+  routing
 - `scope`: repository path, input refs, resolved `base_sha`, `head_sha`, unique
   `merge_base`, `local_changes_excluded`, and `empty_diff`
 - `review`: `verdict`, `summary`, `coverage`, `limitations`, and `findings`
@@ -116,6 +142,14 @@ run this against a hostile local installation. Normal Codex inference contacts
 OpenAI and can incur account usage. The model can read local files permitted by
 the sandbox; read-only does not mean repo-only read access. This bridge does not
 make a claim that all network traffic is blocked.
+
+The read-only sandbox does not exempt the Python wrapper or the Codex process
+from Claude's outer permissions and sandbox. Use the host's normal permission
+flow for file access, writing the private request, and running the exact bundled
+Python command through Bash. The skill grants no `allowed-tools` permissions. If
+a tool, file, network or runtime-storage access is denied, return the blocker;
+do not change permission settings or rerun through a different tool to avoid the
+denial.
 
 Captured stdout/stderr use temporary disk streams with an 8 MiB per-stream limit
 checked every 100 ms; excess output aborts rather than returning a truncated

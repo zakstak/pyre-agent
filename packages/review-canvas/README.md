@@ -37,8 +37,7 @@ The first command that needs the server starts it in the background;
 page port; without it, the server asks for the port the last server used, so
 open pages reconnect, and takes a free one when that port is busy. `REVIEW_CANVAS_DATA` and
 `REVIEW_CANVAS_RUNTIME` move the database and the socket, which is how the
-tests and a demo stay out of the real data. GitHub comments are read with `gh`
-when it is installed and signed in.
+tests and a demo stay out of the real data. The CLI reads hosted review comments through the selected provider's API.
 
 Commands reuse a daemon only when its code and asset manifest match the current
 installation. The build writes `dist/build.json`, a hash of everything it was
@@ -53,13 +52,64 @@ Use `pnpm build` instead of invoking Vite directly to retain this coordination.
 
 `collect --pr URL --repo CLONE` collects a pull request from a local clone
 that holds its base and head commits. It reads the title, commits, and file list
-with `gh`, run outside the clone, and the patches and texts from the clone. It
+from the selected git host, and the patches and texts from the clone. API tools
+run outside the reviewed clone. It
 does not fetch; a missing commit fails with the `git fetch` command to run.
 
 Collection scans both patches and requested full-file content for recognized
 secret patterns. A match omits that file's content and reports its path;
 `--include-secret PATH` explicitly allows it, while `--no-content` collects only
 patches. The detector does not recognize every possible secret format.
+
+## Private Git hosts
+
+`collect --pr URL` supports HTTPS review URLs on public and private hosts:
+
+- GitHub and GitHub Enterprise: `https://git.company.com/team/project/pull/42`
+- GitLab, including subgroups: `https://git.company.com/division/team/project/-/merge_requests/42`
+- Gitea and Forgejo: `https://git.company.com/team/project/pulls/42`
+
+The URL selects the provider and host. Custom HTTPS ports are supported. The
+CLI does not probe other hosts or fetch commits. Metadata, file inventories,
+comments, head checks, saved reviews, repository links, and search use the
+selected host. The page shows the hostname for private reviews and `!42` for
+GitLab merge requests.
+
+GitHub uses the existing `gh` authentication for that host. REST and GraphQL
+requests name the host explicitly. GitLab and Gitea/Forgejo use `curl` and the
+existing HTTPS Git credential helper for that host and repository. The helper's
+password must be a token with API read access. An SSH key alone does not grant
+API access. Missing authentication reports the failed operation; the CLI never
+asks for credentials or creates them.
+
+The CLI sends tokens through stdin, never command arguments or review files.
+It refuses credentials returned for another host, port, or repository, and
+refuses API redirects. HTTPS verification stays enabled. Keep the company's CA
+in the system or CLI trust configuration; `curl` also supports `CURL_CA_BUNDLE`.
+
+For an explicit review URL, no host configuration is needed. To import comments
+for a local working-tree review automatically, configure the provider of each
+private remote host:
+
+```sh
+export REVIEW_CANVAS_FORGE_HOSTS='{"git.company.com":"gitlab","gitea.company.com":"gitea","github.company.com":"github"}'
+```
+
+The recognized public defaults are `github.com`, `gitlab.com`, and
+`codeberg.org`. `GH_HOST` also selects a GitHub Enterprise host. Unknown or
+ambiguous branch lookups report why they were skipped. SSH aliases and custom
+SSH ports do not establish an HTTPS address; use an explicit review URL in
+those cases.
+
+The adapters use the providers' standard API paths. Installations below a URL
+prefix, Bitbucket, and Azure DevOps require separate adapters. An outdated
+comment whose original patch is unavailable is reported as skipped rather
+than placed on an unrelated line.
+
+`review-canvas comments --session DIR` refreshes hosted comments.
+`publish --no-comments` skips that import. The original `github` command,
+`--no-github`, and v1 JSON fields named `github` remain accepted so existing
+agent sessions and saved feedback continue to work.
 
 ## Repository monitoring
 
@@ -80,7 +130,7 @@ Git directory, so unrelated projects with the same folder name stay separate.
 Acceptance applies to all discovered copies of that repository, including copies
 found by later scans. Counts and acceptance actions refer to repositories;
 paths, branches, and working-tree status belong to individual checkouts.
-PR reviews link from the repository entry identified by their GitHub URL;
+PR reviews link from the repository entry identified by their review URL;
 working-tree reviews link from their checkout. Removing monitoring keeps those reviews.
 
 Filter by name, path, or branch, and select **Monitored**, **Discovered**,
@@ -107,17 +157,17 @@ Earlier server builds cannot read the upgraded database.
 
 ## Layout
 
-| Folder          | What                                                                                     |
-| --------------- | ---------------------------------------------------------------------------------------- |
-| `src/schema`    | The input, tour, feedback, GitHub import, and page RPC formats as Effect Schema          |
-| `src/collector` | The working tree and commit range collectors, and fingerprints                           |
-| `src/review`    | Pure review logic: patch rows, anchors, the tour view, every action, and imports         |
-| `src/store`     | SQLite through `node:sqlite`: reviews, rounds, threads, revisions, change listeners      |
-| `src/server`    | The page RPCs, the page shell and assets, the agent API, and lifecycle                   |
-| `src/client`    | The React app: the home and review pages, their atoms, and the pure view model           |
-| `src/cli`       | The `review-canvas` command, and reading pull request comments with `gh`                 |
-| `browser`       | Browser tests in Chromium against a real server                                          |
-| `scripts`       | The packed tarball test, and the live GitHub import test                                 |
+| Folder          | What                                                                                |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `src/schema`    | The input, tour, feedback, GitHub import, and page RPC formats as Effect Schema     |
+| `src/collector` | The working tree and commit range collectors, and fingerprints                      |
+| `src/review`    | Pure review logic: patch rows, anchors, the tour view, every action, and imports    |
+| `src/store`     | SQLite through `node:sqlite`: reviews, rounds, threads, revisions, change listeners |
+| `src/server`    | The page RPCs, the page shell and assets, the agent API, and lifecycle              |
+| `src/client`    | The React app: the home and review pages, their atoms, and the pure view model      |
+| `src/cli`       | The `review-canvas` command, and reading pull request comments with `gh`            |
+| `browser`       | Browser tests in Chromium against a real server                                     |
+| `scripts`       | The packed tarball test, and the live GitHub import test                            |
 
 ## Check
 

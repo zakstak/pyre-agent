@@ -19,7 +19,6 @@ import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath
 
-MODEL = "gpt-6.1-sol"
 SKILL = Path(__file__).resolve().parents[1]
 PROFILE = SKILL / "references/adversarial-branch-review.config.toml"
 SCHEMA = SKILL / "references/review.schema.json"
@@ -420,17 +419,28 @@ def resolve_scope(request, deadline):
     }
 
 
-def load_profile(profile_file=None):
-    source = Path(profile_file).expanduser().resolve() if profile_file else PROFILE
+def read_profile(source):
     try:
-        profile = tomllib.loads(source.read_text(encoding="utf-8"))
+        return tomllib.loads(source.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         reject(
             "invalid_profile",
             f"Cannot read paired Codex profile; copy the paired profile into the skill references directory, or use --profile-file: {error}",
         )
+
+
+def load_profile(profile_file=None):
+    """Select the trusted paired profile before validating its exact model and safety."""
+    source = Path(profile_file).expanduser().resolve() if profile_file else PROFILE
+    profile = read_profile(source)
+    model = profile.get("model")
+    if not isinstance(model, str) or not model.strip():
+        reject(
+            "invalid_profile",
+            f"The selected profile {source} must pin the exact Codex model under `model`.",
+        )
     expected = {
-        "model": MODEL,
+        "model": model,
         "model_provider": "openai",
         "model_reasoning_effort": "xhigh",
         "sandbox_mode": "read-only",
@@ -471,7 +481,7 @@ def config_args(profile):
     return result
 
 
-def preflight(binary, launch_dir, deadline):
+def preflight(binary, model, launch_dir, deadline):
     limit = min(deadline, time.monotonic() + 30)
     code, help_text, _ = run([binary, "exec", "--help"], cwd=launch_dir, deadline=limit)
     required = (
@@ -502,16 +512,16 @@ def preflight(binary, launch_dir, deadline):
     if code:
         reject(
             "model_check_failed",
-            f"Cannot inspect the Codex model catalog for {MODEL}; no fallback was attempted.",
+            f"Cannot inspect the Codex model catalog for {model}; no fallback was attempted.",
         )
     data = read_json(catalog, "Codex model catalog")
     models = data.get("models") if isinstance(data, dict) else None
     if not isinstance(models, list) or not any(
-        isinstance(m, dict) and m.get("slug") == MODEL for m in models
+        isinstance(m, dict) and m.get("slug") == model for m in models
     ):
         reject(
             "model_unavailable",
-            f"Exact model {MODEL} is not in the Codex catalog. No other model will be used.",
+            f"Exact model {model} is not in the Codex catalog. No other model will be used.",
         )
     # Catalog membership is not proof of account entitlement; exec must succeed too.
 
@@ -606,6 +616,7 @@ def invoke(
     specialist=None,
     delegated=(),
 ):
+    model = profile["model"]
     output = launch_dir / (name + ".json")
     argv = [
         binary,
@@ -617,7 +628,7 @@ def invoke(
         "--cd",
         str(launch_dir),
         "--model",
-        MODEL,
+        model,
         "--sandbox",
         "read-only",
         "--color",
@@ -669,11 +680,11 @@ def invoke(
         ):
             reject(
                 "model_unavailable",
-                f"Codex rejected the exact model {MODEL} for this account. No fallback was attempted.",
+                f"Codex rejected the exact model {model} for this account. No fallback was attempted.",
             )
         reject(
             "codex_failed",
-            f"Codex {name} exited {code}. Exact model {MODEL}, account access, network or sandbox may be unavailable. No fallback or partial success was returned; diagnose with Codex directly.",
+            f"Codex {name} exited {code}. Exact model {model}, account access, network or sandbox may be unavailable. No fallback or partial success was returned; diagnose with Codex directly.",
         )
     # Split only LF: splitlines() also breaks at raw U+2028 or U+0085, which
     # JSON allows inside strings. A CR before LF is JSON whitespace.
@@ -695,10 +706,10 @@ def invoke(
                 "codex_failed",
                 f"Codex {name} reported a failed turn; no successful review was returned.",
             )
-        if "model" in event and event["model"] != MODEL:
+        if "model" in event and event["model"] != model:
             reject(
                 "model_mismatch",
-                f"Codex reported a model other than {MODEL}; result rejected.",
+                f"Codex reported a model other than {model}; result rejected.",
             )
     if not any(json.loads(line).get("type") == "turn.completed" for line in lines):
         reject("invalid_review", "Codex did not report a completed turn.")
@@ -707,7 +718,7 @@ def invoke(
     review = validate_review(
         read_json(output.read_text(encoding="utf-8"), "review result"), schema
     )
-    return {"name": name, "model_requested": MODEL, "review": review}
+    return {"name": name, "model_requested": model, "review": review}
 
 
 def execute(
@@ -753,8 +764,12 @@ def execute(
                 "unsafe_temp_dir",
                 "Temporary launch directory inherits project Codex configuration; choose a clean TMPDIR.",
             )
-        preflight(binary, launch_dir, deadline)
-        envelope = {"schema_version": 1, "model_requested": MODEL, "scope": scope}
+        preflight(binary, profile["model"], launch_dir, deadline)
+        envelope = {
+            "schema_version": 1,
+            "model_requested": profile["model"],
+            "scope": scope,
+        }
         if check_only:
             return {
                 **envelope,

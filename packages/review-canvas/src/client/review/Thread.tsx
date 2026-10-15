@@ -147,7 +147,7 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
         <li data-reply="github" className="pt-3">
           <By>
             <GitHubVoice login={item.github.author} />
-            <span>on GitHub</span>
+            <span>on {new URL(item.github.url).host}</span>
             <Time at={item.created_at} />
           </By>
           <Body text={item.body} />
@@ -328,7 +328,7 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
         {comment.source.kind === "github" ? (
           <>
             <GitHubVoice login={comment.source.author} />
-            <span>on GitHub</span>
+            <span>on {new URL(comment.source.url).host}</span>
           </>
         ) : (
           <Voice kind="you" name="You" />
