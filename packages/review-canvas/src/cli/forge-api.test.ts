@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -33,6 +40,11 @@ test("API credentials must match the selected HTTPS host, port, and repository",
 
 test("HTTPS requests keep tokens off argv, disable redirects, and run helpers outside the reviewed clone", (t) => {
   const f = new Fixture(t);
+  // macOS's temporary directory is reached through a symlink.
+  const temp = join(f.base, "temp");
+  const tempLink = join(f.base, "temp-link");
+  mkdirSync(temp);
+  symlinkSync(temp, tempLink, "dir");
   const bin = join(f.base, "bin");
   mkdirSync(bin);
   const gitLog = join(f.base, "git.json");
@@ -53,15 +65,15 @@ test("HTTPS requests keep tokens off argv, disable redirects, and run helpers ou
     "curl",
     `writeFileSync(${JSON.stringify(curlLog)}, JSON.stringify({ args: process.argv.slice(2), input: readFileSync(0, 'utf8'), cwd: process.cwd() }));\nprocess.stdout.write('{"ok":true}\\n' + (process.env.PA_TEST_HTTP_STATUS ?? '200'));`,
   );
-  withEnv({ PATH: `${bin}:${process.env.PATH ?? ""}`, GIT_DIR: f.root }, () => {
+  withEnv({ PATH: `${bin}:${process.env.PATH ?? ""}`, GIT_DIR: f.root, TMPDIR: tempLink }, () => {
     assert.deepEqual(
       readForgeApi(pull, "/api/v4/projects/team%2Fproject/merge_requests/42"),
       { ok: true },
     );
     const git = JSON.parse(readFileSync(gitLog, "utf8"));
     const curl = JSON.parse(readFileSync(curlLog, "utf8"));
-    assert.equal(git.cwd, tmpdir());
-    assert.equal(curl.cwd, tmpdir());
+    assert.equal(realpathSync(git.cwd), realpathSync(tmpdir()));
+    assert.equal(realpathSync(curl.cwd), realpathSync(tmpdir()));
     assert.equal(git.routing, undefined);
     assert.equal(git.prompt, "0");
     assert.equal(git.askpass, "false");
