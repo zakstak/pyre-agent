@@ -2,6 +2,7 @@
 import type { Verdict } from "../schema/feedback.ts";
 import type { Target } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
+import { parsePullRequest } from "../schema/forge-url.ts";
 
 /**
  * A thread's name as a person says it: the label's part before a colon, so "Claude Code: webhook retry" is
@@ -33,12 +34,12 @@ export type TargetName =
   | { readonly kind: "worktree"; readonly checkout: string; readonly branch: string | undefined; readonly root: string };
 
 export const targetName = (target: Target): TargetName => {
-  if (target.kind === "github_pr") {
-    const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([0-9]+)/.exec(target.url);
+  if (target.kind !== "worktree") {
+    const pull = parsePullRequest(target.url);
     return {
       kind: "pr",
-      repository: match?.[1] ?? target.url,
-      number: match?.[2] === undefined ? "" : `#${match[2]}`,
+      repository: pull === undefined ? target.url : `${pull.host === "github.com" ? "" : `${pull.host}/`}${pull.repository}`,
+      number: pull === undefined ? "" : `${pull.provider === "gitlab" ? "!" : "#"}${pull.number}`,
       url: target.url,
     };
   }

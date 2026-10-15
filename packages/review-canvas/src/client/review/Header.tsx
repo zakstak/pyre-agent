@@ -58,7 +58,7 @@ export const ReviewBar = ({
         <>
           <TargetText target={target} />
           {name.kind === "pr" ? (
-            <a href={name.url} rel="noopener" title="Open the pull request on GitHub" aria-label="Open the pull request on GitHub" className="inline-flex self-center px-1 text-muted no-underline">
+            <a href={name.url} rel="noopener" title={`Open on ${new URL(name.url).host}`} aria-label={`Open on ${new URL(name.url).host}`} className="inline-flex self-center px-1 text-muted no-underline">
               <ArrowUpRight aria-hidden="true" className="size-3.5" />
             </a>
           ) : null}

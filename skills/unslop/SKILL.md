@@ -1,10 +1,11 @@
 ---
 name: unslop
 description:
-  Edit prose to remove AI writing patterns while preserving its meaning and
-  intended tone.
+  "Use when editing or reviewing prose for AI writing patterns, and whenever
+  technical-writing is active. Removes the patterns while preserving meaning and
+  intended tone."
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Unslop
