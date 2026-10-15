@@ -1,4 +1,4 @@
-/** The build stamp answers from contents, never from file times. */
+/** The build stamp answers from contents, never from file times, and covers everything the build reads. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { fresh, inputsHash, writeStamp } from "./stamp.ts";
+import { clearStamp, fresh, inputsHash, writeStamp } from "./stamp.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -29,7 +29,7 @@ const fixture = (t: TestContext) => {
   return { dir, stamp };
 };
 
-test("the hash follows the inputs' contents and paths, not their times or their tests", (t) => {
+test("the hash follows the inputs' contents and paths, tests included, not their times", (t) => {
   const { dir } = fixture(t);
   const first = inputsHash(dir);
   assert.equal(inputsHash(dir), first);
@@ -38,10 +38,11 @@ test("the hash follows the inputs' contents and paths, not their times or their 
   utimesSync(join(dir, "pnpm-lock.yaml"), new Date(), new Date());
   assert.equal(inputsHash(dir), first, "times do not count");
   writeFileSync(join(dir, "src/client/page.test.ts"), "test(2);\n");
-  assert.equal(inputsHash(dir), first, "a test is not an input");
+  const tested = inputsHash(dir);
+  assert.notEqual(tested, first, "a test is an input: Tailwind reads class names from it");
   writeFileSync(join(dir, "src/client/page.ts"), "export const page = 2;\n");
   const changed = inputsHash(dir);
-  assert.notEqual(changed, first, "a source is");
+  assert.notEqual(changed, tested, "so is a source");
   writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\nimporters: {}\n");
   assert.notEqual(inputsHash(dir), changed, "so is the lockfile");
 });
@@ -58,5 +59,7 @@ test("the command says whether dist was built from these sources", (t) => {
   assert.equal(stamp("--check").status, 1, "a source changed since the build");
   writeStamp(dir);
   assert.equal(fresh(dir), true);
+  clearStamp(dir);
+  assert.equal(fresh(dir), false, "a build under way has no stamp");
   assert.equal(stamp("--nope").status, 2);
 });

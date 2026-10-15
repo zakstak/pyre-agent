@@ -1,8 +1,9 @@
 /**
  * What a build was made from, as one hash, so a command knows whether the build in dist is the build of the sources
- * beside it: the package's manifest and lockfile, every source the bundles are made from, the page's entry and the
- * build configs, and the shared style the page imports. Tests are not inputs. File times are not consulted: a copy of
- * the package that kept old times, or one that touched every file, still gets the right answer.
+ * beside it: the package's manifest and lockfile, everything under src, the page's entry and the build configs, and
+ * the shared style the page imports. Tests count too: Tailwind scans the page's folder for class names, and the scan
+ * is confined to that folder, so the hash covers everything the build reads and more, never less. File times are not
+ * consulted: a copy of the package that kept old times, or one that touched every file, still gets the right answer.
  *
  * It runs as a command with only Node's own modules, so it works before the dependencies are installed:
  *
@@ -10,7 +11,7 @@
  *   node src/cli/stamp.ts --write   writes the hash into dist/build.json, after a build
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -19,8 +20,6 @@ const here = fileURLToPath(new URL("../../", import.meta.url));
 /** The build's inputs, relative to the package root: single files, then every file under these folders. */
 const FILES = ["package.json", "pnpm-lock.yaml", "tsconfig.json", "index.html", "vite.config.ts", "vite.node.config.ts"];
 const FOLDERS = ["src", "../../skills/internal-visual-style/assets"];
-
-const isInput = (path: string): boolean => !/\.test\.tsx?$/.test(path);
 
 /** Every file under a folder, deepest last within each folder, in name order, so the hash does not depend on the disk. */
 const walk = (dir: string): ReadonlyArray<string> =>
@@ -34,7 +33,7 @@ const walk = (dir: string): ReadonlyArray<string> =>
 export const inputsHash = (root = here): string => {
   const hash = createHash("sha256");
   const files = [...FILES.map((file) => join(root, file)).filter(existsSync), ...FOLDERS.flatMap((folder) => walk(join(root, folder)))];
-  for (const file of files.filter(isInput)) {
+  for (const file of files) {
     hash.update(relative(root, file).split(sep).join("/"));
     hash.update("\0");
     hash.update(readFileSync(file));
@@ -59,6 +58,11 @@ export const readStamp = (root = here): string | undefined => {
 export const writeStamp = (root = here): void => {
   mkdirSync(join(root, "dist"), { recursive: true });
   writeFileSync(stampPath(root), `${JSON.stringify({ inputs: inputsHash(root), built_at: new Date().toISOString() }, null, 2)}\n`);
+};
+
+/** Removes the stamp, before a build starts: until the build finishes, dist is not a build of anything. */
+export const clearStamp = (root = here): void => {
+  rmSync(stampPath(root), { force: true });
 };
 
 /** Whether the build in dist was made from the sources beside it. */
