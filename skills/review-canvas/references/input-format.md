@@ -10,14 +10,15 @@ backticks on one line, such as `` `fsync()` ``, shows as code. The schema is
 `src/schema/input.ts` and `src/schema/tour.ts` in
 [packages/review-canvas](../../../packages/review-canvas/README.md).
 
-`review-canvas collect` writes a valid input with every file in the `core`
-group and no analysis: for a working tree, see
+`review-canvas collect` writes a valid input with every file in the `core` group
+and no analysis: for a working tree, see
 [the working tree reference](worktree.md); for a PR, `collect --pr`, from a
 local clone that holds the PR's base and head commits.
 
 ## Target
 
-`target.kind` is `github_pr`, `pull_request`, or `worktree`. All require `title`.
+`target.kind` is `github_pr`, `pull_request`, or `worktree`. All require
+`title`.
 
 | Kind           | Required                                       | Optional                    |
 | -------------- | ---------------------------------------------- | --------------------------- |
@@ -26,16 +27,17 @@ local clone that holds the PR's base and head commits.
 | `worktree`     | `kind`, `title`, `root`, `head_sha`            | `branch`, `changed_files`   |
 
 - `url` identifies an HTTPS review on the selected host. GitHub uses
-  `/OWNER/REPO/pull/NUMBER`, GitLab uses `/GROUP/PROJECT/-/merge_requests/NUMBER`,
-  and Gitea/Forgejo uses `/OWNER/REPO/pulls/NUMBER`. GitLab permits subgroups.
+  `/OWNER/REPO/pull/NUMBER`, GitLab uses
+  `/GROUP/PROJECT/-/merge_requests/NUMBER`, and Gitea/Forgejo uses
+  `/OWNER/REPO/pulls/NUMBER`. GitLab permits subgroups.
 - `provider` is `github`, `gitlab`, or `gitea` and must match the URL route.
   `github_pr` is the original GitHub target format, also accepted for GitHub
   Enterprise. Its review keys remain unchanged.
 - `head_sha` and `base_sha` are full commit hashes. For a working tree,
   `head_sha` is the `HEAD` commit the uncommitted changes are compared with.
 - `root` is the working tree's absolute POSIX path, as
-  `git rev-parse --show-toplevel` prints it. `branch` is the checked-out
-  branch; omit it for a detached `HEAD`.
+  `git rev-parse --show-toplevel` prints it. `branch` is the checked-out branch;
+  omit it for a detached `HEAD`.
 - `changed_files` records the expected file count.
 
 The target keys the review: every thread that registers for the same PR URL or
@@ -46,9 +48,8 @@ the same working tree root joins the same open review.
 The optional top-level `summary` explains the review's main point, in a few
 sentences. `files_complete` says whether the file inventory was reconciled;
 `true` requires `target.changed_files` to equal the number of files. Leave it
-false if access, pagination, changing commits, or truncation prevents a
-complete snapshot. A complete inventory does not establish complete patch
-coverage.
+false if access, pagination, changing commits, or truncation prevents a complete
+snapshot. A complete inventory does not establish complete patch coverage.
 
 ## Files
 
@@ -110,19 +111,19 @@ source code. Redaction and coverage claims are the agent's responsibility.
 
 Every key is required: `null` for no attention, `[]` for no excerpts, files,
 notes, or questions, and `""` for an empty summary, caption, or note body. The
-limits below are the server's hard limits; the skill's numbers are how a good
-tour reads.
+limits below are the server's hard limits; [the tour reference](tour.md) says
+how a good tour reads.
 
 - `title`: at most 200 UTF-16 units. `summary`: text, may be empty.
 - `attention`: `null`, or `kind` of `tradeoff`, `contract`, `product`, `risk`,
   or `accessibility` with a `note`.
-- `excerpts`: at most 10. `side` is `new` or `old`; `start` and `end` are
-  source line numbers on that side, inclusive; an added file's new side is its
-  own line numbers. The server resolves them to the rows the patch shows, from
-  the first named line it shows to the last, with any hunk header between. It
-  cuts an excerpt past 60 rows, and drops one that names no shown line or a
-  file that is not in the round, with a warning that `publish` prints.
-  `review-canvas hunks` prints each file's hunks as line ranges.
+- `excerpts`: at most 10. `side` is `new` or `old`; `start` and `end` are source
+  line numbers on that side, inclusive; an added file's new side is its own line
+  numbers. The server resolves them to the rows the patch shows, from the first
+  named line it shows to the last, with any hunk header between. It cuts an
+  excerpt past 60 rows, and drops one that names no shown line or a file that is
+  not in the round, with a warning that `publish` prints. `review-canvas hunks`
+  prints each file's hunks as line ranges.
 - `files`: files the stop covers without an excerpt, each with an optional
   `note`. The first stop that excerpts or lists a file owns it. A later stop's
   `files` entry for it is left out, and so is the note of an entry for a file
@@ -135,15 +136,15 @@ tour reads.
 - `questions`: at most 5 short questions. A click puts one in the reviewer's
   question box, ready to ask.
 
-At most 50 stops. Files no stop covers go in a closing stop titled "Other
-files" that the server adds, and `publish` warns about them. A round without
-`stops` gets one stop, "Changed files", that lists every file.
+At most 50 stops. Files no stop covers go in a closing stop titled "Other files"
+that the server adds, and `publish` warns about them. A round without `stops`
+gets one stop, "Changed files", that lists every file.
 
 ## The analysis file
 
 `publish --analysis FILE` merges an analysis file into the snapshot before it
-publishes, so the agent keeps its analysis apart from the collected snapshot
-and carries it from round to round:
+publishes, so the agent keeps its analysis apart from the collected snapshot and
+carries it from round to round:
 
 ```json
 {
