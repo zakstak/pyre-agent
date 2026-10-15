@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - packages/review-canvas/**
+      - skills/review-canvas/**
       - skills/internal-visual-style/**
       - .github/workflows/review-canvas.yml
 

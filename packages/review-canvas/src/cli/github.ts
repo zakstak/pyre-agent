@@ -13,6 +13,9 @@ import {
 } from "../schema/github.ts";
 import * as Limits from "../schema/limits.ts";
 import type { Target } from "../schema/target.ts";
+import { parsePullRequest } from "../schema/forge-url.ts";
+import type { Forge } from "../schema/forge-url.ts";
+import { remoteAddress } from "../server/repositories.ts";
 
 /** Runs gh with arguments in a folder, and returns its standard output, or throws a GhFailed with its message. */
 export type Gh = (args: ReadonlyArray<string>, cwd?: string) => string;
@@ -29,6 +32,7 @@ export const runGh: Gh = (args, cwd = tmpdir()) => {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+    timeout: 30_000,
   });
   if (result.error !== undefined)
     throw new GhFailed(
@@ -49,14 +53,25 @@ export type PullRequestFound =
 
 /** Where a working tree's branch lives on GitHub, or why it has no such place. */
 export type BranchHome =
-  | { readonly kind: "github"; readonly repo: string; readonly branch: string }
+  | { readonly kind: Forge; readonly repo: string; readonly branch: string }
   | { readonly kind: "none"; readonly reason: string };
 
-/** The GitHub repository a remote URL names, as OWNER/NAME, for HTTPS and SSH spellings. */
-export const gitHubRepo = (url: string): string | undefined =>
-  /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(
-    url.trim(),
-  )?.[1];
+/** A clone URL alone cannot distinguish self-hosted APIs. Bind each private host to its configured provider. */
+export const forgeRemote = (url: string, configured = process.env.REVIEW_CANVAS_FORGE_HOSTS): { readonly kind: Forge; readonly repo: string } | undefined => {
+  const address = remoteAddress(url);
+  if (address === null) return undefined;
+  const at = address.indexOf("/");
+  const host = address.slice(0, at);
+  const repository = address.slice(at + 1);
+  const settings = configured === undefined ? {} : Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Literals(["github", "gitlab", "gitea"])))(JSON.parse(configured));
+  const provider = settings[host] ?? (host === "github.com" || host === process.env.GH_HOST ? "github" : host === "gitlab.com" ? "gitlab" : host === "codeberg.org" ? "gitea" : undefined);
+  if (provider === undefined) return undefined;
+  // A custom SSH port does not establish where that host serves HTTPS.
+  if (url.startsWith("ssh://") && new URL(url).port !== "" && new URL(url).port !== "22") return undefined;
+  const route = provider === "github" ? "pull" : provider === "gitlab" ? "-/merge_requests" : "pulls";
+  if (parsePullRequest(`https://${host}/${repository}/${route}/1`) === undefined) return undefined;
+  return { kind: provider, repo: `https://${host}/${repository}` };
+};
 
 /**
  * The branch's upstream on GitHub, read with the collector's hardened Git, which ignores the configuration that
@@ -98,10 +113,10 @@ export const branchHome = (root: string): BranchHome => {
   const branch =
     upstream === undefined ? local : upstream.slice(remote.length + 1);
   const url = git(["config", "--get", `remote.${remote}.url`]);
-  const repo = url === undefined ? undefined : gitHubRepo(url);
-  return repo === undefined
-    ? { kind: "none", reason: `the remote ${remote} is not on github.com` }
-    : { kind: "github", repo, branch };
+  const home = url === undefined ? undefined : forgeRemote(url);
+  return home === undefined
+    ? { kind: "none", reason: `the remote ${remote} has no configured review provider; collect an explicit --pr URL or set REVIEW_CANVAS_FORGE_HOSTS` }
+    : { ...home, branch };
 };
 
 /** The pull request whose comments a review imports: the target's, or the open one of the working tree's branch. */
@@ -110,9 +125,10 @@ export const findPullRequest = (
   gh: Gh,
   home: (root: string) => BranchHome = branchHome,
 ): PullRequestFound => {
-  if (target.kind === "github_pr") return { kind: "found", url: target.url };
+  if (target.kind !== "worktree") return { kind: "found", url: target.url };
   const found = home(target.root);
   if (found.kind === "none") return found;
+  if (found.kind !== "github") return { kind: "none", reason: "This branch uses another review provider." };
   let answer: Array<{ url?: unknown }>;
   try {
     answer = JSON.parse(
@@ -146,7 +162,6 @@ export const findPullRequest = (
       };
 };
 
-const PULL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([0-9]+)$/;
 
 interface Page<T> {
   readonly pageInfo: {
@@ -197,6 +212,7 @@ type Connection = keyof typeof QUERIES;
 const readAll = <T>(
   gh: Gh,
   pr: {
+    readonly host: string;
     readonly owner: string;
     readonly name: string;
     readonly number: number;
@@ -216,6 +232,8 @@ const readAll = <T>(
     const args: ReadonlyArray<string> = [
       "api",
       "graphql",
+      "--hostname",
+      pr.host,
       "-f",
       `query=${query}`,
       "-F",
@@ -268,12 +286,14 @@ const post = (node: Post) => ({
  * given only when every page of threads saw the same one, so the threads' lines are all on it.
  */
 export const readComments = (url: string, gh: Gh): GitHubImport => {
-  const match = PULL.exec(url);
-  if (match === null) throw new GhFailed(`${url} is not a pull request URL`);
+  const pull = parsePullRequest(url);
+  if (pull === undefined || pull.provider !== "github") throw new GhFailed(`${url} is not a GitHub pull request URL`);
+  const [owner, name] = pull.repository.split("/");
   const pr = {
-    owner: match[1] ?? "",
-    name: match[2] ?? "",
-    number: Number(match[3]),
+    host: pull.host,
+    owner: owner ?? "",
+    name: name ?? "",
+    number: Number(pull.number),
   };
   // Plain values until the schema checks and brands them below.
   const items: Array<Record<string, unknown>> = [];
