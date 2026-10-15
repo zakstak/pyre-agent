@@ -6,96 +6,78 @@ description:
   primitives, parse external data at boundaries, never lie to the compiler,
   exhaust variants."
 metadata:
-  version: "1.0.2"
+  version: "1.1.0"
 ---
 
 # Type System Discipline
 
-The type checker is a proof assistant. Use it to eliminate impossible states,
-mismatched primitives, and unhandled variants at compile time. A case the types
-let you ignore becomes a runtime failure the compiler could have stopped. Prefer
-defining errors and special cases out of existence over proliferating handlers.
-Unrepresentable states, total functions, and interface redesign (the patterns
-below) are the tools.
+The type checker is a proof assistant. Use it to rule out impossible states,
+mismatched primitives, and unhandled variants before the code runs. A case the
+types let you ignore becomes a runtime failure the compiler could have stopped.
+Prefer defining errors and special cases out of existence over adding handlers.
 
-Applies to any typed language. Skills like
-[typescript-best-practices](../typescript-best-practices/SKILL.md) ground it in
-specific syntax.
+Applies to any typed language. The
+[typescript-best-practices](../typescript-best-practices/SKILL.md) skill grounds
+it in syntax, and its
+[patterns reference](../typescript-best-practices/references/patterns.md) holds
+the worked examples.
 
 **The patterns:**
 
-- **Make illegal states unrepresentable.** Model variants as sum types:
-  discriminated unions in TypeScript, enums with payloads in Rust/Swift, sealed
-  classes or interfaces in Kotlin, sealed classes in Scala, ADTs in
-  Haskell/OCaml. Don't model state as a bag of optional fields where
-  contradictory combinations compile. A subtle anti-pattern:
-  `{ completed: boolean; completedAt?: Date }` admits
-  `completed: true; completedAt: undefined`, which is meaningless. Derive the
-  boolean from a single source like `completedAt !== undefined` for the optional
-  timestamp, or model the variants explicitly as
-  `{ kind: 'open'; at?: never } | { kind: 'done'; at: Date }`. The `never` field
-  rejects a conflicting timestamp even when the object arrives through a typed
-  variable; raw runtime input still needs validation. If a bug forces the
-  question "wait, can this combination actually happen?", the type is too loose.
-- **Types are constructions, not restrictions.** Build the type up from the
-  values you want instead of carving them out of a looser type with checks. The
-  invariant that seems to need a refinement type is usually a construction away.
-  A non-empty list is a head plus a rest, not a list with a length check. A
-  valid time range is a start plus a duration, not two timestamps you must keep
-  ordered. No representation is privileged. A list of pairs is an even-length
-  list if you interpret it that way, so choose the shape that cannot build the
-  illegal value and expose the interface callers need on top.
+- **Make illegal states unrepresentable.** Model variants as a sum type, not a
+  bag of optional fields where contradictory combinations compile. If a bug
+  forces the question "can this combination actually happen?", the type is too
+  loose.
+- **Build types up, do not carve them down.** Construct the type from the values
+  you want instead of restricting a looser type with checks. A non-empty list is
+  a head plus a rest. A valid time range is a start plus a duration.
 - **Brand semantic primitives.** `UserId` and `OrderId` are strings underneath
-  but should not be interchangeable. Newtypes in Rust, nominal wrapper structs
-  in Swift, value classes in Kotlin, phantom types in Haskell, branded
-  intersections in TypeScript. Validate once at creation, trust the type
+  and must not be interchangeable. Validate once at creation, trust the type
   downstream.
-- **External data is untyped until parsed.** RPC payloads, JSON, IPC messages,
-  CLI args, config files, environment variables, database rows. Have a parse
-  function at every boundary that turns unstructured input into the typed model.
-  See the
-  [boundary-discipline principle](../principle-boundary-discipline/SKILL.md) for
-  where to put validation.
-- **Don't lie to the type system.** Unchecked casts, unsafe coercions, and
-  assertion functions that bypass validation can hide runtime failures. If the
-  compiler can't prove a fact, prove it (validate, narrow, refine the model) or
-  accept that the cast is a hazard. A TypeScript phantom brand may need a
-  localized assertion in the validating constructor; that assertion records the
-  established invariant rather than proving it.
-- **Exhaustive matching is the compiler's job where supported.** For closed sum
-  types in capable toolchains, require compilation to fail if a new variant is
-  added without handling. Use the idiom your language provides: `never`-typed
-  binding in TypeScript, `match` enumerating Rust enum variants without a
-  catch-all arm, `-Werror=incomplete-patterns` in Haskell, sealed-class match
-  exhaustiveness in Kotlin. Where the toolchain cannot enforce closed variants,
-  such as Go interface type switches, use an explicit unexpected-case error and
-  tests for the known variants; do not claim compiler-enforced exhaustiveness.
+- **External data is untyped until parsed.** Payloads, JSON, CLI args, config,
+  environment variables, and database rows pass through a parse function at the
+  boundary. See the
+  [boundary-discipline principle](../principle-boundary-discipline/SKILL.md).
+- **Don't lie to the type system.** An unchecked cast or an assertion that skips
+  validation hides a runtime failure. If the compiler can't prove a fact, prove
+  it by validating, narrowing, or refining the model, or treat the cast as a
+  hazard.
+- **Make exhaustive matching the compiler's job where it can be.** For a closed
+  sum type, compilation must fail when a new variant lacks a case. Where the
+  toolchain cannot close variants, such as Go type switches, raise an explicit
+  unexpected-case error and test the known variants. Do not claim what the
+  compiler does not check.
 - **Derive types from authoritative schemas.** When a protocol buffer, OpenAPI
-  spec, GraphQL schema, database migration, or design-system token file defines
-  a shape, derive from it instead of hand-rolling a parallel type. See the
+  spec, GraphQL schema, migration, or token file defines a shape, derive the
+  type from it. See the
   [encode-lessons-in-structure principle](../principle-encode-lessons-in-structure/SKILL.md).
-- **Strengthen a type where it prevents meaningful invalid behavior.** A runtime
-  assertion, "this should never happen" throw, or plausible but wrong result can
-  mark a place where the type is too weak. Push that check up into the type when
-  a better model removes the invalid case. A null check handling modeled absence
-  is ordinary case handling; preserve that branch. Then stop. The type system's
-  job is to track the cases each use site must handle, not to describe the data
-  as precisely as possible. Prefer total functions. `sum` of an empty list is 0,
-  so it takes the plain list. `head` of an empty list has no answer, so it
-  demands the non-empty one.
+- **Strengthen a type only where it removes an invalid case.** A "should never
+  happen" throw or a plausible but wrong result marks a type that is too weak;
+  push that check into the type. A check that handles modeled absence is
+  ordinary case handling; keep it.
+- **Prefer total functions.** `sum` of an empty list is 0, so it takes the plain
+  list. `head` of an empty list has no answer, so it demands the non-empty one.
+  The type's job is to track the cases each use site must handle, not to
+  describe the data as precisely as possible.
 
 **The tests:**
 
-- "Do mutually exclusive states need a comment explaining which fields may
-  coexist?" Model those variants as a sum type. Numeric and other value
-  constraints may instead need validated constructors.
-- "Do two of my function arguments share a primitive type but mean different
-  things?" Brand them.
-- "Where did this `any`, this type-overriding assertion, this `assertNotNull`
-  come from?" Trace unchecked input to its boundary and validate there.
-- "If a new variant is added next month, will the compiler tell the next agent
-  where to add a case?" Require that check where the toolchain supports it;
-  otherwise make the unexpected-case error and known-variant tests explicit.
+- "Do mutually exclusive states need a comment saying which fields may coexist?"
+  Model them as a sum type.
+- "Do two arguments share a primitive type but mean different things?" Brand
+  them.
+- "Where did this `any`, this cast, this `assertNotNull` come from?" Trace the
+  unchecked input to its boundary and validate there.
+- "If a variant is added next month, will the compiler say where to add a case?"
+  Require that where the toolchain supports it.
 - "Is this type duplicating a shape another file owns?" Derive instead.
-- "Does strengthening this type prevent a meaningful invalid result or unhandled
-  case, or just add precision?" If it prevents neither, keep the plain type.
+- "Does strengthening this type remove an invalid case, or only add precision?"
+  If only precision, keep the plain type.
+
+**The idiom per language:**
+
+| Idea             | TypeScript                   | Rust                | Swift                      | Kotlin and Scala             | Haskell and OCaml                   |
+| ---------------- | ---------------------------- | ------------------- | -------------------------- | ---------------------------- | ----------------------------------- |
+| Sum types        | Discriminated union          | Enum with payloads  | Enum with payloads         | Sealed class                 | Algebraic data type                 |
+| Brands           | Branded intersection         | Newtype             | Nominal wrapper struct     | Value class                  | Phantom type                        |
+| Exhaustive match | `never` binding in `default` | `match` without `_` | `switch` without `default` | Kotlin `when`, Scala `match` | Incomplete-pattern warning as error |
