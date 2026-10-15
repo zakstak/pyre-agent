@@ -32,7 +32,7 @@ export const SECTIONS = [
     title: "Repositories",
     items: [
       { id: "monitored", title: "Monitored repositories", keywords: "checkouts branch remove worktree" },
-      { id: "found-title", title: "Found, not monitored", keywords: "monitor discovered accept" },
+      { id: "found", title: "Found, not monitored", keywords: "monitor discovered accept" },
       { id: "scan", title: "Scan directories", keywords: "rescan directory path roots" },
     ],
   },

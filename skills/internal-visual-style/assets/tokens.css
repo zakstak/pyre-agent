@@ -172,7 +172,7 @@
     oklch(calc(var(--palette-floor) + 0.18) calc(var(--palette-tint-dark) * 3.7) var(--palette-hue))
   );
   --pyre-message: light-dark(
-    oklch(0.9 calc(var(--palette-tint-light) * 3) var(--palette-hue)),
+    oklch(0.9 calc(var(--palette-tint-light) * 2.9) var(--palette-hue)),
     oklch(calc(var(--palette-floor) + 0.2) calc(var(--palette-tint-dark) * 3) var(--palette-hue))
   );
   --pyre-code: light-dark(oklch(0.945 calc(var(--palette-tint-light) * 1.4) var(--palette-hue)), var(--pyre-surface));
@@ -189,9 +189,9 @@
   --pyre-error: light-dark(#b83356, #e5637e);
   --pyre-warning: light-dark(#8a5e0f, #e0a94d);
   --pyre-success: light-dark(#177a4d, #34c08a);
-  /* Text on the accent and the action is the page's own colour: near white in light, near black in dark. */
-  --pyre-on-accent: var(--pyre-background);
-  --pyre-on-action: var(--pyre-background);
+  /* Text on the accent and the action: the card's white in light, the page's near black in dark. */
+  --pyre-on-accent: light-dark(var(--pyre-surface), var(--pyre-background));
+  --pyre-on-action: light-dark(var(--pyre-surface), var(--pyre-background));
   --pyre-focus: var(--pyre-accent);
   --pyre-functional-boundary: light-dark(var(--pyre-line), var(--pyre-accent));
   --pyre-accent-soft: var(--pyre-subtle);

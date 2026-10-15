@@ -89,6 +89,15 @@ export const TopBar = ({
   </header>
 );
 
+/**
+ * Brings the element the location hash names into view. The browser does this once, as the page loads; content that
+ * renders later, such as a snapshot's, calls it again when it is there.
+ */
+export const landOnHash = () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id !== "") document.getElementById(id)?.scrollIntoView({ block: "start" });
+};
+
 export const SkipLink = () => (
   <a
     href="#main"

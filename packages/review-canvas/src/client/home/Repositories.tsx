@@ -8,13 +8,14 @@ import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { ChevronRight, CircleAlert, ClipboardCheck, FileDiff, GitBranch, GitPullRequest } from "lucide-react";
 import { Atom } from "effect/reactivity";
-import type { FormEvent } from "react";
+import { type FormEvent, useEffect } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Checkout, CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../../schema/rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
 import { Stat } from "../ui/stat.tsx";
+import { landOnHash } from "../ui/page.tsx";
 import { failureText } from "../rpc.ts";
 import {
   busyAtom,
@@ -273,6 +274,8 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
 export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) => {
   const [query, setQuery] = useAtom(queryAtom);
   const filter = useAtomValue(filterAtom);
+  // The section renders once the snapshot has arrived, after the browser looked for the hash's element.
+  useEffect(landOnHash, []);
   const [monitoring, change] = useAtom(monitoringAtom);
   const busy = useAtomValue(busyAtom);
   const refresh = useAtomRefresh(homeAtom);
@@ -334,27 +337,30 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
         </p>
       )}
       {none ? <p className="text-muted">No repositories found. Scan a directory below.</p> : null}
-      {monitored.length === 0 ? (
-        none ? null : (
-          <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
-        )
-      ) : shownMonitored.length === 0 ? null : (
-        <ul id="monitored" aria-label="Monitored repositories" className="scroll-mt-16">
-          {rows(shownMonitored)}
-        </ul>
-      )}
-      {shownDiscovered.length === 0 ? null : (
-        <>
-          <div className="mt-6 mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h3 id="found-title" className="scroll-mt-16 text-reading font-semibold">
-              Found, not monitored
-            </h3>
-            <span className="text-small text-muted">{discovered.length}</span>
-          </div>
-          <ul aria-labelledby="found-title">
-            {rows(shownDiscovered)}
-          </ul>
-        </>
+      {/* The blocks keep their IDs whatever they hold, so a link to one lands. */}
+      <div id="monitored" className="scroll-mt-16">
+        {monitored.length === 0 ? (
+          none ? null : (
+            <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
+          )
+        ) : shownMonitored.length === 0 ? null : (
+          <ul aria-label="Monitored repositories">{rows(shownMonitored)}</ul>
+        )}
+      </div>
+      {none ? null : (
+      <div id="found" className="mt-6 scroll-mt-16">
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
+          <h3 id="found-title" className="text-reading font-semibold">
+            Found, not monitored
+          </h3>
+          <span className="text-small text-muted">{discovered.length}</span>
+        </div>
+        {shownDiscovered.length === 0 ? (
+          <p className="text-muted">{discovered.length === 0 ? "Every repository found is monitored." : "None match this filter."}</p>
+        ) : (
+          <ul aria-labelledby="found-title">{rows(shownDiscovered)}</ul>
+        )}
+      </div>
       )}
       <Scan roots={snapshot.roots} warnings={snapshot.warnings} open={none} />
     </section>

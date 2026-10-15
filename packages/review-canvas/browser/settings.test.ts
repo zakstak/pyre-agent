@@ -82,6 +82,14 @@ test("the settings are sections with a search over them, and the old repositorie
   await page.goto(`${server.origin}/repositories`);
   await page.locator("[data-repositories]").waitFor();
   assert.equal(await page.locator("[data-settings-section='repositories']").getAttribute("aria-current"), "page");
+  // A link to a setting lands on it even though the section renders after the snapshot arrives, and the targets
+  // are there whatever the lists hold.
+  await page.setViewportSize({ width: 1280, height: 300 });
+  await page.goto(`${server.origin}/settings/repositories#scan`);
+  await page.locator("#scan").waitFor();
+  // The browser found no #scan when it looked, so any scroll is the section's own landing.
+  await page.waitForFunction(() => scrollY > 0);
+  assert.equal(await page.locator("#monitored").count(), 1);
   await page.goto(`${server.origin}/settings/nope`);
   await page.getByRole("heading", { name: "No such page" }).waitFor();
 });
