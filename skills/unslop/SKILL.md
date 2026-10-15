@@ -4,7 +4,7 @@ description:
   Edit prose to remove AI writing patterns while preserving its meaning and
   intended tone.
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Unslop
@@ -53,13 +53,10 @@ Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 13. **Em dash overuse.** Avoid em dashes entirely. Use periods or commas only
     (no parentheses, no en dashes, no hyphen-as-dash substitutes). If a thought
     needs separation, end the sentence or use a comma.
-14. **Colon overuse.** Colons are fine before a list or example. Not as
-    mid-sentence connectors. "If you're coming from traditional automation:
-    instead of registering event handlers, you describe conditions" adds nothing
-    with the colon. Rewrite to let the point stand on its own without comparison
-    framing. "You describe conditions instead of registering event handlers."
-    This keeps the API distinction without adding an unsupported input-language
-    requirement.
+14. **Colon overuse.** Colons are fine before a list or example, not as
+    mid-sentence connectors. Rewrite so the point stands without one. "If you're
+    coming from traditional automation: you describe conditions" becomes "You
+    describe conditions instead of registering event handlers."
 15. **Boldface overuse.** Don't bold every proper noun or acronym.
 16. **Inline-header lists.** The tell is a bold label and colon that restates
     the line: "**Performance:** Performance improved...". Convert those to
