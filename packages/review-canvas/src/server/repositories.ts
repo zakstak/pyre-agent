@@ -155,10 +155,11 @@ export const remoteAddress = (remote: string): string | null => {
   const port = parsed.port === "22" && parsed.protocol === "ssh:" || parsed.port === "9418" && parsed.protocol === "git:"
     ? "" : parsed.port;
   let path = parsed.pathname.replace(/^\/+|\/+$/g, "");
-  if (parsed.hostname === "github.com") path = path.toLowerCase();
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "github.com") path = path.toLowerCase();
   path = path.replace(/\.git$/, "");
   if (path === "" || path.startsWith("~")) return null;
-  return `${parsed.hostname}${port === "" ? "" : `:${port}`}/${path}`;
+  return `${hostname}${port === "" ? "" : `:${port}`}/${path}`;
 };
 
 export const identifyRepository = async (root: WorktreeRoot, signal?: AbortSignal): Promise<Repository> => {

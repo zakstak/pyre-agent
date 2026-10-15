@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { parseForgeComment } from "./forge-url.ts";
 import { documentBytes } from "./encoding.ts";
 import { FileGroup, FileStatus } from "./input.ts";
 import * as Limits from "./limits.ts";
@@ -338,13 +339,13 @@ export const Comment = CommentFields.check(
           issue: `exceeds ${Limits.MAX_TEXT_UNITS} UTF-16 code units`,
         };
       }
-    } else if (comment.kind === "inline" && !isDiscussion(comment.source.url)) {
+    } else if (comment.kind === "inline" && parseForgeComment(comment.source.url)?.provider === "github" && !isDiscussion(comment.source.url)) {
       return {
         path: ["source", "url"],
         issue:
           "an inline GitHub comment is a review comment, with a #discussion_r URL",
       };
-    } else if (comment.kind === "general" && isDiscussion(comment.source.url)) {
+    } else if (comment.kind === "general" && parseForgeComment(comment.source.url)?.provider === "github" && isDiscussion(comment.source.url)) {
       return {
         path: ["source", "url"],
         issue:
@@ -381,7 +382,7 @@ export const Comment = CommentFields.check(
         };
       }
       if (
-        !isDiscussion(reply.github.url) ||
+        (parseForgeComment(reply.github.url)?.provider === "github" && !isDiscussion(reply.github.url)) ||
         pullRequestKey(reply.github.url) !== pullRequestKey(thread.url)
       ) {
         return {
@@ -622,7 +623,7 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   // the one its first GitHub comment names. Pull requests compare by key, since GitHub ignores the case of names.
   const gitHubIds = new Set<string>();
   let pullRequest =
-    feedback.target.kind === "github_pr"
+    feedback.target.kind !== "worktree"
       ? pullRequestKey(feedback.target.url)
       : undefined;
   const fromGitHub = (
@@ -638,7 +639,7 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
     return {
       path: [...at, "url"],
       issue:
-        feedback.target.kind === "github_pr"
+        feedback.target.kind !== "worktree"
           ? "is not a comment on the target's pull request"
           : "is on another pull request than the review's other GitHub comments",
     };

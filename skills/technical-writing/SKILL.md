@@ -1,9 +1,9 @@
 ---
 name: technical-writing
 description:
-  "Layered technical-writing standard: Diátaxis structure, Google developer
-  style sentences, STE instruction rules, Global English syntax. Use when
-  writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages."
+  "Use when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit
+  messages. Four layers: Diátaxis structure, Google developer style sentences,
+  STE instruction rules, Global English syntax."
 metadata:
   version: "1.1.0"
 ---
@@ -33,8 +33,8 @@ name, not a synonym or a description of it.
 Don't invent jargon. Use the words a developer would say out loud: "move",
 "delete", "a budget that only decreases", not "evacuate", "ratchet", or
 "endgame". A named pattern is fine when the doc says what it means the first
-time. If you find a jargon term that unslop rule 26 does not cover, propose it and
-its replacement in your reply. Don't edit `unslop` yourself.
+time. If you find a jargon term that unslop rule 26 does not cover, propose it
+and its replacement in your reply. Don't edit `unslop` yourself.
 
 ## Vary the rhythm
 

@@ -148,6 +148,8 @@ test("remote identity matches SSH and HTTPS without exposing credentials, but ke
   assert.notEqual(remoteAddress("https://git.example/owner/project.git"), expected);
   assert.equal(remoteAddress("https://host/project?access_token=example"), null);
   assert.equal(remoteAddress("ext::example-helper"), null);
+  assert.equal(remoteAddress("git@GIT.SOMETHING.COMPANY.COM:Team/Project.git"), "git.something.company.com/Team/Project");
+  assert.equal(remoteAddress("https://git.something.company.com/Team/Project.git"), "git.something.company.com/Team/Project");
 });
 
 test("independent clones and worktrees form one repository; unrelated same-name local repos stay separate", async (t) => {
