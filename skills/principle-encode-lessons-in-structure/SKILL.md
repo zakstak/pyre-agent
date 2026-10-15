@@ -5,7 +5,7 @@ description:
   notice a recurring correction. Encode the rule as a lint, metadata flag,
   runtime check, or script instead of more text."
 metadata:
-  version: "1.0.2"
+  version: "1.1.0"
 ---
 
 # Encode Lessons in Structure
@@ -26,12 +26,10 @@ runtime checks, automation scripts) enforce the rule without cooperation.
 3. If no (requires judgment), make the instruction more prominent and add an
    example of the failure mode
 
-**Pick the strongest mechanism.** When more than one mechanism would work,
-choose the strongest the situation allows (an unrepresentable state that cannot
-compile, then a lint or banned API that fails CI, then a runtime check on every
-applicable entry path; a canonical helper counts as enforcement only when
-callers cannot bypass its invariant checks), because agents copy whatever the
-surrounding code already does and a weaker guard becomes the next template.
+**Pick the strongest mechanism.** When choosing an enforcement mechanism, read
+[the ladder and proof rules in correct](../correct/SKILL.md#fix-each-class-at-the-highest-level-that-works).
+Agents copy whatever the surrounding code already does, so a weaker guard
+becomes the next template.
 
 **Corollary:** Replace redundant agent directives with verified structural
 enforcement. Retain documentation that explains the interface, preconditions,
