@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Limits from "./limits.ts";
+import { parseForgeComment, parsePullRequest } from "./forge-url.ts";
 
 /**
  * Plain text of at most `maxUnits` UTF-16 code units, with no refused control character or unpaired surrogate.
@@ -168,14 +169,11 @@ export const WorktreeRoot = text(Limits.MAX_PATH_UNITS)
   .pipe(Schema.brand("WorktreeRoot"));
 export type WorktreeRoot = typeof WorktreeRoot.Type;
 
-const GITHUB_REPO =
-  "https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*";
-/** A pull request on github.com, which also names its review. */
+/** An HTTPS pull/merge request on GitHub, GitLab, or Gitea/Forgejo, including private hosts. */
 export const PullRequestUrl = text(Limits.MAX_TEXT_UNITS)
   .check(
-    Schema.isPattern(new RegExp(`^${GITHUB_REPO}$`), {
-      expected: "https://github.com/OWNER/REPO/pull/NUMBER",
-    }),
+    Schema.makeFilter((value: string) => parsePullRequest(value) !== undefined ||
+      "Expected an HTTPS GitHub /pull/N, GitLab /-/merge_requests/N, or Gitea /pulls/N URL without credentials, query, or fragment"),
   )
   .pipe(Schema.brand("PullRequestUrl"));
 export type PullRequestUrl = typeof PullRequestUrl.Type;
@@ -183,15 +181,7 @@ export type PullRequestUrl = typeof PullRequestUrl.Type;
 /** A comment on a pull request: a review comment, a conversation comment, or a review summary. */
 export const GitHubCommentUrl = text(Limits.MAX_TEXT_UNITS)
   .check(
-    Schema.isPattern(
-      new RegExp(
-        `^${GITHUB_REPO}#(?:discussion_r|issuecomment-|pullrequestreview-)[1-9][0-9]*$`,
-      ),
-      {
-        expected:
-          "a pull request comment URL, such as https://github.com/OWNER/REPO/pull/1#discussion_r2",
-      },
-    ),
+    Schema.makeFilter((value: string) => parseForgeComment(value) !== undefined || "Expected a pull request comment URL on GitHub, GitLab, or Gitea/Forgejo"),
   )
   .pipe(Schema.brand("GitHubCommentUrl"));
 export type GitHubCommentUrl = typeof GitHubCommentUrl.Type;
@@ -208,7 +198,7 @@ export type GitHubCommentId = typeof GitHubCommentId.Type;
 
 /** A GitHub login. Apps post as their name with a [bot] suffix. */
 export const GitHubLogin = pattern(
-  /^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/,
-  "a GitHub login",
+  /^[A-Za-z0-9_.-]{1,255}(?:\[bot\])?$/,
+  "a git host login",
 ).pipe(Schema.brand("GitHubLogin"));
 export type GitHubLogin = typeof GitHubLogin.Type;

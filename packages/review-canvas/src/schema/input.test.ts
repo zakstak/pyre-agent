@@ -101,16 +101,14 @@ test("input: bad PR links are refused", () => {
   for (const url of [
     "javascript:alert(1)",
     "http://github.com/a/b/pull/1",
-    "https://github.com.evil/a/b/pull/1",
     "https://user@github.com/a/b/pull/1",
-    "https://github.com:443/a/b/pull/1",
     "https://github.com/a/b/pull/0",
     "https://github.com/a/b/pull/1?x=y",
     "https://github.com/a/b/pull/1\n",
   ]) {
     refused(
       decode(set(simpleReview(), ["target", "url"], url)),
-      /target\.url: Expected https:\/\/github\.com\/OWNER\/REPO\/pull\/NUMBER/,
+      /target\.url: Expected an HTTPS GitHub/,
     );
   }
 });
@@ -138,7 +136,7 @@ const invalidFields: ReadonlyArray<readonly [JsonPath, Json, RegExp]> = [
   [
     ["target", "kind"],
     "branch",
-    /target: Expected a target whose kind is github_pr or worktree/,
+    /target: Expected a target whose kind is github_pr, pull_request, or worktree/,
   ],
   [["target", "root"], "/home/dev/project", /target\.root: unknown field/],
   [["pr"], { title: "Old" }, /pr: unknown field/],

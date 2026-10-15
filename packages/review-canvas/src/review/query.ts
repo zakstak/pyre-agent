@@ -4,6 +4,7 @@
  * when every positive term matches it and no negated term does.
  */
 import type { ReviewSummary } from "../schema/rpc.ts";
+import { parsePullRequest } from "../schema/forge-url.ts";
 
 export type Term = { readonly key: string | undefined; readonly value: string; readonly negated: boolean };
 export type Query = { readonly terms: ReadonlyArray<Term> };
@@ -55,15 +56,15 @@ export const formatQuery = (query: Query): string =>
     .join(" ");
 
 /** A pull request's `owner/name` and number from its URL. */
-const pullRequest = (url: string): { readonly repository: string; readonly number: string } | undefined => {
-  const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([0-9]+)/.exec(url);
-  return match?.[1] === undefined || match[2] === undefined ? undefined : { repository: match[1], number: match[2] };
-};
+const pullRequest = parsePullRequest;
 
 /** What `repo:` reads: the pull request's `owner/name`, or the checkout's folder name. */
 export const repositoryOf = (review: ReviewSummary): string => {
   const { target } = review;
-  if (target.kind === "github_pr") return pullRequest(target.url)?.repository ?? target.url;
+  if (target.kind !== "worktree") {
+    const pull = pullRequest(target.url);
+    return pull === undefined ? target.url : `${pull.host === "github.com" ? "" : `${pull.host}/`}${pull.repository}`;
+  }
   return target.root.split("/").filter((part) => part !== "").at(-1) ?? target.root;
 };
 
@@ -75,7 +76,7 @@ const IS: ReadonlyMap<string, (review: ReviewSummary) => boolean> = new Map([
   ["yours", (review) => standing(review) === "yours"],
   ["waiting", (review) => standing(review) === "agents"],
   ["finished", (review) => review.verdict !== undefined],
-  ["pr", (review) => review.target.kind === "github_pr"],
+  ["pr", (review) => review.target.kind !== "worktree"],
   ["worktree", (review) => review.target.kind === "worktree"],
 ]);
 
@@ -84,7 +85,8 @@ const matchesTerm = (term: Term, review: ReviewSummary): boolean => {
   const value = term.value.toLowerCase();
   switch (term.key) {
     case undefined: {
-      const number = target.kind === "github_pr" ? `#${pullRequest(target.url)?.number ?? ""}` : "";
+      const pull = target.kind === "worktree" ? undefined : pullRequest(target.url);
+      const number = pull === undefined ? "" : `${pull.provider === "gitlab" ? "!" : "#"}${pull.number}`;
       const branch = target.kind === "worktree" ? (target.branch ?? "") : "";
       const labels = threads.map((thread) => thread.label).join(" ");
       return includes(`${target.title} ${repositoryOf(review)} ${branch} ${number} ${labels}`, value);

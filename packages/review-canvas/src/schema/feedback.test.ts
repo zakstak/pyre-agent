@@ -205,7 +205,7 @@ const ported: ReadonlyArray<Case> = [
     python: "invalid-pr-url",
     edit: change(["target", "url"], "https://github.com/example/repo/pull/2\n"),
     message:
-      /target\.url: Expected https:\/\/github\.com\/OWNER\/REPO\/pull\/NUMBER/,
+      /target\.url: Expected an HTTPS GitHub/,
   },
   {
     python: "invalid-prefix-too-long",
@@ -315,7 +315,7 @@ const ported: ReadonlyArray<Case> = [
   {
     python: "invalid-target-kind",
     edit: change(["target", "kind"], "branch"),
-    message: /target: Expected a target whose kind is github_pr or worktree/,
+    message: /target: Expected a target whose kind is github_pr, pull_request, or worktree/,
   },
   {
     python: "invalid-unknown-field",
@@ -690,7 +690,7 @@ const added: ReadonlyArray<{
   {
     name: "a GitHub comment has a GitHub author",
     edit: change(["comments", 2, "source", "author"], "not a login"),
-    message: /comments\[2\]\.source\.author: Expected a GitHub login/,
+    message: /comments\[2\]\.source\.author: Expected a git host login/,
   },
   {
     name: "a GitHub comment records whether it was resolved",
@@ -966,7 +966,7 @@ test("feedback: a GitHub comment or reply may have no author, as for a deleted a
   assert.equal(source?.kind === "github" ? source.author : "not GitHub", null);
   refused(
     decode(set(conversation(), ["comments", 2, "source", "author"], "")),
-    /comments\[2\]\.source\.author: Expected a GitHub login/,
+    /comments\[2\]\.source\.author: Expected a git host login/,
   );
   refused(
     decode(

@@ -91,12 +91,12 @@ Beside rounds and answers, an agent reports two things the page shows:
 - **Drift.** `review-canvas check` compares the code with the current round: a
   working tree's files, or a pull request's head. The page shows what changed
   until the next round.
-- **GitHub comments.** `publish` and `review-canvas github` read the pull
-  request's comments with `gh` and hand them over, with the head GitHub read
-  them at. The server stores them once by GitHub ID and never goes online
+- **Hosted comments.** `publish` and `review-canvas comments` read the pull
+  request's comments through its provider adapter and hand them over, with the head it read
+  them at. The server stores them once by provider comment ID and never goes online
   itself. A thread is found by the lines it was written on; when the round
   shows that head and the lines changed, the server places it on the line
-  GitHub shows it on, spanning as many lines as the comment did.
+  the host shows it on, spanning as many lines as the comment did.
 
 ## Reviews and threads
 
