@@ -31,7 +31,9 @@ A page left open across a restart, such as one after the idle stop, then
 reconnects on its own. A page that cannot reach the server for two tries in a
 row says so until it reconnects. A page cannot follow a server to another
 port: `status`, `wait`, and `publish` write the current URL into
-`session.json` when it changed, and the reviewer opens that URL.
+`session.json` when it changed, and the reviewer opens that URL. A host that
+limits how long one command runs, such as Claude Code's ten minutes, needs a
+`wait` timeout under that limit.
 
 Before any command connects, and before a server binds, the runtime folder must
 be a real folder owned by the current user with no access for others; a looser
@@ -95,10 +97,19 @@ Beside rounds and answers, an agent reports two things the page shows:
   until the next round.
 - **GitHub comments.** `publish` and `review-canvas github` read the pull
   request's comments with `gh` and hand them over, with the head GitHub read
-  them at. The server stores them once by GitHub ID and never goes online
-  itself. A thread is found by the lines it was written on; when the round
-  shows that head and the lines changed, the server places it on the line
-  GitHub shows it on, spanning as many lines as the comment did.
+  them at: the target's, or the open pull request of the working tree's
+  branch. Without `gh` or a pull request, the review goes on without them and
+  the output says why. The server stores them once by GitHub ID and never goes
+  online itself. Review threads arrive as inline comments found again by their
+  quoted lines; when the round shows that head and the lines changed, the
+  server places a thread on the line GitHub shows it on, spanning as many
+  lines as the comment did. A thread whose lines changed since it was written,
+  which GitHub calls outdated, arrives as an orphan. Conversation comments and
+  review summaries arrive as general comments. A refresh adds new comments and
+  replies, and follows GitHub when a thread is resolved or reopened there; its
+  `resolutions` counts those changes. An agent's answer the reviewer has not
+  read, or the reviewer's own reply or reopen here, still decides over
+  GitHub's flag.
 
 ## Reviews and threads
 

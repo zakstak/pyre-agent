@@ -104,8 +104,8 @@ source code. Redaction and coverage claims are the agent's responsibility.
 
 Every key is required: `null` for no attention, `[]` for no excerpts, files,
 notes, or questions, and `""` for an empty summary, caption, or note body. The
-limits below are the server's hard limits; the skill's numbers are how a good
-tour reads.
+limits below are the server's hard limits; [the tour reference](tour.md) says
+how a good tour reads.
 
 - `title`: at most 200 UTF-16 units. `summary`: text, may be empty.
 - `attention`: `null`, or `kind` of `tradeoff`, `contract`, `product`, `risk`,
