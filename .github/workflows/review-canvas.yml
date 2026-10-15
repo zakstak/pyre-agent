@@ -5,6 +5,8 @@ on:
     paths:
       - packages/review-canvas/**
       - skills/review-canvas/**
+      - skills/typescript-best-practices/**
+      - tests/check_typescript_examples.cjs
       - skills/internal-visual-style/**
       - .github/workflows/review-canvas.yml
 
@@ -36,6 +38,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+      # The TypeScript documentation examples compile with the package's compiler.
+      - run: node ../../tests/check_typescript_examples.cjs node_modules/tsc-rs/lib/tsc.js
       # Chromium for the browser tests, with the system libraries it needs on Linux.
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser

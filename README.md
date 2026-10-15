@@ -96,8 +96,9 @@ server in `packages/review-canvas`. The `review-canvas` skill runs it through
 `skills/review-canvas/scripts/review-canvas`, which needs Node 26 and pnpm and
 builds the package on first use. It supports private GitHub Enterprise, GitLab,
 and Gitea/Forgejo hosts; see the
-[private-host setup](packages/review-canvas/README.md#private-git-hosts). A review started with the Python version cannot
-be converted; finish it before upgrading.
+[private-host setup](packages/review-canvas/README.md#private-git-hosts). A
+review started with the Python version cannot be converted; finish it before
+upgrading.
 
 Release 2.0.0 separates startup context from the earlier 1.x bundle. Install the
 new base and select `pyre-context` before removing the old marketplace. Then
@@ -135,7 +136,8 @@ branch and `origin/main`. It fails when:
 Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
 formatting, lint, secret scanning, and the skill-version guard before commits.
 Pre-push hooks run the Python suite and the nested review-canvas typecheck,
-build, and tests. The Pragma source used to validate this configuration is
+build, and tests, and compile the TypeScript documentation examples. The Pragma
+source used to validate this configuration is
 `ef07e80e88edb426f1e5660f151d2a899eedc984`, including the reviewed core and tool
 updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
 [PR #17](https://github.com/zakstak/pragma/pull/17).
