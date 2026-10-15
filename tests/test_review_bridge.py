@@ -15,11 +15,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import tomllib
+
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "host-skills/claude-code/codex-branch-review"
 SCRIPT = SKILL / "scripts/review_bridge.py"
 PROFILE = SKILL / "references/adversarial-branch-review.config.toml"
-MODEL = "gpt-6.1-sol"
+MODEL = tomllib.loads(PROFILE.read_text(encoding="utf-8"))["model"]
 FAKE_CODEX = r"""#!/usr/bin/env python3
 import json, os, pathlib, sys, time
 args = sys.argv[1:]
@@ -30,7 +32,7 @@ if args == ["exec", "--help"]:
 if args == ["login", "status"]:
     raise SystemExit(1 if mode == "no_auth" else 0)
 if args[-2:] == ["debug", "models"]:
-    print(json.dumps({"models": [] if mode == "missing_model" else [{"slug": "gpt-6.1-sol"}]}))
+    print(json.dumps({"models": [] if mode == "missing_model" else [{"slug": os.environ["FAKE_MODEL"]}]}))
     raise SystemExit(0)
 assert args[0] == "exec", args
 if mode == "never_read":
@@ -49,7 +51,7 @@ if mode == "runtime_readonly":
     print("failed to initialize in-process app-server client: Read-only file system (os error 30)", file=sys.stderr)
     raise SystemExit(1)
 if mode == "fail":
-    print("model gpt-6.1-sol is not supported for this account", file=sys.stderr)
+    print(f"model {os.environ['FAKE_MODEL']} is not supported for this account", file=sys.stderr)
     raise SystemExit(1)
 review = {"verdict": "findings", "summary": "Introduced authorization bypass", "findings": [
     {"severity": "P1", "title": "Restore administrator check", "path": "auth.py", "line_start": 2, "line_end": 2,
@@ -102,7 +104,9 @@ class ReviewBridgeTests(unittest.TestCase):
         self.binary.write_text(FAKE_CODEX)
         self.binary.chmod(0o700)
         self.log = self.root / "calls.jsonl"
-        self.env = dict(os.environ, FAKE_LOG=str(self.log), FAKE_MODE="ok")
+        self.env = dict(
+            os.environ, FAKE_LOG=str(self.log), FAKE_MODE="ok", FAKE_MODEL=MODEL
+        )
         # Deliberately don't inherit a repo-contained TMPDIR from a caller.
         self.env["TMPDIR"] = str(self.root)
         self.request = {"repo": str(self.repo), "base": self.base}
@@ -803,6 +807,46 @@ raise SystemExit(code)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["model_requested"], MODEL)
 
+    def test_explicit_profile_works_without_a_readable_bundled_profile(self):
+        explicit = self.root / "trusted-profile.toml"
+        shutil.copy2(PROFILE, explicit)
+        for state in ("missing", "malformed"):
+            with self.subTest(bundled=state):
+                installed = self.root / state / "codex-branch-review"
+                shutil.copytree(SKILL, installed)
+                bundled = installed / "references" / PROFILE.name
+                if state == "missing":
+                    bundled.unlink()
+                else:
+                    bundled.write_text("not valid TOML [")
+                result = self.invoke(
+                    script=installed / "scripts/review_bridge.py",
+                    extra=("--profile-file", str(explicit)),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["model_requested"], MODEL)
+                self.assert_error(
+                    self.invoke(script=installed / "scripts/review_bridge.py"),
+                    "invalid_profile",
+                )
+
+    def test_explicit_profile_pins_the_requested_model_without_fallback(self):
+        explicit = self.root / "trusted-profile.toml"
+        pinned = "trusted-model-pin"
+        explicit.write_text(PROFILE.read_text().replace(MODEL, pinned))
+        self.env["FAKE_MODEL"] = pinned
+        result = self.invoke(extra=("--profile-file", str(explicit)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["model_requested"], pinned)
+        self.env["FAKE_MODEL"] = MODEL
+        self.assert_error(
+            self.invoke(extra=("--profile-file", str(explicit))), "model_unavailable"
+        )
+        explicit.write_text(PROFILE.read_text().replace(f'model = "{MODEL}"', ""))
+        self.assert_error(
+            self.invoke(extra=("--profile-file", str(explicit))), "invalid_profile"
+        )
+
     def test_missing_or_unsafe_paired_profile_fails(self):
         self.assert_error(
             self.invoke(extra=("--profile-file", str(self.root / "missing.toml"))),
@@ -811,7 +855,7 @@ raise SystemExit(code)
         bad = self.root / "bad.toml"
         bad.write_text(
             PROFILE.read_text().replace(
-                'model = "gpt-6.1-sol"', 'model = "other-model"'
+                'sandbox_mode = "read-only"', 'sandbox_mode = "danger-full-access"'
             )
         )
         self.assert_error(

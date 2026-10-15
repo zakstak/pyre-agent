@@ -1,33 +1,26 @@
 ---
 name: codex-branch-review
-description:
-  Ask Codex GPT-6.1 Sol for an independent adversarial review of a Git branch
-  and return actionable findings to Claude Code
+description: Invoke only by name. Ask the pinned Codex model for an independent adversarial review of a Git branch.
 argument-hint: "[base-ref] [review focus or specialist requirements]"
 disable-model-invocation: true
 metadata:
-  version: "1.0.3"
+  version: "1.1.0"
 ---
 
 # Adversarial branch review through Codex
 
 This skill runs only in Claude Code. It calls the paired Codex reviewer using
-the exact model `gpt-6.1-sol`, then brings its findings back into this
-conversation. It does not change the current Claude model. Invocation is
-explicit:
+the Codex model pinned in
+[references/adversarial-branch-review.config.toml](references/adversarial-branch-review.config.toml),
+then brings its findings back into this conversation. It does not change the
+current Claude model. Invocation is explicit:
 `/pyre-agent:codex-branch-review origin/main focus on authorization and compatibility`.
 
 Caller instructions: $ARGUMENTS
 
-## Host permission preconditions
-
-Use the host's normal permission flow for file access, writing the private
-request, and running the exact bundled Python command through Bash. This skill
-grants no `allowed-tools` permissions. If a tool, file, network or
-runtime-storage access is denied, return the blocker; do not change permission
-settings or rerun through a different tool to avoid the denial. The read-only
-Codex setting limits reviewer commands; it does not exempt the Python wrapper or
-Codex process from Claude's outer permissions and sandbox.
+Permission denials are blockers; do not route around them. Before preparing or
+running a review, read the
+[bridge contract's safety requirements](references/bridge-contract.md#safety-and-limits).
 
 ## Prepare a bounded review
 
@@ -51,27 +44,8 @@ Codex process from Claude's outer permissions and sandbox.
    four. Do not merely request "use subagents" in prose and then claim
    delegation.
 
-Request example:
-
-```json
-{
-  "repo": "/absolute/path/to/project",
-  "base": "origin/main",
-  "head": "HEAD",
-  "focus": ["Authorization boundaries", "Backwards compatibility"],
-  "context": "The route must remain compatible with existing API clients.",
-  "subagents": [
-    {
-      "name": "security",
-      "task": "Look for authorization bypasses introduced by this diff"
-    },
-    {
-      "name": "compatibility",
-      "task": "Check old clients and migration failure paths"
-    }
-  ]
-}
-```
+A request example is in
+[the bridge contract](references/bridge-contract.md#input).
 
 ## Invoke and report back
 
