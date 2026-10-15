@@ -68,6 +68,14 @@ def package_errors(root):
                         f"{source.relative_to(root)}: missing packaged file {destination}"
                     )
 
+    names = {entry.parent.name for entry in entries}
+    for skill, companion, _reason in BUILD_DEPENDENCIES:
+        if skill in names and companion not in names:
+            errors.append(
+                f"skills/{skill}/SKILL.md: missing build companion "
+                f"skills/{companion}/SKILL.md"
+            )
+
     license_path = root / "LICENSE"
     license_text = license_path.read_text() if license_path.is_file() else ""
     for notice in ("Copyright (c) 2026 Zak", MIT_GRANT, MIT_CONDITION):
@@ -77,7 +85,6 @@ def package_errors(root):
     credits = credits_path.read_text() if credits_path.is_file() else ""
     if not credits_path.is_file():
         errors.append("README.md: missing redistribution credits")
-    names = {entry.parent.name for entry in entries}
     if names & PSTACK_SKILLS and "Copyright (c) 2026 Lauren Tan" not in credits:
         errors.append("README.md: missing pstack copyright notice")
     if "review-canvas" in names and "Copyright (c) 2026 Cursor" not in credits:
@@ -101,7 +108,7 @@ def companion_graph(root):
                     if target.is_relative_to(other):
                         graph[name].append(companion)
     for skill, companion, _reason in BUILD_DEPENDENCIES:
-        if skill in graph and companion in graph and companion not in graph[skill]:
+        if skill in graph and companion not in graph[skill]:
             graph[skill].append(companion)
     return graph
 
@@ -114,7 +121,7 @@ def companions(graph, skill):
         companion = queue.pop(0)
         if companion != skill and companion not in found:
             found.append(companion)
-            queue.extend(graph[companion])
+            queue.extend(graph.get(companion, ()))
     return found
 
 

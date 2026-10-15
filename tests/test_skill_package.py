@@ -50,6 +50,7 @@ class SkillPackageTests(unittest.TestCase):
             "principle-type-system-discipline",
             "principle-boundary-discipline",
             "principle-encode-lessons-in-structure",
+            "correct",
         )
         for name in names:
             shutil.copytree(ROOT / "skills" / name, self.root / "skills" / name)
@@ -69,8 +70,26 @@ class SkillPackageTests(unittest.TestCase):
             )
         )
 
+    def test_build_only_companion_is_required(self):
+        self.write("skills/review-canvas/SKILL.md", "# Canvas")
+        self.assertEqual(
+            package_errors(self.root),
+            [
+                "skills/review-canvas/SKILL.md: missing build companion skills/internal-visual-style/SKILL.md"
+            ],
+        )
+        self.assertIn("`internal-visual-style`", graph_markdown(self.root))
+        self.write("skills/internal-visual-style/SKILL.md", "# Style")
+        self.assertEqual(package_errors(self.root), [])
+
     def test_readme_carries_the_generated_companion_graph(self):
-        self.assertIn(graph_markdown(ROOT), (ROOT / "README.md").read_text())
+        readme = (ROOT / "README.md").read_text()
+        start = "<!-- companion-skills:start -->\n"
+        end = "<!-- companion-skills:end -->"
+        self.assertEqual(readme.count(start), 1)
+        self.assertEqual(readme.count(end), 1)
+        section = readme.split(start)[1].split(end)[0]
+        self.assertEqual(section, graph_markdown(ROOT))
 
     def test_graph_lists_transitive_companions_nearest_first(self):
         self.write("skills/first/SKILL.md", "[second](../second/SKILL.md)")
@@ -130,6 +149,7 @@ class SkillPackageTests(unittest.TestCase):
             package_errors(self.root), ["README.md: missing pstack copyright notice"]
         )
         self.write("skills/review-canvas/SKILL.md", "# Canvas")
+        self.write("skills/internal-visual-style/SKILL.md", "# Style")
         self.assertEqual(len(package_errors(self.root)), 2)
 
 

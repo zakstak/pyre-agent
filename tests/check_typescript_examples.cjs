@@ -1,5 +1,6 @@
 /* Checks the corrected documentation examples with an existing TypeScript CLI.
  * Run: node tests/check_typescript_examples.cjs /path/to/typescript/lib/tsc.js
+ * The CLI is run from the temporary folder so a tsconfig.json in the caller's folder is not read.
  * Does not install TypeScript or change project compiler settings.
  */
 const assert = require('node:assert/strict');
@@ -7,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const compiler = process.argv[2];
+const compiler = process.argv[2] && path.resolve(process.argv[2]);
 if (!compiler || !fs.existsSync(compiler)) throw new Error('Pass an existing TypeScript CLI path.');
 const docs = fs.readFileSync(path.join(__dirname, '../skills/typescript-best-practices/references/patterns.md'), 'utf8').replace(/\r\n/g, '\n');
 function section(title) {
@@ -65,7 +66,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pyre-ts-examples-'));
 try {
   const file = path.join(temp, 'examples.ts');
   fs.writeFileSync(file, [nonEmpty, blocks[1], blocks[2], duration, satisfies, assertions, variantAssertions].join('\n'));
-  const result = spawnSync(process.execPath, [compiler, '--strict', '--noUncheckedIndexedAccess', '--target', 'ES2022', '--module', 'commonjs', '--outDir', path.join(temp, 'out'), file], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [compiler, '--strict', '--noUncheckedIndexedAccess', '--target', 'ES2022', '--module', 'commonjs', '--outDir', path.join(temp, 'out'), file], { cwd: temp, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const runtime = spawnSync(process.execPath, [path.join(temp, 'out/examples.js')], { encoding: 'utf8' });
   assert.equal(runtime.status, 0, runtime.stdout + runtime.stderr);
