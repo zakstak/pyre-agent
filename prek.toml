@@ -49,6 +49,16 @@ pass_filenames = false
 always_run = true
 stages = ["pre-commit"]
 
+# Keep every skill within its description, body, and line budgets.
+[[repos.hooks]]
+id = "skill-shape"
+name = "skill shape"
+entry = "python3 tests/check_skill_shape.py"
+language = "system"
+pass_filenames = false
+always_run = true
+stages = ["pre-commit"]
+
 # Pragma discovers root manifests; this package lives below packages/.
 [[repos.hooks]]
 id = "review-canvas"

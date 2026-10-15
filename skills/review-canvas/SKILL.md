@@ -6,7 +6,7 @@ description:
   agent writes a tour, the reviewer comments in the browser, and the agent
   answers through a local server."
 metadata:
-  version: "5.1.0"
+  version: "5.1.1"
 ---
 
 # Review canvas

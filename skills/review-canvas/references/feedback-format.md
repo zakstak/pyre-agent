@@ -109,5 +109,5 @@ the last one the session reported.
 with unique IDs; 200 reviewer replies and 200 GitHub replies per comment; 5,000
 agent answers; 100 threads; 20 earlier anchors per comment; 50 earlier rounds;
 1,000 submissions; 20,000 UTF-16 units per body or note, 131,072 for a GitHub
-body; 2 MiB of all text together, submission summaries included. The server refuses an action that would push
-the review past a limit and says which.
+body; 2 MiB of all text together, submission summaries included. The server
+refuses an action that would push the review past a limit and says which.
