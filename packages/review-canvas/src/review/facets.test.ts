@@ -87,13 +87,14 @@ test("clicking Exclude excludes a value, or clears it when excluded", () => {
   assert.equal(edit(BASE, (q) => exclude(q, author("codex"))), "is:open repo:acme/ledger");
 });
 
-test("the State menu's is: values toggle beside the chips' term; verdict: values replace each other", () => {
-  const prOption: Option = { key: "is", value: "pr", exclusive: false };
-  const worktree: Option = { key: "is", value: "worktree", exclusive: false };
+test("the State menu's is: values sit beside the chips' term; the kinds and the verdicts replace their own", () => {
+  const prOption: Option = { key: "is", value: "pr", exclusive: true, among: ["pr", "worktree"] };
+  const worktree: Option = { key: "is", value: "worktree", exclusive: true, among: ["pr", "worktree"] };
   const approve: Option = { key: "verdict", value: "approve", exclusive: true };
   const comment: Option = { key: "verdict", value: "comment", exclusive: true };
   assert.equal(edit(BASE, (q) => include(q, prOption)), `${BASE} is:pr`);
-  assert.equal(edit(`${BASE} is:pr`, (q) => include(q, worktree)), `${BASE} is:pr is:worktree`);
+  assert.equal(edit(`${BASE} is:pr`, (q) => include(q, worktree)), `${BASE} is:worktree`);
+  assert.equal(edit(`${BASE} is:pr is:finished`, (q) => include(q, worktree)), `${BASE} is:finished is:worktree`);
   assert.equal(edit(`${BASE} is:pr`, (q) => include(q, prOption)), BASE);
   assert.equal(edit(`${BASE} verdict:approve`, (q) => include(q, comment)), `${BASE} verdict:comment`);
   assert.equal(edit(BASE, (q) => exclude(q, approve)), `${BASE} -verdict:approve`);
@@ -110,8 +111,11 @@ test("a row counts the reviews the rest of the query leaves with its value", () 
   // The key's positive terms give way; its negated ones stay.
   assert.equal(count("repo:acme/billing", repo("acme/ledger")), 2);
   assert.equal(count("-author:codex", repo("acme/ledger")), 1);
-  assert.equal(count("is:pr", { key: "is", value: "worktree", exclusive: false }), 0);
-  assert.equal(count("is:pr", { key: "is", value: "pr", exclusive: false }), 3);
+  // The other kind gives way too: a row never counts a query no review can match.
+  assert.equal(count("is:pr", { key: "is", value: "worktree", exclusive: true, among: ["pr", "worktree"] }), 1);
+  assert.equal(count("is:pr", { key: "is", value: "pr", exclusive: true, among: ["pr", "worktree"] }), 3);
+  // A value of another group keeps the kind: finished pull requests.
+  assert.equal(count("is:pr", { key: "is", value: "finished", exclusive: false }), 1);
 });
 
 test("Clear removes every term of the key, and on the State menu only its own terms", () => {

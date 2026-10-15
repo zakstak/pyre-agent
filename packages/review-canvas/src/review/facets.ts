@@ -7,8 +7,16 @@ import { threadName } from "../client/names.ts";
 import type { ReviewSummary } from "../schema/rpc.ts";
 import { type Query, repositoryOf, type Term } from "./query.ts";
 
-/** A term a menu row writes. An exclusive one replaces the key's other positive terms when included. */
-export type Option = { readonly key: string; readonly value: string; readonly exclusive: boolean };
+/**
+ * A term a menu row writes. An exclusive one replaces the key's other positive terms when included: every value of the
+ * key, or only those `among` names, for a key such as `is:` whose values are not all alternatives of each other.
+ */
+export type Option = {
+  readonly key: string;
+  readonly value: string;
+  readonly exclusive: boolean;
+  readonly among?: ReadonlyArray<string>;
+};
 
 export type TermState = "included" | "excluded" | "none";
 
@@ -58,11 +66,15 @@ export const withoutTerm = (query: Query, key: string, value: string): Query => 
 /** The query without any term of the key. */
 export const withoutKey = (query: Query, key: string): Query => ({ terms: query.terms.filter((term) => term.key !== key) });
 
+/** Whether including the option replaces a positive term: the same term, or an alternative of an exclusive option. */
+const replaces = (option: Option, term: Term): boolean =>
+  term.key === option.key &&
+  (same(term.value, option.value) ||
+    (option.exclusive && (option.among === undefined || option.among.some((value) => same(value, term.value)))));
+
 /** The query that counts a row: without the positive terms its include would replace, so it can be added. */
 export const restFor = (query: Query, option: Option): Query => ({
-  terms: query.terms.filter(
-    (term) => term.negated || term.key !== option.key || (!option.exclusive && !same(term.value, option.value)),
-  ),
+  terms: query.terms.filter((term) => term.negated || !replaces(option, term)),
 });
 
 /** A click on the row: an included value is cleared, any other is included. */
@@ -79,11 +91,17 @@ export const exclude = (query: Query, option: Option): Query => {
   return termState(query, key, value) === "excluded" ? rest : withTerm(rest, { key, value, negated: true });
 };
 
-/** The State menu's values, in its two groups. Its `is:` values toggle beside the chips' rather than replace them. */
+/** The two kinds of target, which replace each other: a review has one. */
+const KINDS = ["pr", "worktree"];
+
+/**
+ * The State menu's values, in its two groups. Its `is:` values sit beside the chips' term rather than replace it; the
+ * two kinds replace each other, since no review is both.
+ */
 export const STATE_OPTIONS: ReadonlyArray<ReadonlyArray<Option & { readonly label: string }>> = [
   [
-    { key: "is", value: "pr", exclusive: false, label: "Pull request" },
-    { key: "is", value: "worktree", exclusive: false, label: "Worktree" },
+    { key: "is", value: "pr", exclusive: true, among: KINDS, label: "Pull request" },
+    { key: "is", value: "worktree", exclusive: true, among: KINDS, label: "Worktree" },
   ],
   [
     { key: "is", value: "finished", exclusive: false, label: "Finished" },

@@ -109,19 +109,24 @@ const CheckoutLine = ({
       data-checkout=""
       className="grid grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] items-center gap-x-4 md:h-7 max-md:grid-cols-[minmax(0,1fr)_auto] max-md:py-1"
     >
-      {/* A found repository's checkouts have no status to show: the path alone, first on a narrow screen. */}
-      <span className={cn("flex min-w-0 items-center gap-1.5", status === undefined && "max-md:hidden")} title={branch}>
-        {status === undefined ? null : <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted" />}
-        {status === undefined ? null : status.kind === "unavailable" ? (
-          <span className="text-small text-muted">—</span>
-        ) : branch === undefined ? (
-          <span className="text-small text-muted">detached</span>
-        ) : (
-          <span className="truncate text-small text-ink">{branch}</span>
-        )}
-      </span>
+      {/* A found repository's checkouts have no status to show: the path takes the branch's column too. */}
+      {status === undefined ? null : (
+        <span className="flex min-w-0 items-center gap-1.5" title={branch}>
+          <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
+          {status.kind === "unavailable" ? (
+            <span className="text-small text-muted">—</span>
+          ) : branch === undefined ? (
+            <span className="text-small text-muted">detached</span>
+          ) : (
+            <span className="truncate text-small text-ink">{branch}</span>
+          )}
+        </span>
+      )}
       <code
-        className={cn("truncate font-mono text-technical text-muted max-md:col-span-2", status !== undefined && "max-md:row-start-2")}
+        className={cn(
+          "truncate font-mono text-technical text-muted",
+          status === undefined ? "col-span-2 max-md:col-span-1" : "max-md:col-span-2 max-md:row-start-2",
+        )}
         title={checkout.root}
       >
         {underRoot(checkout.shown, roots)}
@@ -243,7 +248,9 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
                 className={FIELD}
               />
             </label>
-            <Button type="submit">Scan</Button>
+            <Button type="submit" size="sm">
+            Scan
+          </Button>
           </form>
           <p className="text-small text-muted">
             Leave the directory empty to use the server's scan directories. Scans stop at repository roots, skip
@@ -293,11 +300,8 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
       <RepositoryRow key={entry.id} entry={entry} roots={snapshot.roots} reviews={reviews} byId={byId} busy={busy} change={change} />
     ));
   return (
-    <section aria-labelledby="repositories-title" data-repositories="">
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-        <h2 id="repositories-title" className="text-heading font-semibold">
-          Repositories
-        </h2>
+    <section aria-label="Repositories" data-repositories="">
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-small text-muted">
           <span>{monitored.length} monitored</span> · <span>{count(checkouts, "checkout")}</span>
         </span>
@@ -311,7 +315,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
             className={FIELD}
           />
         </label>
-        <Button size="sm" className="self-center text-muted hover:text-ink" disabled={busy} onClick={rescan}>
+        <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
           Rescan
         </Button>
       </div>

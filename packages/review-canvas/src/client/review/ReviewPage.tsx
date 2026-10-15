@@ -19,7 +19,7 @@ import { count, threadName } from "../names.ts";
 import { type CallError, failureText } from "../rpc.ts";
 import { useMedia } from "../ui/media.ts";
 import { cn } from "../ui/cn.ts";
-import { frame, Message, SkipLink } from "../ui/page.tsx";
+import { frame, Loading, Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Prose, Time } from "../ui/text.tsx";
 import { ThemeControl } from "../ui/theme.tsx";
@@ -28,10 +28,13 @@ import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
 import { Guide } from "./Guide.tsx";
-import { Narration, NextStrip, ReviewBar, Title, useStickyBars, ViewControl, Who } from "./Header.tsx";
+import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
+import { hashOf } from "./places.ts";
 import { FileBlock } from "./FileBlock.tsx";
-import { Departed, Finish, General, StopSection } from "./Sections.tsx";
+import { Finish } from "./Finish.tsx";
+import { Departed, General, StopSection } from "./Sections.tsx";
+import { NextStrip, useStickyBars } from "./Strip.tsx";
 import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom, type View, viewAtom } from "./ui.ts";
 import { type PageModel, pageModel, pathOrder } from "./view.ts";
 
@@ -204,7 +207,7 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
 
   /** Goes to a file from the contents or the guide, and names it in the hash. */
   const showFile = (path: RepoPath) => {
-    history.replaceState(null, "", `#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`);
+    history.replaceState(null, "", hashOf(fileElementId(path)));
     void navigate.showFile(path);
   };
 
@@ -297,7 +300,7 @@ const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: Re
   // A page already showing keeps showing while the next round fails to load; the reconnect reads it again.
   if (page === undefined && failure !== undefined)
     return <Message title="This review did not load">{failureText(failure)}</Message>;
-  if (page === undefined) return <p className="p-8 text-muted">Loading round {round.round}…</p>;
+  if (page === undefined) return <Loading width="review">{`Loading round ${round.round}…`}</Loading>;
   return <Review id={id} page={page} />;
 };
 
@@ -313,5 +316,5 @@ export const ReviewPage = ({ id }: { readonly id: ReviewId }) => {
       <Message title="This review did not load">{failureText(result.cause)}</Message>
     );
   }
-  return <p className="p-8 text-muted">Loading the review…</p>;
+  return <Loading width="review">Loading the review…</Loading>;
 };

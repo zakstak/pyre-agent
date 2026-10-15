@@ -24,3 +24,6 @@ export const parseHash = (hash: string): Place => {
   if (stop !== null) return { kind: "stop", index: Number(stop[1]) - 1 };
   return { kind: "element", id: raw };
 };
+
+/** A hash that points at an element by its ID, encoded for a path's characters a hash cannot hold. */
+export const hashOf = (id: string): string => `#${encodeURI(id).replaceAll("#", "%23")}`;

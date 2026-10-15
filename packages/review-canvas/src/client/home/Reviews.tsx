@@ -12,6 +12,7 @@ import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
+import { Segmented } from "../ui/segmented.tsx";
 import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Time, timeTitle } from "../ui/text.tsx";
@@ -152,33 +153,24 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
     .sort((a, b) => STANDING_ORDER[standing(a)] - STANDING_ORDER[standing(b)]);
   const menu = { reviews, query, onQuery: (next: Query) => setText(formatQuery(next)) };
   return (
-    <section aria-labelledby="reviews-title">
-      <h2 id="reviews-title" className="mb-3 text-heading font-semibold">
-        Reviews
-      </h2>
+    <section aria-label="Reviews">
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-control border border-line text-small">
-          {CHIPS.map(([value, label]) => {
-            const pressed = hasStanding(query, value);
-            const term = parseQuery(`is:${value}`);
-            return (
-              <button
-                key={value}
-                type="button"
-                data-standing-filter={value}
-                aria-pressed={pressed}
-                onClick={() => setText(formatQuery(withStanding(query, value)))}
-                className={cn(
-                  TOUCH_TARGET,
-                  "h-7 px-2.5 font-medium",
-                  pressed ? "bg-selected text-ink shadow-pressed" : "bg-raised text-muted hover:bg-subtle",
-                )}
-              >
-                {label} <span className="font-normal tabular-nums">{left.filter((item) => matches(term, item)).length}</span>
-              </button>
-            );
-          })}
-        </div>
+        <Segmented
+          label="Show"
+          attribute="data-standing-filter"
+          choices={CHIPS.map(
+            ([value, label]) =>
+              [
+                value,
+                <>
+                  {label}{" "}
+                  <span className="font-normal tabular-nums">{left.filter((item) => matches(parseQuery(`is:${value}`), item)).length}</span>
+                </>,
+              ] as const,
+          )}
+          value={CHIPS.map(([value]) => value).find((value) => hasStanding(query, value))}
+          onChange={(value) => setText(formatQuery(withStanding(query, value)))}
+        />
         <div className="ml-auto flex items-center gap-1">
           <FilterMenu
             name="repo"

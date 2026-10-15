@@ -21,7 +21,7 @@ test("the home page lists open reviews by default, a chip shows the closed ones,
   const page = await browser.newPage();
   const rows = page.locator("li[data-standing]");
   await page.goto(server.origin);
-  await page.getByRole("heading", { name: "Reviews" }).waitFor();
+  await page.locator("[data-standing-filter='open']").waitFor();
   assert.equal(await page.getByLabel("Filter reviews").inputValue(), "is:open");
   assert.equal(await rows.count(), 2);
   assert.equal(await page.locator("[data-standing-filter='open']").getAttribute("aria-pressed"), "true");
