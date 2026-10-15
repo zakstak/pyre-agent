@@ -3,7 +3,8 @@
  * Components style themselves with utilities; this file holds only the theme and the few rules no utility can say.
  * The shared components.css is not imported: it styles bare elements, which utilities would then have to undo.
  */
-@import "tailwindcss";
+/* Only the page's own folder is scanned for class names, so the build depends on nothing outside what its stamp hashes. */
+@import "tailwindcss" source(none);
 @import "../../../../skills/internal-visual-style/assets/tokens.css";
 @import "../../../../skills/internal-visual-style/assets/fonts.css";
 

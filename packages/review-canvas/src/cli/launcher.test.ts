@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -118,6 +119,8 @@ const stalePackage = (t: TestContext) => {
   writeFileSync(join(pkg, "package.json"), "{}");
   writeFileSync(join(pkg, "pnpm-lock.yaml"), "");
   writeFileSync(join(pkg, "src/cli/main.ts"), 'console.log("ran");');
+  // The real stamp command, so the fake build can record what it was made from as the real one does.
+  cpSync(join(root, "src/cli/stamp.ts"), join(pkg, "src/cli/stamp.ts"));
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const pnpm = join(bin, "pnpm");
@@ -127,7 +130,7 @@ const stalePackage = (t: TestContext) => {
 echo "$3" >> "$2/pnpm.log"
 case "$3" in
   install) mkdir -p "$2/node_modules" ;;
-  build) mkdir -p "$2/dist/client/.vite" && echo '{}' > "$2/dist/client/.vite/manifest.json" ;;
+  build) mkdir -p "$2/dist/client/.vite" && echo '{}' > "$2/dist/client/.vite/manifest.json" && node "$2/src/cli/stamp.ts" --write ;;
 esac
 `,
   );
