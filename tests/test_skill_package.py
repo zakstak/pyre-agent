@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.check_skill_package import ROOT, package_errors
+from tests.check_skill_package import ROOT, graph_markdown, package_errors
 
 
 class SkillPackageTests(unittest.TestCase):
@@ -67,6 +67,21 @@ class SkillPackageTests(unittest.TestCase):
                 "principle-encode-lessons-in-structure" in e
                 for e in package_errors(self.root)
             )
+        )
+
+    def test_readme_carries_the_generated_companion_graph(self):
+        self.assertIn(graph_markdown(ROOT), (ROOT / "README.md").read_text())
+
+    def test_graph_lists_transitive_companions_nearest_first(self):
+        self.write("skills/first/SKILL.md", "[second](../second/SKILL.md)")
+        self.write("skills/second/SKILL.md", "[third](../third/SKILL.md)")
+        self.write("skills/third/SKILL.md", "[first](../first/SKILL.md)")
+        self.write("skills/alone/SKILL.md", "# Alone")
+        self.assertEqual(
+            graph_markdown(self.root),
+            "- `first` needs `second` and `third`.\n"
+            "- `second` needs `third` and `first`.\n"
+            "- `third` needs `first` and `second`.\n",
         )
 
     def test_host_specific_references_are_checked(self):
