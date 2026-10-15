@@ -5,7 +5,7 @@ description:
   messages. Four layers: Diátaxis structure, Google developer style sentences,
   STE instruction rules, Global English syntax."
 metadata:
-  version: "1.0.2"
+  version: "1.1.0"
 ---
 
 # Technical writing
@@ -19,14 +19,10 @@ Apply the layers to authored prose. Preserve code syntax, expected output,
 literal quotations, URLs, and established templates unless the task includes
 changing them.
 
-Three rules sit above the layers:
+Two rules sit above the layers:
 
-- **Cut every word that does no work.** If the sentence survives without a word,
-  the word goes. "In order to" is "to". "It is important to note that" is
-  nothing.
-- **Use the short, everyday word.** "Use", not "utilize". "Help", not
-  "facilitate". "Do", not "perform". A long word has to buy its length with
-  precision.
+- **Cut every word that does no work, and use the short, everyday word.** The
+  [unslop skill](../unslop/SKILL.md) owns these as rules 23 and 31.
 - **When a rule makes a sentence worse, fix the sentence another way or leave it
   alone.** The rules serve the reader. A sentence that follows every rule and
   sounds like a machine wrote it has failed.
@@ -37,9 +33,8 @@ name, not a synonym or a description of it.
 Don't invent jargon. Use the words a developer would say out loud: "move",
 "delete", "a budget that only decreases", not "evacuate", "ratchet", or
 "endgame". A named pattern is fine when the doc says what it means the first
-time. If you find a jargon term that `unslop`'s abstract-metaphor rule does not
-cover, propose it and its replacement in your reply. Don't edit `unslop`
-yourself.
+time. If you find a jargon term that unslop rule 26 does not cover, propose it
+and its replacement in your reply. Don't edit `unslop` yourself.
 
 ## Vary the rhythm
 
@@ -163,7 +158,7 @@ during a narrow edit.
   host", not "the client and host", when they are two things.
 - Say which parts "and" or "or" joins when a sentence can group two ways.
   "Both...and", "either...or", and "if...then" are free disambiguators.
-- Use periods, not semicolons. Replace an em dash with a new sentence.
+- Use periods, not semicolons. Unslop rule 13 covers em dashes.
 - Make text in parentheses a full grammatical unit or its own sentence. Never
   form plurals with "(s)".
 - No slashes: write "a, b, or both" instead of "a/b" or "and/or".
@@ -171,14 +166,15 @@ during a narrow edit.
   ratchet", and "the budget check" for one thing teaches three things. Rewording
   an unchanged sentence between edits costs the same way. Don't churn what
   didn't change.
-- Skip idioms, colloquialisms, Latin abbreviations, and metaphors. A non-native
-  reader, a translator, and an agent all parse plain constructions best.
+- Skip idioms, colloquialisms, and Latin abbreviations. A non-native reader, a
+  translator, and an agent all parse plain constructions best. Unslop rules 26
+  and 32 cover metaphors.
 
 ## Voice and repo specifics
 
 - Apply the [unslop skill](../unslop/SKILL.md) to every doc this skill touches.
   That skill owns the slop-pattern catalog: AI vocabulary, filler, hedging,
-  formatting tells.
+  formatting tells, and the word-choice rules cited above by number.
 - PR descriptions and commit messages are writing too. Every layer except
   Diátaxis applies to them. A PR body is a briefing that a reviewer can read in
   under a minute. Do not paste swarm logs, SHA lists, or metric tables. Link
