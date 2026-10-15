@@ -6,7 +6,7 @@ description:
   reports, and ad hoc visual artifacts. Product-specific branding takes
   precedence.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Internal visual style

@@ -221,7 +221,7 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
     else setRoot(next);
   };
   return (
-    <Collapsible.Root defaultOpen={open} className="mt-4">
+    <Collapsible.Root id="scan" defaultOpen={open} className="mt-4 scroll-mt-16">
       <Collapsible.Trigger className="group flex items-center gap-1 text-left">
         <ChevronRight aria-hidden="true" className="size-4 shrink-0 transition-transform group-data-panel-open:rotate-90" />
         <span>
@@ -300,8 +300,11 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
       <RepositoryRow key={entry.id} entry={entry} roots={snapshot.roots} reviews={reviews} byId={byId} busy={busy} change={change} />
     ));
   return (
-    <section aria-label="Repositories" data-repositories="">
+    <section aria-labelledby="repositories-title" data-repositories="">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 id="repositories-title" className="text-heading font-semibold">
+          Repositories
+        </h2>
         <span className="text-small text-muted">
           <span>{monitored.length} monitored</span> · <span>{count(checkouts, "checkout")}</span>
         </span>
@@ -336,16 +339,16 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
           <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
         )
       ) : shownMonitored.length === 0 ? null : (
-        <ul aria-label="Monitored repositories">
+        <ul id="monitored" aria-label="Monitored repositories" className="scroll-mt-16">
           {rows(shownMonitored)}
         </ul>
       )}
       {shownDiscovered.length === 0 ? null : (
         <>
           <div className="mt-6 mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h2 id="found-title" className="text-heading font-semibold">
+            <h3 id="found-title" className="scroll-mt-16 text-reading font-semibold">
               Found, not monitored
-            </h2>
+            </h3>
             <span className="text-small text-muted">{discovered.length}</span>
           </div>
           <ul aria-labelledby="found-title">

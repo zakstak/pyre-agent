@@ -1,6 +1,6 @@
 /**
- * What the home and repositories pages share: the top bar, the snapshot loading or failing, and the theme control in
- * the footer. Both read the same snapshot from the server and filter it in the page.
+ * The snapshot the home page and the repositories settings read, loading or failing, and the home page's frame
+ * around it.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
@@ -9,17 +9,13 @@ import type { HomeSnapshot } from "../../schema/rpc.ts";
 import { failureText } from "../rpc.ts";
 import { cn } from "../ui/cn.ts";
 import { frame, SkipLink, TopBar } from "../ui/page.tsx";
-import { ThemeControl } from "../ui/theme.tsx";
 import { homeAtom } from "./data.ts";
 
-export const HomeLayout = ({
-  place,
-  actions,
+/** The snapshot's content once it has arrived; until then that it is loading, or why it could not be read. */
+export const Snapshot = ({
   failure,
   children,
 }: {
-  readonly place?: React.ReactNode;
-  readonly actions?: React.ReactNode;
   /** What to say when the snapshot cannot be read. */
   readonly failure: string;
   readonly children: (snapshot: HomeSnapshot) => React.ReactNode;
@@ -29,29 +25,38 @@ export const HomeLayout = ({
   const error = AsyncResult.isFailure(result) && !result.waiting ? failureText(result.cause, failure) : undefined;
   return (
     <>
-      <SkipLink />
-      <TopBar width="home" place={place}>
-        {actions}
-      </TopBar>
-      <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-12")}>
-        {error === undefined ? null : (
-          <p className="mb-4 text-danger" role="alert">
-            {error}
-          </p>
-        )}
-        {Option.match(snapshot, {
-          onNone: () =>
-            error === undefined ? (
-              <p className="text-muted" role="status">
-                Loading…
-              </p>
-            ) : null,
-          onSome: children,
-        })}
-      </main>
-      <footer className={cn(frame({ width: "home" }), "mb-8")}>
-        <ThemeControl />
-      </footer>
+      {error === undefined ? null : (
+        <p className="mb-4 text-danger" role="alert">
+          {error}
+        </p>
+      )}
+      {Option.match(snapshot, {
+        onNone: () =>
+          error === undefined ? (
+            <p className="text-muted" role="status">
+              Loading…
+            </p>
+          ) : null,
+        onSome: children,
+      })}
     </>
   );
 };
+
+export const HomeLayout = ({
+  actions,
+  failure,
+  children,
+}: {
+  readonly actions?: React.ReactNode;
+  readonly failure: string;
+  readonly children: (snapshot: HomeSnapshot) => React.ReactNode;
+}) => (
+  <>
+    <SkipLink />
+    <TopBar width="home">{actions}</TopBar>
+    <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-16")}>
+      <Snapshot failure={failure}>{children}</Snapshot>
+    </main>
+  </>
+);

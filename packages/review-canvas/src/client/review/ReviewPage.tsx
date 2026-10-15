@@ -22,7 +22,6 @@ import { cn } from "../ui/cn.ts";
 import { frame, Loading, Message, SkipLink } from "../ui/page.tsx";
 import { TargetText } from "../ui/target.tsx";
 import { Prose, Time } from "../ui/text.tsx";
-import { ThemeControl } from "../ui/theme.tsx";
 import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { Contents } from "./Contents.tsx";
@@ -66,12 +65,12 @@ const ImportFeedback = () => {
 };
 
 /**
- * The footer: the theme, and for a review with a round, its feedback out and in. Import needs the page's context. It
- * sits in the frame but outside its grid, so the contents, which stick within the grid, end where the review ends.
+ * The footer: for a review with a round, its feedback out and in, and the review's ID. Import needs the page's
+ * context. It sits in the frame but outside its grid, so the contents, which stick within the grid, end where the
+ * review ends.
  */
 const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round: boolean; readonly writable: boolean }) => (
   <footer className={cn(frame({ width: "review" }), "mt-12 flex flex-wrap items-center gap-x-6 gap-y-2 pb-16 text-small text-muted")}>
-    <ThemeControl />
     {round ? (
       <a href={`/reviews/${id}/feedback.json`} download className="underline underline-offset-3">
         Export feedback
