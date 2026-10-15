@@ -2,8 +2,10 @@
 # The review-canvas command, run from wherever this skill is installed.
 #
 # The command lives in packages/review-canvas of the repository this skill ships in. On first use, and again when the
-# package's dependencies or page sources change, this installs its dependencies and builds its page assets. It needs
-# Node 26 and pnpm, and network access the first time. Progress goes to stderr, so stdout stays the command's JSON.
+# package's sources, dependencies, or the shared style differ from what its build was made from, this installs its
+# dependencies and builds its page assets. The build records a hash of its inputs, so the check reads contents, never
+# file times. It needs Node 26 and pnpm, and network access the first time. Progress goes to stderr, so stdout stays
+# the command's JSON.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,12 +22,12 @@ if ((major < 26)); then
   exit 1
 fi
 
-manifest="$package/dist/client/.vite/manifest.json"
+# Whether the package needs installing or building: no dependencies, no page build, or a build whose stamp is not the
+# hash of the sources beside it. The stamp command uses only Node's own modules, so it runs before any install.
 stale() {
-  [[ ! -d "$package/node_modules" || "$package/pnpm-lock.yaml" -nt "$package/node_modules" ]] && return 0
-  [[ ! -f "$manifest" ]] && return 0
-  [[ -n "$(find "$package/src/client" "$package/src/server" "$package/../../skills/internal-visual-style/assets" \
-    -newer "$manifest" -type f -print -quit 2>/dev/null)" ]]
+  [[ ! -d "$package/node_modules" ]] && return 0
+  [[ ! -f "$package/dist/client/.vite/manifest.json" ]] && return 0
+  ! node "$package/src/cli/stamp.ts" --check
 }
 
 if stale; then
@@ -76,7 +78,6 @@ if stale; then
   if stale; then
     printf 'review-canvas: installing and building %s\n' "$package" >&2
     pnpm --dir "$package" install --frozen-lockfile >&2
-    touch "$package/node_modules"
     pnpm --dir "$package" build >&2
   fi
   release

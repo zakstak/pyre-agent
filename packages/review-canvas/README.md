@@ -41,8 +41,11 @@ tests and a demo stay out of the real data. GitHub comments are read with `gh`
 when it is installed and signed in.
 
 Commands reuse a daemon only when its code and asset manifest match the current
-installation. `pnpm build` and the skill launcher stop the daemon and wait for
-its store to close before replacing assets; starts wait until the build ends.
+installation. The build writes `dist/build.json`, a hash of everything it was
+made from, and the skill launcher rebuilds when that hash is not the hash of the
+sources beside it, whatever the files' times say. `pnpm build` and the skill
+launcher stop the daemon and wait for its store to close before replacing
+assets; starts wait until the build ends.
 Open pages disconnect during an upgrade and can be reopened at the URL the next
 command returns. A daemon from before this lifecycle protocol must be stopped
 manually once: the command refuses the upgrade and leaves its assets intact.

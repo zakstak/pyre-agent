@@ -1,7 +1,11 @@
-/** Hold the command lock across shutdown and both builds; no CLI can start a daemon in the middle. */
+/**
+ * Hold the command lock across shutdown and both builds; no CLI can start a daemon in the middle. The stamp goes last:
+ * a build that failed halfway leaves no stamp, so the next command builds again.
+ */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { stopServer, withServerOperation } from "./socket.ts";
+import { writeStamp } from "./stamp.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const build = (args: ReadonlyArray<string>) =>
@@ -21,6 +25,7 @@ try {
     await stopServer();
     await build([]);
     await build(["-c", "vite.node.config.ts"]);
+    writeStamp();
   });
 } catch (error) {
   process.stderr.write(
