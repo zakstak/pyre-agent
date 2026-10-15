@@ -15,7 +15,9 @@ import { useMedia } from "../ui/media.ts";
 import { Segmented } from "../ui/segmented.tsx";
 import { Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
-import { spiedAtom, spiedPlace } from "./navigate.ts";
+import { keepInRail, spiedAtom, spiedPlace, useMoved } from "./navigate.ts";
+import { hashOf } from "./places.ts";
+import { Rail } from "./Rail.tsx";
 import { layoutAtom, seenAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
 import { byDirectory } from "./view.ts";
 
@@ -48,7 +50,7 @@ export const FileList = ({
               return (
                 <li key={path} className="m-0">
                   <a
-                    href={`#${encodeURI(fileElementId(path)).replaceAll("#", "%23")}`}
+                    href={hashOf(fileElementId(path))}
                     data-toc-file={path}
                     title={path}
                     aria-current={spiedFile === path ? "location" : undefined}
@@ -123,12 +125,15 @@ export const Contents = ({
   const viewed = page.progress.viewed.size;
   const total = page.progress.viewable;
   const nav = useRef<HTMLElement>(null);
-  // A wide page keeps the spied row in view in the pane: the file's when a file is spied, else the stop's.
+  const moved = useMoved();
+  // Once the reviewer has moved, a wide page keeps the spied row in the rail's view, the file's when a file is spied,
+  // else the stop's, without moving the page: only the rail scrolls.
   useEffect(() => {
-    if (!wide) return;
+    if (!wide || !moved) return;
     const rows = nav.current?.querySelectorAll<HTMLElement>("[aria-current='location']");
-    rows?.[rows.length - 1]?.scrollIntoView({ block: "nearest" });
-  }, [current, wide]);
+    const last = rows?.[rows.length - 1];
+    if (last !== undefined) keepInRail(last);
+  }, [current, wide, moved]);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, current);
   const list = (
     <nav ref={nav} aria-label="Stops and files" className="text-small">
@@ -165,25 +170,20 @@ export const Contents = ({
       />
     </nav>
   );
-  const foot = <DiffChoices wide={wide} />;
   return (
-    <div data-contents className="min-w-0 lg:sticky lg:top-(--sticky-top) lg:flex lg:h-[calc(100vh-var(--sticky-top))] lg:flex-col lg:self-start lg:pt-6">
-      {wide ? (
+    <Rail
+      data-contents
+      wide={wide}
+      open={open}
+      onOpen={setOpen}
+      summary={
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
-          {foot}
+          Contents · {viewed} / {total}
         </>
-      ) : (
-        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-4 rounded-panel bg-surface px-3">
-          <summary className="flex min-h-11 items-center font-semibold">
-            Contents · {viewed} / {total}
-          </summary>
-          <div className="pb-3">
-            {list}
-            {foot}
-          </div>
-        </details>
-      )}
-    </div>
+      }
+      foot={<DiffChoices wide={wide} />}
+    >
+      {list}
+    </Rail>
   );
 };

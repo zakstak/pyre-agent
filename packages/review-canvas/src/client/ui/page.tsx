@@ -33,7 +33,7 @@ const Connection = ({ updated }: { readonly updated: string | undefined }) => {
   return (
     <span className="text-small text-muted">
       {lost === "" && updated !== undefined ? (
-        <span>
+        <span className="max-md:hidden">
           Connected · updated <Time at={updated} />
         </span>
       ) : null}
@@ -89,6 +89,15 @@ export const TopBar = ({
   </header>
 );
 
+/**
+ * Brings the element the location hash names into view. The browser does this once, as the page loads; content that
+ * renders later, such as a snapshot's, calls it again when it is there.
+ */
+export const landOnHash = () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id !== "") document.getElementById(id)?.scrollIntoView({ block: "start" });
+};
+
 export const SkipLink = () => (
   <a
     href="#main"
@@ -98,14 +107,29 @@ export const SkipLink = () => (
   </a>
 );
 
+/** A page that has nothing to show but a message: the title is its place in the bar, and the way back is the body. */
 export const Message = ({ title, children }: { readonly title: string; readonly children?: React.ReactNode }) => (
-  <main id="main" tabIndex={-1} className="mx-auto max-w-work p-8">
-    <h1 className="text-title font-semibold">{title}</h1>
-    {children === undefined ? null : <div className="mt-2 text-muted">{children}</div>}
-    <p className="mt-4">
+  <>
+    <SkipLink />
+    <TopBar width="home" place={<h1 className="font-semibold">{title}</h1>} />
+    <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-12")}>
+      {children === undefined ? null : <p className="mb-4 text-muted">{children}</p>}
       <a className="text-link underline underline-offset-3" href="/">
         Back to the review canvas
       </a>
-    </p>
-  </main>
+    </main>
+  </>
+);
+
+/** A page whose contents are on their way: the top bar, and one line that says so. */
+export const Loading = ({ width, children = "Loading…" }: { readonly width: "review" | "home"; readonly children?: string }) => (
+  <>
+    <SkipLink />
+    <TopBar width={width} />
+    <main id="main" tabIndex={-1} className={cn(frame({ width }), "pt-8 pb-12")}>
+      <p className="text-muted" role="status">
+        {children}
+      </p>
+    </main>
+  </>
 );

@@ -9,7 +9,7 @@
  */
 import { RegistryContext } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { useContext, useEffect, useMemo, useRef } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { commentElementId, FINISH_ELEMENT_ID, fileElementId, type Next } from "../../review/next.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
@@ -91,11 +91,11 @@ const land = (element: HTMLElement) => {
 };
 
 /**
- * Scrolls the guide's own scroller so an element of it shows, and nothing else: the page around the guide stays where
- * it is. Only a wide page's guide scrolls on its own and carries `data-guide-scroll`; false for one in a disclosure.
+ * Scrolls the rail's own scroller so an element of it shows, and nothing else: the page around the rail stays where
+ * it is. Only a wide page's rail scrolls on its own and carries `data-rail-scroll`; false for one in a disclosure.
  */
-const scrollGuide = (element: HTMLElement, block: "start" | "nearest"): boolean => {
-  const scroller = element.closest<HTMLElement>("[data-guide-scroll]");
+const scrollRail = (element: HTMLElement, block: "start" | "nearest"): boolean => {
+  const scroller = element.closest<HTMLElement>("[data-rail-scroll]");
   if (scroller === null) return false;
   const box = scroller.getBoundingClientRect();
   const rect = element.getBoundingClientRect();
@@ -108,14 +108,31 @@ const scrollGuide = (element: HTMLElement, block: "start" | "nearest"): boolean 
 /** Brings a stop of the guide to the top of its scroller and focuses its heading. False when the guide does not scroll. */
 export const showGuideStop = (index: number): boolean => {
   const stop = document.getElementById(`guide-stop-${index + 1}`);
-  if (stop === null || !scrollGuide(stop, "start")) return false;
+  if (stop === null || !scrollRail(stop, "start")) return false;
   stop.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
   return true;
 };
 
-/** Keeps an element of the guide in its scroller's view, moving it as little as it can. */
-export const keepInGuide = (element: HTMLElement) => {
-  scrollGuide(element, "nearest");
+/** Keeps an element of the rail in its scroller's view, moving it as little as it can. */
+export const keepInRail = (element: HTMLElement) => {
+  scrollRail(element, "nearest");
+};
+
+/**
+ * Whether the page has left its top since it opened. Until then the rail stays at its own top, whatever it marks: the
+ * reviewer has not moved yet, and a list that opens scrolled reads as broken.
+ */
+export const useMoved = (): boolean => {
+  const [moved, setMoved] = useState(() => scrollY > 0);
+  useEffect(() => {
+    if (moved) return;
+    const look = () => {
+      if (scrollY > 0) setMoved(true);
+    };
+    addEventListener("scroll", look, { passive: true });
+    return () => removeEventListener("scroll", look);
+  }, [moved]);
+  return moved;
 };
 
 /** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */

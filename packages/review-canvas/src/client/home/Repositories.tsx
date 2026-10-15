@@ -8,13 +8,14 @@ import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Option } from "effect";
 import { ChevronRight, CircleAlert, ClipboardCheck, FileDiff, GitBranch, GitPullRequest } from "lucide-react";
 import { Atom } from "effect/reactivity";
-import type { FormEvent } from "react";
+import { type FormEvent, useEffect } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Checkout, CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../../schema/rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
 import { Stat } from "../ui/stat.tsx";
+import { landOnHash } from "../ui/page.tsx";
 import { failureText } from "../rpc.ts";
 import {
   busyAtom,
@@ -109,19 +110,24 @@ const CheckoutLine = ({
       data-checkout=""
       className="grid grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] items-center gap-x-4 md:h-7 max-md:grid-cols-[minmax(0,1fr)_auto] max-md:py-1"
     >
-      {/* A found repository's checkouts have no status to show: the path alone, first on a narrow screen. */}
-      <span className={cn("flex min-w-0 items-center gap-1.5", status === undefined && "max-md:hidden")} title={branch}>
-        {status === undefined ? null : <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted" />}
-        {status === undefined ? null : status.kind === "unavailable" ? (
-          <span className="text-small text-muted">—</span>
-        ) : branch === undefined ? (
-          <span className="text-small text-muted">detached</span>
-        ) : (
-          <span className="truncate text-small text-ink">{branch}</span>
-        )}
-      </span>
+      {/* A found repository's checkouts have no status to show: the path takes the branch's column too. */}
+      {status === undefined ? null : (
+        <span className="flex min-w-0 items-center gap-1.5" title={branch}>
+          <GitBranch aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
+          {status.kind === "unavailable" ? (
+            <span className="text-small text-muted">—</span>
+          ) : branch === undefined ? (
+            <span className="text-small text-muted">detached</span>
+          ) : (
+            <span className="truncate text-small text-ink">{branch}</span>
+          )}
+        </span>
+      )}
       <code
-        className={cn("truncate font-mono text-technical text-muted max-md:col-span-2", status !== undefined && "max-md:row-start-2")}
+        className={cn(
+          "truncate font-mono text-technical text-muted",
+          status === undefined ? "col-span-2 max-md:col-span-1" : "max-md:col-span-2 max-md:row-start-2",
+        )}
         title={checkout.root}
       >
         {underRoot(checkout.shown, roots)}
@@ -216,7 +222,7 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
     else setRoot(next);
   };
   return (
-    <Collapsible.Root defaultOpen={open} className="mt-4">
+    <Collapsible.Root id="scan" defaultOpen={open} className="mt-4 scroll-mt-16">
       <Collapsible.Trigger className="group flex items-center gap-1 text-left">
         <ChevronRight aria-hidden="true" className="size-4 shrink-0 transition-transform group-data-panel-open:rotate-90" />
         <span>
@@ -243,7 +249,9 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
                 className={FIELD}
               />
             </label>
-            <Button type="submit">Scan</Button>
+            <Button type="submit" size="sm">
+            Scan
+          </Button>
           </form>
           <p className="text-small text-muted">
             Leave the directory empty to use the server's scan directories. Scans stop at repository roots, skip
@@ -266,6 +274,8 @@ const Scan = ({ roots, warnings, open }: Pick<HomeSnapshot, "roots" | "warnings"
 export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) => {
   const [query, setQuery] = useAtom(queryAtom);
   const filter = useAtomValue(filterAtom);
+  // The section renders once the snapshot has arrived, after the browser looked for the hash's element.
+  useEffect(landOnHash, []);
   const [monitoring, change] = useAtom(monitoringAtom);
   const busy = useAtomValue(busyAtom);
   const refresh = useAtomRefresh(homeAtom);
@@ -294,7 +304,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
     ));
   return (
     <section aria-labelledby="repositories-title" data-repositories="">
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 id="repositories-title" className="text-heading font-semibold">
           Repositories
         </h2>
@@ -311,7 +321,7 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
             className={FIELD}
           />
         </label>
-        <Button size="sm" className="self-center text-muted hover:text-ink" disabled={busy} onClick={rescan}>
+        <Button size="sm" className="text-muted hover:text-ink" disabled={busy} onClick={rescan}>
           Rescan
         </Button>
       </div>
@@ -327,27 +337,30 @@ export const Repositories = ({ snapshot }: { readonly snapshot: HomeSnapshot }) 
         </p>
       )}
       {none ? <p className="text-muted">No repositories found. Scan a directory below.</p> : null}
-      {monitored.length === 0 ? (
-        none ? null : (
-          <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
-        )
-      ) : shownMonitored.length === 0 ? null : (
-        <ul aria-label="Monitored repositories">
-          {rows(shownMonitored)}
-        </ul>
-      )}
-      {shownDiscovered.length === 0 ? null : (
-        <>
-          <div className="mt-6 mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h2 id="found-title" className="text-heading font-semibold">
-              Found, not monitored
-            </h2>
-            <span className="text-small text-muted">{discovered.length}</span>
-          </div>
-          <ul aria-labelledby="found-title">
-            {rows(shownDiscovered)}
-          </ul>
-        </>
+      {/* The blocks keep their IDs whatever they hold, so a link to one lands. */}
+      <div id="monitored" className="scroll-mt-16">
+        {monitored.length === 0 ? (
+          none ? null : (
+            <p className="text-muted">None monitored yet. Monitor one of those found below.</p>
+          )
+        ) : shownMonitored.length === 0 ? null : (
+          <ul aria-label="Monitored repositories">{rows(shownMonitored)}</ul>
+        )}
+      </div>
+      {none ? null : (
+      <div id="found" className="mt-6 scroll-mt-16">
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-2">
+          <h3 id="found-title" className="text-reading font-semibold">
+            Found, not monitored
+          </h3>
+          <span className="text-small text-muted">{discovered.length}</span>
+        </div>
+        {shownDiscovered.length === 0 ? (
+          <p className="text-muted">{discovered.length === 0 ? "Every repository found is monitored." : "None match this filter."}</p>
+        ) : (
+          <ul aria-labelledby="found-title">{rows(shownDiscovered)}</ul>
+        )}
+      </div>
       )}
       <Scan roots={snapshot.roots} warnings={snapshot.warnings} open={none} />
     </section>

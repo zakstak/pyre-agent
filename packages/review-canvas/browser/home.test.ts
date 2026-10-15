@@ -21,14 +21,14 @@ test("the home page lists open reviews by default, a chip shows the closed ones,
   const page = await browser.newPage();
   const rows = page.locator("li[data-standing]");
   await page.goto(server.origin);
-  await page.getByRole("heading", { name: "Reviews" }).waitFor();
+  await page.locator("[data-standing-filter='open']").waitFor();
   assert.equal(await page.getByLabel("Filter reviews").inputValue(), "is:open");
   assert.equal(await rows.count(), 2);
   assert.equal(await page.locator("[data-standing-filter='open']").getAttribute("aria-pressed"), "true");
   assert.equal(await page.locator("[data-standing-filter='closed']").textContent(), "Closed 1");
-  // The repositories live on their own page now.
+  // The repositories live on the settings page.
   assert.equal(await page.locator("[data-repositories]").count(), 0);
-  assert.equal(await page.getByRole("link", { name: "Repositories" }).getAttribute("href"), "/repositories");
+  assert.equal(await page.getByRole("link", { name: "Settings" }).getAttribute("href"), "/settings");
 
   await page.goto(`${server.origin}/?q=is:closed`);
   await rows.first().waitFor();

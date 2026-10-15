@@ -19,7 +19,10 @@ import { usePage } from "./act.ts";
 import { DiffChoices, FileList } from "./Contents.tsx";
 import { Marker } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
-import { type ExcerptTarget, keepInGuide, spiedAtom, spiedPlace } from "./navigate.ts";
+import { fileElementId } from "../../review/next.ts";
+import { type ExcerptTarget, keepInRail, spiedAtom, spiedPlace, useMoved } from "./navigate.ts";
+import { hashOf } from "./places.ts";
+import { Rail } from "./Rail.tsx";
 import { Attention, Questions, StopProse } from "./Sections.tsx";
 import { seenAtom, WIDE_QUERY } from "./ui.ts";
 import { noteElementId } from "./view.ts";
@@ -159,7 +162,7 @@ const GuideStop = ({
             <span key={model.file.path}>
               {at === 0 ? null : <span className="text-muted"> · </span>}
               <a
-                href={`#files/${encodeURI(model.file.path)}`}
+                href={hashOf(fileElementId(model.file.path))}
                 data-guide-file={model.file.path}
                 title={model.file.path}
                 onClick={(event) => {
@@ -199,13 +202,14 @@ export const Guide = ({
   const spied = useAtomValue(spiedAtom);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, spied);
   const scroller = useRef<HTMLDivElement>(null);
-  // A wide page keeps the marked stop, or in the files the marked file, in the guide's view, unless the page put it
-  // somewhere itself.
+  const moved = useMoved();
+  // Once the reviewer has moved, a wide page keeps the marked stop, or in the files the marked file, in the guide's
+  // view, unless the page put it somewhere itself.
   useEffect(() => {
-    if (!wide || steering()) return;
+    if (!wide || !moved || steering()) return;
     const marked = scroller.current?.querySelector<HTMLElement>("[aria-current='location']");
-    if (marked !== null && marked !== undefined) keepInGuide(marked);
-  }, [spiedStop, spiedFile, tab, wide, steering]);
+    if (marked !== null && marked !== undefined) keepInRail(marked);
+  }, [spiedStop, spiedFile, tab, wide, moved, steering]);
   const pick = (path: RepoPath) => {
     setOpen(false);
     onFile(path);
@@ -251,28 +255,18 @@ export const Guide = ({
       </div>
     );
   return (
-    <div
+    <Rail
       data-guide
-      className="min-w-0 text-small lg:sticky lg:top-(--sticky-top) lg:flex lg:h-[calc(100vh-var(--sticky-top))] lg:flex-col lg:self-start lg:pt-6"
+      className="text-small"
+      wide={wide}
+      open={open}
+      onOpen={setOpen}
+      summary="Walkthrough"
+      head={tabs}
+      foot={tab === "files" ? <DiffChoices wide={wide} /> : undefined}
+      scroller={scroller}
     >
-      {wide ? (
-        <>
-          {tabs}
-          <div ref={scroller} data-guide-scroll className="mt-3 min-h-0 flex-1 overflow-y-auto">
-            {body}
-          </div>
-          {tab === "files" ? <DiffChoices wide /> : null}
-        </>
-      ) : (
-        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-4 rounded-panel bg-surface px-3">
-          <summary className="flex min-h-11 items-center font-semibold">Walkthrough</summary>
-          <div ref={scroller} className="pb-3">
-            {tabs}
-            <div className="mt-3">{body}</div>
-            {tab === "files" ? <DiffChoices wide={false} /> : null}
-          </div>
-        </details>
-      )}
-    </div>
+      {body}
+    </Rail>
   );
 };

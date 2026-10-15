@@ -2,10 +2,14 @@
   const root = document.documentElement;
   const system = matchMedia("(prefers-color-scheme: dark)");
   const key = "internal-visual-style-theme";
+  const paletteKey = "internal-visual-style-palette";
   let choice;
   try {
     const saved = localStorage.getItem(key);
     if (saved === "light" || saved === "dark") choice = saved;
+    // The palette's name, as tokens.css knows it; a name it does not know draws the default palette.
+    const palette = localStorage.getItem(paletteKey);
+    if (palette && /^[a-z]+$/.test(palette)) root.dataset.palette = palette;
   } catch {
     /* Storage is optional, including when opened as a local file. */
   }

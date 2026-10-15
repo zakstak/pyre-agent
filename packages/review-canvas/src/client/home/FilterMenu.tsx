@@ -12,6 +12,7 @@ import type { ReviewSummary } from "../../schema/rpc.ts";
 import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
+import { PRESSED } from "../ui/segmented.tsx";
 
 /** A row of a menu: the term it writes, the text its search narrows by, and how it shows when not plain text. */
 export type MenuRow = Option & { readonly label: string; readonly content?: ReactNode };
@@ -41,7 +42,7 @@ export const FilterMenu = (props: FilterMenuProps) => (
     <Popover.Trigger
       data-filter-menu={props.name}
       data-active={props.active ? "" : undefined}
-      className={cn(buttonVariants({ variant: "quiet", size: "sm" }), "gap-1", props.active && "bg-selected text-ink shadow-pressed")}
+      className={cn(buttonVariants({ variant: "quiet", size: "sm" }), "gap-1", props.active && PRESSED)}
     >
       {props.label}
       <ChevronDown aria-hidden="true" className="size-3.5" />
@@ -121,7 +122,7 @@ const MenuBody = ({ finds, groups, reviews, query, onQuery, active, clear }: Fil
               event.preventDefault();
               rowButtons()[0]?.focus();
             }}
-            className={cn(FIELD, "min-h-8")}
+            className={FIELD}
           />
         </div>
       ) : null}

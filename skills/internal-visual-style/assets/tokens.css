@@ -1,5 +1,8 @@
-/* Reference editor contract v2. Dark surface colors are exact; light, success, and the 2026-10-14 signal colors
-   (from Zak's T3 Code theme) are derived. See ../references/reference-theme-contract.json. Both Atkinson fonts are retained. */
+/* Reference editor contract v2, as palettes. A palette names the hue its neutrals lean to, how much they lean in each
+   mode, how dark its dark page is, and its accent and action colours; every surface, text, and border role is derived
+   from those in OKLCH, so each palette works in both modes. The default, "lifted", keeps the hues of Zak's T3 Code theme:
+   its light surfaces match the contract, and its dark page is the contract's editor colour, so code sits level with
+   its card instead of below it. See ../references/reference-theme-contract.json. Both Atkinson fonts are retained. */
 :root {
   --font-reading: "Atkinson Hyperlegible Next", system-ui, sans-serif;
   --font-technical: "Atkinson Hyperlegible Mono", ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
@@ -27,46 +30,178 @@
   --target-dense: 1.5rem;
 }
 
-/* Roles keep the system mode when no explicit choice is saved, including without JS. */
+/* The palettes. The document chooses one with data-palette; an element with its own data-palette recomputes every role
+   from that palette's parameters, so a swatch shows a palette as it is: in the mode the page is in, or in one the same
+   element forces with color-scheme, since light-dark() resolves where the roles are declared. */
+:root,
+[data-palette] {
+  --palette-hue: 300;
+  --palette-tint-light: 0.008;
+  --palette-tint-dark: 0.013;
+  --palette-floor: 0.185;
+  --palette-accent: light-dark(#664c82, #b69ff0);
+  --palette-action: light-dark(#844463, #d7a6bd);
+  --palette-link: light-dark(#2a66c4, #5ea2f2);
+}
+[data-palette="violet"] {
+  --palette-tint-light: 0.018;
+  --palette-tint-dark: 0.028;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#5b3fa3, #c0abf5);
+  --palette-action: light-dark(#8a3d6a, #e0aec6);
+}
+[data-palette="charcoal"] {
+  --palette-hue: 260;
+  --palette-tint-light: 0.004;
+  --palette-tint-dark: 0.006;
+  --palette-floor: 0.245;
+  --palette-accent: light-dark(#5a4fd0, #b2a1f0);
+  --palette-action: light-dark(#8a4468, #dfaac2);
+}
+[data-palette="slate"] {
+  --palette-hue: 245;
+  --palette-tint-light: 0.01;
+  --palette-tint-dark: 0.016;
+  --palette-floor: 0.21;
+  --palette-accent: light-dark(#2a66c4, #7fb4ff);
+  --palette-action: light-dark(#1f7a6d, #6fd3c2);
+}
+[data-palette="ocean"] {
+  --palette-hue: 220;
+  --palette-tint-light: 0.014;
+  --palette-tint-dark: 0.018;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#1f6fb5, #6cb8ff);
+  --palette-action: light-dark(#6a4fa8, #c8b0ff);
+}
+[data-palette="forest"] {
+  --palette-hue: 155;
+  --palette-tint-light: 0.01;
+  --palette-tint-dark: 0.014;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#2f6f4e, #7fd1a3);
+  --palette-action: light-dark(#8a5e0f, #e0b35a);
+}
+[data-palette="sand"] {
+  --palette-hue: 80;
+  --palette-tint-light: 0.012;
+  --palette-tint-dark: 0.012;
+  --palette-floor: 0.2;
+  --palette-accent: light-dark(#8a6a1f, #e5c069);
+  --palette-action: light-dark(#7a4468, #dfaac2);
+}
+[data-palette="ember"] {
+  --palette-hue: 40;
+  --palette-tint-light: 0.012;
+  --palette-tint-dark: 0.016;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#b4532a, #ff9e6e);
+  --palette-action: light-dark(#6b4a9a, #c3a7f0);
+}
+[data-palette="rose"] {
+  --palette-hue: 350;
+  --palette-tint-light: 0.012;
+  --palette-tint-dark: 0.016;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#b03a6b, #f29ac1);
+  --palette-action: light-dark(#5b3fa3, #b69ff0);
+}
+[data-palette="mono"] {
+  --palette-hue: 0;
+  --palette-tint-light: 0;
+  --palette-tint-dark: 0;
+  --palette-floor: 0.19;
+  --palette-accent: light-dark(#2b2b2b, #e8e8e8);
+  --palette-action: light-dark(#4f6f8f, #9fc0dc);
+}
+
+/* Roles keep the system mode when no explicit choice is saved, including without JS. Light surfaces step down from
+   white; dark surfaces step up from the floor, each layer by the same amount, and borders stay below text. Text and
+   muted text cap their chroma, so a strongly tinted palette keeps readable neutrals. */
 :root {
   color-scheme: light dark;
-  --pyre-background: light-dark(#f3f1f7, #19191e);
-  --pyre-surface: light-dark(#fbfaff, #1e1c24);
-  --pyre-raised: light-dark(#ffffff, #26242c);
-  --pyre-overlay: light-dark(#ffffff, #2c2a32);
-  --pyre-text: light-dark(#302938, #dbd9e3);
-  --pyre-muted: light-dark(#5c5367, #918d9a);
-  --pyre-border: light-dark(#7e708a, #55525f);
-  --pyre-input: light-dark(#e8e3ef, #504b5d);
-  --pyre-subtle: light-dark(#eae5f1, #342e42);
-  --pyre-highlight: light-dark(#dfd5ed, #3c354b);
-  --pyre-accent: light-dark(#664c82, #b69ff0);
-  --pyre-action: light-dark(#844463, #d7a6bd);
-  --pyre-message: light-dark(#e4dceb, #443c55);
-  --pyre-code: light-dark(#eeebf3, #131318);
-  --pyre-sidebar: light-dark(#eeebf3, #131318);
-  --pyre-sidebar-controls: light-dark(#e5dfed, #332f3c);
-  --pyre-sidebar-selection: light-dark(#ddd2e9, #393345);
-  --pyre-terminal: light-dark(#f3f1f7, #19191e);
+}
+:root,
+[data-palette] {
+  --pyre-background: light-dark(
+    oklch(0.961 var(--palette-tint-light) var(--palette-hue)),
+    oklch(var(--palette-floor) calc(var(--palette-tint-dark) * 0.6) var(--palette-hue))
+  );
+  --pyre-surface: light-dark(
+    oklch(0.987 calc(var(--palette-tint-light) * 0.85) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.04) var(--palette-tint-dark) var(--palette-hue))
+  );
+  --pyre-raised: light-dark(
+    oklch(1 0 var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.085) var(--palette-tint-dark) var(--palette-hue))
+  );
+  --pyre-overlay: light-dark(
+    oklch(1 0 var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.12) var(--palette-tint-dark) var(--palette-hue))
+  );
+  --pyre-text: light-dark(
+    oklch(0.295 min(calc(var(--palette-tint-light) * 3.5), 0.03) var(--palette-hue)),
+    oklch(0.89 min(var(--palette-tint-dark), 0.015) var(--palette-hue))
+  );
+  --pyre-muted: light-dark(
+    oklch(0.458 min(calc(var(--palette-tint-light) * 4), 0.035) var(--palette-hue)),
+    oklch(0.651 min(calc(var(--palette-tint-dark) * 1.5), 0.022) var(--palette-hue))
+  );
+  --pyre-line: light-dark(
+    oklch(0.567 calc(var(--palette-tint-light) * 5) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.165) calc(var(--palette-tint-dark) * 1.6) var(--palette-hue))
+  );
+  --pyre-control-border: light-dark(
+    oklch(0.567 calc(var(--palette-tint-light) * 5) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.225) calc(var(--palette-tint-dark) * 2) var(--palette-hue))
+  );
+  --pyre-separator: light-dark(
+    color-mix(in oklab, var(--pyre-line) 40%, var(--pyre-surface)),
+    oklch(calc(var(--palette-floor) + 0.1) calc(var(--palette-tint-dark) * 1.25) var(--palette-hue))
+  );
+  --pyre-input: light-dark(
+    oklch(0.923 calc(var(--palette-tint-light) * 2) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.2) calc(var(--palette-tint-dark) * 2.3) var(--palette-hue))
+  );
+  --pyre-subtle: light-dark(
+    oklch(0.929 calc(var(--palette-tint-light) * 2) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.105) calc(var(--palette-tint-dark) * 1.4) var(--palette-hue))
+  );
+  --pyre-highlight: light-dark(
+    oklch(0.888 calc(var(--palette-tint-light) * 4) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.18) calc(var(--palette-tint-dark) * 3.7) var(--palette-hue))
+  );
+  --pyre-message: light-dark(
+    oklch(0.9 calc(var(--palette-tint-light) * 2.9) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.2) calc(var(--palette-tint-dark) * 3) var(--palette-hue))
+  );
+  --pyre-code: light-dark(oklch(0.945 calc(var(--palette-tint-light) * 1.4) var(--palette-hue)), var(--pyre-surface));
+  --pyre-sidebar: var(--pyre-code);
+  --pyre-sidebar-controls: light-dark(oklch(0.912 calc(var(--palette-tint-light) * 2.5) var(--palette-hue)), var(--pyre-overlay));
+  --pyre-sidebar-selection: light-dark(
+    oklch(0.88 calc(var(--palette-tint-light) * 4) var(--palette-hue)),
+    oklch(calc(var(--palette-floor) + 0.16) calc(var(--palette-tint-dark) * 3.9) var(--palette-hue))
+  );
+  --pyre-terminal: var(--pyre-background);
+  --pyre-canvas: var(--pyre-background);
+  --pyre-accent: var(--palette-accent);
+  --pyre-action: var(--palette-action);
   --pyre-error: light-dark(#b83356, #e5637e);
   --pyre-warning: light-dark(#8a5e0f, #e0a94d);
   --pyre-success: light-dark(#177a4d, #34c08a);
-  --pyre-on-accent: light-dark(#fbfaff, #131318);
-  --pyre-on-action: light-dark(#fbfaff, #131318);
-  --pyre-focus: light-dark(#664c82, #b69ff0);
-  --pyre-functional-boundary: light-dark(#7e708a, #b69ff0);
-  --pyre-canvas: light-dark(#f3f1f7, #19191e);
-  --pyre-accent-soft: light-dark(#eae5f1, #342e42);
-  --pyre-accent-text: light-dark(#fbfaff, #131318);
-  --pyre-accent-secondary: light-dark(#844463, #d7a6bd);
-  --pyre-line: light-dark(#7e708a, #55525f);
-  --pyre-functional-border: light-dark(#7e708a, #b69ff0);
-  --pyre-control-border: light-dark(#7e708a, #918d9a);
+  /* Text on the accent and the action: the card's white in light, the page's near black in dark. */
+  --pyre-on-accent: light-dark(var(--pyre-surface), var(--pyre-background));
+  --pyre-on-action: light-dark(var(--pyre-surface), var(--pyre-background));
+  --pyre-focus: var(--pyre-accent);
+  --pyre-functional-boundary: light-dark(var(--pyre-line), var(--pyre-accent));
+  --pyre-accent-soft: var(--pyre-subtle);
+  --pyre-accent-text: var(--pyre-on-accent);
+  --pyre-accent-secondary: var(--pyre-action);
+  --pyre-functional-border: var(--pyre-functional-boundary);
   /* Derived roles mix contract colors and add no source color. Text on them uses primary ink. */
-  --pyre-separator: light-dark(color-mix(in oklab, var(--pyre-line) 40%, var(--pyre-surface)), var(--pyre-line));
-  /* Light diff tints start from raised white; mixing into the lavender code fill turns them gray. */
-  --pyre-diff-addition: light-dark(color-mix(in oklab, var(--pyre-success) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-success) 22%, var(--pyre-code)));
-  --pyre-diff-deletion: light-dark(color-mix(in oklab, var(--pyre-error) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-error) 22%, var(--pyre-code)));
+  /* Light diff tints start from raised white; mixing into the tinted code fill turns them gray. Dark tints sit on the code. */
+  --pyre-diff-addition: light-dark(color-mix(in oklab, var(--pyre-success) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-success) 24%, var(--pyre-code)));
+  --pyre-diff-deletion: light-dark(color-mix(in oklab, var(--pyre-error) 14%, var(--pyre-raised)), color-mix(in oklab, var(--pyre-error) 24%, var(--pyre-code)));
   --pyre-selection: color-mix(in oklab, var(--pyre-accent) 45%, var(--pyre-code));
   /* Consumer aliases use verified functional boundaries rather than decorative lines. */
   --bg-page: var(--pyre-canvas);
@@ -77,7 +212,7 @@
   --text-secondary: var(--pyre-muted);
   --border: var(--pyre-control-border);
   --separator: var(--pyre-separator);
-  --link: light-dark(#2a66c4, #5ea2f2);
+  --link: var(--palette-link);
   --focus: var(--pyre-focus);
   --status-neutral: var(--pyre-text);
   --status-neutral-bg: var(--pyre-raised);
