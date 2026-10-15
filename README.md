@@ -5,7 +5,7 @@ Reusable engineering skills for Codex and Claude Code. The production catalog is
 
 | Plugin               | Contents                                                          | Default  |
 | -------------------- | ----------------------------------------------------------------- | -------- |
-| `pyre-agent` 4.2.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
+| `pyre-agent` 4.3.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
 | `pyre-context` 1.0.1 | Zak's startup reference context                                   | Optional |
 
 The base contains no startup hook or personal context. The optional plugin lives
