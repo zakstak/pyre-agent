@@ -3,6 +3,80 @@ import { test } from "node:test";
 import { chromium } from "playwright";
 import { built, fixtureInput, startServer } from "./harness.ts";
 
+for (const [provider, route, number, fragment] of [
+  ["github", "pull", "#42", "issuecomment-1"],
+  ["gitlab", "-/merge_requests", "!42", "note_1"],
+  ["gitea", "pulls", "#42", "issuecomment-1"],
+] as const) {
+  test(
+    `${provider}: private reviews show their host, filter by repository, and open the correct review URL`,
+    { skip: !built },
+    async (t) => {
+      const server = await startServer();
+      t.after(() => server.stop());
+      const input = fixtureInput();
+      const url = `https://git.something.company.com/team/project/${route}/42`;
+      input.target = {
+        kind: "pull_request",
+        provider,
+        title: "Corporate review",
+        url,
+        head_sha: input.target.head_sha,
+        changed_files: input.files.length,
+      };
+      const agent = await server.register(input);
+      assert.equal((await agent.publish(input)).ok, true);
+      const imported = await agent.call("POST", "/github", {
+        pull_request: url,
+        items: [
+          {
+            kind: "conversation",
+            id: "corporate_1",
+            author: "employee.name",
+            url: `${url}#${fragment}`,
+            body: "Corporate comment",
+            created_at: "2026-10-15T12:00:00.000Z",
+          },
+        ],
+      });
+      assert.equal(imported.ok, true, JSON.stringify(imported));
+      const browser = await chromium.launch({ headless: true });
+      t.after(() => browser.close());
+      const page = await browser.newPage();
+      await page.goto(server.origin);
+      await page
+        .getByRole("link", { name: "Corporate review", exact: true })
+        .waitFor();
+      await page
+        .getByLabel("Filter reviews")
+        .fill("repo:git.something.company.com/team/project");
+      await page
+        .getByRole("link", { name: "Corporate review", exact: true })
+        .click();
+      await page
+        .getByRole("link", {
+          name: "Open on git.something.company.com",
+          exact: true,
+        })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("link", {
+            name: "Open on git.something.company.com",
+            exact: true,
+          })
+          .getAttribute("href"),
+        url,
+      );
+      await page.getByText(number, { exact: true }).waitFor();
+      await page
+        .getByText("on git.something.company.com", { exact: true })
+        .waitFor();
+      await page.getByText("Corporate comment", { exact: true }).waitFor();
+    },
+  );
+}
+
 test("the home page lists open reviews by default, a chip shows the closed ones, and a search narrows the list", { skip: !built }, async (t) => {
   const server = await startServer();
   t.after(() => server.stop());

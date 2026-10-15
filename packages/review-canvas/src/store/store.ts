@@ -833,7 +833,7 @@ export class Store {
     return this.#importing(reviewId, undefined, (view, context) => {
       const target = view.state.target;
       if (
-        target.kind === "github_pr" &&
+        target.kind !== "worktree" &&
         pullRequestKey(target.url) !== pullRequestKey(pullRequest)
       )
         throw new ActionError(

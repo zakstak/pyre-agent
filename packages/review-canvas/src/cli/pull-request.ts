@@ -1,11 +1,10 @@
 /**
- * Collects a GitHub pull request as review input from a local clone that already holds its base and head commits.
- * GitHub supplies only what the clone cannot: the title, the two commits, the base branch, and the file list to
+ * Collects a hosted pull request as review input from a local clone that already holds its base and head commits.
+ * The host supplies only what the clone cannot: the title, the two commits, the base branch, and the file list to
  * reconcile with. Every patch, fingerprint, and text comes from the clone, read with the collector's hardened Git.
  * Nothing is fetched: a missing commit fails with the command that fetches it.
  */
 import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
 import {
   type CollectOptions,
   collectRange,
@@ -16,108 +15,16 @@ import { CollectError } from "../collector/errors.ts";
 import { byCodePoint } from "../collector/paths.ts";
 import { decodeValue, InputDocument } from "../schema/document.ts";
 import { INPUT_FORMAT, type ReviewInput } from "../schema/input.ts";
-import { CommitSha, PullRequestUrl } from "../schema/primitives.ts";
-import { GhFailed, type Gh } from "./github.ts";
-
-const PullRequestView = Schema.Struct({
-  title: Schema.String,
-  url: PullRequestUrl,
-  baseRefOid: CommitSha,
-  headRefOid: CommitSha,
-  baseRefName: Schema.String,
-  changedFiles: Schema.Number,
-});
-type PullRequestView = typeof PullRequestView.Type;
-
-const ChangedFile = Schema.Struct({
-  filename: Schema.String,
-  previous_filename: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-const decoded = <S extends Schema.Codec<unknown, unknown>>(
-  schema: S,
-  value: unknown,
-  what: string,
-): S["Type"] => {
-  const result = Schema.decodeUnknownResult(schema)(value);
-  if (Result.isFailure(result))
-    throw new CollectError({
-      message: `gh returned ${what} this command cannot read: ${result.failure.message}`,
-    });
-  return result.success;
-};
-
-/** Runs gh, turning its failure into a CollectError that says what was being read. */
-const ask = (gh: Gh, args: ReadonlyArray<string>, what: string) => {
-  try {
-    return gh(args);
-  } catch (error) {
-    if (error instanceof GhFailed)
-      throw new CollectError({
-        message: `cannot read ${what} with gh: ${error.message}`,
-      });
-    throw error;
-  }
-};
-
-const view = (gh: Gh, url: PullRequestUrl): PullRequestView => {
-  const text = ask(
-    gh,
-    [
-      "pr",
-      "view",
-      url,
-      "--json",
-      "title,url,baseRefOid,headRefOid,baseRefName,changedFiles",
-    ],
-    url,
-  );
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    throw new CollectError({ message: `gh pr view did not print JSON` });
-  }
-  return decoded(PullRequestView, raw, "a pull request");
-};
-
-/** GitHub's file list, which its API caps at 3,000 files: each path, and a renamed file's old path. */
-const gitHubFiles = (gh: Gh, url: PullRequestUrl) => {
-  const [, owner, repo, number] =
-    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([0-9]+)$/.exec(url) ?? [];
-  const text = ask(
-    gh,
-    [
-      "api",
-      "--paginate",
-      `repos/${owner}/${repo}/pulls/${number}/files?per_page=100`,
-      "--jq",
-      ".[] | {filename, previous_filename}",
-    ],
-    `the files of ${url}`,
-  );
-  return text
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line) => {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(line);
-      } catch {
-        throw new CollectError({
-          message: `gh api did not print one JSON file per line`,
-        });
-      }
-      return decoded(ChangedFile, raw, "a changed file");
-    });
-};
+import type { PullRequestUrl } from "../schema/primitives.ts";
+import { addressOf, readPullRequest, readPullRequestFiles, type ForgeClients } from "./hosted.ts";
+import { ForgeFailed } from "./forge-api.ts";
 
 /** Paths that only one side lists, counting a rename's old path, so rename detection that differs still matches. */
 export interface Mismatch {
   readonly only_on_github: ReadonlyArray<string>;
   readonly only_in_clone: ReadonlyArray<string>;
   /** GitHub's changed-file count, and the clone's. */
-  readonly counts: { readonly github: number; readonly clone: number };
+  readonly counts: { readonly github: number | null; readonly clone: number };
 }
 
 /**
@@ -130,7 +37,7 @@ export const reconcile = (
     readonly filename: string;
     readonly previous_filename?: string | null | undefined;
   }>,
-  changedFiles: number,
+  changedFiles: number | null,
 ): Mismatch | undefined => {
   const local = new Set(
     files.flatMap((file) =>
@@ -190,22 +97,27 @@ export interface CollectedPullRequest {
 export const collectPullRequest = (
   worktree: Worktree,
   url: PullRequestUrl,
-  gh: Gh,
+  clients: ForgeClients,
   options: CollectOptions = {},
 ): CollectedPullRequest => {
-  const before = view(gh, url);
-  const github = gitHubFiles(gh, before.url);
+  let before;
+  let github;
+  try {
+    before = readPullRequest(url, clients);
+    github = readPullRequestFiles(before.url, clients);
+  } catch (error) {
+    if (error instanceof ForgeFailed) throw new CollectError({ message: error.message });
+    throw error;
+  }
   const missing = missingCommits(worktree, [
     before.baseRefOid,
     before.headRefOid,
   ]);
   if (missing.length > 0) {
-    const [, repo, number] =
-      /^(https:\/\/github\.com\/[^/]+\/[^/]+)\/pull\/([0-9]+)$/.exec(
-        before.url,
-      ) ?? [];
+    const pull = addressOf(before.url);
+    const ref = pull.provider === "gitlab" ? `merge-requests/${pull.number}/head` : `pull/${pull.number}/head`;
     throw new CollectError({
-      message: `${worktree.top} does not hold ${missing.join(" or ")}. Fetch the pull request's commits, then collect again: git -C ${quoted(worktree.top)} fetch ${repo}.git pull/${number}/head ${quoted(before.baseRefName)}`,
+      message: `${worktree.top} does not hold ${missing.join(" or ")}. Fetch the pull request's commits, then collect again: git -C ${quoted(worktree.top)} fetch ${quoted(pull.repositoryUrl + ".git")} ${ref} ${quoted(before.baseRefName)}`,
     });
   }
   const range = collectRange(
@@ -214,16 +126,17 @@ export const collectPullRequest = (
     options,
   );
   const mismatch = reconcile(range.files, github, before.changedFiles);
-  const headMoved = view(gh, url).headRefOid !== before.headRefOid;
+  const headMoved = readPullRequest(url, clients).headRefOid !== before.headRefOid;
+  const provider = addressOf(before.url).provider;
   const review = decodeValue(InputDocument, {
     format: INPUT_FORMAT,
     target: {
-      kind: "github_pr",
+      ...(provider === "github" ? { kind: "github_pr" as const } : { kind: "pull_request" as const, provider }),
       title: options.title ?? before.title,
       url: before.url,
       head_sha: before.headRefOid,
       base_sha: before.baseRefOid,
-      changed_files: before.changedFiles,
+      ...(before.changedFiles === null ? {} : { changed_files: before.changedFiles }),
     },
     files_complete: mismatch === undefined && !headMoved,
     files: range.files,
