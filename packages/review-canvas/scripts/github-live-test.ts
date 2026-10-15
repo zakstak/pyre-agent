@@ -11,17 +11,17 @@
 import assert from "node:assert/strict";
 import { readComments, runGh } from "../src/cli/github.ts";
 import { collectPullRequest } from "../src/cli/pull-request.ts";
+import { forgeClients } from "../src/cli/hosted.ts";
 import { openWorktree } from "../src/collector/collect.ts";
 import { attachedRows, parseRows } from "../src/review/patch.ts";
 import type { PullRequestUrl } from "../src/schema/primitives.ts";
 import { Store } from "../src/store/store.ts";
+import { parsePullRequest } from "../src/schema/forge-url.ts";
 
 const [url, clone = process.cwd()] = process.argv.slice(2);
-const pull = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([0-9]+)$/.exec(
-  url ?? "",
-);
+const pull = parsePullRequest(url ?? "");
 assert.ok(
-  url !== undefined && pull !== null,
+  url !== undefined && pull?.provider === "github",
   "usage: pnpm test:github https://github.com/OWNER/REPO/pull/NUMBER [CLONE]",
 );
 
@@ -29,7 +29,7 @@ assert.ok(
 const collected = collectPullRequest(
   openWorktree({ repo: clone }),
   url as PullRequestUrl,
-  runGh,
+  forgeClients,
   { title: `Live import of ${url}`, withContent: true },
 );
 const input = collected.review;
@@ -68,6 +68,7 @@ interface Shown {
   readonly diffSide: "LEFT" | "RIGHT";
   readonly comments: { readonly nodes: ReadonlyArray<{ readonly id: string }> };
 }
+const [owner, name] = pull.repository.split("/");
 const shown: Array<Shown> = [];
 let after: string | null = null;
 do {
@@ -79,6 +80,8 @@ do {
       runGh([
         "api",
         "graphql",
+        "--hostname",
+        pull.host,
         "-f",
         `query=query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
@@ -87,11 +90,11 @@ do {
   } }
 }`,
         "-F",
-        `owner=${pull[1]}`,
+        `owner=${owner}`,
         "-F",
-        `name=${pull[2]}`,
+        `name=${name}`,
         "-F",
-        `number=${pull[3]}`,
+        `number=${pull.number}`,
         ...(after === null ? [] : ["-f", `after=${after}`]),
       ]),
     ) as {

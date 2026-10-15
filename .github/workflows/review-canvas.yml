@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - packages/review-canvas/**
+      - skills/review-canvas/**
+      - skills/typescript-best-practices/**
+      - tests/check_typescript_examples.cjs
       - skills/internal-visual-style/**
       - .github/workflows/review-canvas.yml
 
