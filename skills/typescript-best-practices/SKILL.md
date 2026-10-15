@@ -1,9 +1,10 @@
 ---
 name: typescript-best-practices
 description:
-  TypeScript best practices. Use when reading or editing any .ts or .tsx file.
+  "Use when reading or editing any .ts or .tsx file. TypeScript rules for
+  modeling types, narrowing, boundary validation, and casts."
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # TypeScript best practices

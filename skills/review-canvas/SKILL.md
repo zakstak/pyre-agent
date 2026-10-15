@@ -1,13 +1,12 @@
 ---
 name: review-canvas
 description:
-  Run a local review canvas when the user asks for a review canvas, a guided
-  review, or an HTML walkthrough of a specified GitHub pull request or of the
-  uncommitted changes in a local working tree. The agent explains the change as
-  a tour, the reviewer walks it in the browser and comments, and the agent
-  answers through a local server.
+  "Use when the user asks for a review canvas, a guided review, or an HTML
+  walkthrough of a GitHub pull request or of uncommitted local changes. The
+  agent writes a tour, the reviewer comments in the browser, and the agent
+  answers through a local server."
 metadata:
-  version: "5.0.1"
+  version: "5.0.2"
 ---
 
 # Review canvas
