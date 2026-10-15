@@ -16,7 +16,9 @@ an open page. Its code is in
 | Pages        | `http://127.0.0.1:PORT`, printed by the server and returned by `register` and `publish`           |
 
 `REVIEW_CANVAS_DATA`, `REVIEW_CANVAS_RUNTIME`, `REVIEW_CANVAS_PORT`, and
-`REVIEW_CANVAS_IDLE_MINUTES` override the defaults. A command that cannot
+`REVIEW_CANVAS_IDLE_MINUTES` override the defaults. Put the same values on
+every command line: a host may not keep the environment between commands, and
+a command with other values reaches another server. A command that cannot
 connect starts a server. A starting server takes an exclusive lock on
 `server.lock` in the runtime folder and holds it while it runs; the operating
 system releases it when the process ends. Under the lock it removes a stale

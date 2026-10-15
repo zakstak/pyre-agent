@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "5.0.1"
+  version: "5.0.2"
 ---
 
 # Review canvas
@@ -30,20 +30,14 @@ RC=/path/to/this/skill/scripts/review-canvas
 "$RC" --help
 ```
 
-It needs Node 26 and pnpm. On first use, and after an update, it installs and
-builds its package, which needs network access once; progress goes to stderr
-and the command's JSON to stdout. The build records a hash of what it was made
-from, so an update rebuilds whatever the files' times say. One setup runs at a time: another command
-waits up to five minutes for it, then fails and names the lock folder. A
-failed command prints one line, `Error: message (kind)`, and exits 1. The package lives in
-[packages/review-canvas](../../packages/review-canvas/README.md) of the
-repository this skill ships in.
+It needs Node 26 and pnpm, and network access once to build its package,
+[packages/review-canvas](../../packages/review-canvas/README.md) in the
+repository this skill ships in. Progress goes to stderr and the command's JSON
+to stdout. A failed command prints one line and exits 1.
 
-The first command that needs the server starts it. `REVIEW_CANVAS_DATA`,
-`REVIEW_CANVAS_RUNTIME`, and `REVIEW_CANVAS_PORT` move its database, its socket,
-and its page port. Leave them unset unless the user asks. When you set them,
-put the same values on every command line: a host may not keep the environment
-between commands, and a command with other values reaches another server.
+The first command that needs the server starts it. Leave the `REVIEW_CANVAS_*`
+variables unset unless the user asks; [the server reference](references/server.md)
+lists them.
 
 ## Confirm the review target
 
