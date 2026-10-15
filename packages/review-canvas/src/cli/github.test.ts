@@ -8,7 +8,7 @@ import {
   findPullRequest,
   type Gh,
   GhFailed,
-  gitHubRepo,
+  forgeRemote,
   readComments,
 } from "./github.ts";
 
@@ -82,8 +82,8 @@ test("a remote URL names its GitHub repository in any spelling", () => {
     "git@github.com:example/notes.git",
     "ssh://git@github.com/example/notes.git",
   ])
-    assert.equal(gitHubRepo(url), "example/notes", url);
-  assert.equal(gitHubRepo("https://gitlab.com/example/notes.git"), undefined);
+    assert.deepEqual(forgeRemote(url), { kind: "github", repo: "https://github.com/example/notes" }, url);
+  assert.deepEqual(forgeRemote("https://gitlab.com/example/notes.git"), { kind: "gitlab", repo: "https://gitlab.com/example/notes" });
 });
 
 test("a branch's home is read with hardened Git from its upstream", (t) => {
@@ -93,7 +93,7 @@ test("a branch's home is read with hardened Git from its upstream", (t) => {
   f.git(f.root, "remote", "add", "origin", "git@github.com:example/notes.git");
   assert.deepEqual(branchHome(f.root), {
     kind: "github",
-    repo: "example/notes",
+    repo: "https://github.com/example/notes",
     branch: "feature",
   });
 });

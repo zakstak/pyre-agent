@@ -1,11 +1,11 @@
 ---
 name: principle-encode-lessons-in-structure
 description:
-  "Apply when you catch yourself writing the same instruction a second time, or
+  "Use when you catch yourself writing the same instruction a second time, or
   notice a recurring correction. Encode the rule as a lint, metadata flag,
   runtime check, or script instead of more text."
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Encode Lessons in Structure

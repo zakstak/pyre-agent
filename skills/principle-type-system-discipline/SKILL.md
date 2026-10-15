@@ -1,10 +1,10 @@
 ---
 name: principle-type-system-discipline
 description:
-  "Apply when designing types, reviewing a function signature, or writing code
-  in any statically-typed language. Make illegal states unrepresentable, brand
-  semantic primitives, parse external data at boundaries, refuse to lie to the
-  compiler, exhaust variants, derive from authoritative schemas."
+  "Use when designing types, reviewing a function signature, or writing code in
+  a statically-typed language. Make illegal states unrepresentable, brand
+  primitives, parse external data at boundaries, never lie to the compiler,
+  exhaust variants."
 metadata:
   version: "1.1.0"
 ---
@@ -62,22 +62,22 @@ the worked examples.
 
 **The tests:**
 
-- "Do mutually exclusive states need a comment saying which fields may
-  coexist?" Model them as a sum type.
+- "Do mutually exclusive states need a comment saying which fields may coexist?"
+  Model them as a sum type.
 - "Do two arguments share a primitive type but mean different things?" Brand
   them.
 - "Where did this `any`, this cast, this `assertNotNull` come from?" Trace the
   unchecked input to its boundary and validate there.
-- "If a variant is added next month, will the compiler say where to add a
-  case?" Require that where the toolchain supports it.
+- "If a variant is added next month, will the compiler say where to add a case?"
+  Require that where the toolchain supports it.
 - "Is this type duplicating a shape another file owns?" Derive instead.
 - "Does strengthening this type remove an invalid case, or only add precision?"
   If only precision, keep the plain type.
 
 **The idiom per language:**
 
-| Idea             | TypeScript                   | Rust                | Swift                      | Kotlin and Scala | Haskell and OCaml                   |
-| ---------------- | ---------------------------- | ------------------- | -------------------------- | ---------------- | ----------------------------------- |
-| Sum types        | Discriminated union          | Enum with payloads  | Enum with payloads         | Sealed class     | Algebraic data type                 |
-| Brands           | Branded intersection         | Newtype             | Nominal wrapper struct     | Value class      | Phantom type                        |
-| Exhaustive match | `never` binding in `default` | `match` without `_` | `switch` without `default` | Sealed `when`    | Incomplete-pattern warning as error |
+| Idea             | TypeScript                   | Rust                | Swift                      | Kotlin and Scala             | Haskell and OCaml                   |
+| ---------------- | ---------------------------- | ------------------- | -------------------------- | ---------------------------- | ----------------------------------- |
+| Sum types        | Discriminated union          | Enum with payloads  | Enum with payloads         | Sealed class                 | Algebraic data type                 |
+| Brands           | Branded intersection         | Newtype             | Nominal wrapper struct     | Value class                  | Phantom type                        |
+| Exhaustive match | `never` binding in `default` | `match` without `_` | `switch` without `default` | Kotlin `when`, Scala `match` | Incomplete-pattern warning as error |
