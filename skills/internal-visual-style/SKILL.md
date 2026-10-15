@@ -5,7 +5,7 @@ description:
   developer plans, review pages, reports, and ad hoc visual artifacts. Applies
   the shared internal visual reference. Product branding takes precedence."
 metadata:
-  version: "1.3.1"
+  version: "1.3.2"
 ---
 
 # Internal visual style
@@ -26,6 +26,7 @@ layout to the content. Keep diagnostics, provenance, and caveats out of the
 first screen.
 
 Copy the complete folder when installing this skill. Its references, styles,
-script, and chosen reading and technical fonts are bundled. It requires no
-sibling skills or external service. Validate the resulting artifact using the
-checks in the reference and disclose any unverified behavior or font fallback.
+script, and chosen reading and technical fonts are bundled. No skill depends on
+it, but the review-canvas package reads `assets/` from this folder at build
+time. Validate the resulting artifact using the checks in the reference and
+disclose any unverified behavior or font fallback.

@@ -5,7 +5,7 @@ description:
   "Invoke only by name. Find the mistakes agents keep repeating in a repo and
   make each impossible, architecture first."
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Correct
@@ -33,9 +33,12 @@ counts once it has happened twice.
    still compiles, add a lint or CI check whose error names the file, type, or
    function to use instead. If the pattern is already common, fail only when a
    change adds more.
-3. **Test the behavior.** Fix or delete any test that would still pass if every
+3. **Enforce runtime invariants on every applicable entry path.** When a rule
+   depends on runtime input, validate it at the boundary. Prefer a guard that
+   rejects every invalid input over tests covering only selected cases.
+4. **Test the behavior.** Fix or delete any test that would still pass if every
    function it calls returned nothing.
-4. **Write docs or agent rules last, only for judgment calls.** Nothing fails
+5. **Write docs or agent rules last, only for judgment calls.** Nothing fails
    when an agent skips them.
 
 ## Fix and prove

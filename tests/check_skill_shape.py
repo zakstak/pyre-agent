@@ -29,8 +29,9 @@ DESCRIPTION = re.compile(r"^description:[ \t]*(.*)$", re.MULTILINE)
 CONTINUATION = re.compile(r"^[ \t]+(\S.*)$")
 BY_NAME_ONLY = re.compile(r"^disable-model-invocation:[ \t]*true[ \t]*$", re.MULTILINE)
 CODE_SPAN = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)")
-LINK_TARGET = re.compile(r"\]\(([^)]*)\)")
-FENCE = re.compile(r"^[ \t]{0,3}(```+)")
+LINK_SPAN = re.compile(r"\[[^\]\n]+\]\([^)]*\)")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+BLOCK_SCALAR = re.compile(r"[>|](?:[+-]?[1-9]?|[1-9][+-]?)(?:[ \t]+#.*)?$")
 
 
 def skill_files(root):
@@ -60,7 +61,9 @@ def parse_description(frontmatter):
     found = DESCRIPTION.search(frontmatter)
     if not found:
         return None, None
-    parts = [found[1]]
+    value = found[1].strip()
+    block_scalar = BLOCK_SCALAR.fullmatch(value) is not None
+    parts = ["" if block_scalar else value]
     for line in frontmatter[found.end() :].splitlines()[1:]:
         continued = CONTINUATION.match(line)
         if not continued:
@@ -68,7 +71,12 @@ def parse_description(frontmatter):
         parts.append(continued[1])
     joined = " ".join(" ".join(parts).split())
     for quote in "\"'":
-        if len(joined) >= 2 and joined[0] == quote and joined[-1] == quote:
+        if (
+            not block_scalar
+            and len(joined) >= 2
+            and joined[0] == quote
+            and joined[-1] == quote
+        ):
             joined = joined[1:-1]
     return joined, frontmatter.count("\n", 0, found.start()) + 2
 
@@ -82,7 +90,8 @@ def description_errors(frontmatter):
         budget, openings = NAMED_DESCRIPTION_BUDGET, (NAMED_OPENING,)
     else:
         budget, openings = DESCRIPTION_BUDGET, OPENINGS
-    if not description.startswith(openings):
+    opening = "|".join(re.escape(value) for value in openings)
+    if not re.match(rf"(?:{opening})(?:\s|$)", description):
         errors.append(
             (line, f"description must start with {' or '.join(map(repr, openings))}")
         )
@@ -103,9 +112,9 @@ def body_budget(skill_md):
 
 
 def masked(line):
-    """Return the line with code spans and link targets blanked, so their spaces cannot count."""
+    """Return the line with code spans and links blanked, so their spaces cannot count."""
     chars = list(line)
-    for pattern in (CODE_SPAN, LINK_TARGET):
+    for pattern in (CODE_SPAN, LINK_SPAN):
         for found in pattern.finditer(line):
             for index in range(found.start(), found.end()):
                 chars[index] = "x"
@@ -120,13 +129,18 @@ def prose_errors(body, first_line):
     for offset, line in enumerate(body.splitlines()):
         number = first_line + offset
         opened = FENCE.match(line)
-        if fence is None and opened:
-            fence = opened[1]
-            continue
         if fence is not None:
-            if opened and opened[1].startswith(fence) and not line.strip(fence + " \t"):
+            if (
+                opened
+                and opened[1][0] == fence[0]
+                and len(opened[1]) >= len(fence)
+                and not opened[2].strip()
+            ):
                 fence = None
                 after_fence = True
+            continue
+        if opened and (opened[1][0] != "`" or "`" not in opened[2]):
+            fence = opened[1]
             continue
         if not line.strip():
             continue
@@ -141,11 +155,19 @@ def prose_errors(body, first_line):
                 )
         if line.startswith("|"):
             continue
-        if " " in masked(line)[WIDTH:]:
+        prose = masked(line).rstrip()
+        wrap_points = list(re.finditer(r"(?<=\S)[ \t]+(?=\S)", prose))
+        # Leave an unbreakable trailing URL, link or code span alone. Other
+        # tokens can wrap even when their last separator is before WIDTH.
+        wrappable = wrap_points and (
+            len(prose.rsplit(None, 1)[-1]) <= WIDTH
+            or any(point.start() >= WIDTH for point in wrap_points)
+        )
+        if len(line) > WIDTH and wrappable:
             errors.append(
                 (
                     number,
-                    f"line is {len(line)} columns and has a space past {WIDTH}; wrap it",
+                    f"line is {len(line)} columns and can be wrapped; limit is {WIDTH}",
                 )
             )
     return errors

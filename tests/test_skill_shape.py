@@ -87,6 +87,41 @@ class SkillShapeTests(unittest.TestCase):
         self.skill(description=wrapped, quoted=False)
         self.assertEqual(shape_errors(self.root), [])
 
+    def test_yaml_block_scalar_descriptions_use_their_value(self):
+        for index, indicator in enumerate((">", ">-", ">+", "|", "|-", "|2-")):
+            self.write(
+                f"skills/block-{index}/SKILL.md",
+                f"---\nname: block-{index}\ndescription: {indicator}\n"
+                "  Use when a test needs a skill.\n  Does nothing else.\n---\n",
+            )
+        self.assertEqual(shape_errors(self.root), [])
+
+    def test_block_scalar_content_is_not_treated_as_a_quoted_yaml_value(self):
+        self.write(
+            "skills/alpha/SKILL.md",
+            '---\nname: alpha\ndescription: >-\n  "Use when needed."\n---\n',
+        )
+        self.assertEqual(len(shape_errors(self.root)), 1)
+
+    def test_folded_description_still_obeys_the_value_budget(self):
+        self.write(
+            "skills/alpha/SKILL.md",
+            "---\nname: alpha\ndescription: >-\n  Use when " + "x" * 242 + "\n---\n",
+        )
+        errors = shape_errors(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("description is 251 characters", errors[0])
+
+    def test_description_openings_cannot_end_inside_a_word(self):
+        for name, description in (
+            ("alpha", "Use whenever this is useful."),
+            ("beta", "Use forensics on failures."),
+        ):
+            self.skill(name=name, description=description)
+        errors = shape_errors(self.root)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(all("description must start" in error for error in errors))
+
     def test_missing_description_or_frontmatter_fails(self):
         self.write(
             "skills/alpha/SKILL.md",
@@ -144,10 +179,34 @@ class SkillShapeTests(unittest.TestCase):
         self.assertEqual(
             shape_errors(self.root),
             [
-                "skills/alpha/SKILL.md:10: line is 99 columns and has a space past 80; wrap it",
-                "skills/alpha/references/notes.md:1: line is 97 columns and has a space past 80; wrap it",
+                "skills/alpha/SKILL.md:10: line is 99 columns and can be wrapped; limit is 80",
+                "skills/alpha/references/notes.md:1: line is 97 columns and can be wrapped; limit is 80",
             ],
         )
+
+    def test_wrap_point_before_column_80_is_still_usable(self):
+        self.skill(body="a" * 60 + " " + "b" * 30 + "\n")
+        errors = shape_errors(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("91 columns", errors[0])
+
+    def test_tilde_fences_skip_code_and_check_the_following_paragraph(self):
+        self.skill(body=f"~~~sh\n{LONG_LINE}~~~\n\nThe command prints.\n")
+        self.assertEqual(shape_errors(self.root), [])
+        self.skill(body=f"~~~sh\n{LONG_LINE}~~~\n\nwhich prints.\n")
+        errors = shape_errors(self.root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("lowercase paragraph", errors[0])
+
+    def test_fence_closers_must_match_the_opening_character_and_length(self):
+        for name, opening, closing in (
+            ("alpha", "~~~~", "~~~"),
+            ("beta", "~~~~", "````"),
+            ("gamma", "````", "~~~~"),
+            ("delta", "~~~", "~~~ still code"),
+        ):
+            self.skill(name=name, body=f"{opening}\n{closing}\n{LONG_LINE}")
+        self.assertEqual(shape_errors(self.root), [])
 
     # Rule 4: lowercase paragraph after a fence.
 

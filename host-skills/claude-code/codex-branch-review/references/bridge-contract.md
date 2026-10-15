@@ -5,16 +5,18 @@
 Requires Python 3.11+, Git supporting `--no-lazy-fetch`, and an already
 installed/authenticated Codex CLI with access to the model pinned in the paired
 TOML, `gpt-6.1-sol` when last checked. CLI flags were checked on 0.159.2;
-bounded live inference also passed on 0.162.0 on 2026-10-09.
-This integration never installs tools, logs in, changes `CODEX_HOME`, reads auth
-files, or writes configuration. Account entitlement can only be established by a
-successful call; model catalog membership alone is insufficient.
+bounded live inference also passed on 0.162.0 on 2026-10-09. This integration
+never installs tools, logs in, changes `CODEX_HOME`, reads auth files, or writes
+configuration. Account entitlement can only be established by a successful call;
+model catalog membership alone is insufficient.
 
 An explicit
 `--profile-file /absolute/path/to/adversarial-branch-review.config.toml` can
-select a paired profile from a trusted location. The bridge checks its exact
-model and safety settings. Resolution order: explicit path, then the bundled
-profile. A missing profile fails explicitly.
+select a paired profile from a trusted location. The selected file pins the
+exact model and reviewer personality; the bridge validates its safety settings.
+When an explicit path is supplied, the bundled profile is not read. Otherwise,
+the bundled profile is selected. A missing or malformed selected profile fails
+explicitly, with no model or profile fallback.
 
 Cloning does not activate this skill. Explicit Claude invocation and disabled
 nested delegation prevent recursive calls; the reviewer also forbids invoking
@@ -143,11 +145,11 @@ make a claim that all network traffic is blocked.
 
 The read-only sandbox does not exempt the Python wrapper or the Codex process
 from Claude's outer permissions and sandbox. Use the host's normal permission
-flow for file access, writing the private request, and running the exact
-bundled Python command through Bash. The skill grants no `allowed-tools`
-permissions. If a tool, file, network or runtime-storage access is denied,
-return the blocker; do not change permission settings or rerun through a
-different tool to avoid the denial.
+flow for file access, writing the private request, and running the exact bundled
+Python command through Bash. The skill grants no `allowed-tools` permissions. If
+a tool, file, network or runtime-storage access is denied, return the blocker;
+do not change permission settings or rerun through a different tool to avoid the
+denial.
 
 Captured stdout/stderr use temporary disk streams with an 8 MiB per-stream limit
 checked every 100 ms; excess output aborts rather than returning a truncated
