@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "host-skills/claude-code/codex-branch-review"
 SCRIPT = SKILL / "scripts/review_bridge.py"
 PROFILE = SKILL / "references/adversarial-branch-review.config.toml"
-MODEL = "gpt-6.1-sol"
+MODEL = tomllib.loads(PROFILE.read_text(encoding="utf-8"))["model"]
 FAKE_CODEX = r"""#!/usr/bin/env python3
 import json, os, pathlib, sys, time
 args = sys.argv[1:]
@@ -30,7 +31,7 @@ if args == ["exec", "--help"]:
 if args == ["login", "status"]:
     raise SystemExit(1 if mode == "no_auth" else 0)
 if args[-2:] == ["debug", "models"]:
-    print(json.dumps({"models": [] if mode == "missing_model" else [{"slug": "gpt-6.1-sol"}]}))
+    print(json.dumps({"models": [] if mode == "missing_model" else [{"slug": os.environ["FAKE_MODEL"]}]}))
     raise SystemExit(0)
 assert args[0] == "exec", args
 if mode == "never_read":
@@ -49,7 +50,7 @@ if mode == "runtime_readonly":
     print("failed to initialize in-process app-server client: Read-only file system (os error 30)", file=sys.stderr)
     raise SystemExit(1)
 if mode == "fail":
-    print("model gpt-6.1-sol is not supported for this account", file=sys.stderr)
+    print(f"model {os.environ['FAKE_MODEL']} is not supported for this account", file=sys.stderr)
     raise SystemExit(1)
 review = {"verdict": "findings", "summary": "Introduced authorization bypass", "findings": [
     {"severity": "P1", "title": "Restore administrator check", "path": "auth.py", "line_start": 2, "line_end": 2,
@@ -102,7 +103,9 @@ class ReviewBridgeTests(unittest.TestCase):
         self.binary.write_text(FAKE_CODEX)
         self.binary.chmod(0o700)
         self.log = self.root / "calls.jsonl"
-        self.env = dict(os.environ, FAKE_LOG=str(self.log), FAKE_MODE="ok")
+        self.env = dict(
+            os.environ, FAKE_LOG=str(self.log), FAKE_MODE="ok", FAKE_MODEL=MODEL
+        )
         # Deliberately don't inherit a repo-contained TMPDIR from a caller.
         self.env["TMPDIR"] = str(self.root)
         self.request = {"repo": str(self.repo), "base": self.base}
@@ -811,7 +814,7 @@ raise SystemExit(code)
         bad = self.root / "bad.toml"
         bad.write_text(
             PROFILE.read_text().replace(
-                'model = "gpt-6.1-sol"', 'model = "other-model"'
+                f'model = "{MODEL}"', 'model = "other-model"'
             )
         )
         self.assert_error(
