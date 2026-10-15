@@ -18,8 +18,9 @@ current Claude model. Invocation is explicit:
 
 Caller instructions: $ARGUMENTS
 
-Permission denials are blockers; do not route around them. See the bridge
-contract's safety section.
+Permission denials are blockers; do not route around them. Before preparing or
+running a review, read the
+[bridge contract's safety requirements](references/bridge-contract.md#safety-and-limits).
 
 ## Prepare a bounded review
 
@@ -43,7 +44,8 @@ contract's safety section.
    four. Do not merely request "use subagents" in prose and then claim
    delegation.
 
-A request example is in [the bridge contract](references/bridge-contract.md#input).
+A request example is in
+[the bridge contract](references/bridge-contract.md#input).
 
 ## Invoke and report back
 

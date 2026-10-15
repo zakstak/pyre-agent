@@ -430,20 +430,15 @@ def read_profile(source):
 
 
 def load_profile(profile_file=None):
-    """Return the reviewer profile. The bundled TOML pins the exact model;
-    an explicit profile must agree with it."""
-    bundled = read_profile(PROFILE)
-    model = bundled.get("model")
-    if not isinstance(model, str) or not model:
+    """Select the trusted paired profile before validating its exact model and safety."""
+    source = Path(profile_file).expanduser().resolve() if profile_file else PROFILE
+    profile = read_profile(source)
+    model = profile.get("model")
+    if not isinstance(model, str) or not model.strip():
         reject(
             "invalid_profile",
-            f"The bundled profile {PROFILE} must pin the exact Codex model under `model`.",
+            f"The selected profile {source} must pin the exact Codex model under `model`.",
         )
-    profile = (
-        read_profile(Path(profile_file).expanduser().resolve())
-        if profile_file
-        else bundled
-    )
     expected = {
         "model": model,
         "model_provider": "openai",

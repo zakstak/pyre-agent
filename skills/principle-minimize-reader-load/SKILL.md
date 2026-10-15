@@ -1,11 +1,11 @@
 ---
 name: principle-minimize-reader-load
 description:
-  "Apply when reviewing or shaping code that's hard to trace. Count layers
-  between question and answer, and hidden state in the reader's head; collapse
+  "Use when reviewing or shaping code that's hard to trace. Count layers between
+  question and answer, and hidden state in the reader's head; collapse
   one-caller wrappers and shrink mutable scope."
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Minimize Reader Load

@@ -400,7 +400,7 @@ export const importGitHub = (
   const snapshot = { round: round.round, input_sha256: round.input_sha256 };
   const onHead =
     head !== undefined &&
-    input.target.kind === "github_pr" &&
+    input.target.kind !== "worktree" &&
     input.target.head_sha.toLowerCase() === head.toLowerCase();
   const files = new Map(input.files.map((file) => [file.path, file]));
   const comments: Array<Comment> = [...state.comments];

@@ -5,6 +5,7 @@
 import { Array as Arr, Effect } from "effect";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { parsePullRequest } from "../schema/forge-url.ts";
 import type { WorktreeRoot } from "../schema/primitives.ts";
 import { type Repository, repositoryId } from "../schema/repositories.ts";
 import type { CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../schema/rpc.ts";
@@ -66,12 +67,12 @@ const entry = (
     monitored: statuses !== undefined,
     checkouts,
     pull_requests: reviews
-      .filter(
-        (item) =>
-          item.target.kind === "github_pr" &&
-          identity.kind === "remote" &&
-          remoteAddress(item.target.url.replace(/\/pull\/[0-9]+$/, "")) === identity.address,
-      )
+      .filter((item) => {
+        if (item.target.kind === "worktree" || identity.kind !== "remote") return false;
+        const pull = parsePullRequest(item.target.url);
+        const address = pull === undefined ? null : remoteAddress(pull.repositoryUrl);
+        return pull?.provider === "github" ? address?.toLowerCase() === identity.address.toLowerCase() : address === identity.address;
+      })
       .map((item) => item.id),
   };
 };
