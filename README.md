@@ -143,6 +143,15 @@ branch and `origin/main`. It fails when:
   one-word name counts only as `/name`, `$name`, or `` `name` ``, including the
   `pyre-agent:` namespace.
 
+`tests/check_skill_shape.py` keeps every skill within its budgets. A `SKILL.md`
+description must open with "Use when" or "Use for" within 250 characters, or
+with "Invoke only by name." within 120 characters when the skill sets
+`disable-model-invocation`. A `SKILL.md` body may hold 5,000 bytes for a
+principle and 14,000 bytes otherwise. In every Markdown file below a skill
+folder, a prose line that could have been wrapped may not run past column 80,
+and a sentence may not resume in lowercase after a fenced code block. The check
+runs before commits and in CI.
+
 Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
 formatting, lint, secret scanning, and the skill-version guard before commits.
 Pre-push hooks run the Python suite and the nested review-canvas typecheck,
