@@ -19,6 +19,7 @@ import {
 } from "./hosted.ts";
 import { readComments, type Gh } from "./github.ts";
 import { Target } from "../schema/target.ts";
+import * as Limits from "../schema/limits.ts";
 
 const fixture = (t: TestContext) => {
   const git = new Fixture(t);
@@ -361,6 +362,12 @@ for (const provider of ["github", "gitlab", "gitea"] as const) {
       },
       api: (pull, path) => {
         assert.equal(pull.origin, "https://git.company.com");
+        if (provider === "gitlab") {
+          const query = new URL(path, pull.origin).searchParams;
+          assert.equal(query.get("scope"), "all");
+          assert.equal(query.get("state"), "opened");
+          assert.equal(query.get("source_branch"), "main");
+        }
         return path.includes("page=2")
           ? []
           : provider === "gitlab"
@@ -467,4 +474,208 @@ test("outdated GitLab discussions retain their original quote and remain orphane
   assert.ok(comment?.kind === "inline");
   assert.equal(comment.anchor.quote, "+old");
   assert.equal(comment.attachment.state, "orphan");
+});
+
+for (const side of ["old", "new"] as const) {
+  test(`Gitea ${side}-side positions are file lines beyond the first hunk`, (t) => {
+    const f = fixture(t);
+    const { url, clients } = clientsFor("gitea", f);
+    const patch = "@@ -101,2 +201,2 @@\n-old\n+new\n tail\n";
+    let commit = f.head;
+    const comments: ForgeClients = {
+      ...clients,
+      api: (pull, path) =>
+        path.includes("/reviews/7/comments?")
+          ? path.includes("page=2")
+            ? []
+            : [
+                {
+                  id: 1,
+                  body: "Check",
+                  user: null,
+                  created_at: "2026-10-15T12:00:00Z",
+                  html_url: `${url}/files#issuecomment-1`,
+                  path: "a.txt",
+                  commit_id: commit,
+                  diff_hunk: patch,
+                  position: side === "new" ? 201 : 0,
+                  original_position: side === "old" ? 101 : 0,
+                },
+              ]
+          : clients.api(pull, path),
+    };
+    const [item] = readHostedComments(url, comments).items;
+    assert.ok(item?.kind === "thread");
+    assert.equal(item.side, side === "new" ? "RIGHT" : "LEFT");
+    assert.equal(item.line, side === "new" ? 201 : 101);
+    assert.equal(
+      item.diff_hunk,
+      side === "new"
+        ? "@@ -101,2 +201,2 @@\n-old\n+new"
+        : "@@ -101,2 +201,2 @@\n-old",
+    );
+    commit = f.base;
+    const [outdated] = readHostedComments(url, comments).items;
+    assert.ok(outdated?.kind === "thread");
+    assert.equal(outdated.line, undefined);
+    assert.equal(outdated.diff_hunk, item.diff_hunk);
+  });
+}
+
+test("Gitea keeps reviews at the same location separate, with their own replies and resolution", (t) => {
+  const f = fixture(t);
+  const { url, clients } = clientsFor("gitea", f);
+  const note = (id: number, resolved = false) => ({
+    id,
+    body: `Comment ${id}`,
+    user: null,
+    created_at: "2026-10-15T12:00:00Z",
+    html_url: `${url}/files#issuecomment-${id}`,
+    path: "a.txt",
+    commit_id: f.head,
+    diff_hunk: "@@ -1 +1,2 @@\n a\n+b\n",
+    position: 2,
+    original_position: 0,
+    resolver: resolved ? { login: "resolver" } : null,
+  });
+  const comments: ForgeClients = {
+    ...clients,
+    api: (pull, path) => {
+      if (path.includes("page=2")) return [];
+      if (path.includes("/reviews?"))
+        return [7, 8].map((id) => ({
+          id,
+          user: null,
+          body: "",
+          state: "COMMENT",
+          submitted_at: "2026-10-15T12:00:00Z",
+          html_url: `${url}#pullreview-${id}`,
+        }));
+      if (path.includes("/reviews/7/comments?")) return [note(1), note(2)];
+      if (path.includes("/reviews/8/comments?")) return [note(3, true)];
+      return clients.api(pull, path);
+    },
+  };
+  const imported = readHostedComments(url, comments);
+  assert.equal(imported.items.length, 2);
+  const [first, second] = imported.items;
+  assert.ok(first?.kind === "thread" && second?.kind === "thread");
+  assert.equal(first.resolved, false);
+  assert.deepEqual(
+    first.replies.map((reply) => reply.id),
+    ["gitea_comment_2"],
+  );
+  assert.equal(second.id, "gitea_comment_3");
+  assert.equal(second.resolved, true);
+  assert.deepEqual(second.replies, []);
+});
+
+test("GitLab bounds normalized discussion notes and thread replies", (t) => {
+  const f = fixture(t);
+  const { url, clients } = clientsFor("gitlab", f);
+  const note = (id: number) => ({
+    id,
+    body: `Note ${id}`,
+    author: null,
+    system: false,
+    created_at: "2026-10-15T12:00:00Z",
+  });
+  let inline = false;
+  const comments: ForgeClients = {
+    ...clients,
+    api: (pull, path) =>
+      path.includes("/discussions?")
+        ? path.includes("page=2")
+          ? []
+          : [
+              {
+                notes: [
+                  {
+                    ...note(1),
+                    ...(inline
+                      ? {
+                          position: {
+                            head_sha: f.head,
+                            old_path: "a.txt",
+                            new_path: "a.txt",
+                            new_line: 2,
+                          },
+                        }
+                      : {}),
+                  },
+                  ...Array.from({ length: Limits.MAX_COMMENTS }, (_, at) =>
+                    note(at + 2),
+                  ),
+                ],
+              },
+            ]
+        : clients.api(pull, path),
+  };
+  const general = readHostedComments(url, comments);
+  assert.equal(general.items.length, Limits.MAX_COMMENTS);
+  assert.equal(general.items.at(-1)?.id, `gitlab_note_${Limits.MAX_COMMENTS}`);
+  inline = true;
+  const [thread] = readHostedComments(url, comments).items;
+  assert.ok(thread?.kind === "thread");
+  assert.equal(thread.replies.length, Limits.MAX_GITHUB_REPLIES);
+  assert.equal(
+    thread.replies.at(-1)?.id,
+    `gitlab_note_${Limits.MAX_GITHUB_REPLIES + 1}`,
+  );
+});
+
+test("Gitea bounds combined conversation, review, and thread imports and thread replies", (t) => {
+  const f = fixture(t);
+  const { url, clients } = clientsFor("gitea", f);
+  const note = (id: number) => ({
+    id,
+    body: `Note ${id}`,
+    user: null,
+    created_at: "2026-10-15T12:00:00Z",
+    html_url: `${url}/files#issuecomment-${id}`,
+  });
+  let conversationCount = Limits.MAX_COMMENTS - 2;
+  const comments: ForgeClients = {
+    ...clients,
+    api: (pull, path) => {
+      if (path.includes("page=2")) return [];
+      if (path.includes("/issues/42/comments?"))
+        return Array.from({ length: conversationCount }, (_, at) =>
+          note(at + 1000),
+        );
+      if (path.includes("/reviews?"))
+        return [
+          {
+            id: 7,
+            body: "Summary",
+            user: null,
+            state: "COMMENT",
+            submitted_at: "2026-10-15T12:00:00Z",
+            html_url: `${url}#pullreview-7`,
+          },
+        ];
+      if (path.includes("/reviews/7/comments?"))
+        return Array.from(
+          { length: Limits.MAX_GITHUB_REPLIES + 2 },
+          (_, at) => ({
+            ...note(at + 1),
+            path: "a.txt",
+            commit_id: f.head,
+            diff_hunk: "@@ -1 +1,2 @@\n a\n+b\n",
+            position: 2,
+            original_position: 0,
+          }),
+        );
+      return clients.api(pull, path);
+    },
+  };
+  const imported = readHostedComments(url, comments);
+  assert.equal(imported.items.length, Limits.MAX_COMMENTS);
+  const thread = imported.items.at(-1);
+  assert.ok(thread?.kind === "thread");
+  assert.equal(thread.replies.length, Limits.MAX_GITHUB_REPLIES);
+  conversationCount++;
+  const capped = readHostedComments(url, comments);
+  assert.equal(capped.items.length, Limits.MAX_COMMENTS);
+  assert.equal(capped.items.at(-1)?.kind, "review");
 });

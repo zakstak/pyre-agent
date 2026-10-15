@@ -24,7 +24,9 @@ export const credentialPassword = (
   if (
     fields.get("protocol") !== "https" ||
     fields.get("host") !== pull.host ||
-    (fields.has("path") && fields.get("path") !== `${pull.repository}.git`)
+    (fields.has("path") &&
+      fields.get("path") !== pull.repository &&
+      fields.get("path") !== `${pull.repository}.git`)
   )
     throw new ForgeFailed(
       `The credential helper returned a different HTTPS host or repository for ${pull.host}.`,
@@ -39,24 +41,28 @@ export const credentialPassword = (
 };
 
 const tokenFor = (pull: PullRequestAddress): string | undefined => {
-  const result = spawnSync(
-    "git",
-    ["-c", "credential.interactive=false", "credential", "fill"],
-    {
-      cwd: tmpdir(),
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 64 * 1024,
-      input: `protocol=https\nhost=${pull.host}\npath=${pull.repository}.git\n\n`,
-      env: gitEnvironment({
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "false",
-        SSH_ASKPASS: "false",
-      }),
-    },
-  );
-  if (result.error !== undefined || result.status !== 0) return undefined;
-  return credentialPassword(result.stdout, pull);
+  for (const path of [`${pull.repository}.git`, pull.repository]) {
+    const result = spawnSync(
+      "git",
+      ["-c", "credential.interactive=false", "credential", "fill"],
+      {
+        cwd: tmpdir(),
+        encoding: "utf8",
+        timeout: 30_000,
+        maxBuffer: 64 * 1024,
+        input: `protocol=https\nhost=${pull.host}\npath=${path}\n\n`,
+        env: gitEnvironment({
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: "false",
+          SSH_ASKPASS: "false",
+        }),
+      },
+    );
+    if (result.error !== undefined || result.status !== 0) continue;
+    const token = credentialPassword(result.stdout, pull);
+    if (token !== undefined) return token;
+  }
+  return undefined;
 };
 
 /** curl reads its authorization header from stdin: tokens never enter argv, logs, or review documents. */

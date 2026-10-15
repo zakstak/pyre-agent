@@ -153,7 +153,7 @@ export const findHostedPullRequest = (
       home.kind === "gitlab"
         ? pages(
             pull,
-            `/api/v4/projects/${encodeURIComponent(pull.repository)}/merge_requests?state=opened&source_branch=${encodeURIComponent(home.branch)}`,
+            `/api/v4/projects/${encodeURIComponent(pull.repository)}/merge_requests?scope=all&state=opened&source_branch=${encodeURIComponent(home.branch)}`,
             Schema.Struct({ web_url: PullRequestUrl }),
             clients.api,
             Limits.MAX_COMMENTS,
@@ -395,6 +395,9 @@ export const readHostedComments = (
   if (pull.provider === "github") return readComments(url, clients.gh);
   const before = readPullRequest(url, clients);
   const items: Array<unknown> = [];
+  const add = (item: unknown) => {
+    if (items.length < Limits.MAX_COMMENTS) items.push(item);
+  };
   if (pull.provider === "gitlab") {
     const diffs = new Map<string, ReadonlyArray<typeof GitLabDiff.Type>>();
     let versions: ReadonlyArray<typeof GitLabVersion.Type> | undefined;
@@ -465,13 +468,13 @@ export const readHostedComments = (
         line === 0
       ) {
         for (const note of [first, ...replies])
-          items.push({ kind: "conversation", ...post(note) });
+          add({ kind: "conversation", ...post(note) });
       } else {
         const start = position.line_range?.start;
         const startSide = start?.type === "old" ? "LEFT" : "RIGHT";
         const startLine =
           start?.type === "old" ? start.old_line : start?.new_line;
-        items.push({
+        add({
           kind: "thread",
           ...post(first),
           resolved: first.resolved ?? false,
@@ -487,7 +490,7 @@ export const readHostedComments = (
             ? {}
             : { start_line: startLine, start_side: startSide }),
           ...(position.head_sha === before.headRefOid ? { line } : {}),
-          replies: replies.map(post),
+          replies: replies.slice(0, Limits.MAX_GITHUB_REPLIES).map(post),
         });
       }
     }
@@ -507,7 +510,7 @@ export const readHostedComments = (
       clients.api,
       Limits.MAX_COMMENTS,
     ))
-      items.push({ kind: "conversation", ...post(note) });
+      add({ kind: "conversation", ...post(note) });
     const groups = new Map<string, Array<typeof GiteaThread.Type>>();
     for (const review of pages(
       pull,
@@ -518,7 +521,7 @@ export const readHostedComments = (
     )) {
       if (review.state === "PENDING") continue;
       if (review.body.trim() !== "")
-        items.push({
+        add({
           kind: "review",
           id: `gitea_review_${review.id}`,
           author: review.user?.login ?? null,
@@ -534,11 +537,13 @@ export const readHostedComments = (
         Limits.MAX_COMMENTS,
       )) {
         const key = JSON.stringify([
+          review.id,
           note.path,
           note.commit_id,
           note.position,
           note.original_position,
         ]);
+        if (!groups.has(key) && groups.size >= Limits.MAX_COMMENTS) continue;
         const group = groups.get(key) ?? [];
         if (!group.some((existing) => existing.id === note.id))
           group.push(note);
@@ -551,9 +556,10 @@ export const readHostedComments = (
       );
       const [first, ...replies] = notes;
       if (first === undefined) continue;
+      // Gitea exposes file line numbers here, despite naming them positions.
       const side = first.position > 0 ? "new" : "old";
       const line = first.position || first.original_position;
-      items.push({
+      add({
         kind: "thread",
         ...post(first),
         path: first.path,
@@ -561,7 +567,7 @@ export const readHostedComments = (
         resolved: notes.some((note) => note.resolver != null),
         diff_hunk: hunkThrough(first.diff_hunk, side, line),
         ...(first.commit_id === before.headRefOid ? { line } : {}),
-        replies: replies.map(post),
+        replies: replies.slice(0, Limits.MAX_GITHUB_REPLIES).map(post),
       });
     }
   }

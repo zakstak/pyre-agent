@@ -28,6 +28,14 @@ test("API credentials must match the selected HTTPS host, port, and repository",
     ),
     "fixture-token",
   );
+  for (const path of ["team/project", "team/project.git"])
+    assert.equal(
+      credentialPassword(
+        `protocol=https\nhost=${pull.host}\npath=${path}\npassword=fixture-token\n\n`,
+        pull,
+      ),
+      "fixture-token",
+    );
   for (const reply of [
     "protocol=https\nhost=github.com\npassword=fixture-token\n",
     "protocol=http\nhost=git.something.company.com\npassword=fixture-token\n",
@@ -65,46 +73,56 @@ test("HTTPS requests keep tokens off argv, disable redirects, and run helpers ou
     "curl",
     `writeFileSync(${JSON.stringify(curlLog)}, JSON.stringify({ args: process.argv.slice(2), input: readFileSync(0, 'utf8'), cwd: process.cwd() }));\nprocess.stdout.write('{"ok":true}\\n' + (process.env.PA_TEST_HTTP_STATUS ?? '200'));`,
   );
-  withEnv({ PATH: `${bin}:${process.env.PATH ?? ""}`, GIT_DIR: f.root, TMPDIR: tempLink }, () => {
-    assert.deepEqual(
-      readForgeApi(pull, "/api/v4/projects/team%2Fproject/merge_requests/42"),
-      { ok: true },
-    );
-    const git = JSON.parse(readFileSync(gitLog, "utf8"));
-    const curl = JSON.parse(readFileSync(curlLog, "utf8"));
-    assert.equal(realpathSync(git.cwd), realpathSync(tmpdir()));
-    assert.equal(realpathSync(curl.cwd), realpathSync(tmpdir()));
-    assert.equal(git.routing, undefined);
-    assert.equal(git.prompt, "0");
-    assert.equal(git.askpass, "false");
-    assert.match(
-      git.input,
-      /host=git\.something\.company\.com\npath=team\/project\.git/,
-    );
-    assert.equal(curl.input, "PRIVATE-TOKEN: fixture-token\n");
-    assert.equal(
-      curl.args.some((arg: string) => arg.includes("fixture-token")),
-      false,
-    );
-    assert.equal(curl.args.includes("--location"), false);
-    assert.equal(curl.args.includes("--insecure"), false);
-    assert.equal(curl.args[curl.args.indexOf("--proto") + 1], "=https");
-    assert.throws(
-      () => readForgeApi(pull, "//other.company.com/api/v4/projects"),
-      /leave/,
-    );
-    withEnv({ PA_TEST_HTTP_STATUS: "302" }, () =>
-      assert.throws(() => readForgeApi(pull, "/api/v4/projects"), /redirected/),
-    );
-    const gitea = addressOf(
-      "https://git.something.company.com/team/project/pulls/42",
-    );
-    readForgeApi(gitea, "/api/v1/repos/team/project/pulls/42");
-    assert.equal(
-      JSON.parse(readFileSync(curlLog, "utf8")).input,
-      "Authorization: token fixture-token\n",
-    );
-  });
+  withEnv(
+    {
+      PATH: `${bin}:${process.env.PATH ?? ""}`,
+      GIT_DIR: f.root,
+      TMPDIR: tempLink,
+    },
+    () => {
+      assert.deepEqual(
+        readForgeApi(pull, "/api/v4/projects/team%2Fproject/merge_requests/42"),
+        { ok: true },
+      );
+      const git = JSON.parse(readFileSync(gitLog, "utf8"));
+      const curl = JSON.parse(readFileSync(curlLog, "utf8"));
+      assert.equal(realpathSync(git.cwd), realpathSync(tmpdir()));
+      assert.equal(realpathSync(curl.cwd), realpathSync(tmpdir()));
+      assert.equal(git.routing, undefined);
+      assert.equal(git.prompt, "0");
+      assert.equal(git.askpass, "false");
+      assert.match(
+        git.input,
+        /host=git\.something\.company\.com\npath=team\/project\.git/,
+      );
+      assert.equal(curl.input, "PRIVATE-TOKEN: fixture-token\n");
+      assert.equal(
+        curl.args.some((arg: string) => arg.includes("fixture-token")),
+        false,
+      );
+      assert.equal(curl.args.includes("--location"), false);
+      assert.equal(curl.args.includes("--insecure"), false);
+      assert.equal(curl.args[curl.args.indexOf("--proto") + 1], "=https");
+      assert.throws(
+        () => readForgeApi(pull, "//other.company.com/api/v4/projects"),
+        /leave/,
+      );
+      withEnv({ PA_TEST_HTTP_STATUS: "302" }, () =>
+        assert.throws(
+          () => readForgeApi(pull, "/api/v4/projects"),
+          /redirected/,
+        ),
+      );
+      const gitea = addressOf(
+        "https://git.something.company.com/team/project/pulls/42",
+      );
+      readForgeApi(gitea, "/api/v1/repos/team/project/pulls/42");
+      assert.equal(
+        JSON.parse(readFileSync(curlLog, "utf8")).input,
+        "Authorization: token fixture-token\n",
+      );
+    },
+  );
 });
 
 test("real Git credentials and curl work with a company's trusted HTTPS CA and refuse redirects", async (t) => {
@@ -175,7 +193,7 @@ server.listen(0, '127.0.0.1', () => process.stdout.write(String(server.address()
     helper,
     `import { readFileSync } from 'node:fs';
 const input = readFileSync(0, 'utf8');
-if (input.includes('protocol=https\\n') && input.includes('host=localhost:${port}\\n')) process.stdout.write('username=fixture\\npassword=fixture-api-token\\n');
+if (input.includes('protocol=https\\n') && input.includes('host=localhost:${port}\\n') && input.includes('path=' + process.env.PA_TEST_CREDENTIAL_PATH + '\\n')) process.stdout.write('username=fixture\\npassword=fixture-api-token\\n');
 else process.stdout.write('quit=true\\n');
 `,
   );
@@ -192,20 +210,25 @@ else process.stdout.write('quit=true\\n');
       CURL_CA_BUNDLE: cert,
     },
     () => {
-      assert.deepEqual(readForgeApi(selected, "/api/v4/projects"), {
-        authenticated: true,
-        path: "/api/v4/projects",
-      });
-      assert.throws(
-        () => readForgeApi(selected, "/api/v4/redirect"),
-        /redirected/,
-      );
-      withEnv({ CURL_CA_BUNDLE: join(f.base, "missing-ca.pem") }, () =>
+      for (const path of ["team/project.git", "team/project"])
+        withEnv({ PA_TEST_CREDENTIAL_PATH: path }, () => {
+          assert.deepEqual(readForgeApi(selected, "/api/v4/projects"), {
+            authenticated: true,
+            path: "/api/v4/projects",
+          });
+        });
+      withEnv({ PA_TEST_CREDENTIAL_PATH: "team/project" }, () => {
         assert.throws(
-          () => readForgeApi(selected, "/api/v4/projects"),
-          /HTTPS trust/,
-        ),
-      );
+          () => readForgeApi(selected, "/api/v4/redirect"),
+          /redirected/,
+        );
+        withEnv({ CURL_CA_BUNDLE: join(f.base, "missing-ca.pem") }, () =>
+          assert.throws(
+            () => readForgeApi(selected, "/api/v4/projects"),
+            /HTTPS trust/,
+          ),
+        );
+      });
     },
   );
 });
