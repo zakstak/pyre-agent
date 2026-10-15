@@ -133,7 +133,8 @@ branch and `origin/main`. It fails when:
 Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
 formatting, lint, secret scanning, and the skill-version guard before commits.
 Pre-push hooks run the Python suite and the nested review-canvas typecheck,
-build, and tests. The Pragma source used to validate this configuration is
+build, and tests, and compile the TypeScript documentation examples. The Pragma
+source used to validate this configuration is
 `ef07e80e88edb426f1e5660f151d2a899eedc984`, including the reviewed core and tool
 updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
 [PR #17](https://github.com/zakstak/pragma/pull/17).
