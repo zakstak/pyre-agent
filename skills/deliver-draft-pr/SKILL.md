@@ -2,12 +2,10 @@
 disable-model-invocation: true
 name: deliver-draft-pr
 description:
-  Carry an explicitly assigned implementation task through a draft PR, relevant
-  checks, and review fixes, then request approval to mark it ready. Use only
-  when the user explicitly invokes this workflow for a defined task; ordinary
-  coding and review requests do not activate it.
+  "Invoke only by name. Carry an assigned task through a draft PR, checks, and
+  review fixes, then ask before marking ready."
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Deliver a draft PR
