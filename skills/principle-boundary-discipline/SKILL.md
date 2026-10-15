@@ -1,11 +1,11 @@
 ---
 name: principle-boundary-discipline
 description:
-  "Apply when wiring validation, error handling, or framework adapters.
+  "Use when wiring validation, error handling, or framework adapters.
   Concentrate guards at system boundaries (CLI, config, network, external APIs);
   trust validated invariants and keep business logic in pure functions."
 metadata:
-  version: "1.0.1"
+  version: "1.0.3"
 ---
 
 # Boundary Discipline
@@ -46,8 +46,6 @@ Code organization:
 
 - Business logic in pure functions with no framework dependencies
 - Parse functions: pure transforms from raw bytes to typed state
-- Prompt construction: structured state in, string out
-- Scoring and assessment: pure transforms from state to results
 
 **The tests:**
 

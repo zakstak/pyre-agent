@@ -1,7 +1,7 @@
 ---
 name: principle-encode-lessons-in-structure
 description:
-  "Apply when you catch yourself writing the same instruction a second time, or
+  "Use when you catch yourself writing the same instruction a second time, or
   notice a recurring correction. Encode the rule as a lint, metadata flag,
   runtime check, or script instead of more text."
 metadata:
@@ -26,10 +26,10 @@ runtime checks, automation scripts) enforce the rule without cooperation.
 3. If no (requires judgment), make the instruction more prominent and add an
    example of the failure mode
 
-**Pick the strongest mechanism.** Use the ladder in the `correct` skill:
-architecture, then types, then a lint, then a test, and docs last. Agents copy
-whatever the surrounding code already does, so a weaker guard becomes the next
-template.
+**Pick the strongest mechanism.** When choosing an enforcement mechanism, read
+[the ladder and proof rules in correct](../correct/SKILL.md#fix-each-class-at-the-highest-level-that-works).
+Agents copy whatever the surrounding code already does, so a weaker guard
+becomes the next template.
 
 **Corollary:** Replace redundant agent directives with verified structural
 enforcement. Retain documentation that explains the interface, preconditions,

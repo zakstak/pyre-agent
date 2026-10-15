@@ -32,9 +32,11 @@ import { tourView } from "../review/tour.ts";
 import type { Target } from "../schema/target.ts";
 import { HOSTS } from "../schema/thread.ts";
 import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
-import { findPullRequest, GhFailed, readComments, runGh } from "./github.ts";
+import { GhFailed } from "./github.ts";
 import { collectPullRequest } from "./pull-request.ts";
 import { PullRequestUrl } from "../schema/primitives.ts";
+import { findHostedPullRequest, forgeClients, readHostedComments, readPullRequest } from "./hosted.ts";
+import { ForgeFailed } from "./forge-api.ts";
 import {
   call,
   ensureServer,
@@ -51,19 +53,20 @@ Commands
   collect  --repo DIR --output FILE       Snapshot a working tree's uncommitted changes as review input.
            [--title TEXT] [--include-secret PATH]... [--no-content]
            [--pr URL]                     With --pr, snapshot that pull request instead, from the clone in --repo,
-                                          which must hold its base and head commits. Reads GitHub with gh.
+                                          which must hold its base and head commits. Supports private GitHub,
+                                          GitLab and Gitea/Forgejo hosts over HTTPS.
   fingerprints --repo DIR --base SHA      Print each changed file's fingerprint between two commits, for the
            --head SHA                     files of a pull request's input.
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
            --label TEXT [--host KIND] [--session-id ID] [--fresh]
                                           KIND is claude-code (the default) or codex.
   publish  --session DIR --input FILE     Publish the input as the review's next round, then import the comments
-           [--analysis FILE] [--no-github] of its pull request with gh. --analysis merges a kept analysis file:
+           [--analysis FILE] [--no-comments] of its pull request. --analysis merges a kept analysis file:
            [--dry-run]                    summary, stops, and files by path. --dry-run validates and prints
                                           the tour and its warnings without publishing.
   hunks    --input FILE [--path PATH]     Each file's hunks as old and new line ranges, for excerpts and notes.
            [--rows]                       --rows prints every patch row with its old and new line numbers.
-  github   --session DIR                  Import new comments of the review's pull request with gh.
+  comments --session DIR                  Import new comments of the review's pull/merge request.
   status   --session DIR                  The review: comments, whose turn each is, approvals, the verdict.
   wait     --session DIR [--since REV]    Block until the reviewer finishes the current round, or asks a question.
            [--timeout-minutes N]          Gives up after N minutes (60) with "timed_out": true; run it again.
@@ -163,13 +166,14 @@ const status = async (folder: string, current: Session) => {
  * gh, or without a pull request, the review goes on without them, and the result says why.
  */
 const importGitHub = async (current: Session, target: Target) => {
-  const found = findPullRequest(target, runGh);
+  const found = findHostedPullRequest(target, forgeClients);
   if (found.kind === "none") return { skipped: found.reason };
   let items;
   try {
-    items = readComments(found.url, runGh);
+    const url = Schema.decodeUnknownSync(PullRequestUrl)(found.url);
+    items = readHostedComments(url, forgeClients);
   } catch (error) {
-    if (error instanceof GhFailed) return { skipped: error.message };
+    if (error instanceof GhFailed || error instanceof ForgeFailed) return { skipped: error.message };
     throw error;
   }
   const reply = await expectOk<{
@@ -254,7 +258,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       const url = Schema.decodeUnknownResult(PullRequestUrl)(values.pr);
       if (Result.isFailure(url))
         return fail(
-          `--pr takes a pull request URL, https://github.com/OWNER/REPO/pull/NUMBER`,
+          `--pr takes an HTTPS GitHub /pull/N, GitLab /-/merge_requests/N, or Gitea/Forgejo /pulls/N URL`,
         );
       pullRequest = url.success;
     }
@@ -265,7 +269,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         const collected = collectPullRequest(
           worktree,
           pullRequest,
-          runGh,
+          forgeClients,
           options,
         );
         mkdirSync(dirname(output), { recursive: true, mode: 0o700 });
@@ -435,6 +439,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         input: { type: "string" },
         analysis: { type: "string" },
         "dry-run": { type: "boolean", default: false },
+        "no-comments": { type: "boolean", default: false },
         "no-github": { type: "boolean", default: false },
       },
     });
@@ -494,13 +499,13 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       revision: reply.revision,
       url: reply.url,
       warnings: [...merged, ...reply.warnings],
-      github: values["no-github"]
-        ? { skipped: "--no-github" }
+      github: values["no-comments"] || values["no-github"]
+        ? { skipped: values["no-comments"] ? "--no-comments" : "--no-github" }
         : await importGitHub(current, input.target),
     });
   },
 
-  async github(args) {
+  async comments(args) {
     const { values } = parseArgs({
       args,
       options: { session: { type: "string" } },
@@ -552,13 +557,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       head = values.head;
       if (head === undefined) {
         try {
-          head = (
-            JSON.parse(
-              runGh(["pr", "view", target.url, "--json", "headRefOid"]),
-            ) as {
-              headRefOid: string;
-            }
-          ).headRefOid;
+          head = readPullRequest(target.url, forgeClients).headRefOid;
         } catch (error) {
           return fail(
             `cannot read the pull request's head; pass --head SHA (${error instanceof Error ? error.message : String(error)})`,
@@ -579,7 +578,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       ok: true,
       changed: paths,
       head_moved:
-        head !== undefined && target.kind === "github_pr"
+        head !== undefined && target.kind !== "worktree"
           ? head.toLowerCase() !== target.head_sha.toLowerCase()
           : false,
       revision: reply.revision,
@@ -767,7 +766,8 @@ const main = async () => {
     process.stdout.write(`${USAGE}\n`);
     return;
   }
-  const run = need(commands[command], `unknown command ${command}\n\n${USAGE}`);
+  // The original public command remains accepted for existing agent sessions.
+  const run = need(commands[command === "github" ? "comments" : command], `unknown command ${command}\n\n${USAGE}`);
   // Any command that talks to the server starts it when none answers: the socket is the single-instance lock.
   const offline =
     ["serve", "collect", "fingerprints", "hunks"].includes(command) ||

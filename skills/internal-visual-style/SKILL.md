@@ -1,12 +1,11 @@
 ---
 name: internal-visual-style
 description:
-  Apply the shared internal visual reference to UI and theming work without a
-  specific product design system, including developer plans, review pages,
-  reports, and ad hoc visual artifacts. Product-specific branding takes
-  precedence.
+  "Use for UI and theming work without a product design system, such as
+  developer plans, review pages, reports, and ad hoc visual artifacts. Applies
+  the shared internal visual reference. Product branding takes precedence."
 metadata:
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # Internal visual style

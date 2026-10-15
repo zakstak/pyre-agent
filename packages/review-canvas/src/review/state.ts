@@ -482,7 +482,7 @@ export const reportDrift = (
   const { round } = current.success;
   const target = state.target;
   const headMoved =
-    head_sha !== undefined && target.kind === "github_pr"
+    head_sha !== undefined && target.kind !== "worktree"
       ? head_sha.toLowerCase() !== target.head_sha.toLowerCase()
       : false;
   return Result.succeed({

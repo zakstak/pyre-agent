@@ -50,6 +50,7 @@ class SkillPackageTests(unittest.TestCase):
             "principle-type-system-discipline",
             "principle-boundary-discipline",
             "principle-encode-lessons-in-structure",
+            "correct",
         )
         for name in names:
             shutil.copytree(ROOT / "skills" / name, self.root / "skills" / name)
