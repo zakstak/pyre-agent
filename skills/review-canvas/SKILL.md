@@ -7,7 +7,7 @@ description:
   a tour, the reviewer walks it in the browser and comments, and the agent
   answers through a local server.
 metadata:
-  version: "5.0.1"
+  version: "5.0.2"
 ---
 
 # Review canvas
@@ -154,13 +154,15 @@ breaks show, and `` `code` `` between backticks shows as code. See
 [the input reference](references/input-format.md) and
 [the example analysis](assets/example-analysis.json).
 
+Run `hunks` for the line numbers that excerpts and notes name:
+
 ```sh
 "$RC" hunks --input "$SESSION/round-1.json"                 # "old 1-13, new 1-19" per hunk
 "$RC" hunks --input "$SESSION/round-1.json" --path PATH --rows   # every row with its old and new line numbers
 ```
 
-give the numbers excerpts and notes name: inclusive line ranges, `none` for a
-side a hunk does not touch, such as the old side of an added file.
+Ranges are inclusive. `none` marks a side a hunk does not touch, such as the
+old side of an added file.
 
 ### The tour
 
