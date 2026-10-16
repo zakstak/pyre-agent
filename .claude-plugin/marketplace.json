@@ -1,6 +1,6 @@
 {
   "name": "pyre-agent-local",
-  "description": "Zak's reusable engineering skills and startup reference context.",
+  "description": "Reusable engineering skills for Codex and Claude Code.",
   "owner": {
     "name": "Zak"
   },
@@ -9,11 +9,6 @@
       "name": "pyre-agent",
       "source": "./",
       "description": "Base engineering skills."
-    },
-    {
-      "name": "pyre-context",
-      "source": "./plugins/pyre-context",
-      "description": "Optional startup reference context."
     }
   ]
 }

@@ -18,7 +18,7 @@
       "dark": "Exact visible hex values from the supplied screenshot",
       "light": "Derived companion, not screenshot evidence",
       "success": "Derived semantic addition in both modes",
-      "signal": "Signal colours (success, error, warning, dark accent, and the focus and functional roles that follow it) changed on 2026-10-14 to carry hue, from Zak's T3 Code theme; surfaces, text, and borders are unchanged"
+      "signal": "Signal colours (success, error, warning, dark accent, and the focus and functional roles that follow it) changed on 2026-10-14 to use the brand palette's hues; surfaces, text, and borders are unchanged"
     },
     "dark": {
       "background": "#19191e",

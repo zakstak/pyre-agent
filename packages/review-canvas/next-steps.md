@@ -199,5 +199,3 @@ went with them.
 ## Housekeeping
 
 - The `canvas/*` branches remain on GitHub.
-- The main checkout at `/home/zak/git/pyre-agent` is still on `73e10fb`. Pull it
-  when convenient.

@@ -1,9 +1,0 @@
-{
-  "name": "pyre-context",
-  "version": "1.0.1",
-  "description": "Optional Zak startup reference context.",
-  "author": {
-    "name": "Zak"
-  },
-  "license": "MIT"
-}

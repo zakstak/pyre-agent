@@ -58,13 +58,13 @@ The colors come from palettes. A palette is a hue its neutrals lean to, how
 much they lean in each mode, how dark its dark page is, and its accent and
 action colors; tokens.css derives every surface, text, and border role from
 those in OKLCH, so each palette works in both modes. The default palette,
-`lifted`, keeps the hues of Zak's T3 Code theme: its light surfaces match the
+`lifted`, keeps the brand palette's hues: its light surfaces match the
 reference, and its dark page is the reference's editor color, so code sits
 level with its card instead of below it, and borders stay below text. The
 signal colors (success, error, warning, and the link) are shared by every
 palette. [reference-theme-contract.json](reference-theme-contract.json) records
 the source contract, SHA-256
-`2704cfed94bd8723d488fa7a5490a5c1d1deb8707ef53f8bec827b00baddf2e3`, including
+`15c1cde8fa5d169c755d492c851d5a8c36e5e9cc28110f8400b4cc0f543ae97c`, including
 its full contrast matrix; its dark surfaces are the ones the first version
 shipped, before the roles were lifted.
 

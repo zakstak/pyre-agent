@@ -15,8 +15,6 @@ from tests.check_skill_package import package_errors
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ID = "pyre-agent@pyre-agent-local"
-CONTEXT_ID = "pyre-context@pyre-agent-local"
-CONTEXT_ROOT = ROOT / "plugins/pyre-context"
 
 
 def read_json(path):
@@ -79,41 +77,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifests[0]["version"], manifests[1]["version"])
         self.assertFalse((ROOT / "hooks").exists())
         self.assertFalse((ROOT / "context").exists())
-        for host in ("codex", "claude"):
-            self.assertEqual(
-                read_json(CONTEXT_ROOT / f".{host}-plugin/plugin.json")["name"],
-                "pyre-context",
-            )
-
-    def test_hook_runs_only_on_startup_and_reads_the_relocated_package(self):
-        hooks = read_json(CONTEXT_ROOT / "hooks/hooks.json")["hooks"]
-        self.assertEqual(set(hooks), {"SessionStart"})
-        (group,) = hooks["SessionStart"]
-        self.assertIsNotNone(re.search(group["matcher"], "startup"))
-        for source in ("resume", "clear", "compact", "fork"):
-            self.assertIsNone(re.search(group["matcher"], source), source)
-        (handler,) = group["hooks"]
-        with tempfile.TemporaryDirectory(prefix="pyre-plugin-context-") as temp:
-            installed = Path(temp) / "installed plugin with spaces"
-            (installed / "context").mkdir(parents=True)
-            context = installed / "context/working-with-zak.md"
-            shutil.copyfile(CONTEXT_ROOT / "context/working-with-zak.md", context)
-            unrelated = Path(temp) / "other project"
-            (unrelated / "context").mkdir(parents=True)
-            (unrelated / "context/working-with-zak.md").write_text("Wrong project")
-            before = context.read_bytes()
-            result = subprocess.run(
-                handler["command"],
-                shell=True,
-                cwd=unrelated,
-                env=dict(os.environ, CLAUDE_PLUGIN_ROOT=str(installed)),
-                capture_output=True,
-                timeout=handler["timeout"],
-                check=True,
-            )
-            self.assertEqual(result.stdout, before)
-            self.assertEqual(context.read_bytes(), before)
-            self.assertLessEqual(len(result.stdout.decode("utf-8")), 10000)
+        self.assertFalse((ROOT / "plugins").exists())
+        self.assertEqual([p["name"] for p in codex["plugins"]], ["pyre-agent"])
 
 
 @unittest.skipUnless(
@@ -133,7 +98,9 @@ class NativePluginTests(unittest.TestCase):
         shutil.copytree(
             ROOT,
             self.repo,
-            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+            ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", "*.pyc", "node_modules", "dist"
+            ),
         )
         self.codex = self.base / "codex"
         self.claude = self.base / "claude"
@@ -161,6 +128,8 @@ class NativePluginTests(unittest.TestCase):
 
     def assert_skill_package(self, installed_path):
         self.assertEqual(package_errors(installed_path), [])
+        for directory in ("hooks", "context", "plugins"):
+            self.assertFalse((installed_path / directory).exists(), directory)
         for name in ("LICENSE", "README.md"):
             self.assertEqual(
                 (installed_path / name).read_bytes(), (self.repo / name).read_bytes()
@@ -256,27 +225,9 @@ class NativePluginTests(unittest.TestCase):
                 hook
                 for entry in hooks["data"]
                 for hook in entry["hooks"]
-                if hook.get("pluginId") in (PLUGIN_ID, CONTEXT_ID)
+                if hook.get("pluginId") == PLUGIN_ID
             ]
         )
-        context_install = json.loads(
-            self.run_cli("codex", "plugin", "add", CONTEXT_ID, "--json")
-        )
-        context_installed_path = Path(context_install["installedPath"])
-        _, hooks = self.inspect_codex_components()
-        (hook,) = [
-            hook
-            for entry in hooks["data"]
-            for hook in entry["hooks"]
-            if hook.get("pluginId") == CONTEXT_ID
-        ]
-        self.assertEqual(hook["matcher"], "^startup$")
-        self.assertEqual(hook["trustStatus"], "untrusted")
-        self.assertEqual(hook["source"], "plugin")
-        self.assertIn(
-            str(context_installed_path / "context/working-with-zak.md"), hook["command"]
-        )
-
         self.run_cli("claude", "plugin", "marketplace", "add", str(self.repo))
         self.run_cli("claude", "plugin", "install", PLUGIN_ID, "--json")
         (claude_install,) = read_json(self.claude / "plugins/installed_plugins.json")[
@@ -290,25 +241,14 @@ class NativePluginTests(unittest.TestCase):
             self.assertIn(path.parent.name, inventory)
         self.assertIn("codex-branch-review", inventory)
         self.assertIn("Hooks (0)", inventory)
-        self.run_cli("claude", "plugin", "install", CONTEXT_ID, "--json")
-        context_inventory = self.run_cli("claude", "plugin", "details", "pyre-context")
-        self.assertIn("Hooks (1)", context_inventory)
-        self.assertIn("SessionStart", context_inventory)
-
-        context = self.repo / "plugins/pyre-context/context/working-with-zak.md"
-        updated = context.read_text() + "\nUpdated local context.\n"
-        context.write_text(updated)
-        self.assertNotEqual(
-            (context_installed_path / "context/working-with-zak.md").read_text(),
-            updated,
-        )
-        self.run_cli("codex", "plugin", "add", CONTEXT_ID, "--json")
-        self.assertEqual(
-            (context_installed_path / "context/working-with-zak.md").read_text(),
-            updated,
-        )
+        readme = self.repo / "README.md"
+        updated = readme.read_text() + "\nUpdated local package.\n"
+        readme.write_text(updated)
+        self.assertNotEqual((installed_path / "README.md").read_text(), updated)
+        self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json")
+        self.assertEqual((installed_path / "README.md").read_text(), updated)
         self.assertIn(
-            "nothing to update", self.run_cli("claude", "plugin", "update", CONTEXT_ID)
+            "nothing to update", self.run_cli("claude", "plugin", "update", PLUGIN_ID)
         )
 
         for config, instructions in (
@@ -318,23 +258,6 @@ class NativePluginTests(unittest.TestCase):
             self.assertFalse((config / instructions).exists())
             for name in actual | {"pyre-agent:codex-branch-review"}:
                 self.assertFalse((config / "skills" / name.split(":", 1)[1]).exists())
-        self.run_cli("codex", "plugin", "remove", CONTEXT_ID, "--json")
-        self.run_cli("claude", "plugin", "uninstall", CONTEXT_ID)
-        _, hooks = self.inspect_codex_components()
-        self.assertFalse(
-            [
-                hook
-                for entry in hooks["data"]
-                for hook in entry["hooks"]
-                if hook.get("pluginId") == CONTEXT_ID
-            ]
-        )
-        remaining = json.loads(
-            self.run_cli(
-                "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
-            )
-        )
-        self.assertEqual([p["pluginId"] for p in remaining["installed"]], [PLUGIN_ID])
         self.run_cli("codex", "plugin", "remove", PLUGIN_ID, "--json")
         self.run_cli("claude", "plugin", "uninstall", PLUGIN_ID)
         inventory = json.loads(

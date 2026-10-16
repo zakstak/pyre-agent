@@ -5,7 +5,7 @@ description:
   developer plans, review pages, reports, and ad hoc visual artifacts. Applies
   the shared internal visual reference. Product branding takes precedence."
 metadata:
-  version: "1.3.2"
+  version: "1.3.3"
 ---
 
 # Internal visual style
