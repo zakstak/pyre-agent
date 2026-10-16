@@ -371,6 +371,7 @@ test(
         { cwd: root, env: gitEnvironment({}), stdio: "ignore" },
       );
     }
+    writeFileSync(join(directory, "copy-0", "change.txt"), "Example change\n");
     const other = join(directory, "other");
     mkdirSync(other);
     execFileSync("git", ["init", "-b", "main"], {
@@ -407,6 +408,33 @@ test(
     assert.equal(await page.locator("[data-repository]:visible").count(), 1);
     assert.equal(await page.locator("[data-checkout]:visible").count(), 0);
     await summary.getByText(/12 checkouts.*1 missing/).waitFor();
+    await t.test(
+      "collapsed summaries expose checkout, changed, and missing counts to assistive technology",
+      async () => {
+        const session = await page.context().newCDPSession(page);
+        try {
+          const { root } = await session.send("DOM.getDocument");
+          const { nodeId } = await session.send("DOM.querySelector", {
+            nodeId: root.nodeId,
+            selector: "[data-repository] h3 button",
+          });
+          const { nodes } = await session.send(
+            "Accessibility.getPartialAXTree",
+            { nodeId, fetchRelatives: false },
+          );
+          assert.equal(
+            nodes[0]?.name?.value,
+            "Checkouts for github.com/example/project",
+          );
+          assert.match(
+            nodes[0]?.description?.value ?? "",
+            /12 checkouts.*1 with changes.*1 missing/,
+          );
+        } finally {
+          await session.detach();
+        }
+      },
+    );
     await summary.focus();
     await page.keyboard.press("Enter");
     assert.equal(await page.locator("[data-checkout]:visible").count(), 11);
@@ -511,6 +539,27 @@ test(
           ?.getAttribute("aria-expanded") === "true",
     );
     assert.equal(await add.getAttribute("aria-expanded"), "true");
+    await t.test(
+      "the same Add repository result reopens its closed disclosure",
+      async () => {
+        await add.click();
+        await page
+          .locator("[data-settings-results]")
+          .getByRole("link", {
+            name: "Add repository Repositories",
+            exact: true,
+          })
+          .click();
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector("#found button")
+              ?.getAttribute("aria-expanded") === "true",
+          undefined,
+          { timeout: 2000 },
+        );
+      },
+    );
     await page.locator("[data-settings-search]").fill("scan");
     await page
       .locator("[data-settings-results]")
@@ -521,6 +570,61 @@ test(
         document
           .querySelector("#scan button")
           ?.getAttribute("aria-expanded") === "true",
+    );
+    await t.test(
+      "the same Scan directories result reopens its closed disclosure",
+      async () => {
+        await page
+          .getByRole("button", { name: "Scan directories", exact: true })
+          .click();
+        await page
+          .locator("[data-settings-results]")
+          .getByRole("link", {
+            name: "Scan directories Repositories",
+            exact: true,
+          })
+          .click();
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector("#scan button")
+              ?.getAttribute("aria-expanded") === "true",
+          undefined,
+          { timeout: 2000 },
+        );
+      },
+    );
+    await t.test(
+      "removing the last monitored repository opens discovery",
+      async () => {
+        await page.goto(`${server.origin}/settings/repositories`);
+        await loaded(page);
+        assert.equal(await add.getAttribute("aria-expanded"), "false");
+        for (const remaining of [1, 0]) {
+          const row = page
+            .locator("[data-repository][data-monitoring='monitored']")
+            .first();
+          await row.getByRole("button", { name: /^Checkouts for / }).click();
+          await row.getByRole("button", { name: /^Remove / }).click();
+          await page
+            .getByText(`${remaining} monitored`, { exact: true })
+            .waitFor();
+        }
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector("#found button")
+              ?.getAttribute("aria-expanded") === "true",
+          undefined,
+          { timeout: 2000 },
+        );
+        assert.equal(
+          await page
+            .getByRole("list", { name: "Available repositories", exact: true })
+            .isVisible(),
+          true,
+        );
+      },
     );
   },
 );

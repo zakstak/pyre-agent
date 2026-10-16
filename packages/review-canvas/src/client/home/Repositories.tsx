@@ -14,7 +14,7 @@ import {
   GitPullRequest,
 } from "lucide-react";
 import { Atom } from "effect/reactivity";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useId } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type {
   Checkout,
@@ -28,6 +28,7 @@ import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
 import { Stat } from "../ui/stat.tsx";
 import { landOnHash } from "../ui/page.tsx";
+import { SettingDisclosure } from "../ui/setting.tsx";
 import { failureText } from "../rpc.ts";
 import {
   busyAtom,
@@ -214,6 +215,7 @@ const RepositoryRow = ({
   readonly search: string;
   readonly filter: Option.Option<Filter>;
 }) => {
+  const summaryId = useId();
   const root = entry.checkouts[0].root;
   const pullRequests = entry.pull_requests.flatMap((id) => {
     const item = byId.get(id);
@@ -254,6 +256,7 @@ const RepositoryRow = ({
             <Collapsible.Trigger
               className="group flex min-h-11 w-full items-center gap-2 rounded-control py-2 text-left hover:bg-subtle"
               aria-label={`Checkouts for ${entry.full_name}`}
+              aria-describedby={summaryId}
             >
               <ChevronRight
                 aria-hidden="true"
@@ -266,7 +269,10 @@ const RepositoryRow = ({
                 >
                   {entry.name}
                 </span>
-                <span className="block wrap-anywhere text-small font-normal text-muted">
+                <span
+                  id={summaryId}
+                  className="block wrap-anywhere text-small font-normal text-muted"
+                >
                   {entry.host === "" ? "" : `${entry.host} · `}
                   {count(entry.checkouts.length, "checkout")}
                   {changed === 0 ? null : ` · ${changed} with changes`}
@@ -363,7 +369,7 @@ const Scan = ({
     else setRoot(next);
   };
   return (
-    <Collapsible.Root
+    <SettingDisclosure
       id="scan"
       defaultOpen={open}
       className="mt-4 scroll-mt-16"
@@ -417,7 +423,7 @@ const Scan = ({
           )}
         </div>
       </Collapsible.Panel>
-    </Collapsible.Root>
+    </SettingDisclosure>
   );
 };
 
@@ -428,15 +434,9 @@ export const Repositories = ({
 }) => {
   const [query, setQuery] = useAtom(queryAtom);
   const filter = useAtomValue(filterAtom);
-  // Same-page settings links must reveal their disclosure as well as scroll to it.
-  const [hash, setHash] = useState(() => location.hash);
-  useEffect(() => {
-    const changed = () => setHash(location.hash);
-    addEventListener("hashchange", changed);
-    return () => removeEventListener("hashchange", changed);
-  }, []);
-  // The snapshot and an opened disclosure can both arrive after the browser looked for the hash's element.
-  useEffect(landOnHash, [hash]);
+  const availableSummaryId = useId();
+  // The snapshot can arrive after the browser looked for the hash's element.
+  useEffect(landOnHash, []);
   const [monitoring, change] = useAtom(monitoringAtom);
   const busy = useAtomValue(busyAtom);
   const refresh = useAtomRefresh(homeAtom);
@@ -541,19 +541,19 @@ export const Repositories = ({
       {none ? (
         <div id="found" className="scroll-mt-16" />
       ) : (
-        <Collapsible.Root
+        <SettingDisclosure
           id="found"
-          key={`${search}:${Option.getOrUndefined(filter) ?? ""}:${hash}`}
+          key={`${search}:${Option.getOrUndefined(filter) ?? ""}`}
           defaultOpen={
             monitored.length === 0 ||
             search !== "" ||
-            Option.contains(filter, "discovered") ||
-            hash === "#found"
+            Option.contains(filter, "discovered")
           }
           className="mt-6 scroll-mt-16"
         >
           <Collapsible.Trigger
             aria-label="Add repository"
+            aria-describedby={availableSummaryId}
             className="group flex min-h-11 max-w-full flex-wrap items-center gap-x-2 text-small font-semibold"
           >
             <ChevronRight
@@ -561,7 +561,7 @@ export const Repositories = ({
               className="size-4 shrink-0 transition-transform group-data-panel-open:rotate-90"
             />
             Add repository
-            <span className="font-normal text-muted">
+            <span id={availableSummaryId} className="font-normal text-muted">
               {discovered.length} available
             </span>
           </Collapsible.Trigger>
@@ -581,14 +581,9 @@ export const Repositories = ({
               </ul>
             )}
           </Collapsible.Panel>
-        </Collapsible.Root>
+        </SettingDisclosure>
       )}
-      <Scan
-        key={hash}
-        roots={snapshot.roots}
-        warnings={snapshot.warnings}
-        open={none || hash === "#scan"}
-      />
+      <Scan roots={snapshot.roots} warnings={snapshot.warnings} open={none} />
     </section>
   );
 };
