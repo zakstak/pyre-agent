@@ -239,7 +239,6 @@ class NativePluginTests(unittest.TestCase):
         inventory = self.run_cli("claude", "plugin", "details", "pyre-agent")
         for path in self.repo.glob("skills/*/SKILL.md"):
             self.assertIn(path.parent.name, inventory)
-        self.assertIn("codex-branch-review", inventory)
         self.assertIn("Hooks (0)", inventory)
         readme = self.repo / "README.md"
         updated = readme.read_text() + "\nUpdated local package.\n"
@@ -256,7 +255,7 @@ class NativePluginTests(unittest.TestCase):
             (self.claude, "CLAUDE.md"),
         ):
             self.assertFalse((config / instructions).exists())
-            for name in actual | {"pyre-agent:codex-branch-review"}:
+            for name in actual:
                 self.assertFalse((config / "skills" / name.split(":", 1)[1]).exists())
         self.run_cli("codex", "plugin", "remove", PLUGIN_ID, "--json")
         self.run_cli("claude", "plugin", "uninstall", PLUGIN_ID)

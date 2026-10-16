@@ -2,7 +2,8 @@
 
 Engineering skills and review tools for Codex and Claude Code.
 
-- Code guidance for debugging, TypeScript, boundary validation, and API migrations.
+- Code guidance for debugging, TypeScript, boundary validation, and API
+  migrations.
 - [Technical writing](skills/technical-writing/SKILL.md) and
   [unslop](skills/unslop/SKILL.md) for documentation and prose editing.
 - A [review canvas](skills/review-canvas/SKILL.md) for guided code reviews and
@@ -10,7 +11,7 @@ Engineering skills and review tools for Codex and Claude Code.
 - A [shared visual style](skills/internal-visual-style/SKILL.md) for UI work
   without an existing design system.
 
-Browse the [shared skills](skills/) and [Claude-only skills](host-skills/claude-code/).
+Browse the [shared skills](skills/).
 
 ## Install
 
@@ -44,8 +45,8 @@ claude plugin install pyre-agent@pyre-agent-local
 
 </details>
 
-Both hosts use the bundled catalog, `pyre-agent-local`.
-For managed installations or checkout testing, see
+Both hosts use the bundled catalog, `pyre-agent-local`. For managed
+installations or checkout testing, see
 [installation verification](docs/verify-install.md).
 
 ## Use
@@ -56,25 +57,23 @@ explicit request; other skills describe when they apply in their `SKILL.md`.
 
 The review canvas needs Node 26 and pnpm and builds on first use. See its
 [package README](packages/review-canvas/README.md) for setup and supported Git
-hosts. The Claude-only `codex-branch-review` needs Python 3.11 and an authenticated
-Codex CLI; see its
-[bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
+hosts.
 
 ## Optional extras
 
 Put personal preferences, startup context, and machine-specific behavior in your
 own plugins, maintained in a separate extras repository. Register that catalog
 separately and install its plugins alongside core. Core contains only the shared
-collection.
-Keep each plugin installed from one catalog to avoid duplicate skills or hooks.
-For plugins with hooks, complete the
+collection. Keep each plugin installed from one catalog to avoid duplicate
+skills or hooks. For plugins with hooks, complete the
 [user-run hook setup](docs/verify-install.md#accept-optional-codex-hooks).
 
 ## Contribute
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and version rules, and
 [AGENTS.md](AGENTS.md) for what belongs in core or extras. Test installations
-with the temporary profiles in [installation verification](docs/verify-install.md).
+with the temporary profiles in
+[installation verification](docs/verify-install.md).
 
 <details>
 <summary>Copying individual skills</summary>
