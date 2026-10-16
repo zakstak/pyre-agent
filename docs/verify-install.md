@@ -53,6 +53,11 @@ identity. A package test must not grant that trust automatically.
 
 ## Migrate an existing local installation
 
+Before 4.5.0, this repository also shipped a personal context plugin. When
+upgrading those installations, move personal plugin sources to a separate extras
+repository. Update their managed catalog entries before adopting the new core
+revision. Core's bundled catalogs now contain only the base plugin.
+
 Inspect registrations before adding a source:
 
 ```sh

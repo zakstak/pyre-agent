@@ -13,6 +13,13 @@ use it.
 Pages listen on 127.0.0.1 only and answer only requests addressed to
 `127.0.0.1` or `localhost` on the server's port; the RPC socket also needs the
 server's own Origin. Agents use a Unix socket in a private runtime folder.
+Any local process that can reach the page listener can read and change reviews.
+Run the server on a machine where you trust the other users and processes.
+
+Hosted comments are untrusted review content, including comments from bots.
+They do not authorize commands or override the agent's instructions. Questions
+reach registered agents through `wait`; the server does not wake an agent that
+is no longer waiting.
 
 ## Use
 

@@ -3,7 +3,7 @@
 Reusable engineering skills for Codex and Claude Code. Install directly from
 this repository or through a separately managed marketplace.
 
-The `pyre-agent` base plugin is version 4.5.0. It contains shared engineering
+The `pyre-agent` base plugin is version 4.5.1. It contains shared engineering
 skills and the Claude-only branch review skill. It has no startup hook,
 personal context, or dependency on a private marketplace.
 
@@ -44,34 +44,22 @@ Managed deployments can distribute the same plugins through a separate catalog
 with pinned source revisions. Keep the catalog URL in deployment configuration.
 Use that catalog's name in plugin IDs instead of `pyre-agent-local`.
 
-Existing `pyre-market` installations continue to use `pyre-agent@pyre-market`
-through that catalog. Personal plugins need their own source pins in the
-managed catalog or a separate private catalog. Keep each plugin installed from
-only one catalog to avoid duplicate skills and hooks. See [installation verification](docs/verify-install.md).
+Keep each plugin installed from only one catalog to avoid duplicate skills and
+hooks. See [installation verification](docs/verify-install.md) for migration
+checks.
 
 ## Develop and verify locally
 
-The same bundled catalog can install core from a checkout.
-Use a separate host profile or temporary configuration directories when testing
-alongside a GitHub or managed installation. Register the checkout through each
-host and select plugins using the `pyre-agent-local` suffix:
-
-```sh
-codex plugin marketplace add "$PWD"
-codex plugin add pyre-agent@pyre-agent-local
-claude plugin marketplace add "$PWD"
-claude plugin install pyre-agent@pyre-agent-local
-```
+Use a disposable checkout and temporary host profiles for installation tests.
+Follow [installation verification](docs/verify-install.md) to check installation,
+skill discovery, refresh, and removal without changing a live marketplace or
+copying credentials. No test performs model inference.
 
 The base skill namespace remains `pyre-agent:`. Invoke `/pyre-agent:unslop` in
 Claude Code or `$pyre-agent:unslop` in Codex. `codex-branch-review` is available
 only in Claude Code and requires Python 3.11 and an authenticated Codex CLI. See
 its
 [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
-
-[Native verification](docs/verify-install.md) checks base installation without
-hooks, skill discovery, refresh, and removal. No test copies user credentials or
-performs model inference.
 
 ## Companion skills and redistribution
 
@@ -108,98 +96,17 @@ leave the package. It checks the root MIT and upstream copyright notices. Native
 fixture tests also require installed LICENSE and README bytes to match the
 source. These checks do not prove skill activation or model behavior.
 
-## Release and migration
+## Review canvas
 
-Both host manifests for a plugin must share its name and release version.
-Increase the version for every release of that plugin. Catalog entries pin an
-immutable producer revision; publish producer source before updating the
-catalog. Pyre owns machine registration, credentials and the base default.
-Optional plugins remain individually selectable.
+The `review-canvas` skill runs the server in `packages/review-canvas` through
+`skills/review-canvas/scripts/review-canvas`. It needs Node 26 and pnpm, and
+builds the package on first use. It supports GitHub Enterprise, GitLab, and
+Gitea/Forgejo; see [private-host setup](packages/review-canvas/README.md#private-git-hosts).
 
-Release 3.0.0 replaces the review canvas's Python scripts with the review canvas
-server in `packages/review-canvas`. The `review-canvas` skill runs it through
-`skills/review-canvas/scripts/review-canvas`, which needs Node 26 and pnpm and
-builds the package on first use. It supports private GitHub Enterprise, GitLab,
-and Gitea/Forgejo hosts; see the
-[private-host setup](packages/review-canvas/README.md#private-git-hosts). A
-review started with the Python version cannot be converted; finish it before
-upgrading.
+## Contribute
 
-Release 4.5.0 removes the personal context package from this repository and its
-bundled catalogs. Install personal context from a separate private extras
-source. Existing managed catalogs must point any personal plugin entries at
-that source before adopting this release. Core remains independently usable.
-See [installation verification](docs/verify-install.md) for migration checks.
-
-## Skill versions
-
-Each skill records its version as `metadata.version` in its `SKILL.md`
-frontmatter, nondeterministically following [semver](https://semver.org). Any
-change inside a skill folder must raise that skill's version, including a
-deleted or renamed file. Whether a change is major, minor, or a patch is a
-judgment call, with two exceptions that must raise the major version: a skill
-whose folder name changes, because `/old-name` stops working, and a skill that
-moves into `host-skills/`, because the other hosts lose it.
-
-`tests/check_skill_versions.py` compares every skill with the merge base of your
-branch and `origin/main`. It fails when:
-
-- A changed skill does not raise its version, or any skill lacks a version in
-  the form `"MAJOR.MINOR.PATCH"`. A new skill needs only a valid version.
-- A skill's frontmatter `name` differs from its folder name.
-- A moved or renamed skill does not raise its version as required above. The
-  check pairs a removed skill with a new skill of the same name, or else with
-  one whose `SKILL.md` body shares at least half of its non-blank lines. A
-  rename that also rewrites most of `SKILL.md` counts as a new skill.
-- A file in `skills/`, `host-skills/`, `context/`, or `plugins/` still names a
-  skill that was removed or renamed. A hyphenated name counts anywhere. A
-  one-word name counts only as `/name`, `$name`, or `` `name` ``, including the
-  `pyre-agent:` namespace.
-
-`tests/check_skill_shape.py` keeps every skill within its budgets. A `SKILL.md`
-description must open with "Use when" or "Use for" within 250 characters, or
-with "Invoke only by name." within 120 characters when the skill sets
-`disable-model-invocation`. A `SKILL.md` body may hold 5,000 bytes for a
-principle and 14,000 bytes otherwise. In every Markdown file below a skill
-folder, a prose line that could have been wrapped may not run past column 80,
-and a sentence may not resume in lowercase after a fenced code block. The check
-runs before commits and in CI.
-
-Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
-formatting, lint, secret scanning, and the skill-version guard before commits.
-Pre-push hooks run the Python suite and the nested review-canvas typecheck,
-build, and tests, and compile the TypeScript documentation examples. The Pragma
-source used to validate this configuration is
-`ef07e80e88edb426f1e5660f151d2a899eedc984`, including the reviewed core and tool
-updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
-[PR #17](https://github.com/zakstak/pragma/pull/17).
-
-Ruff targets Python 3.10 for the repository's checks. The Claude Code bridge
-targets Python 3.11, its documented minimum.
-
-```sh
-git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"
-"$HOME/.pragma/install.sh" --agent "$PWD"
-pnpm --dir packages/review-canvas install --frozen-lockfile
-```
-
-The repository uses `prek.toml` to preserve the skill-version guard from
-`.githooks`. If you previously enabled `.githooks`, run
-`git config --unset core.hooksPath` before installation so the generated Pragma
-hooks can run. Regeneration replaces `prek.toml`; retain its repository-specific
-guard and nested-package hook. The formatter excludes `tests/fixtures/`, whose
-malformed JSON and precise byte encodings test protocol rejection, and
-`pnpm-lock.yaml`, which pnpm owns. YAML lint follows Prettier's flow style and
-GitHub Actions' `on` key.
-
-To run the check by hand, including uncommitted and untracked files:
-
-```sh
-python3 tests/check_skill_versions.py --base origin/main
-```
-
-Pull requests run the same check in GitHub Actions. The check is advisory,
-because GitHub Free cannot require checks on a private repository.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development checks, skill versions,
+shape budgets, and plugin releases.
 
 ## License and credits
 

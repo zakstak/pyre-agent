@@ -30,7 +30,8 @@ and provide a command to refresh them without editing a second set of rules.
 
 Match each plugin's name and version across its Codex and Claude manifests.
 Raise its release version when its contents change. Raise a changed skill's
-`metadata.version` too, as described in the [README](README.md#skill-versions).
+`metadata.version` too, as described in the
+[contribution guide](CONTRIBUTING.md#skill-versions).
 Keep referenced resources inside the installed package. Use host-native plugins
 for installation and hooks, rather than writing global instruction files or
 copying skills into a user's home directory.
