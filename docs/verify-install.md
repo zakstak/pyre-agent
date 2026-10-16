@@ -55,8 +55,42 @@ come from the extras package, and that core contains neither resource. Remove
 the personal plugin and verify that core's skills remain available.
 
 Report acquisition, component discovery, hook trust, and model behavior
-separately. Codex requires review in `/hooks` and a new session for a new plugin
-identity. A package test must not grant that trust automatically.
+separately. Package tests stop before user hook acceptance.
+
+## Accept optional Codex hooks
+
+Core has no startup hook, so a core-only install needs no hook acceptance.
+For an extras plugin with hooks, finish setup in the same user profile where
+you installed it. Run this command yourself in a terminal:
+
+```sh
+codex
+```
+
+Inside Codex, enter:
+
+```text
+/hooks
+```
+
+Select the installed extras plugin's hook. Review its source and command, then
+trust the current definition. Leave unrelated hooks unchanged. Confirm that the
+selected hook is enabled and trusted. Quit Codex without submitting a model
+prompt, then start a new session:
+
+```sh
+codex
+```
+
+Startup-only hooks run on that fresh launch. Reopen `/hooks` to confirm the
+hook's status. A trusted definition does not by itself prove that its command
+ran successfully or that the model used its output.
+
+Repeat review when an update marks a hook modified or untrusted. Codex 0.163.0
+provides persistent acceptance through `/hooks`, with no shell subcommand for
+it. Setup can guide the user through these commands; installation tests do not
+write trust records or use a trust-bypass flag. See the
+[official hook trust documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
 ## Migrate an existing local installation
 

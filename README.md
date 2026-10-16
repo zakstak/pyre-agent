@@ -51,7 +51,8 @@ own plugins, maintained in a separate extras repository. Register that catalog
 separately and install its plugins alongside core. Core contains only the shared
 collection.
 Keep each plugin installed from one catalog to avoid duplicate skills or hooks.
-Review optional startup hooks in Codex `/hooks` before starting a new session.
+For plugins with hooks, complete the
+[user-run hook setup](docs/verify-install.md#accept-optional-codex-hooks).
 
 ## Contribute
 
