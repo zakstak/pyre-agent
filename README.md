@@ -1,84 +1,93 @@
 # Pyre Agent
 
-Reusable engineering skills for Codex and Claude Code. Install directly from
-this repository or through a separately managed marketplace.
+Engineering skills and review tools for Codex and Claude Code.
 
-The `pyre-agent` base plugin is version 4.5.0. It contains shared engineering
-skills and the Claude-only branch review skill. It has no startup hook,
-personal context, or dependency on a private marketplace.
+- Code guidance for debugging, TypeScript, boundary validation, and API migrations.
+- [Technical writing](skills/technical-writing/SKILL.md) and
+  [unslop](skills/unslop/SKILL.md) for documentation and prose editing.
+- A [review canvas](skills/review-canvas/SKILL.md) for guided code reviews and
+  [PR screenshots](skills/pr-screenshots/SKILL.md) for visual evidence.
+- A [shared visual style](skills/internal-visual-style/SKILL.md) for UI work
+  without an existing design system.
 
-## Core and optional extras
+Browse the [shared skills](skills/) and [Claude-only skills](host-skills/claude-code/).
 
-General engineering behavior belongs in core. Personal preferences and behavior
-bespoke to an installation belong in optional plugins, maintained in a separate
-extras repository. Install the selected extras alongside core. Extras follow
-the same skill and packaging rules without copying the core skill collection.
-See [repository instructions](AGENTS.md) for the placement and validation rules.
+## Install
 
-## Install from GitHub
+Ask your agent:
 
-The bundled catalog is named `pyre-agent-local` for both GitHub and checkout
-installs. Register it with your host, then install the base:
+```text
+Install Pyre Agent from https://github.com/zakstak/pyre-agent.
+Follow skills/setup/SKILL.md in that repository.
+```
+
+The [setup skill](skills/setup/SKILL.md) handles installation and verification.
+For optional hooks, it gives you the exact acceptance steps after installation.
+Once installed, ask the agent to update Pyre Agent or invoke `pyre-agent:setup`.
+
+<details>
+<summary>Manual installation commands</summary>
+
+### Codex
 
 ```sh
 codex plugin marketplace add https://github.com/zakstak/pyre-agent.git
 codex plugin add pyre-agent@pyre-agent-local
 ```
 
+### Claude Code
+
 ```sh
 claude plugin marketplace add https://github.com/zakstak/pyre-agent.git
 claude plugin install pyre-agent@pyre-agent-local
 ```
 
-The GitHub catalog contains only the base. Register a personal extras catalog
-separately, using the private source configured on your machine. Core does not
-fetch private repositories or choose personal plugins for you. Review any
-optional startup hook in Codex `/hooks` before starting a new session.
+</details>
 
-Codex supports Git refs through `marketplace add --ref`; see the
-[CLI reference](https://learn.chatgpt.com/docs/cli/reference#codex-plugin-marketplace).
+Both hosts use the bundled catalog, `pyre-agent-local`.
+For managed installations or checkout testing, see
+[installation verification](docs/verify-install.md).
 
-## Managed installations
+## Use
 
-Managed deployments can distribute the same plugins through a separate catalog
-with pinned source revisions. Keep the catalog URL in deployment configuration.
-Use that catalog's name in plugin IDs instead of `pyre-agent-local`.
+Invoke a skill by name, for example `/pyre-agent:unslop` in Claude Code or
+`$pyre-agent:unslop` in Codex. Skills marked "Invoke only by name" require an
+explicit request; other skills describe when they apply in their `SKILL.md`.
 
-Existing `pyre-market` installations continue to use `pyre-agent@pyre-market`
-through that catalog. Personal plugins need their own source pins in the
-managed catalog or a separate private catalog. Keep each plugin installed from
-only one catalog to avoid duplicate skills and hooks. See [installation verification](docs/verify-install.md).
-
-## Develop and verify locally
-
-The same bundled catalog can install core from a checkout.
-Use a separate host profile or temporary configuration directories when testing
-alongside a GitHub or managed installation. Register the checkout through each
-host and select plugins using the `pyre-agent-local` suffix:
-
-```sh
-codex plugin marketplace add "$PWD"
-codex plugin add pyre-agent@pyre-agent-local
-claude plugin marketplace add "$PWD"
-claude plugin install pyre-agent@pyre-agent-local
-```
-
-The base skill namespace remains `pyre-agent:`. Invoke `/pyre-agent:unslop` in
-Claude Code or `$pyre-agent:unslop` in Codex. `codex-branch-review` is available
-only in Claude Code and requires Python 3.11 and an authenticated Codex CLI. See
-its
+The review canvas needs Node 26 and pnpm and builds on first use. See its
+[package README](packages/review-canvas/README.md) for setup and supported Git
+hosts. The Claude-only `codex-branch-review` needs Python 3.11 and an authenticated
+Codex CLI; see its
 [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
 
-[Native verification](docs/verify-install.md) checks base installation without
-hooks, skill discovery, refresh, and removal. No test copies user credentials or
-performs model inference.
+## Optional extras
 
-## Companion skills and redistribution
+Put personal preferences, startup context, and machine-specific behavior in your
+own plugins, maintained in a separate extras repository. Register that catalog
+separately and install its plugins alongside core. Core contains only the shared
+collection.
+Keep each plugin installed from one catalog to avoid duplicate skills or hooks.
+For plugins with hooks, complete the
+[user-run hook setup](docs/verify-install.md#accept-optional-codex-hooks).
 
-The native base ships the collection together. A skill's source PR can be
-reviewed separately, but copying one directory does not always produce a usable
-skill. Retain its referenced files and all companion skills they link to.
-Generated by `python3 tests/check_skill_package.py --graph`:
+## Contribute
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and version rules, and
+[AGENTS.md](AGENTS.md) for what belongs in core or extras. Test installations
+with the temporary profiles in [installation verification](docs/verify-install.md).
+
+<details>
+<summary>Copying individual skills</summary>
+
+Include each skill's referenced files and companion skills, with the notices
+listed under [License and credits](#license-and-credits). Check the assembled
+package with:
+
+```sh
+python3 tests/check_skill_package.py /path/to/package
+```
+
+Companions, generated by `python3 tests/check_skill_package.py --graph`:
 
 <!-- prettier-ignore-start -->
 
@@ -92,114 +101,7 @@ Generated by `python3 tests/check_skill_package.py --graph`:
 
 <!-- prettier-ignore-end -->
 
-Carry the root `LICENSE` and this README's credits with any copied subset. Keep
-asset-specific notices with their assets. The collection uses root MIT notices
-rather than a separate license in every skill directory.
-
-Check a checkout or an assembled copy without installing it:
-
-```sh
-python3 tests/check_skill_package.py /path/to/package
-```
-
-The check follows inline local Markdown links in skill instructions and
-references, accepts companion cycles, and rejects missing files or links that
-leave the package. It checks the root MIT and upstream copyright notices. Native
-fixture tests also require installed LICENSE and README bytes to match the
-source. These checks do not prove skill activation or model behavior.
-
-## Release and migration
-
-Both host manifests for a plugin must share its name and release version.
-Increase the version for every release of that plugin. Catalog entries pin an
-immutable producer revision; publish producer source before updating the
-catalog. Pyre owns machine registration, credentials and the base default.
-Optional plugins remain individually selectable.
-
-Release 3.0.0 replaces the review canvas's Python scripts with the review canvas
-server in `packages/review-canvas`. The `review-canvas` skill runs it through
-`skills/review-canvas/scripts/review-canvas`, which needs Node 26 and pnpm and
-builds the package on first use. It supports private GitHub Enterprise, GitLab,
-and Gitea/Forgejo hosts; see the
-[private-host setup](packages/review-canvas/README.md#private-git-hosts). A
-review started with the Python version cannot be converted; finish it before
-upgrading.
-
-Release 4.5.0 removes the personal context package from this repository and its
-bundled catalogs. Install personal context from a separate private extras
-source. Existing managed catalogs must point any personal plugin entries at
-that source before adopting this release. Core remains independently usable.
-See [installation verification](docs/verify-install.md) for migration checks.
-
-## Skill versions
-
-Each skill records its version as `metadata.version` in its `SKILL.md`
-frontmatter, nondeterministically following [semver](https://semver.org). Any
-change inside a skill folder must raise that skill's version, including a
-deleted or renamed file. Whether a change is major, minor, or a patch is a
-judgment call, with two exceptions that must raise the major version: a skill
-whose folder name changes, because `/old-name` stops working, and a skill that
-moves into `host-skills/`, because the other hosts lose it.
-
-`tests/check_skill_versions.py` compares every skill with the merge base of your
-branch and `origin/main`. It fails when:
-
-- A changed skill does not raise its version, or any skill lacks a version in
-  the form `"MAJOR.MINOR.PATCH"`. A new skill needs only a valid version.
-- A skill's frontmatter `name` differs from its folder name.
-- A moved or renamed skill does not raise its version as required above. The
-  check pairs a removed skill with a new skill of the same name, or else with
-  one whose `SKILL.md` body shares at least half of its non-blank lines. A
-  rename that also rewrites most of `SKILL.md` counts as a new skill.
-- A file in `skills/`, `host-skills/`, `context/`, or `plugins/` still names a
-  skill that was removed or renamed. A hyphenated name counts anywhere. A
-  one-word name counts only as `/name`, `$name`, or `` `name` ``, including the
-  `pyre-agent:` namespace.
-
-`tests/check_skill_shape.py` keeps every skill within its budgets. A `SKILL.md`
-description must open with "Use when" or "Use for" within 250 characters, or
-with "Invoke only by name." within 120 characters when the skill sets
-`disable-model-invocation`. A `SKILL.md` body may hold 5,000 bytes for a
-principle and 14,000 bytes otherwise. In every Markdown file below a skill
-folder, a prose line that could have been wrapped may not run past column 80,
-and a sentence may not resume in lowercase after a fenced code block. The check
-runs before commits and in CI.
-
-Install [Pragma](https://github.com/zakstak/pragma) once per clone to run
-formatting, lint, secret scanning, and the skill-version guard before commits.
-Pre-push hooks run the Python suite and the nested review-canvas typecheck,
-build, and tests, and compile the TypeScript documentation examples. The Pragma
-source used to validate this configuration is
-`ef07e80e88edb426f1e5660f151d2a899eedc984`, including the reviewed core and tool
-updates in [Pragma PR #16](https://github.com/zakstak/pragma/pull/16) and
-[PR #17](https://github.com/zakstak/pragma/pull/17).
-
-Ruff targets Python 3.10 for the repository's checks. The Claude Code bridge
-targets Python 3.11, its documented minimum.
-
-```sh
-git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"
-"$HOME/.pragma/install.sh" --agent "$PWD"
-pnpm --dir packages/review-canvas install --frozen-lockfile
-```
-
-The repository uses `prek.toml` to preserve the skill-version guard from
-`.githooks`. If you previously enabled `.githooks`, run
-`git config --unset core.hooksPath` before installation so the generated Pragma
-hooks can run. Regeneration replaces `prek.toml`; retain its repository-specific
-guard and nested-package hook. The formatter excludes `tests/fixtures/`, whose
-malformed JSON and precise byte encodings test protocol rejection, and
-`pnpm-lock.yaml`, which pnpm owns. YAML lint follows Prettier's flow style and
-GitHub Actions' `on` key.
-
-To run the check by hand, including uncommitted and untracked files:
-
-```sh
-python3 tests/check_skill_versions.py --base origin/main
-```
-
-Pull requests run the same check in GitHub Actions. The check is advisory,
-because GitHub Free cannot require checks on a private repository.
+</details>
 
 ## License and credits
 
