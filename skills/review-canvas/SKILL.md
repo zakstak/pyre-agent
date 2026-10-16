@@ -6,7 +6,7 @@ description:
   work. The agent writes a tour and answers browser comments through a local
   server."
 metadata:
-  version: "5.2.1"
+  version: "5.2.2"
 ---
 
 # Review canvas
@@ -148,9 +148,10 @@ input's target, or starts a review when there is none, and writes
 `session.json`. Its URL shows a waiting page until the first round. Pass
 `--fresh` to start a new review of a target that already has one; the earlier
 review closes, and approvals that still match carry over. Pass `--host codex`
-when that is where you run; `claude-code` is the default. `--session-id` takes
-the host's session ID only when the host gives it to you as such; leave it out
-otherwise. The label is what the reviewer sees on every answer.
+for Codex or `--host t3` for T3 Code; `claude-code` is the default.
+`--session-id` takes the host's session ID only when the host gives it to you as
+such; leave it out otherwise. The label is what the reviewer sees on every
+answer.
 
 `publish` also imports comments from the target's pull request, or the open
 request of the working tree's branch. An explicit URL selects GitHub Enterprise,

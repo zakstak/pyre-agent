@@ -46,7 +46,7 @@ test("a command that cannot start the server fails with one line and no stack tr
   );
 });
 
-test("a file the command cannot write is reported as that, not as a missing server", (t) => {
+test("a T3 CLI session publishes and reports an unwritable export as a file error", (t) => {
   const dir = scratch(t);
   const runtime = join(dir, "run");
   const session = join(dir, "s");
@@ -81,6 +81,8 @@ test("a file the command cannot write is reported as that, not as a missing serv
     join(root, "fixtures/input/worktree.json"),
     "--label",
     "Export fixture",
+    "--host",
+    "t3",
   );
   assert.equal(registered.status, 0, registered.stderr);
   const published = cli(
