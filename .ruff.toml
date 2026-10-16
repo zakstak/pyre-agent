@@ -1,0 +1,6 @@
+# The repository's checks run on Python 3.10+.
+target-version = "py310"
+
+# The host-specific Codex bridge explicitly requires Python 3.11+.
+[per-file-target-version]
+"host-skills/claude-code/codex-branch-review/scripts/*.py" = "py311"

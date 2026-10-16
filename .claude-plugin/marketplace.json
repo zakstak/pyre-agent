@@ -1,0 +1,14 @@
+{
+  "name": "pyre-agent-local",
+  "description": "Reusable engineering skills for Codex and Claude Code.",
+  "owner": {
+    "name": "Zak"
+  },
+  "plugins": [
+    {
+      "name": "pyre-agent",
+      "source": "./",
+      "description": "Base engineering skills."
+    }
+  ]
+}

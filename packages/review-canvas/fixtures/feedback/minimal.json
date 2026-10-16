@@ -1,0 +1,18 @@
+{
+  "format": "review-canvas.feedback/1",
+  "target": {
+    "kind": "github_pr",
+    "title": "Minimal",
+    "url": "https://github.com/example/repo/pull/1",
+    "head_sha": "1111111111111111111111111111111111111111"
+  },
+  "round": 1,
+  "input_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "exported_at": "2026-10-10T12:00:00.000Z",
+  "general_notes": "",
+  "files": [],
+  "approvals": [],
+  "threads": [],
+  "comments": [],
+  "earlier_rounds": []
+}
