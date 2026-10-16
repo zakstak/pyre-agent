@@ -109,6 +109,10 @@ try {
         join(root, "fixtures/input/worktree.json"),
         "--label",
         "Pack test",
+        "--host",
+        "t3",
+        "--session-id",
+        "pack-t3-session",
       ],
       { env, encoding: "utf8" },
     ),
@@ -128,16 +132,34 @@ try {
   // The page is the built shell; the browser renders the review from the RPCs, so its assets must be served.
   const page = await get(registered.url);
   assert.equal(page.status, 200);
-  const assets = [...page.body.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="(\/assets\/[^"]+)"/g)].map(
-    (match) => match[1] ?? "",
+  const assets = [
+    ...page.body.matchAll(
+      /<(?:script|link)\b[^>]*\b(?:src|href)="(\/assets\/[^"]+)"/g,
+    ),
+  ].map((match) => match[1] ?? "");
+  assert.ok(
+    assets.some((asset) => asset.endsWith(".js")),
+    "the page loads no script",
   );
-  assert.ok(assets.some((asset) => asset.endsWith(".js")), "the page loads no script");
-  assert.ok(assets.some((asset) => asset.endsWith(".css")), "the page links no stylesheet");
-  for (const asset of assets) assert.equal((await get(new URL(asset, registered.url).href)).status, 200, asset);
+  assert.ok(
+    assets.some((asset) => asset.endsWith(".css")),
+    "the page links no stylesheet",
+  );
+  for (const asset of assets)
+    assert.equal(
+      (await get(new URL(asset, registered.url).href)).status,
+      200,
+      asset,
+    );
   // The review itself, as the server holds it.
-  const feedback = await get(new URL(`${new URL(registered.url).pathname}/feedback.json`, registered.url).href);
+  const feedback = await get(
+    new URL(`${new URL(registered.url).pathname}/feedback.json`, registered.url)
+      .href,
+  );
   assert.equal(feedback.status, 200);
   assert.match(feedback.body, /Write notes atomically/);
+  assert.match(feedback.body, /"kind":\s*"t3"/);
+  assert.match(feedback.body, /"session_id":\s*"pack-t3-session"/);
   console.log(`The packed tarball installs and serves a review: ${tarball}`);
 } finally {
   server?.kill("SIGTERM");

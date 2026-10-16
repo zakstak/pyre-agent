@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { Schema } from "effect";
-import { WorktreeRoot } from "../schema/primitives.ts";
+import { Effect, Schema } from "effect";
+import { Timestamp, WorktreeRoot } from "../schema/primitives.ts";
 import { Repository, repositoryId } from "../schema/repositories.ts";
+import { HomeSnapshot, ReviewSnapshot } from "../schema/rpc.ts";
+import { loadHome } from "../server/home.ts";
 import {
   decodeBytes,
   encodeDocument,
@@ -270,12 +272,20 @@ test("a review runs from registration through a submitted round and an answered 
 });
 
 test("listing reviews after a restart only reads round inputs for open reviews", (t) => {
-  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-progress-")), "reviews.sqlite");
+  const path = join(
+    mkdtempSync(join(tmpdir(), "review-canvas-progress-")),
+    "reviews.sqlite",
+  );
   const store = Store.open(path);
   const first = input();
   const old = store.register({ target: first.target, label: "old", host });
   store.publish(old.review.state.id, old.thread.id, first);
-  const fresh = store.register({ target: first.target, label: "fresh", host, fresh: true });
+  const fresh = store.register({
+    target: first.target,
+    label: "fresh",
+    host,
+    fresh: true,
+  });
   store.publish(fresh.review.state.id, fresh.thread.id, first);
   store.close();
 
@@ -283,9 +293,21 @@ test("listing reviews after a restart only reads round inputs for open reviews",
   t.after(() => restarted.close());
   const prepare = t.mock.method(DatabaseSync.prototype, "prepare");
   const summaries = restarted.reviews();
-  assert.equal(summaries.find((item) => item.id === old.review.state.id)?.progress, undefined);
-  assert.equal(summaries.find((item) => item.id === fresh.review.state.id)?.progress?.viewable, first.files.filter((file) => file.fingerprint !== undefined).length);
-  assert.equal(prepare.mock.calls.filter((call) => call.arguments[0].startsWith("SELECT input FROM rounds")).length, 1);
+  assert.equal(
+    summaries.find((item) => item.id === old.review.state.id)?.progress,
+    undefined,
+  );
+  assert.equal(
+    summaries.find((item) => item.id === fresh.review.state.id)?.progress
+      ?.viewable,
+    first.files.filter((file) => file.fingerprint !== undefined).length,
+  );
+  assert.equal(
+    prepare.mock.calls.filter((call) =>
+      call.arguments[0].startsWith("SELECT input FROM rounds"),
+    ).length,
+    1,
+  );
 });
 
 test("a second round reattaches comments, and a fresh start carries matching approvals", async () => {
@@ -397,6 +419,58 @@ test("a second round reattaches comments, and a fresh start carries matching app
   store.close();
 });
 
+test("stored T3 threads remain readable after a restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "review-canvas-legacy-host-"));
+  const path = join(directory, "reviews.sqlite");
+  let store = Store.open(path);
+  const first = input();
+  const registered = store.register({
+    target: first.target,
+    label: "Historical thread",
+    host,
+  });
+  const id = registered.review.state.id;
+  store.publish(id, registered.thread.id, first);
+  const before = store.review(id);
+  store.close();
+
+  const legacyHost = { kind: "t3", session_id: "historical-session" };
+  const db = new DatabaseSync(path);
+  db.prepare("UPDATE threads SET host = ? WHERE id = ?").run(
+    JSON.stringify(legacyHost),
+    registered.thread.id,
+  );
+  db.close();
+
+  store = Store.open(path);
+  try {
+    const home = await Effect.runPromise(
+      loadHome(store, [directory], undefined),
+    );
+    assert.doesNotThrow(() => Schema.encodeSync(HomeSnapshot)(home));
+    assert.deepEqual(home.reviews[0]?.threads[0]?.host, legacyHost);
+    const snapshot = store.snapshot(id);
+    assert.ok(snapshot);
+    assert.doesNotThrow(() => Schema.encodeSync(ReviewSnapshot)(snapshot));
+    const view = store.review(id);
+    assert.ok(view);
+    assert.deepEqual(view.state, before?.state);
+    assert.deepEqual(view.input, before?.input);
+    assert.deepEqual(
+      store.authenticate(id, registered.token)?.host,
+      legacyHost,
+    );
+    const feedback = feedbackOf(
+      view,
+      Schema.decodeSync(Timestamp)("2026-10-16T12:00:00.000Z"),
+    );
+    assert.ok(feedback);
+    assert.ok(Result.isSuccess(encodeDocument(FeedbackDocument, feedback)));
+  } finally {
+    store.close();
+  }
+});
+
 test("the database file and its folder are private", () => {
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-store-"));
   const path = join(dir, "data", "reviews.sqlite");
@@ -409,15 +483,24 @@ test("the database file and its folder are private", () => {
 });
 
 test("monitoring requires acceptance, persists across restarts, and removal preserves reviews", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-monitoring-")), "reviews.sqlite");
-  const repository = Schema.decodeSync(Repository)({ identity: { kind: "remote", address: "github.com/owner/project" }, checkouts: ["/tmp/project"] });
+  const path = join(
+    mkdtempSync(join(tmpdir(), "review-canvas-monitoring-")),
+    "reviews.sqlite",
+  );
+  const repository = Schema.decodeSync(Repository)({
+    identity: { kind: "remote", address: "github.com/owner/project" },
+    checkouts: ["/tmp/project"],
+  });
   let store = Store.open(path);
   const first = input();
   store.register({ target: first.target, label: "Thread", host });
   assert.deepEqual(store.monitoredRepositories(), []);
   store.refreshMonitoredRepository(repository);
   assert.deepEqual(store.monitoredRepositories(), []);
-  store.resolveMigratedRepository(repositoryId(repository.identity), repository);
+  store.resolveMigratedRepository(
+    repositoryId(repository.identity),
+    repository,
+  );
   assert.deepEqual(store.monitoredRepositories(), []);
   store.monitorRepository(repository);
   store.monitorRepository(repository);
@@ -431,15 +514,24 @@ test("monitoring requires acceptance, persists across restarts, and removal pres
 });
 
 test("version 2 databases upgrade with reviews and rounds intact and no automatic monitoring", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-migration-")), "reviews.sqlite");
+  const path = join(
+    mkdtempSync(join(tmpdir(), "review-canvas-migration-")),
+    "reviews.sqlite",
+  );
   const store = Store.open(path);
   const first = input();
-  const registered = store.register({ target: first.target, label: "Thread", host });
+  const registered = store.register({
+    target: first.target,
+    label: "Thread",
+    host,
+  });
   store.publish(registered.review.state.id, registered.thread.id, first);
   const before = store.review(registered.review.state.id);
   store.close();
   const old = new DatabaseSync(path);
-  old.exec("DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; PRAGMA user_version = 2;");
+  old.exec(
+    "DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; PRAGMA user_version = 2;",
+  );
   old.close();
   const upgraded = Store.open(path);
   assert.deepEqual(upgraded.review(registered.review.state.id), before);
@@ -448,15 +540,23 @@ test("version 2 databases upgrade with reviews and rounds intact and no automati
 });
 
 test("version 3 acceptance paths migrate to repository identities without discarding accepted copies", () => {
-  const path = join(mkdtempSync(join(tmpdir(), "review-canvas-v3-migration-")), "reviews.sqlite");
+  const path = join(
+    mkdtempSync(join(tmpdir(), "review-canvas-v3-migration-")),
+    "reviews.sqlite",
+  );
   Store.open(path).close();
   const old = new DatabaseSync(path);
-  old.exec("DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; CREATE TABLE monitored_repositories (root TEXT PRIMARY KEY) WITHOUT ROWID; INSERT INTO monitored_repositories VALUES ('/tmp/project'); PRAGMA user_version = 3;");
+  old.exec(
+    "DROP TABLE monitored_repositories; DROP TABLE pending_repository_migrations; CREATE TABLE monitored_repositories (root TEXT PRIMARY KEY) WITHOUT ROWID; INSERT INTO monitored_repositories VALUES ('/tmp/project'); PRAGMA user_version = 3;",
+  );
   old.close();
   const upgraded = Store.open(path);
   const root = Schema.decodeSync(WorktreeRoot)("/tmp/project");
   assert.deepEqual(upgraded.pendingRepositoryMigrations(), [root]);
-  const repository = Schema.decodeSync(Repository)({ identity: { kind: "remote", address: "github.com/owner/project" }, checkouts: [root] });
+  const repository = Schema.decodeSync(Repository)({
+    identity: { kind: "remote", address: "github.com/owner/project" },
+    checkouts: [root],
+  });
   upgraded.migrateAcceptedCheckout(root, repository);
   assert.deepEqual(upgraded.pendingRepositoryMigrations(), []);
   assert.deepEqual(upgraded.monitoredRepositories(), [repository]);

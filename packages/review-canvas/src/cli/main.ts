@@ -35,7 +35,12 @@ import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
 import { GhFailed } from "./github.ts";
 import { collectPullRequest } from "./pull-request.ts";
 import { PullRequestUrl } from "../schema/primitives.ts";
-import { findHostedPullRequest, forgeClients, readHostedComments, readPullRequest } from "./hosted.ts";
+import {
+  findHostedPullRequest,
+  forgeClients,
+  readHostedComments,
+  readPullRequest,
+} from "./hosted.ts";
 import { ForgeFailed } from "./forge-api.ts";
 import {
   call,
@@ -59,7 +64,7 @@ Commands
            --head SHA                     files of a pull request's input.
   register --session DIR --input FILE     Join the open review of the input's target, or start one.
            --label TEXT [--host KIND] [--session-id ID] [--fresh]
-                                          KIND is claude-code (the default) or codex.
+                                          KIND is ${HOSTS.join(", ")} (default: claude-code).
   publish  --session DIR --input FILE     Publish the input as the review's next round, then import the comments
            [--analysis FILE] [--no-comments] of its pull request. --analysis merges a kept analysis file:
            [--dry-run]                    summary, stops, and files by path. --dry-run validates and prints
@@ -173,7 +178,8 @@ const importGitHub = async (current: Session, target: Target) => {
     const url = Schema.decodeUnknownSync(PullRequestUrl)(found.url);
     items = readHostedComments(url, forgeClients);
   } catch (error) {
-    if (error instanceof GhFailed || error instanceof ForgeFailed) return { skipped: error.message };
+    if (error instanceof GhFailed || error instanceof ForgeFailed)
+      return { skipped: error.message };
     throw error;
   }
   const reply = await expectOk<{
@@ -499,9 +505,10 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       revision: reply.revision,
       url: reply.url,
       warnings: [...merged, ...reply.warnings],
-      github: values["no-comments"] || values["no-github"]
-        ? { skipped: values["no-comments"] ? "--no-comments" : "--no-github" }
-        : await importGitHub(current, input.target),
+      github:
+        values["no-comments"] || values["no-github"]
+          ? { skipped: values["no-comments"] ? "--no-comments" : "--no-github" }
+          : await importGitHub(current, input.target),
     });
   },
 
@@ -767,7 +774,10 @@ const main = async () => {
     return;
   }
   // The original public command remains accepted for existing agent sessions.
-  const run = need(commands[command === "github" ? "comments" : command], `unknown command ${command}\n\n${USAGE}`);
+  const run = need(
+    commands[command === "github" ? "comments" : command],
+    `unknown command ${command}\n\n${USAGE}`,
+  );
   // Any command that talks to the server starts it when none answers: the socket is the single-instance lock.
   const offline =
     ["serve", "collect", "fingerprints", "hunks"].includes(command) ||
