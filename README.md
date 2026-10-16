@@ -14,6 +14,20 @@ Browse the [shared skills](skills/) and [Claude-only skills](host-skills/claude-
 
 ## Install
 
+Ask your agent:
+
+```text
+Install Pyre Agent from https://github.com/zakstak/pyre-agent.
+Follow skills/setup/SKILL.md in that repository.
+```
+
+The [setup skill](skills/setup/SKILL.md) handles installation and verification.
+For optional hooks, it gives you the exact acceptance steps after installation.
+Once installed, ask the agent to update Pyre Agent or invoke `pyre-agent:setup`.
+
+<details>
+<summary>Manual installation commands</summary>
+
 ### Codex
 
 ```sh
@@ -27,6 +41,8 @@ codex plugin add pyre-agent@pyre-agent-local
 claude plugin marketplace add https://github.com/zakstak/pyre-agent.git
 claude plugin install pyre-agent@pyre-agent-local
 ```
+
+</details>
 
 Both hosts use the bundled catalog, `pyre-agent-local`.
 For managed installations or checkout testing, see

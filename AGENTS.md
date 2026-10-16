@@ -1,5 +1,10 @@
 # Repository instructions
 
+For installation, updates, or migration requests, follow
+[the setup skill](skills/setup/SKILL.md). Perform the requested host setup and
+verification, then give the user only the interactive acceptance steps that
+remain.
+
 ## Keep reusable behavior in core
 
 Core is the `pyre-agent` base plugin. Put general engineering skills in
