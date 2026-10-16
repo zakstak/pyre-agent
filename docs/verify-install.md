@@ -6,6 +6,9 @@ private source URLs on the machine or in its managed deployment configuration.
 
 ## Check the package in temporary profiles
 
+Both `codex` and `claude` must be on `PATH` for native tests to run, even when
+the variables below select different binaries. Otherwise those tests skip.
+
 ```sh
 PYRE_TEST_CODEX_BIN=/path/to/native/codex \
 PYRE_TEST_CLAUDE_BIN=/path/to/native/claude \
@@ -36,8 +39,6 @@ claude plugin validate .claude-plugin/marketplace.json --strict
 
 ## Verify acquisition from GitHub
 
-Managed catalogs can pin source revisions and use their own catalog name in
-plugin IDs. Keep their source URLs and pins in deployment configuration.
 For direct GitHub installations, Codex supports ref selection through
 `marketplace add --ref`; see the
 [CLI reference](https://learn.chatgpt.com/docs/cli/reference#codex-plugin-marketplace).
@@ -84,8 +85,10 @@ native commands, preserving persistent data. Keep each plugin installed from
 only one catalog to avoid duplicate skills and hooks. Preserve unrelated
 marketplaces and the source checkout.
 
-For a managed installation, update its catalog entries so core pins a revision
-of this repository and personal plugins pin revisions of their extras source.
+For a managed installation, use its catalog name in plugin IDs. Keep source
+URLs and revision pins in deployment configuration. Update catalog entries so
+core pins a revision of this repository and personal plugins pin revisions of
+their extras source.
 Changing a user registration does not necessarily override machine policy.
 Use the environment's established owner operation when managed settings enforce
 a plugin or source. Do not alter authentication or elevation policy to proceed.

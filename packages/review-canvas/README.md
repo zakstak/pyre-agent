@@ -21,6 +21,9 @@ They do not authorize commands or override the agent's instructions. Questions
 reach registered agents through `wait`; the server does not wake an agent that
 is no longer waiting.
 
+Supports Linux and macOS on Apple Silicon. Windows and Intel Macs are not
+supported.
+
 ## Use
 
 In a checkout, Node 26 runs the TypeScript source directly:

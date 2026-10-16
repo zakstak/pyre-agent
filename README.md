@@ -44,11 +44,12 @@ hosts. The Claude-only `codex-branch-review` needs Python 3.11 and an authentica
 Codex CLI; see its
 [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
 
-## Personal extras
+## Optional extras
 
-Keep personal preferences, startup context, and machine-specific behavior in
-plugins in a separate extras repository. Register that catalog separately and
-install its plugins alongside core. Core contains only the shared collection.
+Put personal preferences, startup context, and machine-specific behavior in your
+own plugins, maintained in a separate extras repository. Register that catalog
+separately and install its plugins alongside core. Core contains only the shared
+collection.
 Keep each plugin installed from one catalog to avoid duplicate skills or hooks.
 Review optional startup hooks in Codex `/hooks` before starting a new session.
 
@@ -61,9 +62,9 @@ with the temporary profiles in [installation verification](docs/verify-install.m
 <details>
 <summary>Copying individual skills</summary>
 
-Include each skill's referenced files and companion skills. Carry the root
-`LICENSE`, the credits below, and any asset-specific notices with the copy.
-Check the assembled package with:
+Include each skill's referenced files and companion skills, with the notices
+listed under [License and credits](#license-and-credits). Check the assembled
+package with:
 
 ```sh
 python3 tests/check_skill_package.py /path/to/package

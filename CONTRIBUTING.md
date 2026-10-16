@@ -15,12 +15,6 @@ lint, secret scanning, skill versions, and skill shape checks. Pre-push hooks
 run the Python suite and review-canvas typecheck, build, tests, and TypeScript
 documentation examples.
 
-```sh
-git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"
-"$HOME/.pragma/install.sh" --agent "$PWD"
-pnpm --dir packages/review-canvas install --frozen-lockfile
-```
-
 If this clone uses `core.hooksPath=.githooks`, unset that local setting before
 installing Pragma:
 
@@ -28,7 +22,18 @@ installing Pragma:
 git config --local --unset core.hooksPath
 ```
 
-The optional `.githooks/pre-commit` runs only the staged skill-version guard.
+Then install Pragma and the package dependencies:
+
+```sh
+git clone https://github.com/zakstak/pragma.git "$HOME/.pragma"
+"$HOME/.pragma/install.sh" --agent "$PWD"
+pnpm --dir packages/review-canvas install --frozen-lockfile
+```
+
+The standalone `.githooks/pre-commit` runs only the staged skill-version guard.
+It replaces Pragma's hooks when selected through `core.hooksPath`; the two hook
+setups do not run together.
+
 Pragma uses `prek.toml` for the full hook set. Regeneration replaces that file;
 retain the repository's skill-version, skill-shape, and nested review-canvas
 hooks. Formatting excludes `tests/fixtures/`, whose malformed JSON and precise
@@ -47,9 +52,11 @@ python3 -m unittest discover -s tests
 ```
 
 The version check includes uncommitted and untracked files. Native installation
-tests require the host CLIs; follow [installation verification](docs/verify-install.md)
-for temporary profiles and native binary selection. Those profiles isolate host
-configuration, but are not an operating-system sandbox.
+tests skip unless both `codex` and `claude` are on `PATH`. Check the skip count
+before treating a passing suite as installation verification. Follow
+[installation verification](docs/verify-install.md) for temporary profiles and
+native binary selection. Those profiles isolate host configuration, but are not
+an operating-system sandbox.
 
 For review-canvas changes, also run the package's
 [checks](packages/review-canvas/README.md#check). Pull requests run the skill and
