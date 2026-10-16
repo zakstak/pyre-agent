@@ -1,7 +1,7 @@
 {
   "name": "pyre-agent",
-  "version": "4.3.0",
-  "description": "Reusable engineering skills; startup context is a separate optional plugin.",
+  "version": "4.5.0",
+  "description": "Reusable engineering skills for Codex and Claude Code.",
   "author": {
     "name": "Zak"
   },

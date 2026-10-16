@@ -130,7 +130,7 @@ class SharedStyleTests(unittest.TestCase):
     def test_contract_is_the_recorded_one(self):
         self.assertEqual(
             hashlib.sha256(self.raw).hexdigest(),
-            "072ad98e03993cd68fed0b78b8d5637611bef203984728f802cdfc9e583ae3ce",
+            "15c1cde8fa5d169c755d492c851d5a8c36e5e9cc28110f8400b4cc0f543ae97c",
         )
 
     def test_signal_colours_accent_and_action_stay_exact(self):

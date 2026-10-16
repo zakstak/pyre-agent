@@ -1,45 +1,60 @@
 # Pyre Agent
 
-Reusable engineering skills for Codex and Claude Code. The production catalog is
-`pyre-market`; this repository owns the plugin source.
+Reusable engineering skills for Codex and Claude Code. Install directly from
+this repository or through a separately managed marketplace.
 
-| Plugin               | Contents                                                          | Default  |
-| -------------------- | ----------------------------------------------------------------- | -------- |
-| `pyre-agent` 4.3.0   | Shared engineering skills and the Claude-only branch review skill | Base     |
-| `pyre-context` 1.0.1 | Zak's startup reference context                                   | Optional |
+The `pyre-agent` base plugin is version 4.5.0. It contains shared engineering
+skills and the Claude-only branch review skill. It has no startup hook,
+personal context, or dependency on a private marketplace.
 
-The base contains no startup hook or personal context. The optional plugin lives
-in `plugins/pyre-context/` and includes its context and hook resources. Each
-host installs, loads, updates and removes the selected plugin files.
+## Core and optional extras
 
-## Install from pyre-market
+General engineering behavior belongs in core. Personal preferences and behavior
+bespoke to an installation belong in optional plugins, maintained in a separate
+extras repository. Install the selected extras alongside core. Extras follow
+the same skill and packaging rules without copying the core skill collection.
+See [repository instructions](AGENTS.md) for the placement and validation rules.
 
-Register `https://gitea.home.zakstak.com/saga-agent/pyre-market.git` with the
-host's native marketplace command. Install the base:
+## Install from GitHub
 
-```sh
-codex plugin add pyre-agent@pyre-market
-claude plugin install pyre-agent@pyre-market
-```
-
-Select startup context separately:
+The bundled catalog is named `pyre-agent-local` for both GitHub and checkout
+installs. Register it with your host, then install the base:
 
 ```sh
-codex plugin add pyre-context@pyre-market
-claude plugin install pyre-context@pyre-market
+codex plugin marketplace add https://github.com/zakstak/pyre-agent.git
+codex plugin add pyre-agent@pyre-agent-local
 ```
 
-Codex users must review and trust `pyre-context` in `/hooks` before starting a
-new session. This identity differs from the former bundled hook, so migration
-needs one trust review. Later context edits preserve trust if the hook
-definition stays unchanged. The hook matches only a new session's `startup`
-event.
+```sh
+claude plugin marketplace add https://github.com/zakstak/pyre-agent.git
+claude plugin install pyre-agent@pyre-agent-local
+```
+
+The GitHub catalog contains only the base. Register a personal extras catalog
+separately, using the private source configured on your machine. Core does not
+fetch private repositories or choose personal plugins for you. Review any
+optional startup hook in Codex `/hooks` before starting a new session.
+
+Codex supports Git refs through `marketplace add --ref`; see the
+[CLI reference](https://learn.chatgpt.com/docs/cli/reference#codex-plugin-marketplace).
+
+## Managed installations
+
+Managed deployments can distribute the same plugins through a separate catalog
+with pinned source revisions. Keep the catalog URL in deployment configuration.
+Use that catalog's name in plugin IDs instead of `pyre-agent-local`.
+
+Existing `pyre-market` installations continue to use `pyre-agent@pyre-market`
+through that catalog. Personal plugins need their own source pins in the
+managed catalog or a separate private catalog. Keep each plugin installed from
+only one catalog to avoid duplicate skills and hooks. See [installation verification](docs/verify-install.md).
 
 ## Develop and verify locally
 
-The local catalogs remain development fixtures named `pyre-agent-local`. They
-contain both plugins and refer to this checkout. Register the checkout through
-each host and select plugins using that marketplace suffix:
+The same bundled catalog can install core from a checkout.
+Use a separate host profile or temporary configuration directories when testing
+alongside a GitHub or managed installation. Register the checkout through each
+host and select plugins using the `pyre-agent-local` suffix:
 
 ```sh
 codex plugin marketplace add "$PWD"
@@ -55,8 +70,8 @@ its
 [bridge contract](host-skills/claude-code/codex-branch-review/references/bridge-contract.md).
 
 [Native verification](docs/verify-install.md) checks base installation without
-hooks, optional context installation, and removal of context while preserving
-the base. No test copies user credentials or performs model inference.
+hooks, skill discovery, refresh, and removal. No test copies user credentials or
+performs model inference.
 
 ## Companion skills and redistribution
 
@@ -110,13 +125,11 @@ and Gitea/Forgejo hosts; see the
 review started with the Python version cannot be converted; finish it before
 upgrading.
 
-Release 2.0.0 separates startup context from the earlier 1.x bundle. Install the
-new base and select `pyre-context` before removing the old marketplace. Then
-review the optional Codex hook and verify a new session. Explicitly remove
-`pyre-agent@pyre-agent-local` with `codex plugin remove` before removing its
-marketplace; Codex marketplace removal alone keeps cached plugins installed.
-Claude marketplace removal uninstalls its own entries. Preserve other
-marketplaces.
+Release 4.5.0 removes the personal context package from this repository and its
+bundled catalogs. Install personal context from a separate private extras
+source. Existing managed catalogs must point any personal plugin entries at
+that source before adopting this release. Core remains independently usable.
+See [installation verification](docs/verify-install.md) for migration checks.
 
 ## Skill versions
 
