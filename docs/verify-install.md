@@ -36,7 +36,13 @@ claude plugin validate .claude-plugin/marketplace.json --strict
 
 ## Verify acquisition from GitHub
 
-Follow [Install from GitHub](../README.md#install-from-github) in temporary host
+Managed catalogs can pin source revisions and use their own catalog name in
+plugin IDs. Keep their source URLs and pins in deployment configuration.
+For direct GitHub installations, Codex supports ref selection through
+`marketplace add --ref`; see the
+[CLI reference](https://learn.chatgpt.com/docs/cli/reference#codex-plugin-marketplace).
+
+Follow [Install](../README.md#install) in temporary host
 profiles. A local checkout test does not prove Git acquisition or private
 repository access. Verify the installed source URL, revision, and version.
 Inspect the installed package and host component inventory. Core must provide
