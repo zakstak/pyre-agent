@@ -6,14 +6,13 @@ installation defaults belong in separately maintained extras.
 
 ## Set up checks
 
-The checks need Python 3.10 or newer. The Claude Code bridge needs Python 3.11.
-The review-canvas package needs Node 26 and the pnpm version pinned in its
-`package.json`.
+The checks need Python 3.10 or newer. The review-canvas package needs Node 26
+and the pnpm version pinned in its `package.json`.
 
-Install [Pragma](https://github.com/zakstak/pragma) once per clone for formatting,
-lint, secret scanning, skill versions, and skill shape checks. Pre-push hooks
-run the Python suite and review-canvas typecheck, build, tests, and TypeScript
-documentation examples.
+Install [Pragma](https://github.com/zakstak/pragma) once per clone for
+formatting, lint, secret scanning, skill versions, and skill shape checks.
+Pre-push hooks run the Python suite and review-canvas typecheck, build, tests,
+and TypeScript documentation examples.
 
 If this clone uses `core.hooksPath=.githooks`, unset that local setting before
 installing Pragma:
@@ -59,8 +58,8 @@ native binary selection. Those profiles isolate host configuration, but are not
 an operating-system sandbox.
 
 For review-canvas changes, also run the package's
-[checks](packages/review-canvas/README.md#check). Pull requests run the skill and
-package checks in GitHub Actions; review-canvas changes also run the server,
+[checks](packages/review-canvas/README.md#check). Pull requests run the skill
+and package checks in GitHub Actions; review-canvas changes also run the server,
 browser, and packed-distribution tests on Linux and macOS.
 
 ## Skill versions
@@ -68,10 +67,10 @@ browser, and packed-distribution tests on Linux and macOS.
 Each skill records its version as `metadata.version` in its `SKILL.md`
 frontmatter. Use [semantic versions](https://semver.org). Any change inside a
 skill folder must raise that skill's version, including a deleted or renamed
-file. Whether a change is major, minor, or a patch is a
-judgment call, with two exceptions that must raise the major version: a skill
-whose folder name changes, because `/old-name` stops working, and a skill that
-moves into `host-skills/`, because the other hosts lose it.
+file. Whether a change is major, minor, or a patch is a judgment call, with two
+exceptions that must raise the major version: a skill whose folder name changes,
+because `/old-name` stops working, and a skill that moves into `host-skills/`,
+because the other hosts lose it.
 
 `tests/check_skill_versions.py` compares every skill with the merge base of your
 branch and `origin/main`. It fails when:
@@ -103,7 +102,7 @@ Match each plugin's name and release version across its Codex and Claude
 manifests. Raise the release version when its contents change. Skill changes
 also need the version increase described above.
 
-The bundled catalogs select core from the same source tree. Managed catalogs
-can pin immutable source revisions; publish the source before updating those
-pins. Keep machine registration, credentials, private source URLs, and deployment
+The bundled catalogs select core from the same source tree. Managed catalogs can
+pin immutable source revisions; publish the source before updating those pins.
+Keep machine registration, credentials, private source URLs, and deployment
 defaults in installation configuration outside core.
