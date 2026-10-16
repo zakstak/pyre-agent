@@ -23,38 +23,70 @@ export const SECTIONS = [
     title: "Appearance",
     items: [
       { id: "mode", title: "Mode", keywords: "light dark system theme" },
-      { id: "palette", title: "Palette", keywords: "theme colours colors lifted violet charcoal slate ocean forest sand ember rose mono" },
-      { id: "preview", title: "Preview", keywords: "sample diff thread light dark" },
+      {
+        id: "palette",
+        title: "Palette",
+        keywords:
+          "theme colours colors lifted violet charcoal slate ocean forest sand ember rose mono",
+      },
+      {
+        id: "preview",
+        title: "Preview",
+        keywords: "sample diff thread light dark",
+      },
     ],
   },
   {
     id: "repositories",
     title: "Repositories",
     items: [
-      { id: "monitored", title: "Monitored repositories", keywords: "checkouts branch remove worktree" },
-      { id: "found", title: "Found, not monitored", keywords: "monitor discovered accept" },
-      { id: "scan", title: "Scan directories", keywords: "rescan directory path roots" },
+      {
+        id: "monitored",
+        title: "Monitored repositories",
+        keywords: "checkouts branch remove worktree",
+      },
+      {
+        id: "found",
+        title: "Add repository",
+        keywords: "monitor discovered accept found",
+      },
+      {
+        id: "scan",
+        title: "Scan directories",
+        keywords: "rescan directory path roots",
+      },
     ],
   },
 ] as const satisfies ReadonlyArray<Section>;
 
 export type SectionId = (typeof SECTIONS)[number]["id"];
 
-export const isSectionId = (id: string): id is SectionId => SECTIONS.some((section) => section.id === id);
+export const isSectionId = (id: string): id is SectionId =>
+  SECTIONS.some((section) => section.id === id);
 
-export const sectionOf = (id: SectionId): Section => SECTIONS.find((section) => section.id === id) ?? SECTIONS[0];
+export const sectionOf = (id: SectionId): Section =>
+  SECTIONS.find((section) => section.id === id) ?? SECTIONS[0];
 
 /** The path of a section, or of one thing in it. */
 export const settingsPath = (section: SectionId, item?: string): string =>
   `/settings/${section}${item === undefined ? "" : `#${item}`}`;
 
 /** The things whose title, words, or section the text is in, with their sections, in the sections' order. */
-export const searchSettings = (text: string): ReadonlyArray<{ readonly section: (typeof SECTIONS)[number]; readonly item: SettingItem }> => {
+export const searchSettings = (
+  text: string,
+): ReadonlyArray<{
+  readonly section: (typeof SECTIONS)[number];
+  readonly item: SettingItem;
+}> => {
   const needle = text.trim().toLowerCase();
   if (needle === "") return [];
   return SECTIONS.flatMap((section) =>
     section.items
-      .filter((item) => `${item.title} ${item.keywords} ${section.title}`.toLowerCase().includes(needle))
+      .filter((item) =>
+        `${item.title} ${item.keywords} ${section.title}`
+          .toLowerCase()
+          .includes(needle),
+      )
       .map((item) => ({ section, item })),
   );
 };

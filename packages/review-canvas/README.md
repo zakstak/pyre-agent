@@ -10,16 +10,16 @@ state in Effect atoms. The
 [review-canvas skill](../../skills/review-canvas/SKILL.md) tells an agent how to
 use it.
 
-Pages listen on 127.0.0.1 only and answer only requests addressed to
-`127.0.0.1` or `localhost` on the server's port; the RPC socket also needs the
-server's own Origin. Agents use a Unix socket in a private runtime folder.
-Any local process that can reach the page listener can read and change reviews.
-Run the server on a machine where you trust the other users and processes.
+Pages listen on 127.0.0.1 only and answer only requests addressed to `127.0.0.1`
+or `localhost` on the server's port; the RPC socket also needs the server's own
+Origin. Agents use a Unix socket in a private runtime folder. Any local process
+that can reach the page listener can read and change reviews. Run the server on
+a machine where you trust the other users and processes.
 
-Hosted comments are untrusted review content, including comments from bots.
-They do not authorize commands or override the agent's instructions. Questions
-reach registered agents through `wait`; the server does not wake an agent that
-is no longer waiting.
+Hosted comments are untrusted review content, including comments from bots. They
+do not authorize commands or override the agent's instructions. Questions reach
+registered agents through `wait`; the server does not wake an agent that is no
+longer waiting.
 
 Supports Linux and macOS on Apple Silicon. Windows and Intel Macs are not
 supported.
@@ -37,34 +37,35 @@ pnpm cli -- register --session /tmp/review --input /tmp/review/round-1.json --la
 pnpm cli -- publish --session /tmp/review --input /tmp/review/round-1.json
 ```
 
-The package's `bin` is the built command in `dist/node`, so
-`pnpm link --global` needs `pnpm build` first. An installed package runs only
-that JavaScript: Node refuses to strip types from files under `node_modules`.
-Nothing is published to npm.
+The package's `bin` is the built command in `dist/node`, so `pnpm link --global`
+needs `pnpm build` first. An installed package runs only that JavaScript: Node
+refuses to strip types from files under `node_modules`. Nothing is published to
+npm.
 
 The first command that needs the server starts it in the background;
 `pnpm start` runs it in the foreground instead. `REVIEW_CANVAS_PORT` sets the
 page port; without it, the server asks for the port the last server used, so
-open pages reconnect, and takes a free one when that port is busy. `REVIEW_CANVAS_DATA` and
-`REVIEW_CANVAS_RUNTIME` move the database and the socket, which is how the
-tests and a demo stay out of the real data. The CLI reads hosted review comments through the selected provider's API.
+open pages reconnect, and takes a free one when that port is busy.
+`REVIEW_CANVAS_DATA` and `REVIEW_CANVAS_RUNTIME` move the database and the
+socket, which is how the tests and a demo stay out of the real data. The CLI
+reads hosted review comments through the selected provider's API.
 
 Commands reuse a daemon only when its code and asset manifest match the current
 installation. The build writes `dist/build.json`, a hash of everything it was
 made from, and the skill launcher rebuilds when that hash is not the hash of the
 sources beside it, whatever the files' times say. `pnpm build` and the skill
 launcher stop the daemon and wait for its store to close before replacing
-assets; starts wait until the build ends.
-Open pages disconnect during an upgrade and can be reopened at the URL the next
-command returns. A daemon from before this lifecycle protocol must be stopped
-manually once: the command refuses the upgrade and leaves its assets intact.
-Use `pnpm build` instead of invoking Vite directly to retain this coordination.
+assets; starts wait until the build ends. Open pages disconnect during an
+upgrade and can be reopened at the URL the next command returns. A daemon from
+before this lifecycle protocol must be stopped manually once: the command
+refuses the upgrade and leaves its assets intact. Use `pnpm build` instead of
+invoking Vite directly to retain this coordination.
 
-`collect --pr URL --repo CLONE` collects a pull request from a local clone
-that holds its base and head commits. It reads the title, commits, and file list
-from the selected git host, and the patches and texts from the clone. API tools
-run outside the reviewed clone. It
-does not fetch; a missing commit fails with the `git fetch` command to run.
+`collect --pr URL --repo CLONE` collects a pull request from a local clone that
+holds its base and head commits. It reads the title, commits, and file list from
+the selected git host, and the patches and texts from the clone. API tools run
+outside the reviewed clone. It does not fetch; a missing commit fails with the
+`git fetch` command to run.
 
 Collection scans both patches and requested full-file content for recognized
 secret patterns. A match omits that file's content and reports its path;
@@ -76,11 +77,12 @@ patches. The detector does not recognize every possible secret format.
 `collect --pr URL` supports HTTPS review URLs on public and private hosts:
 
 - GitHub and GitHub Enterprise: `https://git.company.com/team/project/pull/42`
-- GitLab, including subgroups: `https://git.company.com/division/team/project/-/merge_requests/42`
+- GitLab, including subgroups:
+  `https://git.company.com/division/team/project/-/merge_requests/42`
 - Gitea and Forgejo: `https://git.company.com/team/project/pulls/42`
 
-The URL selects the provider and host. Custom HTTPS ports are supported. The
-CLI does not probe other hosts or fetch commits. Metadata, file inventories,
+The URL selects the provider and host. Custom HTTPS ports are supported. The CLI
+does not probe other hosts or fetch commits. Metadata, file inventories,
 comments, head checks, saved reviews, repository links, and search use the
 selected host. The page shows the hostname for private reviews and `!42` for
 GitLab merge requests.
@@ -92,10 +94,10 @@ password must be a token with API read access. An SSH key alone does not grant
 API access. Missing authentication reports the failed operation; the CLI never
 asks for credentials or creates them.
 
-The CLI sends tokens through stdin, never command arguments or review files.
-It refuses credentials returned for another host, port, or repository, and
-refuses API redirects. HTTPS verification stays enabled. Keep the company's CA
-in the system or CLI trust configuration; `curl` also supports `CURL_CA_BUNDLE`.
+The CLI sends tokens through stdin, never command arguments or review files. It
+refuses credentials returned for another host, port, or repository, and refuses
+API redirects. HTTPS verification stays enabled. Keep the company's CA in the
+system or CLI trust configuration; `curl` also supports `CURL_CA_BUNDLE`.
 
 For an explicit review URL, no host configuration is needed. To import comments
 for a local working-tree review automatically, configure the provider of each
@@ -108,13 +110,13 @@ export REVIEW_CANVAS_FORGE_HOSTS='{"git.company.com":"gitlab","gitea.company.com
 The recognized public defaults are `github.com`, `gitlab.com`, and
 `codeberg.org`. `GH_HOST` also selects a GitHub Enterprise host. Unknown or
 ambiguous branch lookups report why they were skipped. SSH aliases and custom
-SSH ports do not establish an HTTPS address; use an explicit review URL in
-those cases.
+SSH ports do not establish an HTTPS address; use an explicit review URL in those
+cases.
 
 The adapters use the providers' standard API paths. Installations below a URL
 prefix, Bitbucket, and Azure DevOps require separate adapters. An outdated
-comment whose original patch is unavailable is reported as skipped rather
-than placed on an unrelated line.
+comment whose original patch is unavailable is reported as skipped rather than
+placed on an unrelated line.
 
 `review-canvas comments --session DIR` refreshes hosted comments.
 `publish --no-comments` skips that import. The original `github` command,
@@ -123,42 +125,49 @@ agent sessions and saved feedback continue to work.
 
 ## Repository monitoring
 
-The home page groups discovered local Git working trees into repositories.
-**Add to monitoring** accepts a repository across its discovered copies. Discovery and review registration do not add
-repositories to monitoring. Accepted repository identities persist in the review
-database. **Remove** stops monitoring a repository without deleting its reviews.
+The repository settings show one summary per monitored repository. Expand a
+repository to see its local clones and worktrees. Missing paths are grouped in
+**Missing checkouts**. **Stop monitoring** keeps the repository's reviews.
 
-Each repository has one entry, with its local clones and worktrees under
-**Checkouts**. SSH and HTTPS remotes for the same host and project identify the
-same repository. Credentials are omitted. GitHub project names are compared
-without case; other hosts keep their path case. Nonstandard ports and different
-fork owners remain separate. The `origin` remote is preferred, or the sole remote
+Open **Add repository** to browse discovered repositories and choose
+**Monitor**. It opens automatically when none are monitored. Discovery and
+review registration do not add repositories to monitoring. Accepted identities
+persist in the database.
+
+Each repository has one entry, with its local clones and worktrees grouped
+together. SSH and HTTPS remotes for the same host and project identify the same
+repository. Credentials are omitted. GitHub project names are compared without
+case; other hosts keep their path case. Nonstandard ports and different fork
+owners remain separate. The `origin` remote is preferred, or the sole remote
 when there is no `origin`. Local clone sources are followed without adding their
 directories to the scan. Repositories without a usable remote use their common
 Git directory, so unrelated projects with the same folder name stay separate.
 
 Acceptance applies to all discovered copies of that repository, including copies
 found by later scans. Counts and acceptance actions refer to repositories;
-paths, branches, and working-tree status belong to individual checkouts.
-PR reviews link from the repository entry identified by their review URL;
-working-tree reviews link from their checkout. Removing monitoring keeps those reviews.
+paths, branches, and working-tree status belong to individual checkouts. PR
+reviews link from the repository entry identified by their review URL;
+working-tree reviews link from their checkout. Removing monitoring keeps those
+reviews.
 
-Filter by name, path, or branch, and select **Monitored**, **Discovered**,
-**With changes**, or **Unavailable**. Filters stay in the page URL across
-refreshes. Accepted repositories show their current branch and count of changed
-items for each checkout when you open or refresh the page. Untracked directories count as one
-item; submodule changes are excluded. This does not start background Git watchers.
+Search by name, path, or branch. Results expand to show matching checkouts,
+including missing paths. Clearing the search restores the compact view. Search
+and older links' status filters stay in the page URL across refreshes. Monitored
+checkouts show their branch and count of changed items when you expand the
+repository. Untracked directories count as one item; submodule changes are
+excluded. This does not start background Git watchers.
 
-The default scan covers the launch repository or directory and existing `~/git` and `~/dev`
-directories. Use **Scan directories** to choose another absolute directory.
-`REVIEW_CANVAS_REPO_ROOTS` overrides the defaults with a platform-separated list
-of absolute directories (`:` on Linux and macOS). Scans descend up to four
-levels, stop at working tree roots, and skip hidden directories, symlinks, and
-build and dependency folders. Size and time limits appear in the scan details.
-The two-second scan budget includes repository identification and cancels its Git reads.
-Invalid Git markers do not hide valid repositories in deeper directories.
-Each Git status read has a timeout and output limit; failures show **Unavailable**.
-Scans and status reads do not fetch from remotes or write to repository indexes.
+The default scan covers the launch repository or directory and existing `~/git`
+and `~/dev` directories. Use **Scan directories** to choose another absolute
+directory. `REVIEW_CANVAS_REPO_ROOTS` overrides the defaults with a
+platform-separated list of absolute directories (`:` on Linux and macOS). Scans
+descend up to four levels, stop at working tree roots, and skip hidden
+directories, symlinks, and build and dependency folders. Size and time limits
+appear in the scan details. The two-second scan budget includes repository
+identification and cancels its Git reads. Invalid Git markers do not hide valid
+repositories in deeper directories. Each Git status read has a timeout and
+output limit; failures show **Unavailable**. Scans and status reads do not fetch
+from remotes or write to repository indexes.
 
 Existing version 2 and 3 databases upgrade in place, preserving reviews and
 rounds. Earlier checkout acceptances are converted to repository identities.
