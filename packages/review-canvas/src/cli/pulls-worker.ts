@@ -4,11 +4,13 @@ import { Schema } from "effect";
 import { forgeClients, readOpenPullRequests } from "./hosted.ts";
 import { forgeRemote } from "./github.ts";
 import { parsePullRequest } from "../schema/forge-url.ts";
-import { RepositoryPullRequests } from "../schema/pull-requests.ts";
+import { RepositoryPullRequests, PullScope } from "../schema/pull-requests.ts";
 
 const read = (): RepositoryPullRequests => {
   try {
-    const address = Schema.decodeUnknownSync(Schema.String)(workerData);
+    const { address, scope } = Schema.decodeUnknownSync(
+      Schema.Struct({ address: Schema.String, scope: PullScope }),
+    )(workerData);
     const home = forgeRemote(`https://${address}`);
     if (home === undefined)
       return {
@@ -28,7 +30,11 @@ const read = (): RepositoryPullRequests => {
         kind: "unavailable",
         message: "This repository has no supported HTTPS review URL.",
       };
-    return { kind: "ready", items: readOpenPullRequests(pull, forgeClients) };
+    return {
+      kind: "ready",
+      items: readOpenPullRequests(pull, forgeClients, scope),
+      fetched_at: new Date().toISOString(),
+    };
   } catch (error) {
     return {
       kind: "unavailable",

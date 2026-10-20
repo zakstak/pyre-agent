@@ -221,3 +221,11 @@ real pull request's comments, read with the signed-in `gh`, into a round built
 from a local clone, and checks that every thread GitHub calls current attaches
 on the line GitHub shows it on. It only reads from GitHub. CI does not run it,
 since it needs `gh` credentials and the pull request's commits in the clone.
+
+The home inbox loads all monitored repositories independently. Choose **Needs my
+review** to use the authenticated GitHub review-request search or GitLab
+reviewer filter. Gitea/Forgejo reports that this filter is unsupported.
+Repository and search choices, selected files, and reading positions stay in
+your browser. PR lists and direct diffs refresh every minute while visible and
+when the window regains focus. A failed list refresh keeps the previous result
+with an explicit stale notice.

@@ -1,7 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { parseRows } from "../../review/patch.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
 import type { PullRequestUrl } from "../../schema/primitives.ts";
@@ -9,6 +9,11 @@ import type { RepositoryId } from "../../schema/repositories.ts";
 import { pullRequestKey } from "../../schema/target.ts";
 import { homeAtom } from "../home/data.ts";
 import { ReviewStack } from "../home/PullRequests.tsx";
+import {
+  useFreshness,
+  usePreference,
+  useReadingPosition,
+} from "../preferences.ts";
 import { epochAtom, PageClient } from "../rpc.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -78,7 +83,14 @@ export const ReadOnlyDiff = ({ file }: { readonly file: ReviewFile }) => (
 );
 
 const Files = ({ input }: { readonly input: ReviewInput }) => {
-  const [path, setPath] = useState("");
+  const [path, setPath] = usePreference(
+    "file",
+    "",
+    input.target.kind === "worktree" ? input.target.title : input.target.url,
+  );
+  useReadingPosition(
+    `review-canvas:reading:${location.pathname}:${location.search}:${input.target.head_sha}`,
+  );
   const file = input.files.find((item) => item.path === path) ?? input.files[0];
   return (
     <>
@@ -116,6 +128,7 @@ export const PullPage = ({
   const atom = snapshotAtom(request);
   const result = useAtomValue(atom);
   const refresh = useAtomRefresh(atom);
+  useFreshness(refresh, result.waiting);
   const snapshot = Option.getOrUndefined(AsyncResult.value(result));
   const home = Option.getOrUndefined(AsyncResult.value(useAtomValue(homeAtom)));
   const review = home?.reviews.find(

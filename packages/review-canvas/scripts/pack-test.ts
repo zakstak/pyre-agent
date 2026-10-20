@@ -54,7 +54,7 @@ const installed = join(app, "node_modules/@pyre-agent/review-canvas");
 assert.ok(!existsSync(join(installed, "src")), "the tarball ships src");
 const discovered = await new Promise<unknown>((resolve, reject) => {
   const worker = new Worker(join(installed, "dist/node/pulls.js"), {
-    workerData: "unknown.invalid/team/project",
+    workerData: { address: "unknown.invalid/team/project", scope: "all" },
     env: { ...process.env, REVIEW_CANVAS_FORGE_HOSTS: "{}" },
   });
   worker.once("message", (result: unknown) => {
