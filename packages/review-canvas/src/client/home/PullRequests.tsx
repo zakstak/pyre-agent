@@ -25,8 +25,10 @@ const Layer = ({
   layer,
   reviews,
   current,
+  repository,
 }: {
   readonly layer: StackLayer;
+  readonly repository: RepositoryEntry;
   readonly reviews: ReadonlyArray<ReviewSummary>;
   readonly current?: string | undefined;
 }) => {
@@ -45,7 +47,11 @@ const Layer = ({
     >
       <a
         className={cn(TOUCH_TARGET, "font-semibold hover:underline")}
-        href={review === undefined ? pull.url : `/reviews/${review.id}`}
+        href={
+          review === undefined
+            ? `/pulls?${new URLSearchParams({ repo: repository.id, url: pull.url })}`
+            : `/reviews/${review.id}`
+        }
       >
         {number(pull)} {pull.title}
       </a>
@@ -140,6 +146,7 @@ const RepositoryPullRequests = ({
                       <Layer
                         key={layer.pull.url}
                         layer={layer}
+                        repository={repository}
                         reviews={reviews}
                         current={current}
                       />

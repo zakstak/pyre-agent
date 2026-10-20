@@ -128,8 +128,13 @@ agent sessions and saved feedback continue to work.
 The home page lists every open PR for the selected monitored repository, even
 when no agent has registered a review. Choose a repository or use **Refresh
 PRs** to read the host again. Existing local reviews open in review-canvas;
-other PRs link to their host. Host authentication failures appear separately
-from saved reviews, which remain usable offline.
+other PRs open a local diff immediately. Direct browsing creates no review or
+agent thread. An existing guided review remains available alongside the diff.
+The server uses retained local commits when available; otherwise it fetches PR
+objects into a temporary repository and removes it after collection. Working
+files, branches, and indexes in monitored checkouts stay unchanged. Host
+authentication failures appear separately from saved reviews, which remain
+usable offline.
 
 PRs whose base branches match other open PRs' source branches appear as stacks,
 ordered from base to tip. Each layer shows its dependency. The same navigation

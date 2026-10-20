@@ -82,7 +82,7 @@ test(
       await list
         .getByRole("link", { name: "#3 Layer 3", exact: true })
         .getAttribute("href"),
-      "https://github.com/acme/project/pull/3",
+      `/pulls?${new URLSearchParams({ repo: "remote:github.com/acme/project", url: "https://github.com/acme/project/pull/3" })}`,
     );
     await page.getByText("No reviews yet.", { exact: false }).waitFor();
     assert.equal(

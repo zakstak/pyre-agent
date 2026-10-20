@@ -11,6 +11,7 @@ import type { PatchDigest, RepoPath, ReviewId } from "../schema/primitives.ts";
 import { repositoryId } from "../schema/repositories.ts";
 import { PageRpcs, Refused, type ReviewSnapshot } from "../schema/rpc.ts";
 import { NoSuchReview, StaleRevision, type Store } from "../store/store.ts";
+import { browsePull } from "./browse.ts";
 import { repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
@@ -80,6 +81,24 @@ const handlers = (roots: ReadonlyArray<string>) =>
               const address = repository.identity.address;
               return yield* Effect.promise((signal) =>
                 repositoryPullRequests(address, signal),
+              );
+            }),
+          ),
+
+        "pulls.read": ({ id, url }) =>
+          touched(
+            Effect.gen(function* () {
+              const repository = store
+                .monitoredRepositories()
+                .find((item) => repositoryId(item.identity) === id);
+              if (repository?.identity.kind !== "remote")
+                return {
+                  kind: "unavailable" as const,
+                  message:
+                    "Monitor this repository in Settings before opening its PRs.",
+                };
+              return yield* Effect.promise((signal) =>
+                browsePull(repository, url, signal),
               );
             }),
           ),

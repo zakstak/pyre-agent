@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { nonEmptyText, PullRequestUrl } from "./primitives.ts";
+import { ReviewInput } from "./input.ts";
 
 /** Repository PRs exist independently of locally registered reviews. */
 export const OpenPullRequest = Schema.Struct({
@@ -23,3 +24,18 @@ export const RepositoryPullRequests = Schema.Union([
   }),
 ]);
 export type RepositoryPullRequests = typeof RepositoryPullRequests.Type;
+
+/** A browse-only snapshot; collecting it does not create a review or an agent thread. */
+export const PullRequestSnapshot = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("ready"),
+    input: ReviewInput,
+    warnings: Schema.Array(Schema.String),
+    collected_at: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("unavailable"),
+    message: Schema.String,
+  }),
+]);
+export type PullRequestSnapshot = typeof PullRequestSnapshot.Type;
