@@ -43,7 +43,13 @@ test(
       return git("rev-parse", "HEAD");
     };
     const base = commit("before\n"),
-      head = commit("after <script>literal</script>\n");
+      head = commit(
+        "after <script>literal</script>\n" +
+          Array.from({ length: 150 }, (_, index) => `line ${index}`).join(
+            "\n",
+          ) +
+          "\n",
+      );
     git("remote", "add", "origin", "https://github.com/acme/project.git");
     const url = "https://github.com/acme/project/pull/7";
     writeFileSync(
@@ -117,10 +123,27 @@ test(
       .getByRole("button", { name: "Refresh diff", exact: true })
       .isEnabled();
     await page.getByLabel("Changed file").selectOption("second.txt");
+    await page
+      .getByRole("region", { name: "Diff for second.txt", exact: true })
+      .evaluate((node) => {
+        node.scrollTop = 300;
+      });
+    await page.waitForFunction(() =>
+      Object.keys(sessionStorage).some(
+        (key) =>
+          key.includes("review-canvas:diff:second.txt") &&
+          sessionStorage.getItem(key) === "300",
+      ),
+    );
     await page.reload();
     await page
       .getByRole("region", { name: "Diff for second.txt", exact: true })
       .waitFor();
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[aria-label="Diff for second.txt"]')
+          ?.scrollTop === 300,
+    );
     assert.equal(
       await page.getByLabel("Changed file").inputValue(),
       "second.txt",

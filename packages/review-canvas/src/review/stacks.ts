@@ -1,3 +1,4 @@
+import type { PullRequestUrl } from "../schema/primitives.ts";
 import type { OpenPullRequest } from "../schema/pull-requests.ts";
 import { pullRequestKey } from "../schema/target.ts";
 
@@ -16,15 +17,28 @@ export const pullRequestStacks = (
   ];
   const parents = new Map<OpenPullRequest, OpenPullRequest>();
   for (const pull of unique) {
-    const candidates = unique.filter(
-      (other) =>
-        other !== pull &&
-        other.same_repository &&
-        other.head_branch === pull.base_branch,
-    );
-    const [parent] = candidates;
-    if (parent !== undefined && candidates.length === 1)
-      parents.set(pull, parent);
+    // Most recent historical base wins. Reused branch names remain ambiguous.
+    const branches =
+      pull.history === undefined
+        ? [pull.base_branch]
+        : pull.history.timeline_complete
+          ? pull.history.base_branches.filter(
+              (branch) => branch !== pull.history?.default_branch,
+            )
+          : [];
+    for (const branch of branches) {
+      const candidates = unique.filter(
+        (other) =>
+          other !== pull &&
+          other.same_repository &&
+          other.head_branch === branch,
+      );
+      if (candidates.length === 0) continue;
+      const [parent] = candidates;
+      if (parent !== undefined && candidates.length === 1)
+        parents.set(pull, parent);
+      break;
+    }
   }
   // Corrupt or transitional host data must never make a cyclic stack, or hide its PRs.
   for (const pull of unique) {
@@ -54,4 +68,29 @@ export const pullRequestStacks = (
       }
       return layers;
     });
+};
+
+/** Only the selected tip's ancestors participate; sibling branches never enter a cumulative diff. */
+export const stackAncestors = (
+  items: ReadonlyArray<OpenPullRequest>,
+  url: PullRequestUrl,
+): ReadonlyArray<OpenPullRequest> => {
+  const stack = pullRequestStacks(items).find((layers) =>
+    layers.some(
+      (layer) => pullRequestKey(layer.pull.url) === pullRequestKey(url),
+    ),
+  );
+  let layer = stack?.find(
+    (layer) => pullRequestKey(layer.pull.url) === pullRequestKey(url),
+  );
+  const chain: OpenPullRequest[] = [];
+  while (layer !== undefined) {
+    chain.unshift(layer.pull);
+    const parent = layer.parent;
+    layer =
+      parent === undefined
+        ? undefined
+        : stack?.find((item) => item.pull === parent);
+  }
+  return chain;
 };

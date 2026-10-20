@@ -1,9 +1,10 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Effect, Option } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { parseRows } from "../../review/patch.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
+import type { ComparisonRequest } from "../../schema/pull-requests.ts";
 import type { PullRequestUrl } from "../../schema/primitives.ts";
 import type { RepositoryId } from "../../schema/repositories.ts";
 import { pullRequestKey } from "../../schema/target.ts";
@@ -22,7 +23,11 @@ import { frame, SkipLink, TopBar } from "../ui/page.tsx";
 import { Time } from "../ui/text.tsx";
 
 const snapshotAtom = Atom.family(
-  (request: { readonly id: RepositoryId; readonly url: PullRequestUrl }) =>
+  (request: {
+    readonly id: RepositoryId;
+    readonly url: PullRequestUrl;
+    readonly comparison: ComparisonRequest;
+  }) =>
     PageClient.runtime.atom((get) => {
       if (get(epochAtom) === 0) return Effect.never;
       return Effect.flatMap(PageClient, (client) =>
@@ -32,55 +37,63 @@ const snapshotAtom = Atom.family(
 );
 
 /** Shares the review parser and semantic diff colors without registering a synthetic agent. */
-export const ReadOnlyDiff = ({ file }: { readonly file: ReviewFile }) => (
-  <div className="overflow-hidden rounded-panel border border-separator">
-    <div className="border-b border-separator bg-surface p-4">
-      <h3 className="wrap-anywhere font-mono text-technical">{file.path}</h3>
-      <p className="text-small text-muted">
-        {file.status} · +{file.additions} / −{file.deletions}
-      </p>
-      {file.patch_complete === false ? (
-        <p className="text-small text-warning">This patch is incomplete.</p>
-      ) : null}
-    </div>
-    {file.patch === undefined ? (
-      <p className="p-4">
-        Patch unavailable
-        {file.patch_note === undefined ? "." : `: ${file.patch_note}.`}
-      </p>
-    ) : (
-      <div
-        role="region"
-        aria-label={`Diff for ${file.path}`}
-        tabIndex={0}
-        className="max-h-[44rem] overflow-auto bg-code py-4"
-      >
-        <table className="w-full border-collapse font-mono text-technical leading-normal">
-          <tbody>
-            {parseRows(file.patch).map((row) => (
-              <tr
-                key={row.index}
-                className={cn(
-                  row.kind === "add" && "bg-diff-addition",
-                  row.kind === "del" && "bg-diff-deletion",
-                  row.kind === "hunk" && "bg-subtle",
-                )}
-              >
-                <td className="select-none px-2 text-right text-muted">
-                  {row.old}
-                </td>
-                <td className="select-none px-2 text-right text-muted">
-                  {row.new}
-                </td>
-                <td className="w-full whitespace-pre px-4">{row.text}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+export const ReadOnlyDiff = ({ file }: { readonly file: ReviewFile }) => {
+  const region = useRef<HTMLDivElement>(null);
+  useReadingPosition(
+    `review-canvas:diff:${file.path}:${file.fingerprint}`,
+    region,
+  );
+  return (
+    <div className="overflow-hidden rounded-panel border border-separator">
+      <div className="border-b border-separator bg-surface p-4">
+        <h3 className="wrap-anywhere font-mono text-technical">{file.path}</h3>
+        <p className="text-small text-muted">
+          {file.status} · +{file.additions} / −{file.deletions}
+        </p>
+        {file.patch_complete === false ? (
+          <p className="text-small text-warning">This patch is incomplete.</p>
+        ) : null}
       </div>
-    )}
-  </div>
-);
+      {file.patch === undefined ? (
+        <p className="p-4">
+          Patch unavailable
+          {file.patch_note === undefined ? "." : `: ${file.patch_note}.`}
+        </p>
+      ) : (
+        <div
+          ref={region}
+          role="region"
+          aria-label={`Diff for ${file.path}`}
+          tabIndex={0}
+          className="max-h-[44rem] overflow-auto bg-code py-4"
+        >
+          <table className="w-full border-collapse font-mono text-technical leading-normal">
+            <tbody>
+              {parseRows(file.patch).map((row) => (
+                <tr
+                  key={row.index}
+                  className={cn(
+                    row.kind === "add" && "bg-diff-addition",
+                    row.kind === "del" && "bg-diff-deletion",
+                    row.kind === "hunk" && "bg-subtle",
+                  )}
+                >
+                  <td className="select-none px-2 text-right text-muted">
+                    {row.old}
+                  </td>
+                  <td className="select-none px-2 text-right text-muted">
+                    {row.new}
+                  </td>
+                  <td className="w-full whitespace-pre px-4">{row.text}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Files = ({ input }: { readonly input: ReviewInput }) => {
   const [path, setPath] = usePreference(
@@ -124,7 +137,27 @@ export const PullPage = ({
   readonly id: RepositoryId;
   readonly url: PullRequestUrl;
 }) => {
-  const request = useMemo(() => ({ id, url }), [id, url]);
+  const historical =
+    new URLSearchParams(location.search).get("history") === "1";
+  const [storedMode, setMode] = usePreference(
+    "comparison",
+    historical ? "layer" : "host",
+    url,
+  );
+  const mode =
+    storedMode === "cumulative"
+      ? "cumulative"
+      : storedMode === "layer" || historical
+        ? "layer"
+        : "host";
+  const request = useMemo(
+    () => ({
+      id,
+      url,
+      comparison: { mode, historical } satisfies ComparisonRequest,
+    }),
+    [id, url, mode, historical],
+  );
   const atom = snapshotAtom(request);
   const result = useAtomValue(atom);
   const refresh = useAtomRefresh(atom);
@@ -152,6 +185,16 @@ export const PullPage = ({
       >
         <div className="mb-4 flex flex-wrap items-center gap-4">
           <h1 className="text-heading font-semibold">Pull request diff</h1>
+          <select
+            aria-label="Comparison scope"
+            className={cn(FIELD, "w-auto max-w-full")}
+            value={mode}
+            onChange={(event) => setMode(event.currentTarget.value)}
+          >
+            {historical ? null : <option value="host">PR as hosted</option>}
+            <option value="layer">This layer</option>
+            <option value="cumulative">Stack through this PR</option>
+          </select>
           <Button disabled={result.waiting} onClick={refresh}>
             Refresh diff
           </Button>
@@ -174,9 +217,6 @@ export const PullPage = ({
               {snapshot.input.files.length} files · collected{" "}
               <Time at={snapshot.collected_at} />
             </p>
-            <p className="mb-4 wrap-anywhere font-mono text-technical">
-              Head {snapshot.input.target.head_sha}
-            </p>
             {snapshot.warnings.map((warning) => (
               <p key={warning} role="alert" className="mb-2 text-warning">
                 {warning}
@@ -194,8 +234,31 @@ export const PullPage = ({
                 </a>
               </p>
             )}
-            <ReviewStack target={snapshot.input.target} />
-            <Files input={snapshot.input} />
+            <ReviewStack
+              target={snapshot.input.target}
+              historical={historical}
+            />
+            <Files key={`${url}:${mode}`} input={snapshot.input} />
+            <details className="mt-4 text-small text-muted">
+              <summary className="cursor-pointer">
+                Snapshot details{historical ? " · final retained heads" : ""}
+              </summary>
+              <p className="my-2 wrap-anywhere font-mono text-technical">
+                Head {snapshot.input.target.head_sha}
+              </p>
+              {snapshot.comparison === undefined ? null : (
+                <p className="wrap-anywhere font-mono text-technical">
+                  Base {snapshot.comparison.base_sha}
+                </p>
+              )}
+              {historical ? (
+                <p>
+                  Reconstructed from retained final PR heads and base-change
+                  history. Earlier force-pushed revisions are not represented.
+                  Merge-sync and conflict-resolution changes may remain.
+                </p>
+              ) : null}
+            </details>
           </>
         ) : null}
       </main>

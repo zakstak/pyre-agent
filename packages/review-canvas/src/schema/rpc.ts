@@ -28,6 +28,7 @@ import { RepositoryId, RepositoryIdentity } from "./repositories.ts";
 import { ReviewState } from "./state.ts";
 import { Target } from "./target.ts";
 import {
+  ComparisonRequest,
   PullScope,
   RepositoryPullRequests,
   PullRequestSnapshot,
@@ -241,7 +242,11 @@ export class PageRpcs extends RpcGroup.make(
     success: RepositoryPullRequests,
   }),
   Rpc.make("pulls.read", {
-    payload: { id: RepositoryId, url: PullRequestUrl },
+    payload: {
+      id: RepositoryId,
+      url: PullRequestUrl,
+      comparison: Schema.optional(ComparisonRequest),
+    },
     success: PullRequestSnapshot,
   }),
   Rpc.make("repositories.accept", {

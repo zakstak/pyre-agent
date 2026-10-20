@@ -85,7 +85,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
             }),
           ),
 
-        "pulls.read": ({ id, url }) =>
+        "pulls.read": ({ id, url, comparison }) =>
           touched(
             Effect.gen(function* () {
               const repository = store
@@ -98,7 +98,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
                     "Monitor this repository in Settings before opening its PRs.",
                 };
               return yield* Effect.promise((signal) =>
-                browsePull(repository, url, signal),
+                browsePull(repository, url, signal, comparison),
               );
             }),
           ),

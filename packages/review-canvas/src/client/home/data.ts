@@ -5,7 +5,7 @@
 import { Effect, Schema } from "effect";
 import { Atom } from "effect/reactivity";
 import type { WorktreeRoot } from "../../schema/primitives.ts";
-import type { PullScope } from "../../schema/pull-requests.ts";
+import { PullScope } from "../../schema/pull-requests.ts";
 import { RepositoryId } from "../../schema/repositories.ts";
 import { epochAtom, PageClient } from "../rpc.ts";
 
@@ -105,7 +105,7 @@ export const repositoryPullRequestsAtom = Atom.family((key: string) =>
         Schema.decodeUnknownSync(
           Schema.Struct({
             id: RepositoryId,
-            scope: Schema.Literals(["all", "requested"]),
+            scope: PullScope,
           }),
         )(JSON.parse(key)),
       ),

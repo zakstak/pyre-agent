@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 
 /** URL values win over browser preferences, so links remain shareable. Storage is optional. */
 export const usePreference = (
@@ -48,26 +48,36 @@ export const useFreshness = (refresh: () => void, waiting: boolean) => {
 };
 
 /** Reading positions belong to this browser tab and this exact collected revision. */
-export const useReadingPosition = (key: string) => {
+export const useReadingPosition = (
+  key: string,
+  element?: RefObject<HTMLElement | null>,
+) => {
   useEffect(() => {
+    const node = element?.current;
+    if (element !== undefined && node == null) return;
+    const target = node ?? window;
     const frame = requestAnimationFrame(() => {
       try {
-        window.scrollTo(0, Number(sessionStorage.getItem(key) ?? 0));
+        const saved = Number(sessionStorage.getItem(key) ?? 0);
+        if (Number.isFinite(saved)) {
+          if (node) node.scrollTop = saved;
+          else window.scrollTo(0, saved);
+        }
       } catch {
         /* Optional storage. */
       }
     });
     const save = () => {
       try {
-        sessionStorage.setItem(key, String(window.scrollY));
+        sessionStorage.setItem(key, String(node?.scrollTop ?? window.scrollY));
       } catch {
         /* Optional storage. */
       }
     };
-    window.addEventListener("scroll", save, { passive: true });
+    target.addEventListener("scroll", save, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", save);
+      target.removeEventListener("scroll", save);
     };
-  }, [key]);
+  }, [key, element]);
 };
