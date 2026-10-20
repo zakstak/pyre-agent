@@ -229,3 +229,18 @@ Repository and search choices, selected files, and reading positions stay in
 your browser. PR lists and direct diffs refresh every minute while visible and
 when the window regains focus. A failed list refresh keeps the previous result
 with an explicit stale notice.
+
+Choose **All states and stack history** to discover open, merged, and closed
+GitHub PRs. Base-change events recover dependency links after branches were
+deleted or retargeted. Links are candidates until a comparison verifies retained
+commit ancestry. Reused branch names, incomplete timelines, or missing
+dependencies can make a comparison unavailable. Historical discovery is limited
+to 2000 PRs.
+
+The direct diff offers **This layer** and **Stack through this PR**. A layer
+starts at its immediate parent's retained head; a cumulative diff starts at the
+root PR's recorded base and includes only the selected PR's ancestors, excluding
+sibling branches. Historical comparisons reconstruct final retained heads, not
+every earlier force-pushed revision. Merge-sync and conflict-resolution changes
+can remain. GitLab and Gitea/Forgejo retain open-stack navigation and
+comparison; historical discovery currently requires GitHub.

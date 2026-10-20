@@ -1,6 +1,7 @@
 /** Existing synchronous host clients run off the server's event loop and are terminated when the read is cancelled. */
 import { parentPort, workerData } from "node:worker_threads";
 import { Schema } from "effect";
+import { readHistoricalPullRequests } from "./pull-history.ts";
 import { forgeClients, readOpenPullRequests } from "./hosted.ts";
 import { forgeRemote } from "./github.ts";
 import { parsePullRequest } from "../schema/forge-url.ts";
@@ -32,7 +33,10 @@ const read = (): RepositoryPullRequests => {
       };
     return {
       kind: "ready",
-      items: readOpenPullRequests(pull, forgeClients, scope),
+      items:
+        scope === "history"
+          ? readHistoricalPullRequests(pull, forgeClients)
+          : readOpenPullRequests(pull, forgeClients, scope),
       fetched_at: new Date().toISOString(),
     };
   } catch (error) {

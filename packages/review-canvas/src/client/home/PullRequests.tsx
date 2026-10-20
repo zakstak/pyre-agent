@@ -53,8 +53,8 @@ const Layer = ({
       <a
         className={cn(TOUCH_TARGET, "font-semibold hover:underline")}
         href={
-          review === undefined
-            ? `/pulls?${new URLSearchParams({ repo: repository.id, url: pull.url })}`
+          review === undefined || pull.history !== undefined
+            ? `/pulls?${new URLSearchParams({ repo: repository.id, url: pull.url, ...(pull.history === undefined ? {} : { history: "1" }) })}`
             : `/reviews/${review.id}`
         }
       >
@@ -62,6 +62,9 @@ const Layer = ({
       </a>
       <p className="text-small text-muted wrap-anywhere">
         {pull.head_branch} → {pull.base_branch}
+        {pull.history === undefined
+          ? null
+          : ` · ${pull.history.state.toLowerCase()}`}
         {parent === undefined ? null : ` · Depends on ${number(parent)}`}
         {review === undefined ? " · No local review" : " · Review available"}
         {current === pullRequestKey(pull.url) ? " · Current PR" : null}
@@ -71,6 +74,13 @@ const Layer = ({
             ·{" "}
             <a href={pull.url} className="underline">
               Open PR
+            </a>
+            {" · "}
+            <a
+              className="underline"
+              href={`/pulls?${new URLSearchParams({ repo: repository.id, url: pull.url, ...(pull.history === undefined ? {} : { history: "1" }) })}`}
+            >
+              Compare diff
             </a>
           </>
         )}
@@ -165,7 +175,9 @@ const RepositoryPullRequests = ({
                     ? "No matching PRs."
                     : scope === "requested"
                       ? "No PRs requesting your review."
-                      : "No open PRs."
+                      : scope === "history"
+                        ? "No PRs found in repository history."
+                        : "No open PRs."
                   : "This PR is no longer in the open PR list."}
               </p>
             );
@@ -176,6 +188,12 @@ const RepositoryPullRequests = ({
                   {layers.length > 1 ? (
                     <p className="mb-1 text-small font-semibold">
                       Stack · {layers.length} PRs · Base first
+                    </p>
+                  ) : null}
+                  {scope === "history" && layers.length > 1 ? (
+                    <p className="text-small text-muted">
+                      Links follow base-change history. Comparisons verify
+                      retained commit ancestry.
                     </p>
                   ) : null}
                   <ol>
@@ -206,7 +224,12 @@ export const PullRequests = ({ home }: { readonly home: HomeSnapshot }) => {
   );
   const [selected, setSelected] = usePreference("pr-repo", "all");
   const [storedScope, setScope] = usePreference("pr-scope", "all");
-  const scope = storedScope === "requested" ? "requested" : "all";
+  const scope =
+    storedScope === "requested"
+      ? "requested"
+      : storedScope === "history"
+        ? "history"
+        : "all";
   const [query, setQuery] = usePreference("pr-query", "");
   const visible =
     selected === "all"
@@ -240,6 +263,7 @@ export const PullRequests = ({ home }: { readonly home: HomeSnapshot }) => {
         >
           <option value="all">All open PRs</option>
           <option value="requested">Needs my review</option>
+          <option value="history">All states and stack history</option>
         </select>
         <input
           aria-label="Search PRs"
@@ -280,7 +304,13 @@ export const PullRequests = ({ home }: { readonly home: HomeSnapshot }) => {
 };
 
 /** The same base-to-tip navigation stays visible while reviewing one layer. */
-export const ReviewStack = ({ target }: { readonly target: Target }) => {
+export const ReviewStack = ({
+  target,
+  historical = false,
+}: {
+  readonly target: Target;
+  readonly historical?: boolean;
+}) => {
   const result = useAtomValue(homeAtom);
   const home = AsyncResult.value(result);
   if (target.kind === "worktree" || home._tag === "None") return null;
@@ -300,6 +330,7 @@ export const ReviewStack = ({ target }: { readonly target: Target }) => {
         repository={repository}
         reviews={home.value.reviews}
         current={pullRequestKey(target.url)}
+        scope={historical ? "history" : "all"}
       />
     </nav>
   );

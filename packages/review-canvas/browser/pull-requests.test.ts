@@ -50,7 +50,7 @@ test(
     );
     writeFileSync(
       join(bin, "gh"),
-      `#!/bin/sh\ncase "$*" in *acme/offline*) echo offline >&2; exit 1;; esac\ncat '${response}'\n`,
+      `#!/bin/sh\ncase "$*" in *acme/offline*) echo offline >&2; exit 1;; esac\nif [ "$1" = pr ]; then echo '[{"url":"https://github.com/acme/project/pull/4"}]'; exit 0; fi\ncat '${response}'\n`,
       {
         mode: 0o755,
       },
@@ -119,6 +119,9 @@ test(
       await list.getByText("Depends on #1", { exact: false }).count(),
       1,
     );
+    await list
+      .getByLabel("PR repository")
+      .selectOption("remote:github.com/acme/project");
     await list.getByRole("textbox", { name: "Search PRs" }).fill("Layer 4");
     assert.equal(await list.locator("li").count(), 1);
     await page.reload();
@@ -127,7 +130,16 @@ test(
       await list.getByRole("textbox", { name: "Search PRs" }).inputValue(),
       "Layer 4",
     );
+    assert.equal(
+      await list.getByLabel("PR repository").inputValue(),
+      "remote:github.com/acme/project",
+    );
     await list.getByRole("textbox", { name: "Search PRs" }).fill("");
+    await list.getByLabel("PR inbox").selectOption("requested");
+    await list.getByRole("link", { name: "#4 Layer 4", exact: true }).waitFor();
+    assert.equal(await list.locator("li").count(), 1);
+    await list.getByLabel("PR inbox").selectOption("all");
+    await list.getByRole("link", { name: "#1 Layer 1", exact: true }).waitFor();
     writeFileSync(response, "{}");
     await list
       .getByRole("group", { name: "github.com/acme/project", exact: true })
@@ -199,7 +211,7 @@ test(
       fullPage: true,
     });
     writeFileSync(response, "[]");
-    await stack.getByRole("button", { name: "Refresh PRs" }).click();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await stack
       .getByText("This PR is no longer in the open PR list.")
       .waitFor();

@@ -3,10 +3,19 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { missingCommits, openWorktree } from "../collector/collect.ts";
+import {
+  collectRange,
+  missingCommits,
+  openWorktree,
+} from "../collector/collect.ts";
 import { gitEnvironment, trustedPath } from "../collector/git.ts";
+import { CommitSha } from "../schema/primitives.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
 import type { Repository } from "../schema/repositories.ts";
+import { Schema } from "effect";
+import { ReviewInput, INPUT_FORMAT } from "../schema/input.ts";
+import { stackRange } from "./stack-range.ts";
+import type { ComparisonRequest } from "../schema/pull-requests.ts";
 import type { PullRequestSnapshot } from "../schema/pull-requests.ts";
 import { identifyRepository } from "../server/repositories.ts";
 import { repositoryId } from "../schema/repositories.ts";
@@ -27,7 +36,11 @@ export const belongsToRepository = (address: string, url: string): boolean => {
     : address === actual;
 };
 
-const fetchObjects = (root: string, url: PullRequestUrl, base: string) => {
+const fetchObjects = (
+  root: string,
+  url: PullRequestUrl,
+  commits: ReadonlyArray<string>,
+) => {
   const pull = addressOf(url);
   const run = (args: ReadonlyArray<string>) => {
     const result = spawnSync(
@@ -73,7 +86,7 @@ const fetchObjects = (root: string, url: PullRequestUrl, base: string) => {
     "--no-write-fetch-head",
     `${pull.repositoryUrl}.git`,
     ref,
-    base,
+    ...commits,
   ]);
 };
 
@@ -81,6 +94,7 @@ export const browsePullRequest = async (
   repository: Repository,
   url: PullRequestUrl,
   clients: ForgeClients = forgeClients,
+  comparison: ComparisonRequest = { mode: "host", historical: false },
 ): Promise<PullRequestSnapshot> => {
   let scratch: string | undefined;
   try {
@@ -89,7 +103,24 @@ export const browsePullRequest = async (
       !belongsToRepository(repository.identity.address, url)
     )
       throw new Error("This PR does not belong to the monitored repository.");
-    const before = readPullRequest(url, clients);
+    const range =
+      comparison.mode === "host"
+        ? undefined
+        : stackRange(url, comparison, clients);
+    const before = range?.selected ?? readPullRequest(url, clients);
+    const commits =
+      range === undefined
+        ? [before.baseRefOid, before.headRefOid]
+        : [
+            ...new Set([
+              range.base,
+              range.head,
+              ...range.views.flatMap((item) => [
+                item.view.baseRefOid,
+                item.view.headRefOid,
+              ]),
+            ]),
+          ];
     let worktree;
     for (const root of repository.checkouts) {
       try {
@@ -99,10 +130,7 @@ export const browsePullRequest = async (
         )
           continue;
         const candidate = openWorktree({ repo: root });
-        if (
-          missingCommits(candidate, [before.baseRefOid, before.headRefOid])
-            .length === 0
-        ) {
+        if (missingCommits(candidate, commits).length === 0) {
           worktree = candidate;
           break;
         }
@@ -112,8 +140,80 @@ export const browsePullRequest = async (
     }
     if (worktree === undefined) {
       scratch = mkdtempSync(join(tmpdir(), "review-canvas-pr-"));
-      fetchObjects(scratch, url, before.baseRefOid);
+      fetchObjects(scratch, url, commits);
       worktree = openWorktree({ repo: scratch });
+    }
+    if (range !== undefined) {
+      for (let index = 1; index < range.views.length; index++) {
+        const parent = range.views[index - 1];
+        const child = range.views[index];
+        if (parent === undefined || child === undefined) continue;
+        const ancestor = worktree.git
+          .run(worktree.top, [
+            "merge-base",
+            parent.view.headRefOid,
+            child.view.headRefOid,
+          ])
+          .toString("utf8")
+          .trim();
+        if (ancestor !== parent.view.headRefOid)
+          throw new Error(
+            "The parent's retained head is not an ancestor of this layer. The stack was rebased or rewritten; its final snapshots cannot be compared as a stack.",
+          );
+      }
+      const collected = collectRange(
+        worktree,
+        { base: range.base, head: range.head },
+        { withContent: true },
+      );
+      if (comparison.historical && collected.mergeBase !== range.base)
+        throw new Error(
+          "The recorded historical base is not an ancestor of the retained head. This comparison is unavailable.",
+        );
+      for (const item of range.views) {
+        const after = readPullRequest(item.pull.url, clients);
+        if (
+          after.headRefOid !== item.view.headRefOid ||
+          after.baseRefOid !== item.view.baseRefOid ||
+          after.baseRefName !== item.view.baseRefName
+        )
+          throw new Error(
+            "A stack head or base moved while collecting. Refresh before comparing.",
+          );
+      }
+      const input = Schema.decodeUnknownSync(ReviewInput)({
+        format: INPUT_FORMAT,
+        target: {
+          ...(addressOf(url).provider === "github"
+            ? { kind: "github_pr" }
+            : { kind: "pull_request", provider: addressOf(url).provider }),
+          title: before.title,
+          url,
+          head_sha: range.head,
+          base_sha: collected.mergeBase,
+          changed_files: collected.files.length,
+        },
+        files_complete: true,
+        files: collected.files,
+      });
+      return {
+        kind: "ready",
+        input,
+        warnings: [
+          ...(collected.flagged.length > 0
+            ? [
+                `Contents omitted for likely secret files: ${collected.flagged.join(", ")}.`,
+              ]
+            : []),
+        ],
+        collected_at: new Date().toISOString(),
+        comparison: {
+          mode: comparison.mode,
+          base_sha: Schema.decodeSync(CommitSha)(collected.mergeBase),
+          head_sha: range.head,
+          historical: comparison.historical,
+        },
+      };
     }
     const collected = collectPullRequest(worktree, url, clients, {
       withContent: true,

@@ -1,6 +1,9 @@
 import { Worker } from "node:worker_threads";
 import { Schema } from "effect";
-import { PullRequestSnapshot } from "../schema/pull-requests.ts";
+import {
+  PullRequestSnapshot,
+  type ComparisonRequest,
+} from "../schema/pull-requests.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
 import type { Repository } from "../schema/repositories.ts";
 import { browseEntry } from "./install.ts";
@@ -9,6 +12,7 @@ export const browsePull = (
   repository: Repository,
   url: PullRequestUrl,
   signal: AbortSignal,
+  comparison?: ComparisonRequest,
 ): Promise<PullRequestSnapshot> =>
   new Promise((resolve) => {
     if (signal.aborted)
@@ -17,7 +21,7 @@ export const browsePull = (
         message: "PR collection cancelled.",
       });
     const worker = new Worker(browseEntry(), {
-      workerData: { repository, url },
+      workerData: { repository, url, comparison },
     });
     const finish = (result: PullRequestSnapshot) => {
       clearTimeout(timer);
