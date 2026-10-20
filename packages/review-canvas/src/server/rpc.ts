@@ -66,7 +66,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
       return PageRpcs.of({
         "home.load": ({ root }) => touched(loadHome(store, roots, root)),
 
-        "repositories.pulls": ({ id }) =>
+        "repositories.pulls": ({ id, scope }) =>
           touched(
             Effect.gen(function* () {
               const repository = store
@@ -80,7 +80,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
                 };
               const address = repository.identity.address;
               return yield* Effect.promise((signal) =>
-                repositoryPullRequests(address, signal),
+                repositoryPullRequests(address, signal, scope),
               );
             }),
           ),

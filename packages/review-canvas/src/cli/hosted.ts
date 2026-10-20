@@ -1,6 +1,6 @@
 /** Provider adapters share validated review data; the collector remains offline. */
 import { Result, Schema } from "effect";
-import { OpenPullRequest } from "../schema/pull-requests.ts";
+import { OpenPullRequest, type PullScope } from "../schema/pull-requests.ts";
 import {
   parsePullRequest,
   type PullRequestAddress,
@@ -586,6 +586,7 @@ export const readHostedComments = (
 export const readOpenPullRequests = (
   pull: PullRequestAddress,
   clients: ForgeClients,
+  scope: PullScope = "all",
 ): ReadonlyArray<OpenPullRequest> => {
   const branch = Schema.Struct({
     ref: Schema.String,
@@ -597,6 +598,18 @@ export const readOpenPullRequests = (
     base: branch,
     head: branch,
   });
+  if (scope === "requested" && pull.provider === "gitea")
+    throw new ForgeFailed(
+      "The needs-my-review inbox is not supported for Gitea/Forgejo yet. Choose All open PRs for this repository.",
+    );
+  let reviewer = "";
+  if (scope === "requested" && pull.provider === "gitlab") {
+    const user = decode(
+      Schema.Struct({ id: Count }),
+      clients.api(pull, "/api/v4/user"),
+    );
+    reviewer = `&reviewer_id=${user.id}`;
+  }
   let items: ReadonlyArray<OpenPullRequest>;
   if (pull.provider === "github") {
     const response = JSON.parse(
@@ -625,7 +638,7 @@ export const readOpenPullRequests = (
   } else if (pull.provider === "gitlab") {
     items = pages(
       pull,
-      `/api/v4/projects/${encodeURIComponent(pull.repository)}/merge_requests?scope=all&state=opened`,
+      `/api/v4/projects/${encodeURIComponent(pull.repository)}/merge_requests?scope=all&state=opened${reviewer}`,
       Schema.Struct({
         web_url: PullRequestUrl,
         title: Schema.String,
@@ -670,6 +683,38 @@ export const readOpenPullRequests = (
       throw new ForgeFailed(
         "The git host returned a pull request from another repository.",
       );
+  }
+  if (scope === "requested" && pull.provider === "github") {
+    const requested = decode(
+      Schema.Array(Schema.Struct({ url: PullRequestUrl })),
+      JSON.parse(
+        clients.gh([
+          "pr",
+          "list",
+          "--repo",
+          pull.repositoryUrl,
+          "--state",
+          "open",
+          "--search",
+          "review-requested:@me",
+          "--json",
+          "url",
+          "--limit",
+          "1000",
+        ]),
+      ),
+    );
+    if (requested.length >= 1000)
+      throw new ForgeFailed(
+        "The review-request search reached GitHub's 1000-result limit; narrow the repository before relying on this inbox.",
+      );
+    for (const item of requested)
+      if (!sameRepository(pull, addressOf(item.url)))
+        throw new ForgeFailed(
+          "The git host returned a review request from another repository.",
+        );
+    const urls = new Set(requested.map((item) => item.url.toLowerCase()));
+    items = items.filter((item) => urls.has(item.url.toLowerCase()));
   }
   return decode(Schema.Array(OpenPullRequest), items);
 };

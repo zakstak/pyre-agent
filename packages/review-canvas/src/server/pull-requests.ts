@@ -1,12 +1,16 @@
 import { Worker } from "node:worker_threads";
 import { Schema } from "effect";
-import { RepositoryPullRequests } from "../schema/pull-requests.ts";
+import {
+  RepositoryPullRequests,
+  type PullScope,
+} from "../schema/pull-requests.ts";
 import { pullsEntry } from "./install.ts";
 
 /** One repository per request keeps local reviews usable even when a host is slow or offline. */
 export const repositoryPullRequests = (
   address: string,
   signal: AbortSignal,
+  scope: PullScope = "all",
 ): Promise<RepositoryPullRequests> =>
   new Promise((resolve) => {
     if (signal.aborted)
@@ -14,7 +18,7 @@ export const repositoryPullRequests = (
         kind: "unavailable",
         message: "PR discovery cancelled.",
       });
-    const worker = new Worker(pullsEntry(), { workerData: address });
+    const worker = new Worker(pullsEntry(), { workerData: { address, scope } });
     const finish = (result: RepositoryPullRequests) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", abort);

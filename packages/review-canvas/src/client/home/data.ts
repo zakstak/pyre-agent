@@ -5,7 +5,8 @@
 import { Effect, Schema } from "effect";
 import { Atom } from "effect/reactivity";
 import type { WorktreeRoot } from "../../schema/primitives.ts";
-import type { RepositoryId } from "../../schema/repositories.ts";
+import type { PullScope } from "../../schema/pull-requests.ts";
+import { RepositoryId } from "../../schema/repositories.ts";
 import { epochAtom, PageClient } from "../rpc.ts";
 
 /**
@@ -95,11 +96,22 @@ export const busyAtom = Atom.make(
 );
 
 /** Hosted lists load independently of the local home snapshot. */
-export const repositoryPullRequestsAtom = Atom.family((id: RepositoryId) =>
+export const repositoryPullRequestsAtom = Atom.family((key: string) =>
   PageClient.runtime.atom((get) => {
     if (get(epochAtom) === 0) return Effect.never;
     return Effect.flatMap(PageClient, (client) =>
-      client("repositories.pulls", { id }),
+      client(
+        "repositories.pulls",
+        Schema.decodeUnknownSync(
+          Schema.Struct({
+            id: RepositoryId,
+            scope: Schema.Literals(["all", "requested"]),
+          }),
+        )(JSON.parse(key)),
+      ),
     );
   }),
 );
+
+export const pullListKey = (id: RepositoryId, scope: PullScope = "all") =>
+  JSON.stringify({ id, scope });

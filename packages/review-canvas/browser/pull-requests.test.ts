@@ -48,11 +48,33 @@ test(
         [row(1, "foundation", "main"), row(4, "other", "main")],
       ]),
     );
-    writeFileSync(join(bin, "gh"), `#!/bin/sh\ncat '${response}'\n`, {
-      mode: 0o755,
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\ncase "$*" in *acme/offline*) echo offline >&2; exit 1;; esac\ncat '${response}'\n`,
+      {
+        mode: 0o755,
+      },
+    );
+    const second = join(directory, "offline");
+    mkdirSync(second);
+    execFileSync("git", ["init", "-b", "main", second], {
+      env: gitEnvironment({}),
+      stdio: "ignore",
     });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        second,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/acme/offline.git",
+      ],
+      { env: gitEnvironment({}) },
+    );
     const server = await startServer({
-      repositoryRoots: [root],
+      repositoryRoots: [root, second],
       environment: { PATH: `${bin}:${process.env.PATH}` },
     });
     t.after(() => server.stop());
@@ -67,8 +89,16 @@ test(
       })
       .click();
     await page.getByText("1 monitored", { exact: true }).waitFor();
+    await page
+      .getByRole("button", {
+        name: "Monitor github.com/acme/offline",
+        exact: true,
+      })
+      .click();
+    await page.getByText("2 monitored", { exact: true }).waitFor();
     await page.goto(server.origin);
     const list = page.getByRole("region", { name: "Open pull requests" });
+    await list.getByRole("alert").filter({ hasText: "offline" }).waitFor();
     await list
       .getByText("Stack · 3 PRs · Base first", { exact: true })
       .waitFor();
@@ -88,6 +118,35 @@ test(
     assert.equal(
       await list.getByText("Depends on #1", { exact: false }).count(),
       1,
+    );
+    await list.getByRole("textbox", { name: "Search PRs" }).fill("Layer 4");
+    assert.equal(await list.locator("li").count(), 1);
+    await page.reload();
+    await list.getByRole("link", { name: "#4 Layer 4", exact: true }).waitFor();
+    assert.equal(
+      await list.getByRole("textbox", { name: "Search PRs" }).inputValue(),
+      "Layer 4",
+    );
+    await list.getByRole("textbox", { name: "Search PRs" }).fill("");
+    writeFileSync(response, "{}");
+    await list
+      .getByRole("group", { name: "github.com/acme/project", exact: true })
+      .getByRole("button", { name: "Refresh PRs" })
+      .click();
+    await list
+      .getByText("Showing the last successful list.", { exact: false })
+      .waitFor();
+    assert.equal(await list.locator("li").count(), 4);
+    writeFileSync(
+      response,
+      JSON.stringify([
+        [
+          row(3, "ui", "feature"),
+          row(2, "feature", "foundation"),
+          row(1, "foundation", "main"),
+          row(4, "other", "main"),
+        ],
+      ]),
     );
     await page.screenshot({
       path: "/tmp/review-open-prs-desktop.png",

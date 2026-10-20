@@ -123,3 +123,72 @@ test("host authentication failure is reported, not represented as an empty list"
     /authentication required/,
   );
 });
+
+test("needs-my-review uses the authenticated host search and intersects open PRs", () => {
+  const calls: Array<ReadonlyArray<string>> = [];
+  const items = readOpenPullRequests(
+    addressOf("https://github.com/acme/project/pull/1"),
+    {
+      api: unused,
+      gh: (args) => {
+        calls.push(args);
+        return args[0] === "api"
+          ? JSON.stringify([[github(1), github(2)]])
+          : JSON.stringify([
+              { url: github(2).html_url },
+              { url: github(3).html_url },
+            ]);
+      },
+    },
+    "requested",
+  );
+  assert.deepEqual(
+    items.map((item) => item.url),
+    [github(2).html_url],
+  );
+  assert.ok(calls[1]?.includes("review-requested:@me"));
+  assert.ok(calls[1]?.includes("https://github.com/acme/project"));
+});
+
+test("personal inbox does not silently accept unsupported providers or cross-repository search results", () => {
+  assert.throws(
+    () =>
+      readOpenPullRequests(
+        addressOf("https://git.example/acme/project/pulls/1"),
+        { gh: unused, api: unused },
+        "requested",
+      ),
+    /not supported/,
+  );
+  assert.throws(
+    () =>
+      readOpenPullRequests(
+        addressOf("https://github.com/acme/project/pull/1"),
+        {
+          api: unused,
+          gh: (args) =>
+            args[0] === "api"
+              ? JSON.stringify([[github(1)]])
+              : JSON.stringify([{ url: github(2, "other/repo").html_url }]),
+        },
+        "requested",
+      ),
+    /another repository/,
+  );
+});
+
+test("GitLab inbox filters by authenticated reviewer id", () => {
+  const paths: string[] = [];
+  readOpenPullRequests(
+    addressOf("https://git.example/team/project/-/merge_requests/1"),
+    {
+      gh: unused,
+      api: (_, path) => {
+        paths.push(path);
+        return path === "/api/v4/user" ? { id: 42 } : [];
+      },
+    },
+    "requested",
+  );
+  assert.match(paths[1] ?? "", /reviewer_id=42/);
+});

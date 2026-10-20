@@ -28,6 +28,7 @@ import { RepositoryId, RepositoryIdentity } from "./repositories.ts";
 import { ReviewState } from "./state.ts";
 import { Target } from "./target.ts";
 import {
+  PullScope,
   RepositoryPullRequests,
   PullRequestSnapshot,
 } from "./pull-requests.ts";
@@ -236,7 +237,7 @@ export class PageRpcs extends RpcGroup.make(
     success: HomeSnapshot,
   }),
   Rpc.make("repositories.pulls", {
-    payload: { id: RepositoryId },
+    payload: { id: RepositoryId, scope: Schema.optional(PullScope) },
     success: RepositoryPullRequests,
   }),
   Rpc.make("pulls.read", {

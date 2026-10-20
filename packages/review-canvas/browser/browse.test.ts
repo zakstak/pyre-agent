@@ -27,6 +27,7 @@ test(
     git("init", "-b", "main");
     const commit = (body: string) => {
       writeFileSync(join(root, "example.txt"), body);
+      writeFileSync(join(root, "second.txt"), body);
       git("add", ".");
       git(
         "-c",
@@ -66,12 +67,15 @@ test(
         baseRefOid: base,
         headRefOid: head,
         baseRefName: "main",
-        changedFiles: 1,
+        changedFiles: 2,
       }),
     );
     writeFileSync(
       join(directory, "files.json"),
-      JSON.stringify({ filename: "example.txt" }),
+      [
+        JSON.stringify({ filename: "example.txt" }),
+        JSON.stringify({ filename: "second.txt" }),
+      ].join("\n"),
     );
     writeFileSync(
       join(bin, "gh"),
@@ -112,6 +116,15 @@ test(
     await page
       .getByRole("button", { name: "Refresh diff", exact: true })
       .isEnabled();
+    await page.getByLabel("Changed file").selectOption("second.txt");
+    await page.reload();
+    await page
+      .getByRole("region", { name: "Diff for second.txt", exact: true })
+      .waitFor();
+    assert.equal(
+      await page.getByLabel("Changed file").inputValue(),
+      "second.txt",
+    );
     await page.setViewportSize({ width: 320, height: 800 });
     assert.equal(
       await page.evaluate(

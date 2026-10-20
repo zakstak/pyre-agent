@@ -2,6 +2,9 @@ import * as Schema from "effect/Schema";
 import { nonEmptyText, PullRequestUrl } from "./primitives.ts";
 import { ReviewInput } from "./input.ts";
 
+export const PullScope = Schema.Literals(["all", "requested"]);
+export type PullScope = typeof PullScope.Type;
+
 /** Repository PRs exist independently of locally registered reviews. */
 export const OpenPullRequest = Schema.Struct({
   url: PullRequestUrl,
@@ -17,6 +20,7 @@ export const RepositoryPullRequests = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("ready"),
     items: Schema.Array(OpenPullRequest),
+    fetched_at: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("unavailable"),
