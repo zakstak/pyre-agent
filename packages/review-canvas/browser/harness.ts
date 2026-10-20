@@ -49,14 +49,23 @@ export interface Agent {
 
 export interface Server {
   readonly origin: string;
-  readonly register: (input: unknown, label?: string, options?: { readonly fresh?: boolean }) => Promise<Agent>;
+  readonly register: (
+    input: unknown,
+    label?: string,
+    options?: { readonly fresh?: boolean },
+  ) => Promise<Agent>;
   readonly stop: () => Promise<void>;
   /** Starts the server again after stop, on the same port, socket, and database. */
   readonly start: () => Promise<void>;
 }
 
 /** Starts a server and waits until it answers on its socket. */
-export const startServer = async (options: { readonly repositoryRoots?: ReadonlyArray<string> } = {}): Promise<Server> => {
+export const startServer = async (
+  options: {
+    readonly repositoryRoots?: ReadonlyArray<string>;
+    readonly environment?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<Server> => {
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-browser-"));
   const runtime = join(dir, "run");
   const socketPath = join(runtime, "agent.sock");
@@ -66,10 +75,13 @@ export const startServer = async (options: { readonly repositoryRoots?: Readonly
     child = spawn(process.execPath, [join(root, "src/server/main.ts")], {
       env: {
         ...process.env,
+        ...options.environment,
         REVIEW_CANVAS_DATA: join(dir, "data/reviews.sqlite"),
         REVIEW_CANVAS_RUNTIME: runtime,
         REVIEW_CANVAS_PORT: String(port),
-        REVIEW_CANVAS_REPO_ROOTS: (options.repositoryRoots ?? [dir]).join(delimiter),
+        REVIEW_CANVAS_REPO_ROOTS: (options.repositoryRoots ?? [dir]).join(
+          delimiter,
+        ),
       },
       stdio: ["ignore", "ignore", "inherit"],
     });
@@ -118,7 +130,11 @@ export const startServer = async (options: { readonly repositoryRoots?: Readonly
 
   return {
     origin: `http://127.0.0.1:${port}`,
-    register: async (input: any, label = "Claude Code: browser test", options = {}) => {
+    register: async (
+      input: any,
+      label = "Claude Code: browser test",
+      options = {},
+    ) => {
       const registered = await send("POST", "/agent/register", {
         target: input.target,
         label,

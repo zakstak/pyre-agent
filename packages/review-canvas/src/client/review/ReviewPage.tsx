@@ -5,14 +5,23 @@
  *
  * The source view parts the two: the walkthrough is a guide beside the diff, and the diff is every file in path order.
  */
+import { ReviewStack } from "../home/PullRequests.tsx";
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { ReviewInput } from "../../schema/input.ts";
-import { type RepoPath, type ReviewId, RoundNumber } from "../../schema/primitives.ts";
-import { Refused, type ReviewSnapshot, type RoundView } from "../../schema/rpc.ts";
+import {
+  type RepoPath,
+  type ReviewId,
+  RoundNumber,
+} from "../../schema/primitives.ts";
+import {
+  Refused,
+  type ReviewSnapshot,
+  type RoundView,
+} from "../../schema/rpc.ts";
 import { fileElementId } from "../../review/next.ts";
 import type { Round } from "../../review/queries.ts";
 import { count, threadName } from "../names.ts";
@@ -34,7 +43,16 @@ import { FileBlock } from "./FileBlock.tsx";
 import { Finish } from "./Finish.tsx";
 import { Departed, General, StopSection } from "./Sections.tsx";
 import { NextStrip, useStickyBars } from "./Strip.tsx";
-import { draftsAtom, foldsAtom, generalDraftAtom, layoutAtom, NARROW_QUERY, stashAtom, type View, viewAtom } from "./ui.ts";
+import {
+  draftsAtom,
+  foldsAtom,
+  generalDraftAtom,
+  layoutAtom,
+  NARROW_QUERY,
+  stashAtom,
+  type View,
+  viewAtom,
+} from "./ui.ts";
 import { type PageModel, pageModel, pathOrder } from "./view.ts";
 
 /** A feedback file the reviewer chose, imported through the server's checks, with what it added and left out. */
@@ -53,11 +71,15 @@ const ImportFeedback = () => {
           input.value = "";
           if (file === undefined) return;
           const imported = await runImport(await file.text());
-          if (!imported.ok) return toast(`Not imported: ${imported.message}`, "danger");
+          if (!imported.ok)
+            return toast(`Not imported: ${imported.message}`, "danger");
           const report = imported.value;
           const added = `Imported ${count(report.comments, "comment")}, ${count(report.replies, "reply", "replies")}, and ${count(report.approvals, "approval")}.`;
-          const already = report.already === 0 ? "" : ` ${report.already} already here.`;
-          toast(`${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`);
+          const already =
+            report.already === 0 ? "" : ` ${report.already} already here.`;
+          toast(
+            `${added}${already}${report.skipped.length === 0 ? "" : ` ${report.skipped.join(" ")}`}`,
+          );
         }}
       />
     </label>
@@ -69,10 +91,27 @@ const ImportFeedback = () => {
  * context. It sits in the frame but outside its grid, so the contents, which stick within the grid, end where the
  * review ends.
  */
-const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round: boolean; readonly writable: boolean }) => (
-  <footer className={cn(frame({ width: "review" }), "mt-12 flex flex-wrap items-center gap-x-6 gap-y-2 pb-16 text-small text-muted")}>
+const Footer = ({
+  id,
+  round,
+  writable,
+}: {
+  readonly id: ReviewId;
+  readonly round: boolean;
+  readonly writable: boolean;
+}) => (
+  <footer
+    className={cn(
+      frame({ width: "review" }),
+      "mt-12 flex flex-wrap items-center gap-x-6 gap-y-2 pb-16 text-small text-muted",
+    )}
+  >
     {round ? (
-      <a href={`/reviews/${id}/feedback.json`} download className="underline underline-offset-3">
+      <a
+        href={`/reviews/${id}/feedback.json`}
+        download
+        className="underline underline-offset-3"
+      >
         Export feedback
       </a>
     ) : null}
@@ -85,12 +124,20 @@ const Footer = ({ id, round, writable }: { readonly id: ReviewId; readonly round
  * The page under the top bar: the contents beside the review on a wide page, everything else across both. The source
  * view's guide is wider than the contents: it holds prose and code.
  */
-const Frame = ({ view = "guided", children }: { readonly view?: View; readonly children: React.ReactNode }) => (
+const Frame = ({
+  view = "guided",
+  children,
+}: {
+  readonly view?: View;
+  readonly children: React.ReactNode;
+}) => (
   <div
     className={cn(
       frame({ width: "review" }),
       "grid grid-cols-1 gap-x-8",
-      view === "source" ? "lg:grid-cols-[24rem_minmax(0,1fr)]" : "lg:grid-cols-[15rem_minmax(0,1fr)]",
+      view === "source"
+        ? "lg:grid-cols-[24rem_minmax(0,1fr)]"
+        : "lg:grid-cols-[15rem_minmax(0,1fr)]",
     )}
   >
     {children}
@@ -101,7 +148,11 @@ const Frame = ({ view = "guided", children }: { readonly view?: View; readonly c
 const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   const names = snapshot.threads.map((item) => threadName(item.label));
   const who =
-    names.length === 0 ? "the agents" : names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    names.length === 0
+      ? "the agents"
+      : names.length === 1
+        ? names[0]
+        : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const first = snapshot.threads[0];
   useEffect(() => {
     document.title = `Waiting for the first round · ${snapshot.state.target.title} · Review canvas`;
@@ -109,10 +160,15 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
   return (
     <>
       <SkipLink />
-      <ReviewBar target={snapshot.state.target} updated={snapshot.state.created_at} />
+      <ReviewBar
+        target={snapshot.state.target}
+        updated={snapshot.state.created_at}
+      />
       <Frame>
         <header className="col-span-full pt-6">
-          <h1 className="text-title font-semibold tracking-tight">{snapshot.state.target.title}</h1>
+          <h1 className="text-title font-semibold tracking-tight">
+            {snapshot.state.target.title}
+          </h1>
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-3.5 text-small text-muted">
             {first === undefined ? null : (
               <Who thread={first} id={first.id}>
@@ -123,7 +179,10 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
           </p>
         </header>
         <main id="main" tabIndex={-1} className="col-span-full pt-6">
-          <p className="max-w-reading">Waiting for {who}’s first round. This page updates itself.</p>
+          <ReviewStack target={snapshot.state.target} />
+          <p className="max-w-reading">
+            Waiting for {who}’s first round. This page updates itself.
+          </p>
         </main>
       </Frame>
       <Footer id={snapshot.state.id} round={false} writable={false} />
@@ -138,28 +197,50 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
  */
 const useRoundChange = (key: RoundKey, page: PageModel) => {
   const registry = useContext(RegistryContext);
-  const before = useRef<{ readonly round: RoundNumber; readonly open: ReadonlySet<RepoPath> } | undefined>(undefined);
+  const before = useRef<
+    | { readonly round: RoundNumber; readonly open: ReadonlySet<RepoPath> }
+    | undefined
+  >(undefined);
   // Every render, so the open files are the ones of the last render before the round changed.
   useEffect(() => {
     const folds = registry.get(foldsAtom(key));
     const open = new Set(
       [...page.files.values()]
-        .filter((model) => (folds[model.file.path] ?? (model.folded ? "closed" : "open")) === "open")
+        .filter(
+          (model) =>
+            (folds[model.file.path] ?? (model.folded ? "closed" : "open")) ===
+            "open",
+        )
         .map((model) => model.file.path),
     );
     const was = before.current;
     before.current = { round: page.round.round, open };
     if (was === undefined || was.round === page.round.round) return;
     const carried = { ...folds };
-    for (const path of was.open) if (!open.has(path) && page.files.has(path) && carried[path] === undefined) carried[path] = "open";
+    for (const path of was.open)
+      if (
+        !open.has(path) &&
+        page.files.has(path) &&
+        carried[path] === undefined
+      )
+        carried[path] = "open";
     registry.set(foldsAtom(key), carried);
   });
   useEffect(() => {
     const drafts = registry.get(draftsAtom);
-    const lost = drafts.filter((draft) => !draft.submitting && page.files.get(draft.path)?.digest !== draft.digest);
+    const lost = drafts.filter(
+      (draft) =>
+        !draft.submitting &&
+        page.files.get(draft.path)?.digest !== draft.digest,
+    );
     if (lost.length === 0) return;
-    registry.set(draftsAtom, drafts.filter((draft) => !lost.includes(draft)));
-    const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
+    registry.set(
+      draftsAtom,
+      drafts.filter((draft) => !lost.includes(draft)),
+    );
+    const text = lost
+      .map((draft) => draft.body)
+      .find((body) => body.trim() !== "");
     if (text !== undefined) {
       registry.set(stashAtom, text);
       toast(
@@ -170,8 +251,17 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
   }, [page.files, registry]);
 };
 
-const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel }) => {
-  const key = useMemo(() => ({ id, round: page.round.round }), [id, page.round.round]);
+const Review = ({
+  id,
+  page,
+}: {
+  readonly id: ReviewId;
+  readonly page: PageModel;
+}) => {
+  const key = useMemo(
+    () => ({ id, round: page.round.round }),
+    [id, page.round.round],
+  );
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
@@ -196,7 +286,11 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
     const area = general.current;
     if (area === null) return;
     const now = registry.get(generalDraftAtom);
-    const next = now.startsWith(question) ? now : now === "" ? question : `${question}\n\n${now}`;
+    const next = now.startsWith(question)
+      ? now
+      : now === ""
+        ? question
+        : `${question}\n\n${now}`;
     // Drawn at once, so the caret goes after the text the box now holds.
     flushSync(() => registry.set(generalDraftAtom, next));
     area.scrollIntoView({ block: "center" });
@@ -218,34 +312,57 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
       </ReviewBar>
       <Frame view={view}>
         <Title id={id} />
+        <div className="col-span-full">
+          <ReviewStack target={page.snapshot.state.target} />
+        </div>
         <NextStrip
           onGo={() => void navigate.goNext()}
           onStep={(step) => void navigate.goStep(step)}
           onFinish={() => void navigate.goFinish()}
         />
         {view === "source" ? (
-          <Guide onFile={showFile} onExcerpt={(target) => void navigate.showExcerpt(target)} onAsk={ask} steering={navigate.steering} />
+          <Guide
+            onFile={showFile}
+            onExcerpt={(target) => void navigate.showExcerpt(target)}
+            onAsk={ask}
+            steering={navigate.steering}
+          />
         ) : (
-          <Contents onStop={(index) => void navigate.showStop(index)} onFile={showFile} />
+          <Contents
+            onStop={(index) => void navigate.showStop(index)}
+            onFile={showFile}
+          />
         )}
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {view === "source" ? (
             pathOrder(page.files.keys()).map((path) => {
               const model = page.files.get(path);
-              return model === undefined ? null : <FileBlock key={path} model={model} split={split} />;
+              return model === undefined ? null : (
+                <FileBlock key={path} model={model} split={split} />
+              );
             })
           ) : (
             <>
               {page.input.summary === undefined ? null : (
                 <div className="max-w-reading">
                   <Narration className="mb-1.5">
-                    · Round {page.round.round} · published <Time at={page.round.published_at} />
+                    · Round {page.round.round} · published{" "}
+                    <Time at={page.round.published_at} />
                   </Narration>
                   <Prose text={page.input.summary} />
                 </div>
               )}
               {page.stops.map((stop) => (
-                <StopSection key={stop.index} stop={stop} split={split} ruled={stop.index > 0 || page.input.summary !== undefined} onFlash={(path, index, start, end) => void navigate.flash(path, index, start, end)} onAsk={ask} />
+                <StopSection
+                  key={stop.index}
+                  stop={stop}
+                  split={split}
+                  ruled={stop.index > 0 || page.input.summary !== undefined}
+                  onFlash={(path, index, start, end) =>
+                    void navigate.flash(path, index, start, end)
+                  }
+                  onAsk={ask}
+                />
               ))}
             </>
           )}
@@ -262,31 +379,55 @@ const Review = ({ id, page }: { readonly id: ReviewId; readonly page: PageModel 
 const roundNumber = Schema.decodeSync(RoundNumber);
 
 /** No round to read: what a review without one, or a first round's round before, stands for. */
-const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, CallError>>(AsyncResult.initial());
+const noRound = Atom.make<AsyncResult.AsyncResult<RoundView, CallError>>(
+  AsyncResult.initial(),
+);
 
 /**
  * A round's input and digests, and the input of the round before, once the server sent them. A round that does not
  * exist is never asked for: the server would refuse it, and a refusal is kept until the next reconnect.
  */
 const useRound = (id: ReviewId, round: Round | undefined) => {
-  const current = useAtomValue(round === undefined ? noRound : roundAtom({ id, round: round.round }));
+  const current = useAtomValue(
+    round === undefined ? noRound : roundAtom({ id, round: round.round }),
+  );
   const before = useAtomValue(
-    round === undefined || round.round <= 1 ? noRound : roundAtom({ id, round: roundNumber(round.round - 1) }),
+    round === undefined || round.round <= 1
+      ? noRound
+      : roundAtom({ id, round: roundNumber(round.round - 1) }),
   );
   const view = AsyncResult.value(current).pipe(Option.getOrUndefined);
   const previous: ReviewInput | undefined = AsyncResult.value(before).pipe(
     Option.map((item) => item.input),
     Option.getOrUndefined,
   );
-  const waitingForPrevious = round !== undefined && round.round > 1 && previous === undefined && !AsyncResult.isFailure(before);
-  return { view, previous, ready: view !== undefined && !waitingForPrevious, failure: AsyncResult.isFailure(current) ? current.cause : undefined };
+  const waitingForPrevious =
+    round !== undefined &&
+    round.round > 1 &&
+    previous === undefined &&
+    !AsyncResult.isFailure(before);
+  return {
+    view,
+    previous,
+    ready: view !== undefined && !waitingForPrevious,
+    failure: AsyncResult.isFailure(current) ? current.cause : undefined,
+  };
 };
 
-const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: ReviewSnapshot }) => {
+const Loaded = ({
+  id,
+  snapshot,
+}: {
+  readonly id: ReviewId;
+  readonly snapshot: ReviewSnapshot;
+}) => {
   const round = snapshot.state.rounds.at(-1);
   const { view, previous, ready, failure } = useRound(id, round);
   const fresh = useMemo(
-    () => (round === undefined || view === undefined || !ready ? undefined : pageModel(snapshot, round, view.input, view.digests, previous)),
+    () =>
+      round === undefined || view === undefined || !ready
+        ? undefined
+        : pageModel(snapshot, round, view.input, view.digests, previous),
     [snapshot, round, view, previous, ready],
   );
   // A new round's input arrives a moment after the snapshot that announces it. Until then the page keeps showing the
@@ -298,8 +439,11 @@ const Loaded = ({ id, snapshot }: { readonly id: ReviewId; readonly snapshot: Re
   if (round === undefined) return <Waiting snapshot={snapshot} />;
   // A page already showing keeps showing while the next round fails to load; the reconnect reads it again.
   if (page === undefined && failure !== undefined)
-    return <Message title="This review did not load">{failureText(failure)}</Message>;
-  if (page === undefined) return <Loading width="review">{`Loading round ${round.round}…`}</Loading>;
+    return (
+      <Message title="This review did not load">{failureText(failure)}</Message>
+    );
+  if (page === undefined)
+    return <Loading width="review">{`Loading round ${round.round}…`}</Loading>;
   return <Review id={id} page={page} />;
 };
 
@@ -308,11 +452,15 @@ export const ReviewPage = ({ id }: { readonly id: ReviewId }) => {
   const snapshot = AsyncResult.value(result).pipe(Option.getOrUndefined);
   if (snapshot !== undefined) return <Loaded id={id} snapshot={snapshot} />;
   if (AsyncResult.isFailure(result)) {
-    const refused = Cause.findErrorOption(result.cause).pipe(Option.filter((error) => error instanceof Refused));
+    const refused = Cause.findErrorOption(result.cause).pipe(
+      Option.filter((error) => error instanceof Refused),
+    );
     return Option.isSome(refused) && refused.value.kind === "not_found" ? (
       <Message title="No such review" />
     ) : (
-      <Message title="This review did not load">{failureText(result.cause)}</Message>
+      <Message title="This review did not load">
+        {failureText(result.cause)}
+      </Message>
     );
   }
   return <Loading width="review">Loading the review…</Loading>;
