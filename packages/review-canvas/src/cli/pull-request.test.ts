@@ -72,7 +72,13 @@ const fakeGh = (options: {
       return options.files.map((file) => JSON.stringify(file)).join("\n");
     throw new GhFailed(`unexpected gh ${args.join(" ")}`);
   };
-  return { gh, api: () => { throw new Error("REST is not used for GitHub"); }, calls };
+  return {
+    gh,
+    api: () => {
+      throw new Error("REST is not used for GitHub");
+    },
+    calls,
+  };
 };
 
 const FILES = [
@@ -111,12 +117,16 @@ describe("collect --pr", () => {
     const review = decoded.success;
     assert.equal(review.target.kind, "github_pr");
     assert.equal(review.files_complete, true);
+    // The target records the commit the diff starts from, not the base branch's tip, which moved on since.
+    const mergeBase = f.git(f.root, "merge-base", base, head).trim();
+    assert.notEqual(mergeBase, base);
     assert.deepEqual(
       review.target.kind === "github_pr"
         ? [review.target.head_sha, review.target.base_sha]
         : [],
-      [head, base],
+      [head, mergeBase],
     );
+    assert.equal(collected.mergeBase, mergeBase);
     assert.equal(collected.baseRef, "main");
     assert.equal(collected.headMoved, false);
     assert.equal(collected.mismatch, undefined);

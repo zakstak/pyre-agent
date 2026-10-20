@@ -48,11 +48,16 @@ export const StackWalkthroughInput = Schema.Struct({
 });
 export type StackWalkthroughInput = typeof StackWalkthroughInput.Type;
 
-/** A PR of the selected ancestor path, with the head the command read from the host. */
+/**
+ * A PR of the selected ancestor path, with the head the command read from the host and the commit its diff starts
+ * from: the parent layer's head, or for the root layer, the merge base of its head and the branch it merges into. A
+ * layer's review must show the same head and base, so a parent's force-push or a retarget is not missed.
+ */
 export const StackPathLayer = Schema.Struct({
   url: PullRequestUrl,
   title: Title,
   head_sha: CommitSha,
+  base_sha: CommitSha,
 });
 export type StackPathLayer = typeof StackPathLayer.Type;
 
@@ -88,9 +93,15 @@ export const StackPublishRequest = Schema.Struct({
 });
 export type StackPublishRequest = typeof StackPublishRequest.Type;
 
-/** A layer as the store pins it: the head its review showed at publication, and the target key that finds the review. */
+/**
+ * A layer as the store pins it: the head and base its review showed at publication, and the target key that finds the
+ * review. Walkthroughs published before bases were pinned have none, and their layers stay stale until republished.
+ */
 export const StackLayerRecord = Schema.Struct({
-  ...StackPathLayer.fields,
+  url: PullRequestUrl,
+  title: Title,
+  head_sha: CommitSha,
+  base_sha: Schema.optionalKey(CommitSha),
   target_key: Schema.String,
 });
 export type StackLayerRecord = typeof StackLayerRecord.Type;
@@ -126,10 +137,12 @@ export const ReadFile = Schema.Struct({
 });
 export type ReadFile = typeof ReadFile.Type;
 
-/** The reviewer read a step at a layer head and file versions. A later change to either reopens the step. */
+/** The reviewer read a step at a layer head, base, and file versions. A later change to any reopens the step. */
 export const StepMark = Schema.Struct({
   step: StepKey,
   head_sha: CommitSha,
+  /** Absent from marks made before bases were pinned, which count as changed. */
+  base_sha: Schema.optionalKey(CommitSha),
   files: Schema.Array(ReadFile),
   read_at: Timestamp,
 });
@@ -143,8 +156,8 @@ export const StackProgress = Schema.Struct({
 export type StackProgress = typeof StackProgress.Type;
 
 /**
- * A layer's review now. Current: its round shows the pinned head. Stale: the review moved to another head, so the
- * agent's excerpts may no longer fit. Missing: no open review, or one with no round yet.
+ * A layer's review now. Current: its round shows the pinned head and base. Stale: the review moved to another head or
+ * base, so the agent's excerpts may no longer fit. Missing: no open review, or one with no round yet.
  */
 export const LayerState = Schema.Union([
   Schema.Struct({
@@ -156,6 +169,8 @@ export const LayerState = Schema.Union([
     kind: Schema.Literal("stale"),
     review: ReviewId,
     head_sha: CommitSha,
+    /** The base the review's round diffs from, when it records one. */
+    base_sha: Schema.optionalKey(CommitSha),
   }),
   Schema.Struct({
     kind: Schema.Literal("missing"),
@@ -165,7 +180,10 @@ export const LayerState = Schema.Union([
 export type LayerState = typeof LayerState.Type;
 
 export const StackLayerView = Schema.Struct({
-  ...StackPathLayer.fields,
+  url: PullRequestUrl,
+  title: Title,
+  head_sha: CommitSha,
+  base_sha: Schema.optionalKey(CommitSha),
   state: LayerState,
 });
 export type StackLayerView = typeof StackLayerView.Type;

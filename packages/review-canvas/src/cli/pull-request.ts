@@ -16,7 +16,12 @@ import { byCodePoint } from "../collector/paths.ts";
 import { decodeValue, InputDocument } from "../schema/document.ts";
 import { INPUT_FORMAT, type ReviewInput } from "../schema/input.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
-import { addressOf, readPullRequest, readPullRequestFiles, type ForgeClients } from "./hosted.ts";
+import {
+  addressOf,
+  readPullRequest,
+  readPullRequestFiles,
+  type ForgeClients,
+} from "./hosted.ts";
 import { ForgeFailed } from "./forge-api.ts";
 
 /** Paths that only one side lists, counting a rename's old path, so rename detection that differs still matches. */
@@ -106,7 +111,8 @@ export const collectPullRequest = (
     before = readPullRequest(url, clients);
     github = readPullRequestFiles(before.url, clients);
   } catch (error) {
-    if (error instanceof ForgeFailed) throw new CollectError({ message: error.message });
+    if (error instanceof ForgeFailed)
+      throw new CollectError({ message: error.message });
     throw error;
   }
   const missing = missingCommits(worktree, [
@@ -115,7 +121,10 @@ export const collectPullRequest = (
   ]);
   if (missing.length > 0) {
     const pull = addressOf(before.url);
-    const ref = pull.provider === "gitlab" ? `merge-requests/${pull.number}/head` : `pull/${pull.number}/head`;
+    const ref =
+      pull.provider === "gitlab"
+        ? `merge-requests/${pull.number}/head`
+        : `pull/${pull.number}/head`;
     throw new CollectError({
       message: `${worktree.top} does not hold ${missing.join(" or ")}. Fetch the pull request's commits, then collect again: git -C ${quoted(worktree.top)} fetch ${quoted(pull.repositoryUrl + ".git")} ${ref} ${quoted(before.baseRefName)}`,
     });
@@ -126,17 +135,23 @@ export const collectPullRequest = (
     options,
   );
   const mismatch = reconcile(range.files, github, before.changedFiles);
-  const headMoved = readPullRequest(url, clients).headRefOid !== before.headRefOid;
+  const headMoved =
+    readPullRequest(url, clients).headRefOid !== before.headRefOid;
   const provider = addressOf(before.url).provider;
   const review = decodeValue(InputDocument, {
     format: INPUT_FORMAT,
     target: {
-      ...(provider === "github" ? { kind: "github_pr" as const } : { kind: "pull_request" as const, provider }),
+      ...(provider === "github"
+        ? { kind: "github_pr" as const }
+        : { kind: "pull_request" as const, provider }),
       title: options.title ?? before.title,
       url: before.url,
       head_sha: before.headRefOid,
-      base_sha: before.baseRefOid,
-      ...(before.changedFiles === null ? {} : { changed_files: before.changedFiles }),
+      // The commit the diff starts from, which stays put while the branch it merges into gains unrelated commits.
+      base_sha: range.mergeBase,
+      ...(before.changedFiles === null
+        ? {}
+        : { changed_files: before.changedFiles }),
     },
     files_complete: mismatch === undefined && !headMoved,
     files: range.files,

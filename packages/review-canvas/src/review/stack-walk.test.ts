@@ -24,6 +24,7 @@ import { fixtureBytes } from "../schema/testing.ts";
 import {
   carryProgress,
   type LayerSource,
+  layerSource,
   pinLayers,
   readState,
   resolveStack,
@@ -129,13 +130,22 @@ const fixture = (): ReviewInput => {
   return decoded.success;
 };
 
-/** The PR fixture as layer `n` at its own head. */
-const layer = (n: number, head = sha(n)): ReviewInput => {
-  const base = fixture();
-  if (base.target.kind === "worktree") assert.fail("expected a PR fixture");
+/** The fixture's base, which the root layer of these stacks diffs from. */
+const root = sha(11);
+
+/** The PR fixture as layer `n` at its own head, diffing from `base`. */
+const layer = (n: number, head = sha(n), base = root): ReviewInput => {
+  const input = fixture();
+  if (input.target.kind === "worktree") assert.fail("expected a PR fixture");
   return {
-    ...base,
-    target: { ...base.target, url: url(n), title: `PR ${n}`, head_sha: head },
+    ...input,
+    target: {
+      ...input.target,
+      url: url(n),
+      title: `PR ${n}`,
+      head_sha: head,
+      base_sha: base,
+    },
   };
 };
 
@@ -163,10 +173,11 @@ const record = (
     steps,
   },
   historical: false,
-  layers: layers.map((n) => ({
+  layers: layers.map((n, index) => ({
     url: url(n),
     title: `PR ${n}`,
     head_sha: sha(n),
+    base_sha: index === 0 ? root : sha(layers[index - 1] ?? 0),
     target_key: `github_pr:${url(n)}`,
   })),
   excluded: [],
@@ -177,6 +188,7 @@ const current = (n: number, input = layer(n)): LayerSource => ({
   review: `review-${n}` as ReviewId,
   round: 1 as RoundNumber,
   input,
+  base_sha: root,
 });
 
 test("steps run across PR boundaries in base-to-tip order, each layer closing with its uncovered files", () => {
@@ -247,9 +259,17 @@ test("a mark counts only at the head and file versions it was read at", () => {
     resolveStack(walk, [current(68, other)], { marks: [mark] }).steps[0]?.read,
     "read",
   );
+  assert.equal(readState(mark, { ...version, head_sha: sha(99) }), "changed");
   assert.equal(
-    readState(mark, { head_sha: sha(99), files: version.files }),
+    readState(mark, { ...version, base_sha: sha(98) }),
     "changed",
+    "a diff from another base reopens the step",
+  );
+  const { base_sha: _, ...legacy } = mark;
+  assert.equal(
+    readState(legacy, version),
+    "changed",
+    "a mark from before bases were pinned does not count",
   );
   assert.equal(readState(undefined, version), "unread");
 });
@@ -312,18 +332,19 @@ test("publication refuses sibling steps, steps out of order, missing threads, an
   const request = {
     walkthrough: walk.walkthrough,
     historical: false,
-    path: walk.layers.map(({ url, title, head_sha }) => ({
+    path: walk.layers.map(({ url, title, head_sha, base_sha = root }) => ({
       url,
       title,
       head_sha,
+      base_sha,
     })),
     excluded: [{ url: url(66), title: "PR 66" }],
   };
-  const reviews = [68, 65, 69].map((n) => ({
-    review: `review-${n}` as ReviewId,
-    url: url(n),
-    target_key: `github_pr:${url(n)}`,
-    input: layer(n),
+  const reviews = walk.layers.map(({ url, head_sha, base_sha }, index) => ({
+    review: `review-${index}` as ReviewId,
+    url,
+    target_key: `github_pr:${url}`,
+    input: layer([68, 65, 69][index] ?? 0, head_sha, base_sha),
   }));
   assert.deepEqual(
     pinLayers(request, reviews).map((item) => item.target_key),
@@ -357,7 +378,9 @@ test("publication refuses sibling steps, steps out of order, missing threads, an
   refused(
     {},
     reviews.map((item) =>
-      item.url === url(65) ? { ...item, input: layer(65, sha(91)) } : item,
+      item.url === url(65)
+        ? { ...item, input: layer(65, sha(91), sha(68)) }
+        : item,
     ),
     /Publish a round at the current head/,
   );
@@ -383,6 +406,7 @@ test("a republished walkthrough keeps progress only for steps the agent left as 
   const mark = (step: string) => ({
     step: stepKey(step),
     head_sha: sha(68),
+    base_sha: root,
     files: [],
     read_at: at,
   });
@@ -399,13 +423,265 @@ test("a republished walkthrough keeps progress only for steps the agent left as 
     carried.marks.map((item) => item.step),
     ["L0:S0", "L0:other", "L2:S0"],
   );
-  // A layer inserted below shifts every layer index; nothing on a different PR carries.
-  const shifted = record(
-    [stop(68, "Core"), stop(65, "API"), stop(69, "UI")],
-    [67, 68, 65, 69],
+});
+
+test("progress follows unchanged steps when steps or layers before them are added or removed", () => {
+  const mark = (step: string, head = sha(65)) => ({
+    step: stepKey(step),
+    head_sha: head,
+    base_sha: sha(68),
+    files: [],
+    read_at: at,
+  });
+  const before = record([
+    stop(68, "Core"),
+    stop(65, "API"),
+    stop(65, "Limits"),
+    stop(69, "UI"),
+  ]);
+  const progress = {
+    position: stepKey("L1:S1"),
+    marks: [mark("L0:S0"), mark("L1:S1"), mark("L1:other"), mark("L2:S0")],
+  };
+
+  // A step inserted earlier in the same layer moves the later one's key; its mark and the position follow it.
+  const inserted = carryProgress(
+    before,
+    record([
+      stop(68, "Core"),
+      stop(65, "Setup"),
+      stop(65, "API"),
+      stop(65, "Limits"),
+      stop(69, "UI"),
+    ]),
+    progress,
   );
+  assert.equal(inserted.position, "L1:S2");
   assert.deepEqual(
-    carryProgress(before, shifted, { marks: [mark("L0:S0")] }).marks,
+    inserted.marks.map((item) => item.step),
+    ["L0:S0", "L1:S2", "L1:other", "L2:S0"],
+  );
+
+  // An earlier step removed moves it back.
+  const removed = carryProgress(
+    before,
+    record([stop(68, "Core"), stop(65, "Limits"), stop(69, "UI")]),
+    progress,
+  );
+  assert.equal(removed.position, "L1:S0");
+  assert.deepEqual(
+    removed.marks.map((item) => item.step),
+    ["L0:S0", "L1:S0", "L1:other", "L2:S0"],
+  );
+
+  // A layer inserted below shifts every layer's index; each mark keeps its head, so a moved head still reopens it.
+  const shifted = carryProgress(
+    before,
+    record(
+      [
+        stop(67, "Groundwork"),
+        stop(68, "Core"),
+        stop(65, "API"),
+        stop(65, "Limits"),
+        stop(69, "UI"),
+      ],
+      [67, 68, 65, 69],
+    ),
+    progress,
+  );
+  assert.equal(shifted.position, "L2:S1");
+  assert.deepEqual(
+    shifted.marks.map((item) => [item.step, item.head_sha]),
+    [
+      ["L1:S0", sha(65)],
+      ["L2:S1", sha(65)],
+      ["L2:other", sha(65)],
+      ["L3:S0", sha(65)],
+    ],
+  );
+
+  // A layer removed below shifts them back; the removed layer's marks go with it.
+  const dropped = carryProgress(
+    record(
+      [stop(67, "Groundwork"), stop(68, "Core"), stop(65, "API")],
+      [67, 68, 65],
+    ),
+    record([stop(68, "Core"), stop(65, "API")], [68, 65]),
+    {
+      position: stepKey("L0:S0"),
+      marks: [mark("L0:S0"), mark("L1:S0"), mark("L2:S0")],
+    },
+  );
+  assert.equal(dropped.position, undefined);
+  assert.deepEqual(
+    dropped.marks.map((item) => item.step),
+    ["L0:S0", "L1:S0"],
+  );
+
+  // The same stop on another PR is a different step.
+  assert.deepEqual(
+    carryProgress(
+      record([stop(68, "Core")], [68]),
+      record([stop(69, "Core")], [69]),
+      { marks: [mark("L0:S0")] },
+    ).marks,
     [],
   );
+});
+
+test("a stop written twice in one PR carries nothing, so an unseen copy is not marked read", () => {
+  const mark = (step: string) => ({
+    step: stepKey(step),
+    head_sha: sha(68),
+    base_sha: root,
+    files: [],
+    read_at: at,
+  });
+  const once = record([stop(68, "Core"), stop(68, "Tests")], [68]);
+  // A copy of a read step inserted before it: which one the reviewer read is unknown, so neither is marked.
+  const twice = record(
+    [stop(68, "Core"), stop(68, "Tests"), stop(68, "Core")],
+    [68],
+  );
+  const carried = carryProgress(once, twice, {
+    position: stepKey("L0:S0"),
+    marks: [mark("L0:S0"), mark("L0:S1")],
+  });
+  assert.equal(carried.position, undefined);
+  assert.deepEqual(
+    carried.marks.map((item) => item.step),
+    ["L0:S1"],
+  );
+  // Removing one of two copies does not tell which one the reviewer read either.
+  assert.deepEqual(
+    carryProgress(twice, once, {
+      marks: [mark("L0:S0"), mark("L0:S1")],
+    }).marks.map((item) => item.step),
+    ["L0:S1"],
+  );
+  // A changed stop does not inherit the mark of the stop it replaced, even at the same key.
+  assert.deepEqual(
+    carryProgress(once, record([stop(68, "Core, edited")], [68]), {
+      marks: [mark("L0:S0")],
+    }).marks,
+    [],
+  );
+  // The same content with its keys in another order is the same step.
+  const { layer, title, ...rest } = stop(68, "Core");
+  const keysSwapped = record([{ ...rest, title, layer }], [68]);
+  assert.deepEqual(
+    carryProgress(record([stop(68, "Core")], [68]), keysSwapped, {
+      marks: [mark("L0:S0")],
+    }).marks.map((item) => item.step),
+    ["L0:S0"],
+  );
+});
+
+test("publication refuses a review whose diff starts from another base, even at the host's head", () => {
+  const walk = record([stop(68, "Core"), stop(65, "API")], [68, 65]);
+  const path = walk.layers.map(({ url, title, head_sha, base_sha = root }) => ({
+    url,
+    title,
+    head_sha,
+    base_sha,
+  }));
+  const request = {
+    walkthrough: walk.walkthrough,
+    historical: false,
+    path,
+    excluded: [],
+  };
+  const review = (n: number, input: ReviewInput) => ({
+    review: `review-${n}` as ReviewId,
+    url: url(n),
+    target_key: `github_pr:${url(n)}`,
+    input,
+  });
+  const fresh = [
+    review(68, layer(68)),
+    review(65, layer(65, sha(65), sha(68))),
+  ];
+  assert.deepEqual(
+    pinLayers(request, fresh).map((item) => item.base_sha),
+    [root, sha(68)],
+  );
+  const refused = (
+    change: Partial<typeof request>,
+    reviews: typeof fresh,
+    message: RegExp,
+  ) =>
+    assert.throws(
+      () => pinLayers({ ...request, ...change }, reviews),
+      (error) => error instanceof StackRefused && message.test(error.message),
+    );
+  // #68 was force-pushed to sha(70); #65 kept its head, but its round still diffs from #68's old head.
+  refused(
+    {
+      path: [
+        { ...(path[0] ?? assert.fail()), head_sha: sha(70) },
+        { ...(path[1] ?? assert.fail()), base_sha: sha(70) },
+      ],
+    },
+    [review(68, layer(68, sha(70))), fresh[1] ?? assert.fail()],
+    /#65 diffs from 686868686868, but its parent #68's head is 707070707070/,
+  );
+  // The root was retargeted: its head is the same, but its merge base with the new branch is not.
+  refused(
+    {
+      path: [
+        { ...(path[0] ?? assert.fail()), base_sha: sha(12) },
+        path[1] ?? assert.fail(),
+      ],
+    },
+    fresh,
+    /#68 diffs from 111111111111, but its merge base with the branch it merges into is 121212121212/,
+  );
+  // A round without a recorded base cannot be pinned.
+  const unrecorded = layer(65, sha(65), sha(68));
+  if (unrecorded.target.kind === "worktree") assert.fail();
+  const { base_sha: _, ...target } = unrecorded.target;
+  refused(
+    {},
+    [fresh[0] ?? assert.fail(), review(65, { ...unrecorded, target })],
+    /#65 diffs from no recorded base/,
+  );
+  // A path that bases a layer anywhere but on its parent's head is refused before any review is read.
+  refused(
+    {
+      path: [
+        path[0] ?? assert.fail(),
+        { ...(path[1] ?? assert.fail()), base_sha: root },
+      ],
+    },
+    fresh,
+    /bases #65 on 111111111111, not on its parent #68's head 686868686868/,
+  );
+});
+
+test("a layer is current only at its pinned head and base", () => {
+  const [base, tip] = record([], [68, 65]).layers;
+  assert.ok(base !== undefined && tip !== undefined);
+  const id = "review-65" as ReviewId;
+  const round = 2 as RoundNumber;
+  assert.deepEqual(layerSource(tip, id, round, layer(65, sha(65), sha(68))), {
+    kind: "current",
+    review: id,
+    round,
+    input: layer(65, sha(65), sha(68)),
+    base_sha: sha(68),
+  });
+  // Same head, but a later round diffs from #68's rewritten head: stale, naming the base it shows now.
+  assert.deepEqual(layerSource(tip, id, round, layer(65, sha(65), sha(70))), {
+    kind: "stale",
+    review: id,
+    head_sha: sha(65),
+    base_sha: sha(70),
+  });
+  assert.equal(
+    layerSource(tip, id, round, layer(65, sha(90), sha(68))).kind,
+    "stale",
+  );
+  // A walkthrough published before bases were pinned cannot tell, so its layers are stale until republished.
+  const { base_sha: _, ...legacy } = base;
+  assert.equal(layerSource(legacy, id, round, layer(68)).kind, "stale");
 });

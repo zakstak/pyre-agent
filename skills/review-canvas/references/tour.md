@@ -95,11 +95,16 @@ Publish with every layer's session:
 
 The command reads the tip's ancestor path from the host. It refuses steps on a
 sibling branch, steps out of order, and a layer whose round is not at the host's
-current head. Pass `--history` for merged or closed GitHub stacks, which uses
-each pull request's final retained head; say in the summary that earlier
-force-pushed revisions are not shown. Publish the stack file again after a new
-round of any layer: the page hides a moved layer's excerpts until you do, and
-keeps the reviewer's progress on steps you left unchanged.
+current head and base. A layer above the root must diff from its parent's head:
+after a parent is force-pushed, rebase the layer on it if needed, then collect
+and publish a round again. The root must diff from its merge base with the
+branch it merges into, which new commits on that branch do not change. Pass
+`--history` for merged or closed GitHub stacks, which uses each pull request's
+final retained head; say in the summary that earlier force-pushed revisions are
+not shown. Publish the stack file again after a new round of any layer: the page
+hides a moved layer's excerpts until you do, and keeps the reviewer's progress
+on steps you left unchanged, even when steps or layers before them were added or
+removed.
 
 ## Later rounds
 

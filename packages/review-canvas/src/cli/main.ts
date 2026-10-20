@@ -85,7 +85,8 @@ Commands
   export   --session DIR --output FILE    Write the review's feedback document.
   stack-publish --input FILE              Publish one walkthrough across a PR stack: the input's tip and its
            --session DIR...               ancestors, base first. Pass the --session of every layer's review; each
-           [--history]                    must show the host's current head. Sibling branches are left out.
+           [--history]                    must show the host's current head, diffed from its parent's head or, for
+                                          the root, its merge base. Sibling branches are left out.
                                           --history reads merged and closed GitHub PRs' final retained heads.
 
 The session folder holds session.json: the review, the thread, and its token. Keep it private.`;

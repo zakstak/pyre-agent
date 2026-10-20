@@ -768,11 +768,19 @@ test("a stack walkthrough publishes over the socket with every layer's thread, a
     );
     const url = (n: number) =>
       `https://github.com/example/retry-demo/pull/${n}`;
+    // Layer 1 diffs from the fixture's base, and layer 2 from layer 1's head.
+    const baseOf = (n: number) =>
+      n === 1 ? pr.target.base_sha : String(n - 1).repeat(40);
     const sessions: Array<{ review: string; token: string }> = [];
     for (const n of [1, 2]) {
       const layer = {
         ...pr,
-        target: { ...pr.target, url: url(n), head_sha: String(n).repeat(40) },
+        target: {
+          ...pr.target,
+          url: url(n),
+          head_sha: String(n).repeat(40),
+          base_sha: baseOf(n),
+        },
       };
       const registered = await call(agent, "POST", "/agent/register", {
         body: JSON.stringify({
@@ -819,6 +827,7 @@ test("a stack walkthrough publishes over the socket with every layer's thread, a
           url: url(n),
           title: `Layer ${n}`,
           head_sha: String(n).repeat(40),
+          base_sha: baseOf(n),
         })),
         excluded: [],
         sessions: tokens,

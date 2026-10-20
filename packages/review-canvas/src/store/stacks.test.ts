@@ -32,17 +32,31 @@ const url = (n: number) =>
 const sha = (n: number) => String(n).padStart(2, "0").repeat(20) as CommitSha;
 const stepKey = Schema.decodeSync(StepKey);
 
-const layer = (n: number, head = sha(n)): ReviewInput => {
+/** The fixture's base, which the root layer diffs from. */
+const root = sha(11);
+/** The base of each PR in these stacks: #68 is the root, and #65 and #69 build on it unless a stack says otherwise. */
+const baseOf = (n: number): CommitSha => (n === 68 ? root : sha(68));
+/** Each layer's base in a stack from root to tip: the root's merge base, then each parent's head. */
+const bases = (layers: ReadonlyArray<number>) =>
+  layers.map((n, index) => (index === 0 ? root : sha(layers[index - 1] ?? n)));
+
+const layer = (n: number, head = sha(n), base = baseOf(n)): ReviewInput => {
   const decoded = decodeBytes(
     InputDocument,
     fixtureBytes("input/pull-request.json"),
   );
   if (Result.isFailure(decoded)) assert.fail(decoded.failure.message);
-  const base = decoded.success;
-  if (base.target.kind === "worktree") assert.fail("expected a PR fixture");
+  const input = decoded.success;
+  if (input.target.kind === "worktree") assert.fail("expected a PR fixture");
   return {
-    ...base,
-    target: { ...base.target, url: url(n), title: `PR ${n}`, head_sha: head },
+    ...input,
+    target: {
+      ...input.target,
+      url: url(n),
+      title: `PR ${n}`,
+      head_sha: head,
+      base_sha: base,
+    },
   };
 };
 
@@ -59,8 +73,8 @@ const step = (n: number, title: string, path = "src/retry.py"): StackStep => ({
 
 /** Registers and publishes a review of each layer, as an agent does before publishing the walkthrough. */
 const reviewed = (store: Store, layers: ReadonlyArray<number>) =>
-  layers.map((n) => {
-    const input = layer(n);
+  layers.map((n, index) => {
+    const input = layer(n, sha(n), bases(layers)[index]);
     const registered = store.register({
       target: input.target,
       label: `Thread ${n}`,
@@ -85,10 +99,11 @@ const request = (
     steps,
   },
   historical: false,
-  path: layers.map((n) => ({
+  path: layers.map((n, index) => ({
     url: url(n),
     title: `PR ${n}`,
     head_sha: sha(n),
+    base_sha: bases(layers)[index] ?? root,
   })),
   excluded: [{ url: url(66), title: "Sibling docs" }],
 });
@@ -237,6 +252,7 @@ test("a layer's new head makes it stale; a fresh start at the same head stays cu
     kind: "stale",
     review: fresh.review.state.id,
     head_sha: sha(90),
+    base_sha: sha(68),
   });
   const tipStep = stale?.steps.find((item) => item.key === "L1:S0");
   assert.equal(tipStep?.read, "changed");
@@ -369,8 +385,18 @@ test("publication refuses worktree reviews, closed reviews, and reviews behind t
         {
           ...request([68, 69], []),
           path: [
-            { url: url(68), title: "PR 68", head_sha: sha(68) },
-            { url: url(69), title: "PR 69", head_sha: sha(91) },
+            {
+              url: url(68),
+              title: "PR 68",
+              head_sha: sha(68),
+              base_sha: root,
+            },
+            {
+              url: url(69),
+              title: "PR 69",
+              head_sha: sha(91),
+              base_sha: sha(68),
+            },
           ],
         },
         ids,
@@ -452,4 +478,158 @@ test("a version 4 database from before walkthroughs opens with its reviews and g
     { user_version: 4 },
   );
   version.close();
+});
+
+test("a round at the same head that diffs from another base makes its layer stale", () => {
+  const store = Store.open(":memory:");
+  const layers = reviewed(store, [68, 69]);
+  const { id } = store.publishStack(
+    request([68, 69], [step(68, "Core"), step(69, "UI")]),
+    layers.map((item) => item.review),
+  );
+  const tipShown = shown(store, id, "L1:S0");
+  store.stackAct(id, { kind: "go", step: stepKey("L1:S0"), read: tipShown });
+  const tip = layers[1];
+  assert.ok(tip !== undefined);
+
+  // #68 was force-pushed; #69 kept its head, and its next round diffs from the merge base with #68's new head.
+  store.publish(tip.review, tip.thread, layer(69, sha(69), sha(70)));
+  const moved = store.stackSnapshot(id);
+  assert.deepEqual(moved?.layers[1]?.state, {
+    kind: "stale",
+    review: tip.review,
+    head_sha: sha(69),
+    base_sha: sha(70),
+  });
+  assert.equal(moved?.layers[1]?.base_sha, sha(68));
+  const tipStep = moved?.steps.find((item) => item.key === "L1:S0");
+  assert.equal(tipStep?.read, "changed");
+  assert.equal(tipStep?.version, undefined);
+  fails(
+    () =>
+      store.stackAct(id, {
+        kind: "go",
+        step: stepKey("L0:S0"),
+        read: tipShown,
+      }),
+    /not current/,
+  );
+  // Republishing against the old path is refused: the review no longer diffs from #68's pinned head.
+  fails(
+    () =>
+      store.publishStack(
+        request([68, 69], [step(68, "Core"), step(69, "UI")]),
+        layers.map((item) => item.review),
+      ),
+    /#69 diffs from 707070707070, but its parent #68's head is 686868686868/,
+  );
+  // A round back at the pinned base is current again, and the earlier read counts.
+  store.publish(tip.review, tip.thread, layer(69));
+  const back = store.stackSnapshot(id);
+  assert.equal(back?.layers[1]?.state.kind, "current");
+  assert.equal(back?.steps.find((item) => item.key === "L1:S0")?.read, "read");
+  store.close();
+});
+
+test("a walkthrough published before bases were pinned still opens, with every layer stale until republished", (t) => {
+  const { path, cleanup } = tempPath();
+  t.after(cleanup);
+  const store = Store.open(path);
+  const layers = reviewed(store, [68, 69]);
+  const { id } = store.publishStack(
+    request([68, 69], [step(68, "Core"), step(69, "UI")]),
+    layers.map((item) => item.review),
+  );
+  store.stackAct(id, {
+    kind: "go",
+    step: stepKey("L1:S0"),
+    read: shown(store, id, "L0:S0"),
+  });
+  store.close();
+
+  // Rewrite the row as an earlier build stored it: no base on its layers or marks.
+  const db = new DatabaseSync(path);
+  const row = db
+    .prepare("SELECT record, progress FROM stack_walkthroughs WHERE id = ?")
+    .get(id) as { record: string; progress: string };
+  const record = JSON.parse(row.record) as {
+    layers: Array<Record<string, unknown>>;
+  };
+  const progress = JSON.parse(row.progress) as {
+    marks: Array<Record<string, unknown>>;
+  };
+  for (const item of [...record.layers, ...progress.marks])
+    delete item["base_sha"];
+  db.prepare(
+    "UPDATE stack_walkthroughs SET record = ?, progress = ? WHERE id = ?",
+  ).run(JSON.stringify(record), JSON.stringify(progress), id);
+  db.close();
+
+  const reopened = Store.open(path);
+  const legacy = reopened.stackSnapshot(id);
+  assert.ok(legacy !== undefined);
+  assert.deepEqual(
+    legacy.layers.map((item) => item.state.kind),
+    ["stale", "stale"],
+  );
+  assert.equal(
+    legacy.steps.find((item) => item.key === "L0:S0")?.read,
+    "changed",
+  );
+  // Republishing pins the bases; the old mark has none, so the step is read again rather than trusted.
+  const republished = reopened.publishStack(
+    request([68, 69], [step(68, "Core"), step(69, "UI")]),
+    layers.map((item) => item.review),
+  );
+  assert.deepEqual(
+    republished.snapshot.layers.map((item) => item.state.kind),
+    ["current", "current"],
+  );
+  assert.equal(
+    republished.snapshot.steps.find((item) => item.key === "L0:S0")?.read,
+    "changed",
+  );
+  reopened.close();
+});
+
+test("republishing with a step added before a read one keeps that read and the position on it", () => {
+  const store = Store.open(":memory:");
+  const layers = reviewed(store, [68, 69]);
+  const ids = layers.map((item) => item.review);
+  const first = store.publishStack(
+    request([68, 69], [step(68, "Core"), step(69, "UI")]),
+    ids,
+  );
+  store.stackAct(first.id, {
+    kind: "go",
+    step: stepKey("L1:S0"),
+    read: shown(store, first.id, "L0:S0"),
+  });
+  store.stackAct(first.id, {
+    kind: "go",
+    step: stepKey("L1:S0"),
+    read: shown(store, first.id, "L1:S0"),
+  });
+  const second = store.publishStack(
+    request(
+      [68, 69],
+      [
+        step(68, "Groundwork", "config/retry.json"),
+        step(68, "Core"),
+        step(69, "Setup", "config/retry.json"),
+        step(69, "UI"),
+      ],
+    ),
+    ids,
+  );
+  const read = (key: string) =>
+    second.snapshot.steps.find((item) => item.key === key)?.read;
+  assert.equal(second.snapshot.position, "L1:S1");
+  assert.deepEqual(["L0:S0", "L0:S1", "L1:S0", "L1:S1"].map(read), [
+    "unread",
+    "read",
+    "unread",
+    "read",
+  ]);
+  store.close();
 });

@@ -262,12 +262,17 @@ across PR boundaries; the step list and **Previous** move without marking. The
 server stores the position and read marks, so a reload or another tab resumes at
 the same step. A mark records the layer's head and the version of each file the
 step covers. When the head or one of those files changes, the step shows
-**changed since you read it**. When a layer's review moves to a head the
-walkthrough was not written for, the layer is stale. Its steps keep the agent's
-prose without excerpts until the agent publishes the walkthrough again. A layer
-without an open review is missing and appears as a placeholder step.
-Republishing a tip's walkthrough replaces the earlier one and keeps progress on
-steps the agent left unchanged. `--history` builds the path from merged and
-closed GitHub PRs' final retained heads, with the limitations described above.
-Walkthroughs live in their own table of the same database; older builds ignore
-it.
+**changed since you read it**. Each layer is pinned to its head and to the
+commit its diff starts from: its parent layer's head, or for the root layer, its
+merge base with the branch it merges into, which unrelated commits there do not
+move. When a layer's review moves to a head or base the walkthrough was not
+written for, as after a parent's force-push or a retarget, the layer is stale.
+Its steps keep the agent's prose without excerpts until the agent publishes the
+walkthrough again. A layer without an open review is missing and appears as a
+placeholder step. Republishing a tip's walkthrough replaces the earlier one and
+keeps progress on steps the agent left unchanged, following them when steps or
+layers before them were added or removed. A stop written twice in one PR keeps
+no progress, since which copy the reviewer read is unknown. `--history` builds
+the path from merged and closed GitHub PRs' final retained heads, with the
+limitations described above. Walkthroughs live in their own table of the same
+database; older builds ignore it.

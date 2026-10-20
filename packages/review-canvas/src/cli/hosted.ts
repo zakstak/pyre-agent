@@ -299,6 +299,57 @@ export const readPullRequestFiles = (
   );
 };
 
+const GiteaMergeBase = Schema.Struct({
+  merge_base: CommitSha,
+  base: Schema.Struct({ sha: CommitSha }),
+  head: Schema.Struct({ sha: CommitSha }),
+});
+
+/**
+ * The commit the host diffs a pull request from, given the base and head it read: their merge base, which stays put
+ * while the branch the pull request merges into gains unrelated commits. `collect --pr` records the same commit.
+ */
+export const readMergeBase = (
+  url: PullRequestUrl,
+  view: Pick<PullRequestView, "baseRefOid" | "headRefOid">,
+  clients: ForgeClients,
+): CommitSha => {
+  const pull = addressOf(url);
+  if (pull.provider === "github") {
+    let raw: string;
+    try {
+      raw = clients.gh([
+        "api",
+        "--hostname",
+        pull.host,
+        `repos/${pull.repository}/compare/${view.baseRefOid}...${view.headRefOid}?per_page=1`,
+        "--jq",
+        ".merge_base_commit.sha",
+      ]);
+    } catch (error) {
+      throw new ForgeFailed(
+        `Cannot read the merge base from ${pull.host}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return decode(CommitSha, raw.trim());
+  }
+  if (pull.provider === "gitlab")
+    return decode(
+      Schema.Struct({ id: CommitSha }),
+      clients.api(
+        pull,
+        `/api/v4/projects/${encodeURIComponent(pull.repository)}/repository/merge_base?refs%5B%5D=${view.baseRefOid}&refs%5B%5D=${view.headRefOid}`,
+      ),
+    ).id;
+  // Gitea and Forgejo report the merge base only for the pull request's current base and head.
+  const raw = decode(GiteaMergeBase, clients.api(pull, endpoint(pull)));
+  if (raw.base.sha !== view.baseRefOid || raw.head.sha !== view.headRefOid)
+    throw new ForgeFailed(
+      "The pull request's base or head changed while reading its merge base. Run the command again.",
+    );
+  return raw.merge_base;
+};
+
 const Id = integer(1, Number.MAX_SAFE_INTEGER);
 const Line = integer(0, Limits.MAX_LINE);
 const GitLabPosition = Schema.Struct({

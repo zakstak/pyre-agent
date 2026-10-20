@@ -135,13 +135,20 @@ const ReadMark = ({ step }: { readonly step: StackStepView }) => {
   );
 };
 
+/** A commit's short name, or what stands in for a base a review or an older walkthrough did not record. */
+const short = (sha: string | undefined): string =>
+  sha === undefined ? "an unrecorded base" : sha.slice(0, 7);
+
 /** A layer's review as the walkthrough found it, in a few words. */
-const layerText = (state: LayerState): string => {
+const layerText = (layer: StackLayerView): string => {
+  const state = layer.state;
   switch (state.kind) {
     case "current":
       return `Review round ${state.round}`;
     case "stale":
-      return `Moved to ${state.head_sha.slice(0, 7)} since this walkthrough`;
+      return state.head_sha === layer.head_sha
+        ? `Base moved to ${short(state.base_sha)} since this walkthrough`
+        : `Moved to ${state.head_sha.slice(0, 7)} since this walkthrough`;
     case "missing":
       return state.review === undefined ? "No open review" : "No round yet";
   }
@@ -173,7 +180,7 @@ const Rail = ({
               layer.state.kind === "current" ? "text-muted" : "text-warning",
             )}
           >
-            {layerText(layer.state)}
+            {layerText(layer)}
           </p>
           <ol className="mt-1 flex flex-col">
             {snapshot.steps
@@ -253,10 +260,11 @@ const LayerBanner = ({
       </p>
       {layer.state.kind === "stale" ? (
         <p role="alert" className="mt-2 text-warning">
-          The agent wrote these steps for {layer.head_sha.slice(0, 7)}; the
-          review now shows {layer.state.head_sha.slice(0, 7)}. The excerpts are
-          hidden, and earlier reads of this layer no longer count. Ask the agent
-          to publish the walkthrough again.
+          {layer.state.head_sha === layer.head_sha
+            ? `The agent wrote these steps for a diff from ${short(layer.base_sha)}; the review now diffs from ${short(layer.state.base_sha)}.`
+            : `The agent wrote these steps for ${layer.head_sha.slice(0, 7)}; the review now shows ${layer.state.head_sha.slice(0, 7)}.`}{" "}
+          The excerpts are hidden, and earlier reads of this layer no longer
+          count. Ask the agent to publish the walkthrough again.
         </p>
       ) : layer.state.kind === "missing" ? (
         <p role="alert" className="mt-2 text-warning">

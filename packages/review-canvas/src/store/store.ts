@@ -92,6 +92,7 @@ import {
 import {
   carryProgress,
   type LayerSource,
+  layerSource,
   pinLayers,
   resolveStack,
   type ResolvedStack,
@@ -1062,13 +1063,7 @@ export class Store {
         round === undefined ? undefined : this.#input(row.id, round.round);
       if (round === undefined || input === undefined)
         return { kind: "missing", review: state.id };
-      if (input.target.head_sha !== layer.head_sha)
-        return {
-          kind: "stale",
-          review: state.id,
-          head_sha: input.target.head_sha,
-        };
-      return { kind: "current", review: state.id, round: round.round, input };
+      return layerSource(layer, state.id, round.round, input);
     });
   }
 

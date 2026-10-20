@@ -17,9 +17,18 @@ const url = (n: number) => `https://github.com/example/retry-demo/pull/${n}`;
 const head = (n: number) => String(n).padStart(2, "0").repeat(20);
 const configTitle =
   "Config limit shared by every retry attempt and its callers across the stack";
-const layerInput = (n: number, sha = head(n)) => ({
+/** Each PR's base in the stack #68 -> #65 -> #69: the root's merge base, then each parent's head. */
+const baseOf = (n: number): string =>
+  n === 68 ? pr.target.base_sha : head(n === 65 ? 68 : 65);
+const layerInput = (n: number, sha = head(n), base = baseOf(n)) => ({
   ...pr,
-  target: { ...pr.target, url: url(n), title: `PR ${n}`, head_sha: sha },
+  target: {
+    ...pr.target,
+    url: url(n),
+    title: `PR ${n}`,
+    head_sha: sha,
+    base_sha: base,
+  },
 });
 
 const step = (n: number, title: string, path: string) => ({
@@ -78,6 +87,7 @@ test(
           url: url(n),
           title: `PR ${n}`,
           head_sha: head(n),
+          base_sha: baseOf(n),
         })),
         excluded: [{ url: url(66), title: "Sibling docs" }],
         sessions: agents.map((agent) => ({
@@ -214,13 +224,13 @@ const composer = "tr[data-composer] textarea";
 
 /** Publishes a round of #68 and #69, each changing src/retry.py the same way, and a walkthrough of one step each. */
 const twoLayers = async (server: Awaited<ReturnType<typeof startServer>>) => {
+  // Here #69 builds on #68 directly.
+  const twoBase = (n: number) => (n === 69 ? head(68) : baseOf(n));
   const agents: Array<Agent> = [];
   for (const n of [68, 69]) {
-    const agent = await server.register(
-      layerInput(n),
-      `Claude Code: layer ${n}`,
-    );
-    await agent.publish(layerInput(n));
+    const input = layerInput(n, head(n), twoBase(n));
+    const agent = await server.register(input, `Claude Code: layer ${n}`);
+    await agent.publish(input);
     agents.push(agent);
   }
   const [base, tip] = agents;
@@ -240,6 +250,7 @@ const twoLayers = async (server: Awaited<ReturnType<typeof startServer>>) => {
       url: url(n),
       title: `PR ${n}`,
       head_sha: head(n),
+      base_sha: twoBase(n),
     })),
     excluded: [],
     sessions: agents.map((agent) => ({

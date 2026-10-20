@@ -18,6 +18,7 @@ import type { OpenPullRequest } from "../schema/pull-requests.ts";
 import type {
   LayerState,
   ReadFile,
+  StackLayerRecord,
   StackLayerView,
   StackProgress,
   StackPublishRequest,
@@ -73,10 +74,15 @@ export interface LayerReview {
   readonly input: ReviewInput | undefined;
 }
 
+/** The base a review's round diffs from: a pull request's recorded merge base. A working tree has none. */
+export const diffBase = (input: ReviewInput): CommitSha | undefined =>
+  input.target.kind === "worktree" ? undefined : input.target.base_sha;
+
 /**
  * Checks a publication against the reviews its threads belong to, and pins each layer to its review's target. The
- * path ends at the tip, has each PR once, and leaves out every excluded PR; each step names a layer, in base-to-tip
- * order; and each layer's review shows the head the command read from the host.
+ * path ends at the tip, has each PR once, leaves out every excluded PR, and bases each layer on its parent's head;
+ * each step names a layer, in base-to-tip order; and each layer's review shows the head and base the command read
+ * from the host.
  */
 export const pinLayers = (
   request: Omit<StackPublishRequest, "sessions">,
@@ -92,6 +98,13 @@ export const pinLayers = (
       throw new StackRefused(
         `${pullNumber(excluded.url)} is both on the path and excluded from it.`,
       );
+  for (const [index, layer] of request.path.entries()) {
+    const parent = request.path[index - 1];
+    if (parent !== undefined && layer.base_sha !== parent.head_sha)
+      throw new StackRefused(
+        `The stack path bases ${pullNumber(layer.url)} on ${layer.base_sha.slice(0, 12)}, not on its parent ${pullNumber(parent.url)}'s head ${parent.head_sha.slice(0, 12)}.`,
+      );
+  }
   let last = 0;
   const perLayer = new Array<number>(keys.length).fill(0);
   for (const [index, step] of request.walkthrough.steps.entries()) {
@@ -111,7 +124,7 @@ export const pinLayers = (
         `${pullNumber(step.layer)} has more than ${Limits.MAX_STOPS} steps.`,
       );
   }
-  return request.path.map((layer) => {
+  return request.path.map((layer, index) => {
     const review = reviews.find(
       (item) => pullRequestKey(item.url) === pullRequestKey(layer.url),
     );
@@ -119,15 +132,22 @@ export const pinLayers = (
       throw new StackRefused(
         `No thread given for ${pullNumber(layer.url)}. Register and publish a review of every layer, and pass each one's --session.`,
       );
-    const head = review.input?.target.head_sha;
-    if (head === undefined)
+    if (review.input === undefined)
       throw new StackRefused(
         `The review of ${pullNumber(layer.url)} has no round yet. Publish one first.`,
       );
+    const head = review.input.target.head_sha;
     if (head !== layer.head_sha)
       throw new StackRefused(
         `The review of ${pullNumber(layer.url)} shows ${head.slice(0, 12)}, but the host's head is ${layer.head_sha.slice(0, 12)}. Publish a round at the current head first.`,
       );
+    const base = diffBase(review.input);
+    if (base !== layer.base_sha) {
+      const parent = request.path[index - 1];
+      throw new StackRefused(
+        `The review of ${pullNumber(layer.url)} diffs from ${base === undefined ? "no recorded base" : base.slice(0, 12)}, but ${parent === undefined ? "its merge base with the branch it merges into" : `its parent ${pullNumber(parent.url)}'s head`} is ${layer.base_sha.slice(0, 12)}. ${parent === undefined ? "" : "Rebase it on its parent if needed, then "}collect and publish a round again.`,
+      );
+    }
     return { ...layer, target_key: review.target_key };
   });
 };
@@ -139,13 +159,39 @@ export type LayerSource =
       readonly review: ReviewId;
       readonly round: RoundNumber;
       readonly input: ReviewInput;
+      /** The pinned base the round diffs from. */
+      readonly base_sha: CommitSha;
     }
   | {
       readonly kind: "stale";
       readonly review: ReviewId;
       readonly head_sha: CommitSha;
+      readonly base_sha?: CommitSha | undefined;
     }
   | { readonly kind: "missing"; readonly review?: ReviewId | undefined };
+
+/**
+ * A layer's open review with a round, against what the walkthrough pinned: current only at the pinned head and base.
+ * A layer pinned before bases were recorded is stale until the walkthrough is published again.
+ */
+export const layerSource = (
+  layer: StackLayerRecord,
+  review: ReviewId,
+  round: RoundNumber,
+  input: ReviewInput,
+): LayerSource => {
+  const base = diffBase(input);
+  return input.target.head_sha === layer.head_sha &&
+    layer.base_sha !== undefined &&
+    base === layer.base_sha
+    ? { kind: "current", review, round, input, base_sha: layer.base_sha }
+    : {
+        kind: "stale",
+        review,
+        head_sha: input.target.head_sha,
+        ...(base === undefined ? {} : { base_sha: base }),
+      };
+};
 
 /** The version of a file a mark records: its fingerprint, or else its patch, so an unchanged file keeps its mark. */
 export const fileVersion = (file: ReviewFile): string =>
@@ -161,16 +207,15 @@ const sameFiles = (a: ReadonlyArray<ReadFile>, b: ReadonlyArray<ReadFile>) =>
       file.path === b[index]?.path && file.version === b[index]?.version,
   );
 
-/** A mark holds while the layer shows the head and the file versions it was made at. */
+/** A mark holds while the layer shows the head, base, and file versions it was made at. */
 export const readState = (
   mark: StepMark | undefined,
-  now:
-    | { readonly head_sha: CommitSha; readonly files: ReadonlyArray<ReadFile> }
-    | undefined,
+  now: StepVersion | undefined,
 ): StepRead => {
   if (mark === undefined) return "unread";
   return now !== undefined &&
     mark.head_sha === now.head_sha &&
+    mark.base_sha === now.base_sha &&
     sameFiles(mark.files, now.files)
     ? "read"
     : "changed";
@@ -179,6 +224,7 @@ export const readState = (
 /** What a mark of a step would record now, for steps of a current layer: every file the step shows, not only its own. */
 export interface StepVersion {
   readonly head_sha: CommitSha;
+  readonly base_sha: CommitSha;
   readonly files: ReadonlyArray<ReadFile>;
 }
 
@@ -188,6 +234,7 @@ export const stepDigest = (version: StepVersion): StepDigest =>
     .update(
       JSON.stringify([
         version.head_sha,
+        version.base_sha,
         version.files.map((file) => [file.path, file.version]),
       ]),
       "utf8",
@@ -213,6 +260,7 @@ const layerState = (source: LayerSource): LayerState => {
         kind: "stale",
         review: source.review,
         head_sha: source.head_sha,
+        ...(source.base_sha === undefined ? {} : { base_sha: source.base_sha }),
       };
     case "missing":
       return source.review === undefined
@@ -255,6 +303,7 @@ export const resolveStack = (
         // An excerpt of a file an earlier step owns shows that file too, so its change reopens this step as well.
         const version: StepVersion = {
           head_sha: input.target.head_sha,
+          base_sha: source.base_sha,
           files: [...new Set(stop.files.map((file) => file.path))].flatMap(
             (path) => {
               const file = files.get(path);
@@ -317,6 +366,7 @@ export const resolveStack = (
       url: layer.url,
       title: layer.title,
       head_sha: layer.head_sha,
+      ...(layer.base_sha === undefined ? {} : { base_sha: layer.base_sha }),
       state: layerState(source),
     };
   });
@@ -342,35 +392,68 @@ export const resumeAt = (
   return first.key;
 };
 
+/** JSON with every object's keys sorted, so equal values compare equal whatever order their keys were written in. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item).toSorted(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : item,
+  );
+
+/** Each step a record can show, by what it is: its PR, and the agent's stop, or that PR's closing or placeholder step. */
+const stepsByIdentity = (
+  record: StackRecord,
+): ReadonlyMap<string, ReadonlyArray<StepKey>> => {
+  const found = new Map<string, Array<StepKey>>();
+  const add = (identity: unknown, step: StepKey) => {
+    const name = canonical(identity);
+    found.set(name, [...(found.get(name) ?? []), step]);
+  };
+  for (const [index, layer] of record.layers.entries()) {
+    const pull = pullRequestKey(layer.url);
+    for (const [at, { stop }] of authoredSteps(record, layer.url).entries())
+      add([pull, stop], key(`L${index}:S${at}`));
+    add([pull, "other"], key(`L${index}:other`));
+    add([pull, "missing"], key(`L${index}:missing`));
+  }
+  return found;
+};
+
 /**
- * Progress a republished walkthrough keeps: the position, and marks of steps the agent left as they were on the same
- * layer. A mark still counts only at the head and file versions it was made at.
+ * Progress a republished walkthrough keeps: the position and marks of steps the agent left as they were, moved to
+ * their new keys when steps or layers before them were added or removed. A step is the same when its PR and its
+ * stop as written are, or when both are that PR's closing or placeholder step. A stop written more than once in a PR,
+ * before or after, carries nothing, so a copy the reviewer never saw is not marked read. A mark still counts only at
+ * the head, base, and file versions it was made at.
  */
 export const carryProgress = (
   before: StackRecord,
   after: StackRecord,
   progress: StackProgress,
 ): StackProgress => {
-  /** What a step key names in a record: its layer's PR, and the agent's stop, or the closing or placeholder step. */
-  const named = (record: StackRecord, step: StepKey) => {
-    const [layerPart = "", stopPart = ""] = step.split(":");
-    const layer = record.layers[Number(layerPart.slice(1))];
-    if (layer === undefined) return undefined;
-    const stop = stopPart.startsWith("S")
-      ? authoredSteps(record, layer.url)[Number(stopPart.slice(1))]?.stop
-      : stopPart;
-    return stop === undefined
-      ? undefined
-      : JSON.stringify([pullRequestKey(layer.url), stop]);
-  };
-  const kept = (step: StepKey) => {
-    const was = named(before, step);
-    return was !== undefined && was === named(after, step);
-  };
+  const now = stepsByIdentity(after);
+  const moved = new Map<StepKey, StepKey>();
+  for (const [identity, [from, ...more]] of stepsByIdentity(before)) {
+    const [to, ...also] = now.get(identity) ?? [];
+    if (
+      from !== undefined &&
+      more.length === 0 &&
+      to !== undefined &&
+      also.length === 0
+    )
+      moved.set(from, to);
+  }
+  const position =
+    progress.position === undefined ? undefined : moved.get(progress.position);
   return {
-    ...(progress.position !== undefined && kept(progress.position)
-      ? { position: progress.position }
-      : {}),
-    marks: progress.marks.filter((mark) => kept(mark.step)),
+    ...(position === undefined ? {} : { position }),
+    marks: progress.marks.flatMap((mark) => {
+      const step = moved.get(mark.step);
+      return step === undefined ? [] : [{ ...mark, step }];
+    }),
   };
 };
