@@ -15,6 +15,8 @@ const pr = JSON.parse(
 );
 const url = (n: number) => `https://github.com/example/retry-demo/pull/${n}`;
 const head = (n: number) => String(n).padStart(2, "0").repeat(20);
+const configTitle =
+  "Config limit shared by every retry attempt and its callers across the stack";
 const layerInput = (n: number, sha = head(n)) => ({
   ...pr,
   target: { ...pr.target, url: url(n), title: `PR ${n}`, head_sha: sha },
@@ -67,7 +69,7 @@ test(
           tip: url(69),
           steps: [
             step(68, "Retry loop", "src/retry.py"),
-            step(65, "Config limit", "config/retry.json"),
+            step(65, configTitle, "config/retry.json"),
             step(69, "Tip wiring", "src/retry.py"),
           ],
         },
@@ -108,7 +110,16 @@ test(
 
     await page.getByRole("button", { name: "Next: Other files" }).click();
     await at(page, "L0:other");
-    await page.getByRole("button", { name: "Next: Config limit" }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+      true,
+      "long step titles wrap without widening the mobile page",
+    );
+    await page.getByRole("button", { name: `Next: ${configTitle}` }).click();
+    await page.setViewportSize({ width: 1280, height: 900 });
     await at(page, "L1:S0");
     await page.getByText("Layer 2 of 3", { exact: true }).waitFor();
     assert.equal(await position(page), "Step 3 of 6");

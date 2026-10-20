@@ -433,13 +433,18 @@ const StepNav = ({
     className="mt-10 flex flex-wrap items-center gap-3 border-t border-separator pt-6"
   >
     {previous === undefined ? null : (
-      <Button disabled={busy} onClick={() => void onGo(previous, false)}>
+      <Button
+        className="max-w-full text-left whitespace-normal wrap-anywhere"
+        disabled={busy}
+        onClick={() => void onGo(previous, false)}
+      >
         Previous: {previous.title}
       </Button>
     )}
     {next !== undefined ? (
       <Button
         variant="primary"
+        className="max-w-full text-left whitespace-normal wrap-anywhere"
         disabled={busy || loading}
         onClick={() => void onGo(next, true)}
       >
