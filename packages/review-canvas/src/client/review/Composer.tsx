@@ -9,7 +9,7 @@ import { flushSync } from "react-dom";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import type { ReviewId } from "../../schema/primitives.ts";
+import type { PatchDigest, RepoPath, ReviewId } from "../../schema/primitives.ts";
 import { useAct, usePage } from "./act.ts";
 import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
 import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
@@ -35,6 +35,36 @@ export const openDraft = (
     ...drafts.filter((item) => item.submitting),
     { ...draft, id, body, submitting: false, focusPending: true },
   ]);
+};
+
+/**
+ * Takes a review's drafts off patches its round no longer has. A draft whose code changed cannot stay on its rows: its
+ * text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the review shows a
+ * round, so a draft left on a review the page moved away from is recovered when the page shows that review again.
+ */
+export const useStashChangedDrafts = (
+  review: ReviewId,
+  files: ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }> | undefined,
+) => {
+  const registry = useContext(RegistryContext);
+  useEffect(() => {
+    if (files === undefined) return;
+    const drafts = registry.get(draftsAtom(review));
+    const lost = drafts.filter((draft) => !draft.submitting && files.get(draft.path)?.digest !== draft.digest);
+    if (lost.length === 0) return;
+    registry.set(
+      draftsAtom(review),
+      drafts.filter((draft) => !lost.includes(draft)),
+    );
+    const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
+    if (text !== undefined) {
+      registry.set(stashAtom(review), text);
+      toast(
+        "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
+        "danger",
+      );
+    }
+  }, [review, files, registry]);
 };
 
 /** `table` is the ID of the diff table the composer is in, and `range` names the lines it comments on. */

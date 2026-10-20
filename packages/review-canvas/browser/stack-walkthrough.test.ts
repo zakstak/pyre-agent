@@ -201,6 +201,60 @@ test(
 const table = (path: string) => `table[data-path='${path}'][data-patch]`;
 const composer = "tr[data-composer] textarea";
 
+/** Publishes a round of #68 and #69, each changing src/retry.py the same way, and a walkthrough of one step each. */
+const twoLayers = async (server: Awaited<ReturnType<typeof startServer>>) => {
+  const agents: Array<Agent> = [];
+  for (const n of [68, 69]) {
+    const agent = await server.register(
+      layerInput(n),
+      `Claude Code: layer ${n}`,
+    );
+    await agent.publish(layerInput(n));
+    agents.push(agent);
+  }
+  const [base, tip] = agents;
+  assert.ok(base !== undefined && tip !== undefined);
+  const published = await server.agent("POST", "/agent/stacks", {
+    walkthrough: {
+      format: "review-canvas.stack/1",
+      title: "Two layers, one file",
+      tip: url(69),
+      steps: [
+        step(68, "Base loop", "src/retry.py"),
+        step(69, "Tip loop", "src/retry.py"),
+      ],
+    },
+    historical: false,
+    path: [68, 69].map((n) => ({
+      url: url(n),
+      title: `PR ${n}`,
+      head_sha: head(n),
+    })),
+    excluded: [],
+    sessions: agents.map((agent) => ({
+      review: agent.review,
+      token: agent.token,
+    })),
+  });
+  assert.equal(published.ok, true, JSON.stringify(published));
+  return { base, tip, url: published.url as string };
+};
+
+/** #68's round with src/retry.py changed as `change` says, at the same head. */
+const baseRound = (change: (file: any) => any) => ({
+  ...layerInput(68),
+  files: layerInput(68).files.map((file: { path: string }) =>
+    file.path === "src/retry.py" ? change(file) : file,
+  ),
+});
+
+/** The + button on the row of src/retry.py that holds `text`. */
+const plusOn = (page: Page, text: string) =>
+  page
+    .locator(`${table("src/retry.py")} tr[data-selectable]`)
+    .filter({ hasText: text })
+    .locator("button[data-add-comment]");
+
 test(
   "drafts stay with the PR they were written on, and a same-head change reopens a read step",
   { skip: !built },
@@ -211,45 +265,11 @@ test(
     t.after(() => browser.close());
 
     // Both layers change the same file the same way, so only the review tells their drafts apart.
-    const agents: Array<Agent> = [];
-    for (const n of [68, 69]) {
-      const agent = await server.register(
-        layerInput(n),
-        `Claude Code: layer ${n}`,
-      );
-      await agent.publish(layerInput(n));
-      agents.push(agent);
-    }
-    const [base, tip] = agents;
-    assert.ok(base !== undefined && tip !== undefined);
-    const published = await server.agent("POST", "/agent/stacks", {
-      walkthrough: {
-        format: "review-canvas.stack/1",
-        title: "Two layers, one file",
-        tip: url(69),
-        steps: [
-          step(68, "Base loop", "src/retry.py"),
-          step(69, "Tip loop", "src/retry.py"),
-        ],
-      },
-      historical: false,
-      path: [68, 69].map((n) => ({
-        url: url(n),
-        title: `PR ${n}`,
-        head_sha: head(n),
-      })),
-      excluded: [],
-      sessions: agents.map((agent) => ({
-        review: agent.review,
-        token: agent.token,
-      })),
-    });
-    assert.equal(published.ok, true, JSON.stringify(published));
-
+    const { base, tip, url: walkthrough } = await twoLayers(server);
     const page = await browser.newPage({
       viewport: { width: 1280, height: 900 },
     });
-    await page.goto(published.url);
+    await page.goto(walkthrough);
     await at(page, "L0:S0");
     await page.locator("#general-body").fill("Base: why five tries?");
     await page
@@ -321,6 +341,202 @@ test(
     await page.getByRole("button", { name: "Previous: Base loop" }).click();
     await at(page, "L0:S0");
     await page.getByRole("button", { name: "Next: Other files" }).click();
+    await at(page, "L0:other");
+    await page.locator("button[data-step='L0:S0'][data-read='read']").waitFor();
+  },
+);
+
+test(
+  "an inline draft on a patch a same-head round changed goes to the stash, also after the page left its layer",
+  { skip: !built },
+  async (t) => {
+    const server = await startServer();
+    t.after(() => server.stop());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const { base, url: walkthrough } = await twoLayers(server);
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+    });
+    await page.goto(walkthrough);
+    await at(page, "L0:S0");
+    await plusOn(page, "attempts = 0").click();
+    await page.locator(composer).fill("Base: first draft");
+
+    // A round that changes only the file's version keeps the patch, so the draft stays on its rows.
+    await base.publish(
+      baseRound((file) => ({ ...file, fingerprint: "e".repeat(64) })),
+    );
+    await page.getByText("Review round 2", { exact: true }).waitFor();
+    assert.equal(
+      await page.locator(composer).inputValue(),
+      "Base: first draft",
+    );
+
+    // A round that changes the patch while the step shows: the composer goes, and its text fills the next one.
+    await base.publish(
+      baseRound((file) => ({
+        ...file,
+        fingerprint: "f".repeat(64),
+        patch: file.patch.replace(
+          "-        result = call(attempts - 1)",
+          "-        result = call(attempts - 2)",
+        ),
+      })),
+    );
+    await page.getByText("Review round 3", { exact: true }).waitFor();
+    await page.getByText(/The code under your comment changed/).waitFor();
+    assert.equal(await page.locator(composer).count(), 0);
+    await plusOn(page, "attempts += 1").click();
+    assert.equal(
+      await page.locator(composer).inputValue(),
+      "Base: first draft",
+    );
+
+    // The same while the page shows the other layer: the base's draft is recovered when the page comes back to it.
+    await page.locator(composer).fill("Base: second draft");
+    await page.locator("button[data-step='L1:S0']").click();
+    await at(page, "L1:S0");
+    await base.publish(
+      baseRound((file) => ({
+        ...file,
+        fingerprint: "d".repeat(64),
+        patch: file.patch.replace(
+          "-        result = call(attempts - 1)",
+          "-        result = call(attempts - 3)",
+        ),
+      })),
+    );
+    await page
+      .locator("[data-stack-layer='0']")
+      .getByText("Review round 4", { exact: true })
+      .waitFor();
+    assert.equal(await page.locator(composer).count(), 0);
+    await page.locator("button[data-step='L0:S0']").click();
+    await at(page, "L0:S0");
+    await page
+      .getByText(/The code under your comment changed/)
+      .first()
+      .waitFor();
+    assert.equal(await page.locator(composer).count(), 0);
+    await plusOn(page, "attempts = 0").click();
+    assert.equal(
+      await page.locator(composer).inputValue(),
+      "Base: second draft",
+    );
+  },
+);
+
+test(
+  "Esc ends moving a comment whose lines left the round, and J does not move the walkthrough",
+  { skip: !built },
+  async (t) => {
+    const server = await startServer();
+    t.after(() => server.stop());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const { base, url: walkthrough } = await twoLayers(server);
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+    });
+    await page.goto(walkthrough);
+    await at(page, "L0:S0");
+    await plusOn(page, "while attempts < limit").click();
+    await page.locator(composer).fill("Off by one?");
+    await page.keyboard.press("Control+Enter");
+    await page
+      .locator("[data-stack-step='L0:S0'] article[data-comment]")
+      .waitFor();
+    // The next round rewrites the line, so the comment has no lines in it and shows under the file.
+    await base.publish(
+      baseRound((file) => ({
+        ...file,
+        fingerprint: "f".repeat(64),
+        patch: file.patch.replace(
+          "+    while attempts < limit:",
+          "+    for attempts in range(limit):",
+        ),
+      })),
+    );
+    await page.getByText("Review round 2", { exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Move to other lines", exact: true })
+      .click();
+    await page.getByText(/Esc cancels/).waitFor();
+    await page.keyboard.press("Escape");
+    await page.getByText("The comment stays where it was.").waitFor();
+    // Picking lines now opens a composer instead of moving the comment.
+    await plusOn(page, "attempts = 0").click();
+    await page.locator(composer).waitFor();
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Move to other lines", exact: true })
+        .count(),
+      1,
+    );
+    // The page has no stops for J and K to move between, so they leave the walkthrough where it is.
+    await page.locator(composer).press("Escape");
+    await page.keyboard.press("j");
+    await page.waitForTimeout(200);
+    await at(page, "L0:S0");
+  },
+);
+
+test(
+  "Next does not mark a version read while its round is still loading",
+  { skip: !built },
+  async (t) => {
+    const server = await startServer();
+    t.after(() => server.stop());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const { base, url: walkthrough } = await twoLayers(server);
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+    });
+    // Hold the page's requests for a round's input, so a new round's snapshot arrives before its content.
+    let hold = false;
+    const held: Array<() => void> = [];
+    await page.routeWebSocket(/\/rpc$/, (socket) => {
+      const upstream = socket.connectToServer();
+      socket.onMessage((message) => {
+        if (
+          hold &&
+          typeof message === "string" &&
+          message.includes('"tag":"review.round"')
+        )
+          held.push(() => upstream.send(message));
+        else upstream.send(message);
+      });
+      upstream.onMessage((message) => socket.send(message));
+    });
+    await page.goto(walkthrough);
+    await at(page, "L0:S0");
+    await page.locator(`${table("src/retry.py")}`).waitFor();
+    hold = true;
+    await base.publish(
+      baseRound((file) => ({ ...file, fingerprint: "f".repeat(64) })),
+    );
+    await page.getByText(/Loading #68.s round 2/).waitFor();
+    assert.ok(held.length > 0, "the new round's input is held");
+    const next = page.getByRole("button", { name: "Next: Other files" });
+    assert.equal(await next.isDisabled(), true);
+    await next.click({ force: true });
+    await page.waitForTimeout(300);
+    await at(page, "L0:S0");
+    assert.equal(
+      await page.locator("button[data-step='L0:S0']").getAttribute("data-read"),
+      "unread",
+    );
+    // Previous and the rail still move while the step loads.
+    await page.locator("button[data-step='L1:S0']").click();
+    await at(page, "L1:S0");
+    await page.locator("button[data-step='L0:S0']").click();
+    await at(page, "L0:S0");
+    hold = false;
+    for (const send of held.splice(0)) send();
+    await page.locator(`${table("src/retry.py")}`).waitFor();
+    await next.click();
     await at(page, "L0:other");
     await page.locator("button[data-step='L0:S0'][data-read='read']").waitFor();
   },

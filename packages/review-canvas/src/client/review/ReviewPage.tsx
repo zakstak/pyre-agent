@@ -33,6 +33,7 @@ import { TargetText } from "../ui/target.tsx";
 import { Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
+import { useStashChangedDrafts } from "./Composer.tsx";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
 import { Guide } from "./Guide.tsx";
@@ -44,12 +45,10 @@ import { Finish } from "./Finish.tsx";
 import { Departed, General, StopSection } from "./Sections.tsx";
 import { NextStrip, useStickyBars } from "./Strip.tsx";
 import {
-  draftsAtom,
   foldsAtom,
   generalDraftAtom,
   layoutAtom,
   NARROW_QUERY,
-  stashAtom,
   type View,
   viewAtom,
 } from "./ui.ts";
@@ -192,8 +191,8 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
 
 /**
  * What a new round changes on the page. It keeps the files that were open; the finish section announces it. The open
- * files come from the folds as they were at the last render of the round before. A draft whose code changed cannot
- * stay on its rows: its text goes to the stash, which fills the next comment the reviewer opens.
+ * files come from the folds as they were at the last render of the round before. A draft whose code changed goes to
+ * the stash.
  */
 const useRoundChange = (key: RoundKey, page: PageModel) => {
   const registry = useContext(RegistryContext);
@@ -226,29 +225,7 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
         carried[path] = "open";
     registry.set(foldsAtom(key), carried);
   });
-  useEffect(() => {
-    const drafts = registry.get(draftsAtom(key.id));
-    const lost = drafts.filter(
-      (draft) =>
-        !draft.submitting &&
-        page.files.get(draft.path)?.digest !== draft.digest,
-    );
-    if (lost.length === 0) return;
-    registry.set(
-      draftsAtom(key.id),
-      drafts.filter((draft) => !lost.includes(draft)),
-    );
-    const text = lost
-      .map((draft) => draft.body)
-      .find((body) => body.trim() !== "");
-    if (text !== undefined) {
-      registry.set(stashAtom(key.id), text);
-      toast(
-        "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
-        "danger",
-      );
-    }
-  }, [key.id, page.files, registry]);
+  useStashChangedDrafts(key.id, page.files);
 };
 
 const Review = ({

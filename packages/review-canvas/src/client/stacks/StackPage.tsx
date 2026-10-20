@@ -2,16 +2,25 @@
  * A stack walkthrough: the agent's one narrative across a PR stack's ancestor path, a step at a time. A step of a
  * current layer shows as that layer's review shows a stop, inside the layer's review context, so comments, answers,
  * and Viewed marks go to the per-PR review. Next marks the step read and goes on, across PR boundaries. The server
- * keeps the position and the marks, so any tab resumes where the reviewer left off.
+ * keeps the position and the marks, so any tab resumes where the reviewer left off. A step is read at the version the
+ * page drew, never at one the server announced while the page was still loading it.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import { Check, CircleDot, TriangleAlert } from "lucide-react";
-import { useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { layerInput, neighbors, pullNumber } from "../../review/stack-steps.ts";
-import type { StackId } from "../../schema/primitives.ts";
+import type { StackId, StepDigest } from "../../schema/primitives.ts";
 import { Refused } from "../../schema/rpc.ts";
 import type {
   LayerState,
@@ -19,10 +28,13 @@ import type {
   StackLayerView,
   StackSnapshot,
   StackStepView,
+  StepKey,
 } from "../../schema/stack.ts";
 import { failureText, NO_ANSWER } from "../rpc.ts";
 import { ReviewContext, useSending } from "../review/act.ts";
+import { useStashChangedDrafts } from "../review/Composer.tsx";
 import { reviewAtom, roundAtom } from "../review/data.ts";
+import { useCancelReattach } from "../review/navigate.ts";
 import {
   Attention,
   General,
@@ -41,8 +53,33 @@ import { stackActAtom, stackAtom } from "./data.ts";
 
 type Go = (step: StackStepView, read: boolean) => Promise<void>;
 
+/** The step and version the page has drawn with its layer's round. Only that version can be marked read. */
+interface Drawn {
+  readonly key: StepKey;
+  readonly version: StepDigest;
+}
+type OnDrawn = (drawn: Drawn | undefined) => void;
+
+/**
+ * Whether the current step can be marked read: `none` when its layer is not current, `loading` until the page drew the
+ * version the snapshot names. A newer snapshot can name a version whose round is still loading.
+ */
+const readiness = (
+  current: StackStepView,
+  drawn: Drawn | undefined,
+): "none" | "loading" | "ready" =>
+  current.version === undefined
+    ? "none"
+    : drawn?.key === current.key && drawn.version === current.version
+      ? "ready"
+      : "loading";
+
 /** Sends a move, one at a time; a refusal shows as a toast, and the next snapshot shows a move that went through. */
-const useGo = (snapshot: StackSnapshot, current: StackStepView) => {
+const useGo = (
+  snapshot: StackSnapshot,
+  current: StackStepView,
+  drawn: Drawn | undefined,
+) => {
   const send = Option.getOrUndefined(
     AsyncResult.value(useAtomValue(stackActAtom(snapshot.id))),
   );
@@ -57,13 +94,13 @@ const useGo = (snapshot: StackSnapshot, current: StackStepView) => {
     },
     [run, send],
   );
-  // Only a step of a current layer can be read, at the version this page showed: a newer one is refused.
+  // Only a step of a current layer can be read, at the version this page drew: the server refuses another.
   const go: Go = (step, read) =>
     act({
       kind: "go",
       step: step.key,
-      ...(read && current.version !== undefined
-        ? { read: { step: current.key, version: current.version } }
+      ...(read && drawn !== undefined && readiness(current, drawn) === "ready"
+        ? { read: { step: drawn.key, version: drawn.version } }
         : {}),
     });
   const unread = () => act({ kind: "unread", step: current.key });
@@ -257,12 +294,14 @@ const CurrentStep = ({
   layer,
   state,
   onGo,
+  onDrawn,
 }: {
   readonly snapshot: StackSnapshot;
   readonly step: StackStepView;
   readonly layer: StackLayerView;
   readonly state: Extract<LayerState, { kind: "current" }>;
   readonly onGo: Go;
+  readonly onDrawn: OnDrawn;
 }) => {
   const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
@@ -298,6 +337,16 @@ const CurrentStep = ({
         : { id: state.review, page, view: "guided" as const },
     [page, state.review],
   );
+  // The same recovery as the review page's, for this layer's review: a draft on a patch its round changed is stashed,
+  // also when the page comes back to the layer after other layers or after it was stale or missing.
+  useStashChangedDrafts(state.review, page?.files);
+  useCancelReattach(state.review);
+  // Drawn before the browser paints, so Next never marks a version the reviewer did not see.
+  const version = page === undefined ? undefined : step.version;
+  useLayoutEffect(() => {
+    onDrawn(version === undefined ? undefined : { key: step.key, version });
+    return () => onDrawn(undefined);
+  }, [onDrawn, step.key, version]);
   const failure = AsyncResult.isFailure(review)
     ? review.cause
     : AsyncResult.isFailure(round)
@@ -358,7 +407,10 @@ const CurrentStep = ({
   );
 };
 
-/** Previous and next across PR boundaries. Next marks the step read; so does finishing on the last step. */
+/**
+ * Previous and next across PR boundaries. Next marks the step read; so does finishing on the last step. Until the page
+ * drew the step’s version, both wait; previous and the rail still move.
+ */
 const StepNav = ({
   step,
   previous,
@@ -366,6 +418,7 @@ const StepNav = ({
   onGo,
   onUnread,
   busy,
+  loading,
 }: {
   readonly step: StackStepView;
   readonly previous: StackStepView | undefined;
@@ -373,6 +426,7 @@ const StepNav = ({
   readonly onGo: Go;
   readonly onUnread: () => Promise<void>;
   readonly busy: boolean;
+  readonly loading: boolean;
 }) => (
   <nav
     aria-label="Step navigation"
@@ -386,7 +440,7 @@ const StepNav = ({
     {next !== undefined ? (
       <Button
         variant="primary"
-        disabled={busy}
+        disabled={busy || loading}
         onClick={() => void onGo(next, true)}
       >
         Next: {next.title}
@@ -394,7 +448,7 @@ const StepNav = ({
     ) : step.version !== undefined && step.read !== "read" ? (
       <Button
         variant="primary"
-        disabled={busy}
+        disabled={busy || loading}
         onClick={() => void onGo(step, true)}
       >
         Mark read
@@ -426,7 +480,8 @@ const Walkthrough = ({ snapshot }: { readonly snapshot: StackSnapshot }) => {
   const layer = snapshot.layers[step.layer];
   if (layer === undefined)
     throw new Error("A step names a layer of its walkthrough.");
-  const { go, unread, busy } = useGo(snapshot, step);
+  const [drawn, setDrawn] = useState<Drawn | undefined>(undefined);
+  const { go, unread, busy } = useGo(snapshot, step, drawn);
   const read = snapshot.steps.filter((item) => item.read === "read").length;
   const position = useRef<HTMLParagraphElement>(null);
   const shown = useRef(snapshot.position);
@@ -535,6 +590,7 @@ const Walkthrough = ({ snapshot }: { readonly snapshot: StackSnapshot }) => {
               layer={layer}
               state={layer.state}
               onGo={go}
+              onDrawn={setDrawn}
             />
           ) : (
             <UnavailableStep step={step} />
@@ -546,6 +602,7 @@ const Walkthrough = ({ snapshot }: { readonly snapshot: StackSnapshot }) => {
             onGo={go}
             onUnread={unread}
             busy={busy}
+            loading={readiness(step, drawn) === "loading"}
           />
         </main>
       </div>

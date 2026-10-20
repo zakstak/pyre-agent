@@ -472,16 +472,25 @@ export const useScrollSpy = (navigate: Navigation) => {
   }, [navigate, registry]);
 };
 
-/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
-export const useKeys = (review: ReviewId, navigate: Navigation) => {
+/** Esc stops moving a comment of the review. */
+export const useCancelReattach = (review: ReviewId) => {
   const registry = useContext(RegistryContext);
   useEffect(() => {
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || registry.get(reattachAtom(review)) === undefined) return;
+      registry.set(reattachAtom(review), undefined);
+      toast("The comment stays where it was.");
+    };
+    document.addEventListener("keydown", cancel);
+    return () => document.removeEventListener("keydown", cancel);
+  }, [review, registry]);
+};
+
+/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
+export const useKeys = (review: ReviewId, navigate: Navigation) => {
+  useCancelReattach(review);
+  useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && registry.get(reattachAtom(review)) !== undefined) {
-        registry.set(reattachAtom(review), undefined);
-        toast("The comment stays where it was.");
-        return;
-      }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("textarea, input, select, [contenteditable='true']") !== null) return;
@@ -494,5 +503,5 @@ export const useKeys = (review: ReviewId, navigate: Navigation) => {
     };
     document.addEventListener("keydown", keys);
     return () => document.removeEventListener("keydown", keys);
-  }, [navigate, registry]);
+  }, [navigate]);
 };
