@@ -11,18 +11,27 @@ import type { PatchDigest, RepoPath, ReviewId } from "../schema/primitives.ts";
 import { repositoryId } from "../schema/repositories.ts";
 import { PageRpcs, Refused, type ReviewSnapshot } from "../schema/rpc.ts";
 import { NoSuchReview, StaleRevision, type Store } from "../store/store.ts";
+import { repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
 import { Activity, ReviewStore } from "./services.ts";
 
 /** An exception a store call raised that is no refusal: a bug, which fails the call as a defect. */
-class Unexpected extends Data.TaggedError("Unexpected")<{ readonly cause: unknown }> {}
+class Unexpected extends Data.TaggedError("Unexpected")<{
+  readonly cause: unknown;
+}> {}
 
 const refusalOf = (error: unknown): Refused | Unexpected => {
-  if (error instanceof ActionError) return new Refused({ kind: error.kind, message: error.message });
+  if (error instanceof ActionError)
+    return new Refused({ kind: error.kind, message: error.message });
   if (error instanceof StaleRevision)
-    return new Refused({ kind: "stale", message: error.message, revision: error.revision });
-  if (error instanceof NoSuchReview) return new Refused({ kind: "not_found", message: error.message });
+    return new Refused({
+      kind: "stale",
+      message: error.message,
+      revision: error.revision,
+    });
+  if (error instanceof NoSuchReview)
+    return new Refused({ kind: "not_found", message: error.message });
   return new Unexpected({ cause: error });
 };
 
@@ -32,11 +41,17 @@ const attempt = <A>(work: () => A): Effect.Effect<A, Refused> =>
     Effect.catchTag("Unexpected", ({ cause }) => Effect.die(cause)),
   );
 
-const noSuchReview = (id: string) => new Refused({ kind: "not_found", message: `No review ${id}.` });
+const noSuchReview = (id: string) =>
+  new Refused({ kind: "not_found", message: `No review ${id}.` });
 
-const snapshotOf = (store: Store, id: ReviewId): Effect.Effect<ReviewSnapshot, Refused> => {
+const snapshotOf = (
+  store: Store,
+  id: ReviewId,
+): Effect.Effect<ReviewSnapshot, Refused> => {
   const snapshot = store.snapshot(id);
-  return snapshot === undefined ? Effect.fail(noSuchReview(id)) : Effect.succeed(snapshot);
+  return snapshot === undefined
+    ? Effect.fail(noSuchReview(id))
+    : Effect.succeed(snapshot);
 };
 
 const handlers = (roots: ReadonlyArray<string>) =>
@@ -50,27 +65,53 @@ const handlers = (roots: ReadonlyArray<string>) =>
       return PageRpcs.of({
         "home.load": ({ root }) => touched(loadHome(store, roots, root)),
 
+        "repositories.pulls": ({ id }) =>
+          touched(
+            Effect.gen(function* () {
+              const repository = store
+                .monitoredRepositories()
+                .find((item) => repositoryId(item.identity) === id);
+              if (repository?.identity.kind !== "remote")
+                return {
+                  kind: "unavailable" as const,
+                  message:
+                    "Monitor a remote repository in Settings to discover its open PRs.",
+                };
+              const address = repository.identity.address;
+              return yield* Effect.promise((signal) =>
+                repositoryPullRequests(address, signal),
+              );
+            }),
+          ),
+
         "repositories.accept": ({ root, id }) =>
           touched(
             Effect.gen(function* () {
               const repository = yield* Effect.tryPromise({
                 try: () => identifyRepository(root),
                 catch: () =>
-                  new Refused({ kind: "repository", message: "This path is no longer a readable Git repository root. Scan again." }),
+                  new Refused({
+                    kind: "repository",
+                    message:
+                      "This path is no longer a readable Git repository root. Scan again.",
+                  }),
               });
               if (repositoryId(repository.identity) !== id)
                 return yield* new Refused({
                   kind: "identity",
-                  message: "This checkout's repository identity changed. Rescan and try again.",
+                  message:
+                    "This checkout's repository identity changed. Rescan and try again.",
                 });
-              const group = groupRepositories([...store.monitoredRepositories(), repository]).find(
-                (item) => repositoryId(item.identity) === id,
-              );
+              const group = groupRepositories([
+                ...store.monitoredRepositories(),
+                repository,
+              ]).find((item) => repositoryId(item.identity) === id);
               if (group !== undefined) store.monitorRepository(group);
             }),
           ),
 
-        "repositories.remove": ({ id }) => touched(Effect.sync(() => store.unmonitorRepository(id))),
+        "repositories.remove": ({ id }) =>
+          touched(Effect.sync(() => store.unmonitorRepository(id))),
 
         /**
          * The review now, then again after each change. A page that falls behind gets the newest snapshot, not every
@@ -101,9 +142,14 @@ const handlers = (roots: ReadonlyArray<string>) =>
             Effect.gen(function* () {
               const input = store.round(id, round);
               if (input === undefined)
-                return yield* new Refused({ kind: "not_found", message: `Review ${id} has no round ${round}.` });
+                return yield* new Refused({
+                  kind: "not_found",
+                  message: `Review ${id} has no round ${round}.`,
+                });
               const digests: Record<RepoPath, PatchDigest> = {};
-              for (const file of input.files) if (file.patch !== undefined) digests[file.path] = patchDigest(file.patch);
+              for (const file of input.files)
+                if (file.patch !== undefined)
+                  digests[file.path] = patchDigest(file.patch);
               return { input, digests };
             }),
           ),
@@ -114,20 +160,33 @@ const handlers = (roots: ReadonlyArray<string>) =>
               const snapshot = yield* snapshotOf(store, id);
               return snapshot.state.rounds
                 .filter((item) => item.round < round)
-                .map((item) => ({ round: item.round, summary: store.round(id, item.round)?.summary }));
+                .map((item) => ({
+                  round: item.round,
+                  summary: store.round(id, item.round)?.summary,
+                }));
             }),
           ),
 
         "review.act": ({ id, action, revision }) =>
-          touched(attempt(() => ({ revision: store.act(id, action, revision) }))),
+          touched(
+            attempt(() => ({ revision: store.act(id, action, revision) })),
+          ),
 
         "review.import": ({ id, text, revision }) =>
           touched(
             Effect.gen(function* () {
-              const decoded = decodeBytes(FeedbackDocument, new TextEncoder().encode(text));
+              const decoded = decodeBytes(
+                FeedbackDocument,
+                new TextEncoder().encode(text),
+              );
               if (Result.isFailure(decoded))
-                return yield* new Refused({ kind: decoded.failure.reason, message: decoded.failure.message });
-              return yield* attempt(() => store.importFeedback(id, decoded.success, revision));
+                return yield* new Refused({
+                  kind: decoded.failure.reason,
+                  message: decoded.failure.message,
+                });
+              return yield* attempt(() =>
+                store.importFeedback(id, decoded.success, revision),
+              );
             }),
           ),
       });
@@ -138,7 +197,11 @@ const RPC_PATH = "/rpc";
 
 /** The page RPCs on the router at {@link RPC_PATH}, as JSON over a WebSocket. */
 export const PageRpcServer = (roots: ReadonlyArray<string>) =>
-  RpcServer.layerHttp({ group: PageRpcs, path: RPC_PATH, protocol: "websocket" }).pipe(
+  RpcServer.layerHttp({
+    group: PageRpcs,
+    path: RPC_PATH,
+    protocol: "websocket",
+  }).pipe(
     Layer.provide(handlers(roots)),
     Layer.provide(RpcSerialization.layerJson),
   );

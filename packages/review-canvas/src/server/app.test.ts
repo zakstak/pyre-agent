@@ -10,7 +10,12 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { RpcClient, type RpcClientError, type RpcGroup, RpcSerialization } from "effect/rpc";
+import {
+  RpcClient,
+  type RpcClientError,
+  type RpcGroup,
+  RpcSerialization,
+} from "effect/rpc";
 import { Socket } from "effect/socket";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
@@ -50,19 +55,31 @@ const get = (port: number, path: string, host = `127.0.0.1:${port}`) =>
       .end();
   });
 
-const SHELL = '<!doctype html><title>Review canvas</title><script type="module" src="/assets/main.js"></script>';
+const SHELL =
+  '<!doctype html><title>Review canvas</title><script type="module" src="/assets/main.js"></script>';
 
 /** Runs calls through the page RPCs over the socket, as a page on `origin` would. */
 const rpc = <A, E>(
   port: number,
-  use: (client: RpcClient.RpcClient.Flat<RpcGroup.Rpcs<typeof PageRpcs>, RpcClientError.RpcClientError>) => Effect.Effect<A, E>,
+  use: (
+    client: RpcClient.RpcClient.Flat<
+      RpcGroup.Rpcs<typeof PageRpcs>,
+      RpcClientError.RpcClientError
+    >,
+  ) => Effect.Effect<A, E>,
   origin = `http://127.0.0.1:${port}`,
 ) =>
   Effect.runPromiseExit(
-    Effect.scoped(Effect.flatMap(RpcClient.make(PageRpcs, { flatten: true }), use)).pipe(
+    Effect.scoped(
+      Effect.flatMap(RpcClient.make(PageRpcs, { flatten: true }), use),
+    ).pipe(
       Effect.provide(
         RpcClient.layerProtocolSocket().pipe(
-          Layer.provide(Socket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: { origin } })),
+          Layer.provide(
+            Socket.layerWebSocket(`ws://127.0.0.1:${port}/rpc`, {
+              headers: { origin },
+            }),
+          ),
           // The browser's constructor sends no Origin; Node's can.
           Layer.provide(NodeSocket.layerWebSocketConstructor),
           Layer.provide(RpcSerialization.layerJson),
@@ -81,7 +98,10 @@ const clientBuild = () => {
 };
 
 // Serves the app on a free loopback port with fixed assets, then runs the check against it.
-const withServer = (check: (port: number) => Promise<void>, repositoryRoots: ReadonlyArray<string> = []) => {
+const withServer = (
+  check: (port: number) => Promise<void>,
+  repositoryRoots: ReadonlyArray<string> = [],
+) => {
   const clientDir = clientBuild();
   const TestAssets = Layer.succeed(Assets, { index: SHELL });
   const Server = NodeHttpServer.layer(createServer, {
@@ -119,7 +139,10 @@ test("every page path serves the built shell with the security headers", () =>
       assert.equal(page.status, 200, path);
       assert.match(page.header("content-type"), /^text\/html/);
       assert.equal(page.header("cache-control"), "no-store");
-      assert.match(page.header("content-security-policy"), /frame-ancestors 'none'/);
+      assert.match(
+        page.header("content-security-policy"),
+        /frame-ancestors 'none'/,
+      );
       assert.equal(page.body, SHELL);
     }
   }));
@@ -138,7 +161,8 @@ test("the RPC socket opens only for a page of this server", () =>
             host: `127.0.0.1:${port}`,
             connection: "Upgrade",
             upgrade: "websocket",
-            "sec-websocket-key": Buffer.from("origin-fixture!!").toString("base64"),
+            "sec-websocket-key":
+              Buffer.from("origin-fixture!!").toString("base64"),
             "sec-websocket-version": "13",
             ...(origin === undefined ? {} : { origin }),
           },
@@ -168,44 +192,74 @@ test("discovery proposes repos without adding them, and only acceptance changes 
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = join(directory, "repo");
   mkdirSync(root);
-  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  execFileSync("git", ["init", "-b", "main"], {
+    cwd: root,
+    env: gitEnvironment({}),
+    stdio: "ignore",
+  });
   mkdirSync(join(root, "subdir"));
   const checkout = Schema.decodeSync(WorktreeRoot)(root);
   const id = repositoryId((await identifyRepository(checkout)).identity);
-  await withServer(async (port) => {
-    const home = await rpc(port, (client) => client("home.load", {}));
-    assert.ok(Exit.isSuccess(home));
-    assert.deepEqual(
-      home.value.repositories.map((item) => [item.name, item.monitored]),
-      [["repo", false]],
-    );
-    const refused = await rpc(port, (client) =>
-      client("repositories.accept", { root: Schema.decodeSync(WorktreeRoot)(join(root, "subdir")), id }),
-    );
-    assert.ok(Exit.isFailure(refused));
-    assert.match(String(refused.cause), /This path is no longer a readable Git repository root/);
-    const accepted = await rpc(port, (client) =>
-      Effect.andThen(client("repositories.accept", { root: checkout, id }), client("home.load", {})),
-    );
-    assert.ok(Exit.isSuccess(accepted));
-    const [entry] = accepted.value.repositories;
-    assert.equal(entry?.monitored, true);
-    assert.deepEqual(entry?.checkouts[0].status, { kind: "ready", branch: "main", changed: 0 });
-    rmSync(root, { recursive: true });
-    const gone = await rpc(port, (client) => client("home.load", {}));
-    assert.ok(Exit.isSuccess(gone));
-    assert.equal(gone.value.repositories[0]?.checkouts[0].status?.kind, "unavailable");
-    assert.equal(
-      gone.value.repositories[0]?.checkouts[0].status?.kind === "unavailable" &&
-        gone.value.repositories[0].checkouts[0].status.reason,
-      "directory missing",
-    );
-    const removed = await rpc(port, (client) =>
-      Effect.andThen(client("repositories.remove", { id }), client("home.load", {})),
-    );
-    assert.ok(Exit.isSuccess(removed));
-    assert.equal(removed.value.repositories.filter((item) => item.monitored).length, 0);
-  }, [directory]);
+  await withServer(
+    async (port) => {
+      const home = await rpc(port, (client) => client("home.load", {}));
+      assert.ok(Exit.isSuccess(home));
+      assert.deepEqual(
+        home.value.repositories.map((item) => [item.name, item.monitored]),
+        [["repo", false]],
+      );
+      const refused = await rpc(port, (client) =>
+        client("repositories.accept", {
+          root: Schema.decodeSync(WorktreeRoot)(join(root, "subdir")),
+          id,
+        }),
+      );
+      assert.ok(Exit.isFailure(refused));
+      assert.match(
+        String(refused.cause),
+        /This path is no longer a readable Git repository root/,
+      );
+      const accepted = await rpc(port, (client) =>
+        Effect.andThen(
+          client("repositories.accept", { root: checkout, id }),
+          client("home.load", {}),
+        ),
+      );
+      assert.ok(Exit.isSuccess(accepted));
+      const [entry] = accepted.value.repositories;
+      assert.equal(entry?.monitored, true);
+      assert.deepEqual(entry?.checkouts[0].status, {
+        kind: "ready",
+        branch: "main",
+        changed: 0,
+      });
+      rmSync(root, { recursive: true });
+      const gone = await rpc(port, (client) => client("home.load", {}));
+      assert.ok(Exit.isSuccess(gone));
+      assert.equal(
+        gone.value.repositories[0]?.checkouts[0].status?.kind,
+        "unavailable",
+      );
+      assert.equal(
+        gone.value.repositories[0]?.checkouts[0].status?.kind ===
+          "unavailable" &&
+          gone.value.repositories[0].checkouts[0].status.reason,
+        "directory missing",
+      );
+      const removed = await rpc(port, (client) =>
+        Effect.andThen(
+          client("repositories.remove", { id }),
+          client("home.load", {}),
+        ),
+      );
+      assert.ok(Exit.isSuccess(removed));
+      assert.equal(
+        removed.value.repositories.filter((item) => item.monitored).length,
+        0,
+      );
+    },
+    [directory],
+  );
 });
 
 test("a request addressed to another host is refused", () =>
@@ -222,28 +276,54 @@ test("a request addressed to another host is refused", () =>
   }));
 
 test("repository acceptance and removal carry maximum-length remote identities", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "review-canvas-long-repository-"));
+  const directory = mkdtempSync(
+    join(tmpdir(), "review-canvas-long-repository-"),
+  );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = join(directory, "repo");
   mkdirSync(root);
-  execFileSync("git", ["init", "-b", "main"], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
-  const address = "example.invalid/" + "x".repeat(8192 - "example.invalid/".length);
-  execFileSync("git", ["remote", "add", "origin", `https://${address}`], { cwd: root, env: gitEnvironment({}), stdio: "ignore" });
+  execFileSync("git", ["init", "-b", "main"], {
+    cwd: root,
+    env: gitEnvironment({}),
+    stdio: "ignore",
+  });
+  const address =
+    "example.invalid/" + "x".repeat(8192 - "example.invalid/".length);
+  execFileSync("git", ["remote", "add", "origin", `https://${address}`], {
+    cwd: root,
+    env: gitEnvironment({}),
+    stdio: "ignore",
+  });
   const checkout = Schema.decodeSync(WorktreeRoot)(root);
   const id = repositoryId((await identifyRepository(checkout)).identity);
   assert.ok(id.length > 8192);
-  await withServer(async (port) => {
-    const accepted = await rpc(port, (client) =>
-      Effect.andThen(client("repositories.accept", { root: checkout, id }), client("home.load", {})),
-    );
-    assert.ok(Exit.isSuccess(accepted));
-    assert.equal(accepted.value.repositories.filter((item) => item.monitored).length, 1);
-    const removed = await rpc(port, (client) =>
-      Effect.andThen(client("repositories.remove", { id }), client("home.load", {})),
-    );
-    assert.ok(Exit.isSuccess(removed));
-    assert.equal(removed.value.repositories.filter((item) => item.monitored).length, 0);
-  }, [directory]);
+  await withServer(
+    async (port) => {
+      const accepted = await rpc(port, (client) =>
+        Effect.andThen(
+          client("repositories.accept", { root: checkout, id }),
+          client("home.load", {}),
+        ),
+      );
+      assert.ok(Exit.isSuccess(accepted));
+      assert.equal(
+        accepted.value.repositories.filter((item) => item.monitored).length,
+        1,
+      );
+      const removed = await rpc(port, (client) =>
+        Effect.andThen(
+          client("repositories.remove", { id }),
+          client("home.load", {}),
+        ),
+      );
+      assert.ok(Exit.isSuccess(removed));
+      assert.equal(
+        removed.value.repositories.filter((item) => item.monitored).length,
+        0,
+      );
+    },
+    [directory],
+  );
 });
 
 test("the default HTTP port also accepts the bare loopback names browsers send", () => {
@@ -299,3 +379,18 @@ test("the page shell comes from the build, and a missing build fails clearly", a
   assert.ok(Exit.isFailure(missing));
   assert.match(String(missing.cause), /AssetsNotBuilt/);
 });
+
+test("PR discovery requires repository monitoring, not individual PR registration", () =>
+  withServer(async (port) => {
+    const id = repositoryId({
+      kind: "remote",
+      address: "unknown.invalid/team/project",
+    });
+    const answer = await rpc(port, (client) =>
+      client("repositories.pulls", { id }),
+    );
+    assert.ok(Exit.isSuccess(answer));
+    assert.equal(answer.value.kind, "unavailable");
+    if (answer.value.kind === "unavailable")
+      assert.match(answer.value.message, /Monitor a remote repository/);
+  }));

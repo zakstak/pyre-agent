@@ -6,6 +6,7 @@
  * Run: pnpm test:pack
  */
 import assert from "node:assert/strict";
+import { Worker } from "node:worker_threads";
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -51,6 +52,22 @@ const bin = join(app, "node_modules/.bin/review-canvas");
 // Only the built JavaScript ships: an installed package cannot run TypeScript from node_modules.
 const installed = join(app, "node_modules/@pyre-agent/review-canvas");
 assert.ok(!existsSync(join(installed, "src")), "the tarball ships src");
+const discovered = await new Promise<unknown>((resolve, reject) => {
+  const worker = new Worker(join(installed, "dist/node/pulls.js"), {
+    workerData: "unknown.invalid/team/project",
+    env: { ...process.env, REVIEW_CANVAS_FORGE_HOSTS: "{}" },
+  });
+  worker.once("message", (result: unknown) => {
+    void worker.terminate();
+    resolve(result);
+  });
+  worker.once("error", reject);
+});
+assert.deepEqual(discovered, {
+  kind: "unavailable",
+  message:
+    "Configure REVIEW_CANVAS_FORGE_HOSTS for this host's review provider.",
+});
 assert.match(
   execFileSync(bin, ["--help"], { encoding: "utf8" }),
   /^review-canvas:/,

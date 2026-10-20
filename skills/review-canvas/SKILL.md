@@ -6,7 +6,7 @@ description:
   work. The agent writes a tour and answers browser comments through a local
   server."
 metadata:
-  version: "5.2.2"
+  version: "5.2.3"
 ---
 
 # Review canvas
@@ -16,7 +16,8 @@ change, writes a tour of it, and publishes a round to a local server. The server
 serves the page, keeps every comment and approval, and tells the agent when the
 reviewer finishes or asks a question. The agent answers each comment and
 publishes the next round. The browser has no git host credentials, and the
-server never goes online.
+server reads open PRs for monitored repositories through the configured host
+adapters. Hosted comments still come from the agent CLI.
 
 ## Run the command
 
