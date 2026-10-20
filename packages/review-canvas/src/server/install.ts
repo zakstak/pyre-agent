@@ -29,3 +29,11 @@ export const serverEntry = (): string =>
   fileURLToPath(
     new URL(fromSource ? "./main.ts" : "./server.js", import.meta.url),
   );
+
+export const pullsEntry = (): string =>
+  fileURLToPath(
+    new URL(
+      fromSource ? "../cli/pulls-worker.ts" : "./pulls.js",
+      import.meta.url,
+    ),
+  );

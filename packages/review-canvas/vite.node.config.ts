@@ -14,7 +14,11 @@ export default defineConfig({
     minify: false,
     sourcemap: true,
     rolldownOptions: {
-      input: { server: "src/server/main.ts", cli: "src/cli/main.ts" },
+      input: {
+        server: "src/server/main.ts",
+        cli: "src/cli/main.ts",
+        pulls: "src/cli/pulls-worker.ts",
+      },
       output: {
         format: "esm",
         entryFileNames: "[name].js",

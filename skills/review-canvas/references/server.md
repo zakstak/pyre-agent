@@ -109,10 +109,11 @@ Beside rounds and answers, an agent reports two things the page shows:
   until the next round.
 - **Hosted comments.** `publish` and `review-canvas comments` read the pull
   request's comments through its provider adapter and hand them over, with the
-  head it read them at. The server stores them once by provider comment ID and
-  never goes online itself. A thread is found by the lines it was written on;
-  when the round shows that head and the lines changed, the server places it on
-  the line the host shows it on, spanning as many lines as the comment did.
+  head it read them at. The server stores them once by provider comment ID
+  without fetching comments itself. A thread is found by the lines it was
+  written on; when the round shows that head and the lines changed, the server
+  places it on the line the host shows it on, spanning as many lines as the
+  comment did.
 
 ## Reviews and threads
 

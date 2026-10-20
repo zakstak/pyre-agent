@@ -26,6 +26,7 @@ import {
 import { RepositoryId, RepositoryIdentity } from "./repositories.ts";
 import { ReviewState } from "./state.ts";
 import { Target } from "./target.ts";
+import { RepositoryPullRequests } from "./pull-requests.ts";
 import { Thread } from "./thread.ts";
 
 /**
@@ -171,7 +172,11 @@ export type ReviewSummary = typeof ReviewSummary.Type;
 
 /** A checkout's branch and changed items, or why they could not be read. */
 export const CheckoutStatus = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("ready"), branch: Schema.NullOr(Schema.String), changed: Count }),
+  Schema.Struct({
+    kind: Schema.Literal("ready"),
+    branch: Schema.NullOr(Schema.String),
+    changed: Count,
+  }),
   Schema.Struct({
     kind: Schema.Literal("unavailable"),
     message: Schema.String,
@@ -225,6 +230,10 @@ export class PageRpcs extends RpcGroup.make(
       root: Schema.optional(text(Limits.MAX_PATH_UNITS)),
     },
     success: HomeSnapshot,
+  }),
+  Rpc.make("repositories.pulls", {
+    payload: { id: RepositoryId },
+    success: RepositoryPullRequests,
   }),
   Rpc.make("repositories.accept", {
     payload: { root: WorktreeRoot, id: RepositoryId },

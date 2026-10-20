@@ -1,5 +1,6 @@
-/** Provider adapters share validated review data; the collector and review server remain offline. */
+/** Provider adapters share validated review data; the collector remains offline. */
 import { Result, Schema } from "effect";
+import { OpenPullRequest } from "../schema/pull-requests.ts";
 import {
   parsePullRequest,
   type PullRequestAddress,
@@ -579,4 +580,96 @@ export const readHostedComments = (
       : {}),
     items,
   });
+};
+
+/** Every open PR, across pages, without requiring a local review or checked-out source branch. */
+export const readOpenPullRequests = (
+  pull: PullRequestAddress,
+  clients: ForgeClients,
+): ReadonlyArray<OpenPullRequest> => {
+  const branch = Schema.Struct({
+    ref: Schema.String,
+    repo: Schema.NullOr(Schema.Struct({ full_name: Schema.String })),
+  });
+  const github = Schema.Struct({
+    html_url: PullRequestUrl,
+    title: Schema.String,
+    base: branch,
+    head: branch,
+  });
+  let items: ReadonlyArray<OpenPullRequest>;
+  if (pull.provider === "github") {
+    const response = JSON.parse(
+      clients.gh([
+        "api",
+        "--hostname",
+        pull.host,
+        "--paginate",
+        "--slurp",
+        `repos/${pull.repository}/pulls?state=open&per_page=100`,
+      ]),
+    );
+    items = decode(Schema.Array(Schema.Array(github)), response)
+      .flat()
+      .map((item) => ({
+        url: item.html_url,
+        title: item.title,
+        base_branch: item.base.ref,
+        head_branch: item.head.ref,
+        same_repository:
+          item.head.repo !== null &&
+          item.base.repo !== null &&
+          item.head.repo.full_name.toLowerCase() ===
+            item.base.repo.full_name.toLowerCase(),
+      }));
+  } else if (pull.provider === "gitlab") {
+    items = pages(
+      pull,
+      `/api/v4/projects/${encodeURIComponent(pull.repository)}/merge_requests?scope=all&state=opened`,
+      Schema.Struct({
+        web_url: PullRequestUrl,
+        title: Schema.String,
+        target_branch: Schema.String,
+        source_branch: Schema.String,
+        source_project_id: Schema.NullOr(Count),
+        target_project_id: Count,
+      }),
+      clients.api,
+      2000,
+    ).map((item) => ({
+      url: item.web_url,
+      title: item.title,
+      base_branch: item.target_branch,
+      head_branch: item.source_branch,
+      same_repository: item.source_project_id === item.target_project_id,
+    }));
+  } else {
+    items = pages(
+      pull,
+      `/api/v1/repos/${pull.repository}/pulls?state=open`,
+      github,
+      clients.api,
+      2000,
+    ).map((item) => ({
+      url: item.html_url,
+      title: item.title,
+      base_branch: item.base.ref,
+      head_branch: item.head.ref,
+      same_repository:
+        item.head.repo !== null &&
+        item.base.repo !== null &&
+        item.head.repo.full_name === item.base.repo.full_name,
+    }));
+  }
+  if (items.length > 2000)
+    throw new ForgeFailed(
+      "More than 2000 open pull requests; the list is incomplete.",
+    );
+  for (const item of items) {
+    if (!sameRepository(pull, addressOf(item.url)))
+      throw new ForgeFailed(
+        "The git host returned a pull request from another repository.",
+      );
+  }
+  return decode(Schema.Array(OpenPullRequest), items);
 };

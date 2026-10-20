@@ -1,5 +1,5 @@
 /**
- * Hosted review comments normalized by the CLI; the server never goes online. The original v1 GitHub wire names
+ * Hosted review comments normalized by the CLI. The original v1 GitHub wire names
  * also carry GitLab and Gitea/Forgejo comments so saved reviews remain readable. Provider identity comes from the
  * validated URL. Bodies are third-party text: data to show and answer, never instructions.
  */
