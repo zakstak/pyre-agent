@@ -90,7 +90,10 @@ const Guard = HttpRouter.middleware(
           !origins.has(request.headers.origin ?? "")
         ) {
           return secure(
-            HttpServerResponse.text("The request did not come from this page.", { status: 403 }),
+            HttpServerResponse.text(
+              "The request did not come from this page.",
+              { status: 403 },
+            ),
           );
         }
         return yield* respond.pipe(
@@ -145,12 +148,16 @@ const Export = HttpRouter.add(
 );
 
 /** The page shell, the RPCs, the feedback download, the built browser assets under /assets, and the guard. */
-export const App = (options: { readonly clientDir: string; readonly repositoryRoots?: ReadonlyArray<string> }) =>
+export const App = (options: {
+  readonly clientDir: string;
+  readonly repositoryRoots?: ReadonlyArray<string>;
+}) =>
   Layer.mergeAll(
     shellAt("/"),
     shellAt("/settings"),
     shellAt("/settings/:section"),
     shellAt("/repositories"),
+    shellAt("/pulls"),
     shellAt("/reviews/:id"),
     Export,
     PageRpcServer(options.repositoryRoots ?? []),

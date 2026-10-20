@@ -18,6 +18,7 @@ export default defineConfig({
         server: "src/server/main.ts",
         cli: "src/cli/main.ts",
         pulls: "src/cli/pulls-worker.ts",
+        browse: "src/cli/browse-worker.ts",
       },
       output: {
         format: "esm",

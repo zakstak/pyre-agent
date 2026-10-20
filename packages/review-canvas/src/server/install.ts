@@ -37,3 +37,11 @@ export const pullsEntry = (): string =>
       import.meta.url,
     ),
   );
+
+export const browseEntry = (): string =>
+  fileURLToPath(
+    new URL(
+      fromSource ? "../cli/browse-worker.ts" : "./browse.js",
+      import.meta.url,
+    ),
+  );

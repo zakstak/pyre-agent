@@ -22,11 +22,15 @@ import {
   text,
   Timestamp,
   WorktreeRoot,
+  PullRequestUrl,
 } from "./primitives.ts";
 import { RepositoryId, RepositoryIdentity } from "./repositories.ts";
 import { ReviewState } from "./state.ts";
 import { Target } from "./target.ts";
-import { RepositoryPullRequests } from "./pull-requests.ts";
+import {
+  RepositoryPullRequests,
+  PullRequestSnapshot,
+} from "./pull-requests.ts";
 import { Thread } from "./thread.ts";
 
 /**
@@ -234,6 +238,10 @@ export class PageRpcs extends RpcGroup.make(
   Rpc.make("repositories.pulls", {
     payload: { id: RepositoryId },
     success: RepositoryPullRequests,
+  }),
+  Rpc.make("pulls.read", {
+    payload: { id: RepositoryId, url: PullRequestUrl },
+    success: PullRequestSnapshot,
   }),
   Rpc.make("repositories.accept", {
     payload: { root: WorktreeRoot, id: RepositoryId },

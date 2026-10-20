@@ -9,6 +9,9 @@ import { RegistryProvider } from "@effect/atom-react";
 import { Option, Schema } from "effect";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RepositoryId } from "../schema/repositories.ts";
+import { PullPage } from "./pulls/PullPage.tsx";
+import { PullRequestUrl } from "../schema/primitives.ts";
 import { ReviewId } from "../schema/primitives.ts";
 import { HomePage } from "./home/HomePage.tsx";
 import { isSectionId, type SectionId } from "./home/settings.ts";
@@ -20,27 +23,51 @@ import { Toasts } from "./ui/toast.tsx";
 
 type Route =
   | { readonly kind: "home" }
+  | {
+      readonly kind: "pull";
+      readonly id: RepositoryId;
+      readonly url: PullRequestUrl;
+    }
   | { readonly kind: "settings"; readonly section: SectionId }
   | { readonly kind: "review"; readonly id: ReviewId }
   | { readonly kind: "missing" };
 
 const route = (path: string): Route => {
   if (path === "/") return { kind: "home" };
-  if (path === "/repositories") return { kind: "settings", section: "repositories" };
+  if (path === "/pulls") {
+    const params = new URLSearchParams(location.search);
+    const request = Schema.decodeUnknownOption(
+      Schema.Struct({ id: RepositoryId, url: PullRequestUrl }),
+    )({ id: params.get("repo"), url: params.get("url") });
+    return Option.isSome(request)
+      ? { kind: "pull", ...request.value }
+      : { kind: "missing" };
+  }
+  if (path === "/repositories")
+    return { kind: "settings", section: "repositories" };
   const settings = /^\/settings(?:\/([^/]+))?$/.exec(path);
   if (settings !== null) {
     const section = settings[1] ?? "appearance";
-    return isSectionId(section) ? { kind: "settings", section } : { kind: "missing" };
+    return isSectionId(section)
+      ? { kind: "settings", section }
+      : { kind: "missing" };
   }
   const match = /^\/reviews\/([^/]+)$/.exec(path);
-  const id = match?.[1] === undefined ? Option.none() : Schema.decodeOption(ReviewId)(match[1]);
-  return Option.isSome(id) ? { kind: "review", id: id.value } : { kind: "missing" };
+  const id =
+    match?.[1] === undefined
+      ? Option.none()
+      : Schema.decodeOption(ReviewId)(match[1]);
+  return Option.isSome(id)
+    ? { kind: "review", id: id.value }
+    : { kind: "missing" };
 };
 
 const App = () => {
   useDocumentTheme();
   const here = route(location.pathname);
   switch (here.kind) {
+    case "pull":
+      return <PullPage id={here.id} url={here.url} />;
     case "home":
       return <HomePage />;
     case "settings":
