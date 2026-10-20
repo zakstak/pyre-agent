@@ -1,6 +1,7 @@
 import type { ComparisonRequest } from "../schema/pull-requests.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
 import { stackAncestors } from "../review/stacks.ts";
+import { stackPath } from "../review/stack-walk.ts";
 import {
   addressOf,
   readOpenPullRequests,
@@ -68,4 +69,52 @@ export const stackRange = (
       ? first.view.headRefOid
       : first.view.baseRefOid;
   return { base, head: last.view.headRefOid, selected: last.view, views };
+};
+
+/**
+ * The tip's ancestor path as the host shows it now, with each layer's head, and the other PRs of its stack, which a
+ * walkthrough leaves out. A historical path uses each PR's final retained head and needs complete base-change history.
+ */
+export const hostStackPath = (
+  tip: PullRequestUrl,
+  historical: boolean,
+  clients: ForgeClients,
+) => {
+  const address = addressOf(tip);
+  const items = historical
+    ? readHistoricalPullRequests(address, clients)
+    : readOpenPullRequests(address, clients);
+  const found = stackPath(items, tip);
+  if (found === undefined)
+    throw new Error(
+      historical
+        ? "The tip is absent from the repository's PR history."
+        : "The tip is not an open PR. Use --history for merged or closed stacks.",
+    );
+  const path = found.path.map((pull) => {
+    if (pull.history !== undefined) {
+      if (!pull.history.timeline_complete)
+        throw new Error(
+          `Base-change history of ${pull.url} is truncated; this stack cannot be reconstructed safely.`,
+        );
+      return {
+        url: pull.url,
+        title: pull.title,
+        head_sha: pull.history.head_sha,
+      };
+    }
+    const view = readPullRequest(pull.url, clients);
+    if (view.baseRefName !== pull.base_branch)
+      throw new Error(
+        "A stack base branch changed while loading. Run the command again.",
+      );
+    return { url: pull.url, title: view.title, head_sha: view.headRefOid };
+  });
+  return {
+    path,
+    excluded: found.excluded.map((pull) => ({
+      url: pull.url,
+      title: pull.title,
+    })),
+  };
 };

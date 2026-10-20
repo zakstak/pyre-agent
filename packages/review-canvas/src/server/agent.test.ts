@@ -23,6 +23,8 @@ import {
   RoundNumber,
 } from "../schema/primitives.ts";
 import { PageAction, PageRpcs, Refused } from "../schema/rpc.ts";
+import { StackId } from "../schema/primitives.ts";
+import { StepKey } from "../schema/stack.ts";
 import { patchDigest } from "../review/anchor.ts";
 import { finishedSince, hasQuestions } from "./status.ts";
 import { AgentApi } from "./agent.ts";
@@ -757,4 +759,124 @@ test("a file the next round changes reaches the page in both rounds, for the pag
     assert.notEqual(before.fingerprint, now.fingerprint);
     assert.equal(before.new_content, "one\ntwo\n");
     assert.equal(now.new_content, "one\ntwo\nthree\n");
+  }));
+
+test("a stack walkthrough publishes over the socket with every layer's thread, and pages move through it", () =>
+  withServers(async (agent, pages) => {
+    const pr = JSON.parse(
+      fixtureBytes("input/pull-request.json").toString("utf8"),
+    );
+    const url = (n: number) =>
+      `https://github.com/example/retry-demo/pull/${n}`;
+    const sessions: Array<{ review: string; token: string }> = [];
+    for (const n of [1, 2]) {
+      const layer = {
+        ...pr,
+        target: { ...pr.target, url: url(n), head_sha: String(n).repeat(40) },
+      };
+      const registered = await call(agent, "POST", "/agent/register", {
+        body: JSON.stringify({
+          target: layer.target,
+          label: `Layer ${n}`,
+          host: { kind: "claude-code" },
+        }),
+      });
+      assert.equal(registered.status, 200, registered.text);
+      const published = await call(
+        agent,
+        "POST",
+        `/agent/reviews/${registered.body.review}/rounds`,
+        {
+          body: JSON.stringify(layer),
+          headers: { authorization: `Bearer ${registered.body.token}` },
+        },
+      );
+      assert.equal(published.status, 200, published.text);
+      sessions.push({
+        review: registered.body.review,
+        token: registered.body.token,
+      });
+    }
+    const body = (tokens: typeof sessions) =>
+      JSON.stringify({
+        walkthrough: {
+          format: "review-canvas.stack/1",
+          title: "Retry stack",
+          tip: url(2),
+          steps: [1, 2].map((n) => ({
+            layer: url(n),
+            title: `Layer ${n}`,
+            summary: "",
+            attention: null,
+            excerpts: [],
+            files: [{ path: "src/retry.py" }],
+            notes: [],
+            questions: [],
+          })),
+        },
+        historical: false,
+        path: [1, 2].map((n) => ({
+          url: url(n),
+          title: `Layer ${n}`,
+          head_sha: String(n).repeat(40),
+        })),
+        excluded: [],
+        sessions: tokens,
+      });
+    const forged = await call(agent, "POST", "/agent/stacks", {
+      body: body(
+        sessions.map((item, index) =>
+          index === 1 ? { ...item, token: sessions[0]?.token ?? "" } : item,
+        ),
+      ),
+    });
+    assert.equal(forged.status, 401, forged.text);
+    const missing = await call(agent, "POST", "/agent/stacks", {
+      body: body(sessions.slice(0, 1)),
+    });
+    assert.equal(missing.status, 400, missing.text);
+    assert.match(missing.body.error.message, /No thread given for #2/);
+    const published = await call(agent, "POST", "/agent/stacks", {
+      body: body(sessions),
+    });
+    assert.equal(published.status, 200, published.text);
+    assert.match(published.body.url, /\/stacks\/stack-/);
+    assert.deepEqual(
+      published.body.steps.map((step: { key: string }) => step.key),
+      ["L0:S0", "L0:other", "L1:S0", "L1:other"],
+    );
+    const id = Schema.decodeSync(StackId)(published.body.stack);
+    const step = Schema.decodeSync(StepKey);
+    succeeded(
+      await rpc(pages.port, (client) =>
+        client("stack.act", {
+          id,
+          action: { kind: "go", step: step("L1:S0"), read: step("L0:other") },
+        }),
+      ),
+    );
+    const snapshot = succeeded(
+      await rpc(pages.port, (client) =>
+        client("stack.watch", { id }).pipe(Stream.runHead),
+      ),
+    );
+    assert.equal(Option.getOrUndefined(snapshot)?.position, "L1:S0");
+    assert.equal(
+      refused(
+        await rpc(pages.port, (client) =>
+          client("stack.act", {
+            id: Schema.decodeSync(StackId)("stack-none"),
+            action: { kind: "unread", step: step("L0:S0") },
+          }),
+        ),
+      ).kind,
+      "not_found",
+    );
+    const home = succeeded(
+      await rpc(pages.port, (client) => client("home.load", {})),
+    );
+    assert.deepEqual(
+      home.stacks.map((item) => [item.id, item.read]),
+      [[id, 1]],
+    );
   }));

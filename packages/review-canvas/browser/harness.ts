@@ -54,6 +54,12 @@ export interface Server {
     label?: string,
     options?: { readonly fresh?: boolean },
   ) => Promise<Agent>;
+  /** A request to the agent socket outside any one review, such as publishing a stack walkthrough. */
+  readonly agent: (
+    method: string,
+    path: string,
+    body?: unknown,
+  ) => Promise<any>;
   readonly stop: () => Promise<void>;
   /** Starts the server again after stop, on the same port, socket, and database. */
   readonly start: () => Promise<void>;
@@ -160,6 +166,8 @@ export const startServer = async (
           call("POST", "/answers", { comment, answer }),
       };
     },
+    agent: (method: string, path: string, body?: unknown) =>
+      send(method, path, body),
     stop,
     start: spawnServer,
   };

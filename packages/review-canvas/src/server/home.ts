@@ -8,7 +8,12 @@ import { homedir } from "node:os";
 import { parsePullRequest } from "../schema/forge-url.ts";
 import type { WorktreeRoot } from "../schema/primitives.ts";
 import { type Repository, repositoryId } from "../schema/repositories.ts";
-import type { CheckoutStatus, HomeSnapshot, RepositoryEntry, ReviewSummary } from "../schema/rpc.ts";
+import type {
+  CheckoutStatus,
+  HomeSnapshot,
+  RepositoryEntry,
+  ReviewSummary,
+} from "../schema/rpc.ts";
 import type { Store } from "../store/store.ts";
 import {
   checkoutStatus,
@@ -29,14 +34,22 @@ const homePath = (path: string): string =>
     : path;
 
 /** A repository's name and where it lives: `acme/ledger` on `github.com`, or a local name with no remote. */
-const nameParts = (repository: Repository): { readonly name: string; readonly host: string } => {
-  if (repository.identity.kind !== "remote") return { name: repositoryName(repository), host: "no remote" };
+const nameParts = (
+  repository: Repository,
+): { readonly name: string; readonly host: string } => {
+  if (repository.identity.kind !== "remote")
+    return { name: repositoryName(repository), host: "no remote" };
   const address = repository.identity.address;
   const at = address.indexOf("/");
-  return at === -1 ? { name: address, host: "" } : { name: address.slice(at + 1), host: address.slice(0, at) };
+  return at === -1
+    ? { name: address, host: "" }
+    : { name: address.slice(at + 1), host: address.slice(0, at) };
 };
 
-const statusOf = (root: WorktreeRoot, status: RepositoryStatus): CheckoutStatus =>
+const statusOf = (
+  root: WorktreeRoot,
+  status: RepositoryStatus,
+): CheckoutStatus =>
   status.kind === "ready"
     ? status
     : {
@@ -57,7 +70,11 @@ const entry = (
   const identity = repository.identity;
   const checkouts = Arr.map(repository.checkouts, (root) => {
     const status = statuses?.get(root);
-    return { root, shown: homePath(root), ...(status === undefined ? {} : { status: statusOf(root, status) }) };
+    return {
+      root,
+      shown: homePath(root),
+      ...(status === undefined ? {} : { status: statusOf(root, status) }),
+    };
   });
   return {
     id: repositoryId(identity),
@@ -68,10 +85,14 @@ const entry = (
     checkouts,
     pull_requests: reviews
       .filter((item) => {
-        if (item.target.kind === "worktree" || identity.kind !== "remote") return false;
+        if (item.target.kind === "worktree" || identity.kind !== "remote")
+          return false;
         const pull = parsePullRequest(item.target.url);
-        const address = pull === undefined ? null : remoteAddress(pull.repositoryUrl);
-        return pull?.provider === "github" ? address?.toLowerCase() === identity.address.toLowerCase() : address === identity.address;
+        const address =
+          pull === undefined ? null : remoteAddress(pull.repositoryUrl);
+        return pull?.provider === "github"
+          ? address?.toLowerCase() === identity.address.toLowerCase()
+          : address === identity.address;
       })
       .map((item) => item.id),
   };
@@ -92,9 +113,16 @@ const migrate = (store: Store) =>
       const repository =
         found._tag === "Some"
           ? found.value
-          : { identity: { kind: "unresolved" as const, root }, checkouts: [root] as const };
-      const merged = groupRepositories([...store.monitoredRepositories(), repository]).find(
-        (item) => repositoryId(item.identity) === repositoryId(repository.identity),
+          : {
+              identity: { kind: "unresolved" as const, root },
+              checkouts: [root] as const,
+            };
+      const merged = groupRepositories([
+        ...store.monitoredRepositories(),
+        repository,
+      ]).find(
+        (item) =>
+          repositoryId(item.identity) === repositoryId(repository.identity),
       );
       if (merged !== undefined) store.migrateAcceptedCheckout(root, merged);
     }
@@ -102,43 +130,71 @@ const migrate = (store: Store) =>
       if (saved.identity.kind !== "unresolved") continue;
       const found = yield* identified(saved.identity.root);
       if (found._tag === "None") continue;
-      const group = groupRepositories([...store.monitoredRepositories(), found.value]).find(
-        (item) => repositoryId(item.identity) === repositoryId(found.value.identity),
+      const group = groupRepositories([
+        ...store.monitoredRepositories(),
+        found.value,
+      ]).find(
+        (item) =>
+          repositoryId(item.identity) === repositoryId(found.value.identity),
       );
-      if (group !== undefined) store.resolveMigratedRepository(repositoryId(saved.identity), group);
+      if (group !== undefined)
+        store.resolveMigratedRepository(repositoryId(saved.identity), group);
     }
   });
 
-export const loadHome = (store: Store, roots: ReadonlyArray<string>, selectedRoot: string | undefined) =>
+export const loadHome = (
+  store: Store,
+  roots: ReadonlyArray<string>,
+  selectedRoot: string | undefined,
+) =>
   Effect.gen(function* () {
     const discovery = yield* Effect.promise(() =>
-      discoverRepositories(selectedRoot === undefined || selectedRoot === "" ? roots : [selectedRoot]),
+      discoverRepositories(
+        selectedRoot === undefined || selectedRoot === ""
+          ? roots
+          : [selectedRoot],
+      ),
     );
     yield* migrate(store);
-    const accepted = new Set(store.monitoredRepositories().map((item) => repositoryId(item.identity)));
-    const groups = groupRepositories([...store.monitoredRepositories(), ...discovery.repositories]);
-    const monitored = groups.filter((repository) => accepted.has(repositoryId(repository.identity)));
+    const accepted = new Set(
+      store.monitoredRepositories().map((item) => repositoryId(item.identity)),
+    );
+    const groups = groupRepositories([
+      ...store.monitoredRepositories(),
+      ...discovery.repositories,
+    ]);
+    const monitored = groups.filter((repository) =>
+      accepted.has(repositoryId(repository.identity)),
+    );
     // UPDATE rather than INSERT keeps discovery incapable of accepting a new repository.
-    for (const repository of monitored) store.refreshMonitoredRepository(repository);
-    const checkouts = monitored.flatMap((repository) => repository.checkouts.map((root) => ({ root, repository })));
+    for (const repository of monitored)
+      store.refreshMonitoredRepository(repository);
+    const checkouts = monitored.flatMap((repository) =>
+      repository.checkouts.map((root) => ({ root, repository })),
+    );
     // Four Git reads at a time. A page that leaves interrupts the load, which aborts the reads under way and starts none.
     const statuses = new Map(
       yield* Effect.forEach(
         checkouts,
         ({ root, repository }) =>
-          Effect.promise((signal) => checkoutStatus(root, repository.identity, signal)).pipe(
-            Effect.map((status) => [root, status] as const),
-          ),
+          Effect.promise((signal) =>
+            checkoutStatus(root, repository.identity, signal),
+          ).pipe(Effect.map((status) => [root, status] as const)),
         { concurrency: 4 },
       ),
     );
     const reviews = store.reviews();
-    const discovered = discovery.repositories.filter((repository) => !accepted.has(repositoryId(repository.identity)));
+    const discovered = discovery.repositories.filter(
+      (repository) => !accepted.has(repositoryId(repository.identity)),
+    );
     return {
       reviews,
+      stacks: store.stacks(),
       repositories: [
         ...monitored.map((repository) => entry(repository, reviews, statuses)),
-        ...discovered.map((repository) => entry(repository, reviews, undefined)),
+        ...discovered.map((repository) =>
+          entry(repository, reviews, undefined),
+        ),
       ],
       roots: discovery.roots.map(homePath),
       warnings: discovery.warnings,

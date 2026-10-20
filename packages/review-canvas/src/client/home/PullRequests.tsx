@@ -9,6 +9,8 @@ import type {
   PullScope,
   RepositoryPullRequests as PullSnapshot,
 } from "../../schema/pull-requests.ts";
+import type { PullRequestUrl } from "../../schema/primitives.ts";
+import type { StackSummary } from "../../schema/stack.ts";
 import type {
   HomeSnapshot,
   RepositoryEntry,
@@ -21,7 +23,7 @@ import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
 import { homeAtom, repositoryPullRequestsAtom, pullListKey } from "./data.ts";
 
-const number = (pull: OpenPullRequest) => {
+const number = (pull: Pick<OpenPullRequest, "url">) => {
   const address = parsePullRequest(pull.url);
   return `${address?.provider === "gitlab" ? "!" : "#"}${address?.number ?? ""}`;
 };
@@ -303,6 +305,44 @@ export const PullRequests = ({ home }: { readonly home: HomeSnapshot }) => {
   );
 };
 
+/** Open walkthroughs that cover a PR, linked from wherever that PR is reviewed or browsed. */
+export const StackWalkthroughs = ({
+  stacks,
+  url,
+}: {
+  readonly stacks: ReadonlyArray<StackSummary>;
+  readonly url?: PullRequestUrl | undefined;
+}) => {
+  const covering =
+    url === undefined
+      ? stacks
+      : stacks.filter((stack) =>
+          stack.layers.some(
+            (layer) => pullRequestKey(layer) === pullRequestKey(url),
+          ),
+        );
+  return covering.length === 0 ? null : (
+    <ul aria-label="Stack walkthroughs" className="mb-3 flex flex-col gap-1">
+      {covering.map((stack) => (
+        <li key={stack.id}>
+          <a
+            href={`/stacks/${stack.id}`}
+            className="font-semibold underline underline-offset-3"
+          >
+            Stack walkthrough: {stack.title}
+          </a>
+          <span className="text-small text-muted">
+            {" "}
+            · {stack.layers.length} PRs through {number({ url: stack.tip })} ·{" "}
+            {stack.read} of {stack.steps} steps read
+            {stack.historical ? " · historical" : ""}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+};
+
 /** The same base-to-tip navigation stays visible while reviewing one layer. */
 export const ReviewStack = ({
   target,
@@ -324,8 +364,14 @@ export const ReviewStack = ({
           `${address.host}/${address.repository}`.toLowerCase()
         : item.identity.address === `${address?.host}/${address?.repository}`),
   );
-  return repository === undefined ? null : (
+  const walkthroughs = (
+    <StackWalkthroughs stacks={home.value.stacks} url={target.url} />
+  );
+  return repository === undefined ? (
+    <div className="my-6 empty:hidden">{walkthroughs}</div>
+  ) : (
     <nav aria-label="PR stack" className="my-6">
+      {walkthroughs}
       <RepositoryPullRequests
         repository={repository}
         reviews={home.value.reviews}

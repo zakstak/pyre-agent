@@ -10,7 +10,12 @@ import { decodeBytes, FeedbackDocument } from "../schema/document.ts";
 import type { PatchDigest, RepoPath, ReviewId } from "../schema/primitives.ts";
 import { repositoryId } from "../schema/repositories.ts";
 import { PageRpcs, Refused, type ReviewSnapshot } from "../schema/rpc.ts";
-import { NoSuchReview, StaleRevision, type Store } from "../store/store.ts";
+import {
+  NoSuchReview,
+  NoSuchStack,
+  StaleRevision,
+  type Store,
+} from "../store/store.ts";
 import { browsePull } from "./browse.ts";
 import { repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
@@ -31,7 +36,7 @@ const refusalOf = (error: unknown): Refused | Unexpected => {
       message: error.message,
       revision: error.revision,
     });
-  if (error instanceof NoSuchReview)
+  if (error instanceof NoSuchReview || error instanceof NoSuchStack)
     return new Refused({ kind: "not_found", message: error.message });
   return new Unexpected({ cause: error });
 };
@@ -155,6 +160,42 @@ const handlers = (roots: ReadonlyArray<string>) =>
               ),
             { bufferSize: 1, strategy: "sliding" },
           ).pipe(Stream.mapEffect(() => snapshotOf(store, id))),
+
+        /** Like a review's watch: the newest snapshot after any change to the walkthrough or its layers' reviews. */
+        "stack.watch": ({ id }) =>
+          Stream.callback<void>(
+            (queue) =>
+              Effect.acquireRelease(
+                Effect.sync(() => {
+                  activity.streamOpened();
+                  Queue.offerUnsafe(queue, undefined);
+                  return store.watchStack(id, () =>
+                    Queue.offerUnsafe(queue, undefined),
+                  );
+                }),
+                (unsubscribe) =>
+                  Effect.sync(() => {
+                    unsubscribe();
+                    activity.streamClosed();
+                  }),
+              ),
+            { bufferSize: 1, strategy: "sliding" },
+          ).pipe(
+            Stream.mapEffect(() => {
+              const snapshot = store.stackSnapshot(id);
+              return snapshot === undefined
+                ? Effect.fail(
+                    new Refused({
+                      kind: "not_found",
+                      message: `No stack walkthrough ${id}.`,
+                    }),
+                  )
+                : Effect.succeed(snapshot);
+            }),
+          ),
+
+        "stack.act": ({ id, action }) =>
+          touched(attempt(() => ({ revision: store.stackAct(id, action) }))),
 
         "review.round": ({ id, round }) =>
           touched(

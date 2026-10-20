@@ -24,6 +24,7 @@ import {
   RegisterRequest,
 } from "./requests.ts";
 import { Activity, PageAddress, ReviewStore } from "./services.ts";
+import { StackPublishRequest } from "../schema/stack.ts";
 import { statusOf } from "./status.ts";
 
 const now = () => new Date().toISOString() as Timestamp;
@@ -209,6 +210,54 @@ const GitHub = HttpRouter.add(
   ),
 );
 
+/**
+ * A stack walkthrough across the layers of a tip's ancestor path. The body carries a thread token of each layer's
+ * review, since the walkthrough shows every layer; the command verified the path and heads on the host.
+ */
+const PublishStack = HttpRouter.add(
+  "POST",
+  "/agent/stacks",
+  handled(
+    Effect.gen(function* () {
+      const store = yield* ReviewStore;
+      const { origin } = yield* PageAddress;
+      const { sessions, ...request } = yield* readJson(
+        StackPublishRequest,
+        Limits.MAX_FEEDBACK_BYTES,
+      );
+      for (const session of sessions)
+        if (store.authenticate(session.review, session.token) === undefined)
+          return yield* Effect.fail(
+            new RequestRefused(
+              401,
+              "unauthorized",
+              `The token does not belong to a thread of review ${session.review}.`,
+            ),
+          );
+      const published = yield* attempt(() =>
+        store.publishStack(
+          request,
+          sessions.map((session) => session.review),
+        ),
+      );
+      return ok({
+        ok: true,
+        stack: published.id,
+        replaced: published.replaced ?? null,
+        url: `${origin}/stacks/${published.id}`,
+        layers: published.snapshot.layers.map((layer) => layer.url),
+        excluded: published.snapshot.excluded.map((layer) => layer.url),
+        steps: published.snapshot.steps.map((step) => ({
+          key: step.key,
+          title: step.title,
+          files: step.files,
+        })),
+        warnings: published.snapshot.warnings,
+      });
+    }),
+  ),
+);
+
 /** Every agent request counts as activity. */
 const AgentGuard = HttpRouter.middleware(
   Effect.gen(function* () {
@@ -230,5 +279,6 @@ export const AgentApi = Layer.mergeAll(
   Answer,
   Drift,
   GitHub,
+  PublishStack,
   AgentGuard,
 );
