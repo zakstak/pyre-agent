@@ -1,13 +1,14 @@
 /**
  * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout and
  * whether whitespace changes show across visits, and in memory the gaps opened, the drafts, and whether a comment is
- * being moved. None of it is the review's state; the server never sees it.
+ * being moved. None of it is the review's state; the server never sees it. What belongs to one review is keyed by it,
+ * so a page that shows several reviews, such as a stack walkthrough, never carries a draft or a move from one to another.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
 import type { Verdict } from "../../schema/feedback.ts";
-import type { CommentId, PatchDigest, RepoPath } from "../../schema/primitives.ts";
+import type { CommentId, PatchDigest, RepoPath, ReviewId } from "../../schema/primitives.ts";
 import type { GapStage } from "./diff-model.ts";
 import type { RoundKey } from "./data.ts";
 
@@ -89,20 +90,20 @@ export const gapAtom = Atom.family((_key: { readonly path: RepoPath; readonly di
 );
 
 /** A file's About or "changed since" block, opened above its diff. */
-export const extraAtom = Atom.family((_key: { readonly path: RepoPath; readonly block: "about" | "since" }) =>
+export const extraAtom = Atom.family((_key: { readonly review: ReviewId; readonly path: RepoPath; readonly block: "about" | "since" }) =>
   Atom.make(false).pipe(Atom.keepAlive),
 );
 
 /** Rows a later stop points back at, lit for a moment. */
-export const flashAtom = Atom.make<{ readonly path: string; readonly start: number; readonly end: number } | undefined>(
-  undefined,
-).pipe(Atom.keepAlive);
+export const flashAtom = Atom.family((_review: ReviewId) =>
+  Atom.make<{ readonly path: string; readonly start: number; readonly end: number } | undefined>(undefined).pipe(Atom.keepAlive),
+);
 
 /** The tour's notes the reviewer opened in the source view, by element ID; that view shows a note only on demand. */
-export const openNotesAtom = Atom.make<ReadonlySet<string>>(new Set<string>()).pipe(Atom.keepAlive);
+export const openNotesAtom = Atom.family((_review: ReviewId) => Atom.make<ReadonlySet<string>>(new Set<string>()).pipe(Atom.keepAlive));
 
 /** A comment the reviewer is moving to other lines: the next line selection places it instead of opening a composer. */
-export const reattachAtom = Atom.make<CommentId | undefined>(undefined).pipe(Atom.keepAlive);
+export const reattachAtom = Atom.family((_review: ReviewId) => Atom.make<CommentId | undefined>(undefined).pipe(Atom.keepAlive));
 
 /**
  * A comment being written on lines of a patch. It belongs to the patch it was opened on: when a new round changes
@@ -122,19 +123,23 @@ export interface Draft {
   readonly focusPending: boolean;
 }
 
-export const draftsAtom = Atom.make<ReadonlyArray<Draft>>([]).pipe(Atom.keepAlive);
+export const draftsAtom = Atom.family((_review: ReviewId) => Atom.make<ReadonlyArray<Draft>>([]).pipe(Atom.keepAlive));
 
 /** Text from a draft whose code changed, which fills the next composer the reviewer opens. */
-export const stashAtom = Atom.make("").pipe(Atom.keepAlive);
+export const stashAtom = Atom.family((_review: ReviewId) => Atom.make("").pipe(Atom.keepAlive));
 
 /** A reply being written under a comment: whether its editor is open, and its text. */
-export const replyAtom = Atom.family((_comment: CommentId) => Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive));
+export const replyAtom = Atom.family((_key: { readonly review: ReviewId; readonly comment: CommentId }) =>
+  Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
+);
 
 /** The comment on the whole change being written. */
-export const generalDraftAtom = Atom.make("").pipe(Atom.keepAlive);
+export const generalDraftAtom = Atom.family((_review: ReviewId) => Atom.make("").pipe(Atom.keepAlive));
 
 /** The verdict and summary of a finish being written, which carry over when a new round replaces the section. */
-export const finishDraftAtom = Atom.make<{ readonly verdict: Verdict; readonly body: string }>({
-  verdict: "comment",
-  body: "",
-}).pipe(Atom.keepAlive);
+export const finishDraftAtom = Atom.family((_review: ReviewId) =>
+  Atom.make<{ readonly verdict: Verdict; readonly body: string }>({
+    verdict: "comment",
+    body: "",
+  }).pipe(Atom.keepAlive),
+);

@@ -3,6 +3,7 @@
  * layer's review, which steps the reviewer read at the versions they show now, and where the reviewer resumes. The
  * store and the publish command call these; nothing here reads the database or the host.
  */
+import { createHash } from "node:crypto";
 import * as Schema from "effect/Schema";
 import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
@@ -11,6 +12,7 @@ import type {
   PullRequestUrl,
   ReviewId,
   RoundNumber,
+  StepDigest,
 } from "../schema/primitives.ts";
 import type { OpenPullRequest } from "../schema/pull-requests.ts";
 import type {
@@ -174,11 +176,23 @@ export const readState = (
     : "changed";
 };
 
-/** What a mark of a step would record now, for steps of a current layer. */
+/** What a mark of a step would record now, for steps of a current layer: every file the step shows, not only its own. */
 export interface StepVersion {
   readonly head_sha: CommitSha;
   readonly files: ReadonlyArray<ReadFile>;
 }
+
+/** The digest a page sends back to read a step at the version it showed. */
+export const stepDigest = (version: StepVersion): StepDigest =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        version.head_sha,
+        version.files.map((file) => [file.path, file.version]),
+      ]),
+      "utf8",
+    )
+    .digest("hex") as StepDigest;
 
 export interface ResolvedStack {
   readonly layers: ReadonlyArray<StackLayerView>;
@@ -238,14 +252,17 @@ export const resolveStack = (
         const step = key(
           stop.closing ? `L${index}:other` : `L${index}:S${stop.index}`,
         );
+        // An excerpt of a file an earlier step owns shows that file too, so its change reopens this step as well.
         const version: StepVersion = {
           head_sha: input.target.head_sha,
-          files: stop.owns.flatMap((path) => {
-            const file = files.get(path);
-            return file === undefined
-              ? []
-              : [{ path, version: fileVersion(file) }];
-          }),
+          files: [...new Set(stop.files.map((file) => file.path))].flatMap(
+            (path) => {
+              const file = files.get(path);
+              return file === undefined
+                ? []
+                : [{ path, version: fileVersion(file) }];
+            },
+          ),
         };
         versions.set(step, version);
         const written = stop.closing
@@ -263,6 +280,7 @@ export const resolveStack = (
           closing: stop.closing,
           files: stop.owns.length,
           read: readState(marks.get(step), version),
+          version: stepDigest(version),
         });
       }
     } else if (authored.length === 0) {

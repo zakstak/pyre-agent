@@ -88,6 +88,10 @@ export type InputDigest = typeof InputDigest.Type;
 export const PatchDigest = Sha256.pipe(Schema.brand("PatchDigest"));
 export type PatchDigest = typeof PatchDigest.Type;
 
+/** SHA-256 over what a stack walkthrough step shows: its layer's head and the version of each file it covers. */
+export const StepDigest = Sha256.pipe(Schema.brand("StepDigest"));
+export type StepDigest = typeof StepDigest.Type;
+
 /** A full commit hash: 40 hexadecimal characters for SHA-1, 64 for SHA-256. */
 export const CommitSha = pattern(
   /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/,

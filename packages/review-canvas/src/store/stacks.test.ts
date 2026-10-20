@@ -101,6 +101,15 @@ const tempPath = () => {
   };
 };
 
+/** What the page sends to read a step: its key, and the version the snapshot showed it at. */
+const shown = (store: Store, id: string, key: string) => {
+  const version = store
+    .stackSnapshot(id)
+    ?.steps.find((item) => item.key === key)?.version;
+  assert.ok(version !== undefined, `${key} has no version to read`);
+  return { step: stepKey(key), version };
+};
+
 const fails = (work: () => unknown, message: RegExp) =>
   assert.throws(
     work,
@@ -134,12 +143,12 @@ test("a walkthrough's progression and progress survive a restart, and its snapsh
   store.stackAct(published.id, {
     kind: "go",
     step: stepKey("L0:other"),
-    read: stepKey("L0:S0"),
+    read: shown(store, published.id, "L0:S0"),
   });
   store.stackAct(published.id, {
     kind: "go",
     step: stepKey("L1:S0"),
-    read: stepKey("L0:other"),
+    read: shown(store, published.id, "L0:other"),
   });
   store.close();
 
@@ -182,11 +191,8 @@ test("a layer's new head makes it stale; a fresh start at the same head stays cu
     request([68, 69], [step(68, "Core"), step(69, "UI")]),
     layers.map((item) => item.review),
   );
-  store.stackAct(id, {
-    kind: "go",
-    step: stepKey("L1:S0"),
-    read: stepKey("L1:S0"),
-  });
+  const tipShown = shown(store, id, "L1:S0");
+  store.stackAct(id, { kind: "go", step: stepKey("L1:S0"), read: tipShown });
   const tip = layers[1];
   assert.ok(tip !== undefined);
 
@@ -240,7 +246,7 @@ test("a layer's new head makes it stale; a fresh start at the same head stays cu
       store.stackAct(id, {
         kind: "go",
         step: stepKey("L0:S0"),
-        read: stepKey("L1:S0"),
+        read: tipShown,
       }),
     /not current/,
   );
@@ -253,6 +259,103 @@ test("a layer's new head makes it stale; a fresh start at the same head stays cu
     fresh: true,
   });
   assert.deepEqual(store.stackSnapshot(id)?.layers[0]?.state.kind, "missing");
+  store.close();
+});
+
+/** A round of #68 at the same head in which src/retry.py is another version of the change. */
+const retryChanged = (): ReviewInput => {
+  const input = layer(68);
+  return {
+    ...input,
+    files: input.files.map((file) =>
+      file.path === "src/retry.py"
+        ? { ...file, fingerprint: "f".repeat(64) as Fingerprint }
+        : file,
+    ),
+  };
+};
+
+test("a step that excerpts a file an earlier step owns reopens when that file changes", () => {
+  const store = Store.open(":memory:");
+  const [base] = reviewed(store, [68]);
+  assert.ok(base !== undefined);
+  const excerpted = (title: string): StackStep => ({
+    ...step(68, title),
+    excerpts: [
+      {
+        path: "src/retry.py" as RepoPath,
+        side: "new",
+        start: 9,
+        end: 9,
+        caption: "",
+      },
+    ] as StackStep["excerpts"],
+    files: [],
+  });
+  const { id } = store.publishStack(
+    request([68], [excerpted("First look"), excerpted("Second look")]),
+    [base.review],
+  );
+  store.stackAct(id, {
+    kind: "go",
+    step: stepKey("L0:other"),
+    read: shown(store, id, "L0:S1"),
+  });
+  assert.equal(
+    store.stackSnapshot(id)?.steps.find((item) => item.key === "L0:S1")?.read,
+    "read",
+  );
+  store.publish(base.review, base.thread, retryChanged());
+  assert.equal(
+    store.stackSnapshot(id)?.steps.find((item) => item.key === "L0:S1")?.read,
+    "changed",
+  );
+  store.close();
+});
+
+test("a read names the version its page showed, so an older page cannot mark a newer round read", () => {
+  const store = Store.open(":memory:");
+  const [base] = reviewed(store, [68]);
+  assert.ok(base !== undefined);
+  const { id } = store.publishStack(request([68], [step(68, "Core")]), [
+    base.review,
+  ]);
+  const before = shown(store, id, "L0:S0");
+
+  // A round at the same head with the same files shows the same step: the old page's read still holds.
+  store.publish(base.review, base.thread, layer(68));
+  assert.equal(shown(store, id, "L0:S0").version, before.version);
+
+  // A round at the same head that changes the step's file: the old page's Next is refused and records nothing.
+  store.publish(base.review, base.thread, retryChanged());
+  const revision = store.stackSnapshot(id)?.revision;
+  fails(
+    () =>
+      store.stackAct(id, {
+        kind: "go",
+        step: stepKey("L0:other"),
+        read: before,
+      }),
+    /changed since your page showed it/,
+  );
+  const after = store.stackSnapshot(id);
+  assert.equal(after?.revision, revision);
+  assert.equal(after?.position, "L0:S0");
+  assert.equal(
+    after?.steps.find((item) => item.key === "L0:S0")?.read,
+    "unread",
+  );
+
+  // The version the page shows now reads.
+  store.stackAct(id, {
+    kind: "go",
+    step: stepKey("L0:other"),
+    read: shown(store, id, "L0:S0"),
+  });
+  assert.equal(
+    store.stackSnapshot(id)?.steps.find((item) => item.key === "L0:S0")?.read,
+    "read",
+  );
   store.close();
 });
 
@@ -297,7 +400,7 @@ test("republishing a tip's walkthrough replaces it and keeps unchanged steps' pr
   store.stackAct(first.id, {
     kind: "go",
     step: stepKey("L1:S0"),
-    read: stepKey("L0:S0"),
+    read: shown(store, first.id, "L0:S0"),
   });
   const second = store.publishStack(
     request([68, 69], [step(68, "Core"), step(69, "UI, explained again")]),

@@ -256,9 +256,9 @@ export const General = ({
 }: {
   readonly textarea: React.RefObject<HTMLTextAreaElement | null>;
 }) => {
-  const { page } = usePage();
+  const { id, page } = usePage();
   const act = useAct();
-  const [body, setBody] = useAtom(generalDraftAtom);
+  const [body, setBody] = useAtom(generalDraftAtom(id));
   const { busy, run } = useSending();
   // A closed review has nothing to add: the section shows only what was said.
   if (!page.writable && page.general.length === 0) return null;

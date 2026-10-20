@@ -16,6 +16,7 @@ import {
   Revision,
   RoundNumber,
   StackId,
+  StepDigest,
   text,
   ThreadToken,
   Timestamp,
@@ -190,6 +191,8 @@ export const StackStepView = Schema.Struct({
   /** Files this step is the first to cover in its layer. */
   files: Count,
   read: StepRead,
+  /** What the step shows now, while its layer is current. A read names it, so a page cannot mark a newer version read. */
+  version: Schema.optionalKey(StepDigest),
 });
 export type StackStepView = typeof StackStepView.Type;
 
@@ -211,12 +214,17 @@ export const StackSnapshot = Schema.Struct({
 });
 export type StackSnapshot = typeof StackSnapshot.Type;
 
-/** A page's change to its walkthrough progress: move, optionally marking the step it leaves read, or unmark a step. */
+/**
+ * A page's change to its walkthrough progress: move, optionally marking the step it leaves read at the version the page
+ * showed, or unmark a step.
+ */
 export const StackAction = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("go"),
     step: StepKey,
-    read: Schema.optionalKey(StepKey),
+    read: Schema.optionalKey(
+      Schema.Struct({ step: StepKey, version: StepDigest }),
+    ),
   }),
   Schema.Struct({ kind: Schema.Literal("unread"), step: StepKey }),
 ]);

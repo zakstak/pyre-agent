@@ -227,7 +227,7 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
     registry.set(foldsAtom(key), carried);
   });
   useEffect(() => {
-    const drafts = registry.get(draftsAtom);
+    const drafts = registry.get(draftsAtom(key.id));
     const lost = drafts.filter(
       (draft) =>
         !draft.submitting &&
@@ -235,20 +235,20 @@ const useRoundChange = (key: RoundKey, page: PageModel) => {
     );
     if (lost.length === 0) return;
     registry.set(
-      draftsAtom,
+      draftsAtom(key.id),
       drafts.filter((draft) => !lost.includes(draft)),
     );
     const text = lost
       .map((draft) => draft.body)
       .find((body) => body.trim() !== "");
     if (text !== undefined) {
-      registry.set(stashAtom, text);
+      registry.set(stashAtom(key.id), text);
       toast(
         "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
         "danger",
       );
     }
-  }, [page.files, registry]);
+  }, [key.id, page.files, registry]);
 };
 
 const Review = ({
@@ -278,21 +278,21 @@ const Review = ({
   }, [page.input.target.title]);
   useHash(navigate);
   useScrollSpy(navigate);
-  useKeys(navigate);
+  useKeys(id, navigate);
   useRoundChange(key, page);
 
   /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
   const ask = (question: string) => {
     const area = general.current;
     if (area === null) return;
-    const now = registry.get(generalDraftAtom);
+    const now = registry.get(generalDraftAtom(id));
     const next = now.startsWith(question)
       ? now
       : now === ""
         ? question
         : `${question}\n\n${now}`;
     // Drawn at once, so the caret goes after the text the box now holds.
-    flushSync(() => registry.set(generalDraftAtom, next));
+    flushSync(() => registry.set(generalDraftAtom(id), next));
     area.scrollIntoView({ block: "center" });
     area.focus();
     area.setSelectionRange(next.length, next.length);

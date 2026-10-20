@@ -95,6 +95,7 @@ import {
   pinLayers,
   resolveStack,
   type ResolvedStack,
+  stepDigest,
   StackRefused,
 } from "../review/stack-walk.ts";
 
@@ -1250,13 +1251,19 @@ export class Store {
             );
           let marks = progress.marks;
           if (action.read !== undefined) {
-            const version = resolved.versions.get(action.read);
+            const read = action.read.step;
+            const version = resolved.versions.get(read);
             if (version === undefined)
               throw new ActionError(
                 "invalid",
                 "That step's layer is not current, so it cannot be marked read. Open the layer's review instead.",
               );
-            const read = action.read;
+            // A page that showed an older round or head would certify code the reviewer has not seen.
+            if (stepDigest(version) !== action.read.version)
+              throw new ActionError(
+                "changed",
+                "That step changed since your page showed it, so it was not marked read. Read it as it is now, then go on.",
+              );
             marks = [
               ...marks.filter((mark) => mark.step !== read),
               { step: read, ...version, read_at: now() },

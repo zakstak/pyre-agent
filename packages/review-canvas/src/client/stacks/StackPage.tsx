@@ -57,12 +57,14 @@ const useGo = (snapshot: StackSnapshot, current: StackStepView) => {
     },
     [run, send],
   );
-  // Only a step of a current layer can be read: its marks record the head and files it showed.
+  // Only a step of a current layer can be read, at the version this page showed: a newer one is refused.
   const go: Go = (step, read) =>
     act({
       kind: "go",
       step: step.key,
-      ...(read && current.stop !== undefined ? { read: current.key } : {}),
+      ...(read && current.version !== undefined
+        ? { read: { step: current.key, version: current.version } }
+        : {}),
     });
   const unread = () => act({ kind: "unread", step: current.key });
   return { go, unread, busy };
@@ -328,13 +330,13 @@ const CurrentStep = ({
   const ask = (question: string) => {
     const area = general.current;
     if (area === null) return;
-    const now = registry.get(generalDraftAtom);
+    const now = registry.get(generalDraftAtom(state.review));
     const next = now.startsWith(question)
       ? now
       : now === ""
         ? question
         : `${question}\n\n${now}`;
-    flushSync(() => registry.set(generalDraftAtom, next));
+    flushSync(() => registry.set(generalDraftAtom(state.review), next));
     area.scrollIntoView({ block: "center" });
     area.focus();
     area.setSelectionRange(next.length, next.length);
@@ -389,7 +391,7 @@ const StepNav = ({
       >
         Next: {next.title}
       </Button>
-    ) : step.stop !== undefined && step.read !== "read" ? (
+    ) : step.version !== undefined && step.read !== "read" ? (
       <Button
         variant="primary"
         disabled={busy}

@@ -178,9 +178,10 @@ const Moves = ({
   readonly extra: React.ReactNode;
   readonly onMoved: (outcome: "sent" | "refused") => void;
 }) => {
+  const { id } = usePage();
   const act = useAct();
   const registry = useContext(RegistryContext);
-  const [reply, setReply] = useAtom(replyAtom(comment.id));
+  const [reply, setReply] = useAtom(replyAtom({ review: id, comment: comment.id }));
   const { busy, run } = useSending();
   const area = useRef<HTMLTextAreaElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -234,7 +235,7 @@ const Moves = ({
             onKeyDown={(event) => {
               submitOnModEnter(event);
               // While a comment is being moved, Esc ends the move and leaves the reply open.
-              if (event.key === "Escape" && registry.get(reattachAtom) === undefined) {
+              if (event.key === "Escape" && registry.get(reattachAtom(id)) === undefined) {
                 event.preventDefault();
                 closeEditor();
               }
@@ -358,8 +359,8 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
 
 /** An inline comment whose lines are not in this round, with where it pointed and a way to move it. */
 export const Orphan = ({ comment, withPath = false }: { readonly comment: InlineComment; readonly withPath?: boolean }) => {
-  const { page } = usePage();
-  const setMoving = useAtomSet(reattachAtom);
+  const { id, page } = usePage();
+  const setMoving = useAtomSet(reattachAtom(id));
   const move = () => {
     setMoving(comment.id);
     toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");

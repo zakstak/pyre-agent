@@ -197,3 +197,131 @@ test(
       .waitFor();
   },
 );
+
+const table = (path: string) => `table[data-path='${path}'][data-patch]`;
+const composer = "tr[data-composer] textarea";
+
+test(
+  "drafts stay with the PR they were written on, and a same-head change reopens a read step",
+  { skip: !built },
+  async (t) => {
+    const server = await startServer();
+    t.after(() => server.stop());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+
+    // Both layers change the same file the same way, so only the review tells their drafts apart.
+    const agents: Array<Agent> = [];
+    for (const n of [68, 69]) {
+      const agent = await server.register(
+        layerInput(n),
+        `Claude Code: layer ${n}`,
+      );
+      await agent.publish(layerInput(n));
+      agents.push(agent);
+    }
+    const [base, tip] = agents;
+    assert.ok(base !== undefined && tip !== undefined);
+    const published = await server.agent("POST", "/agent/stacks", {
+      walkthrough: {
+        format: "review-canvas.stack/1",
+        title: "Two layers, one file",
+        tip: url(69),
+        steps: [
+          step(68, "Base loop", "src/retry.py"),
+          step(69, "Tip loop", "src/retry.py"),
+        ],
+      },
+      historical: false,
+      path: [68, 69].map((n) => ({
+        url: url(n),
+        title: `PR ${n}`,
+        head_sha: head(n),
+      })),
+      excluded: [],
+      sessions: agents.map((agent) => ({
+        review: agent.review,
+        token: agent.token,
+      })),
+    });
+    assert.equal(published.ok, true, JSON.stringify(published));
+
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 900 },
+    });
+    await page.goto(published.url);
+    await at(page, "L0:S0");
+    await page.locator("#general-body").fill("Base: why five tries?");
+    await page
+      .locator(
+        `${table("src/retry.py")} [data-selectable] button[data-add-comment]`,
+      )
+      .first()
+      .click();
+    await page.locator(composer).fill("Base: inline note");
+
+    // The tip shows the same file, but none of the base's drafts.
+    await page.locator("button[data-step='L1:S0']").click();
+    await at(page, "L1:S0");
+    await page.locator(`${table("src/retry.py")}`).waitFor();
+    assert.equal(await page.locator("#general-body").inputValue(), "");
+    assert.equal(await page.locator(composer).count(), 0);
+    await page.locator("#general-body").fill("Tip: is the API ready?");
+
+    // Another step of the base keeps its general draft; returning to the first step finds both drafts.
+    await page.locator("button[data-step='L0:other']").click();
+    await at(page, "L0:other");
+    assert.equal(
+      await page.locator("#general-body").inputValue(),
+      "Base: why five tries?",
+    );
+    await page.locator("button[data-step='L0:S0']").click();
+    await at(page, "L0:S0");
+    assert.equal(
+      await page.locator(composer).inputValue(),
+      "Base: inline note",
+    );
+
+    // Back on the tip, its own draft goes to the tip's review only.
+    await page.locator("button[data-step='L1:S0']").click();
+    await at(page, "L1:S0");
+    assert.equal(
+      await page.locator("#general-body").inputValue(),
+      "Tip: is the API ready?",
+    );
+    await page
+      .locator("#general form")
+      .getByRole("button", { name: "Ask now", exact: true })
+      .click();
+    await page.locator("#general article[data-comment]").waitFor();
+    assert.equal((await tip.status()).questions.length, 1);
+    assert.equal((await base.status()).questions.length, 0);
+
+    // A read step whose file changes in a round at the same head shows as changed; Next reads the new version.
+    await page.locator("button[data-step='L0:S0']").click();
+    await at(page, "L0:S0");
+    assert.equal(
+      await page.locator("#general-body").inputValue(),
+      "Base: why five tries?",
+    );
+    await page.getByRole("button", { name: "Next: Other files" }).click();
+    await at(page, "L0:other");
+    await page.locator("button[data-step='L0:S0'][data-read='read']").waitFor();
+    await base.publish({
+      ...layerInput(68),
+      files: layerInput(68).files.map((file: { path: string }) =>
+        file.path === "src/retry.py"
+          ? { ...file, fingerprint: "f".repeat(64) }
+          : file,
+      ),
+    });
+    await page
+      .locator("button[data-step='L0:S0'][data-read='changed']")
+      .waitFor();
+    await page.getByRole("button", { name: "Previous: Base loop" }).click();
+    await at(page, "L0:S0");
+    await page.getByRole("button", { name: "Next: Other files" }).click();
+    await at(page, "L0:other");
+    await page.locator("button[data-step='L0:S0'][data-read='read']").waitFor();
+  },
+);

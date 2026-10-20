@@ -13,6 +13,7 @@ import { Atom } from "effect/reactivity";
 import { FoldVertical, UnfoldVertical } from "lucide-react";
 import { Fragment, useContext, useEffect, useMemo } from "react";
 import { type Row, whitespaceOnly } from "../../review/patch.ts";
+import type { ReviewId } from "../../schema/primitives.ts";
 import { lineRange } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -47,11 +48,11 @@ const dragAtom = Atom.make<{ readonly path: string; readonly from: number; reado
 const dragOf = Atom.family((path: string) =>
   Atom.map(dragAtom, (drag) => (drag?.path === path ? drag : undefined)).pipe(Atom.withEquality(Equal.equals)),
 );
-const flashOf = Atom.family((path: string) =>
-  Atom.map(flashAtom, (flash) => (flash?.path === path ? flash : undefined)).pipe(Atom.withEquality(Equal.equals)),
+const flashOf = Atom.family(({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
+  Atom.map(flashAtom(review), (flash) => (flash?.path === path ? flash : undefined)).pipe(Atom.withEquality(Equal.equals)),
 );
-const draftsOf = Atom.family((path: string) =>
-  Atom.map(draftsAtom, (drafts) => drafts.filter((draft) => draft.path === path)).pipe(Atom.withEquality(Equal.equals)),
+const draftsOf = Atom.family(({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
+  Atom.map(draftsAtom(review), (drafts) => drafts.filter((draft) => draft.path === path)).pipe(Atom.withEquality(Equal.equals)),
 );
 
 /** The selected lines as the server will anchor them: old-side when only deleted lines are selected, else new-side. */
@@ -525,15 +526,16 @@ const GapGroup = ({
  */
 const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>, split: boolean, readOnly: boolean) => {
   const registry = useContext(RegistryContext);
+  const { id: review } = usePage();
   const act = useAct();
   const drag = useAtomValue(dragOf(model.file.path));
 
   const choose = async (start: number, end: number, opener: string) => {
     const digest = model.digest;
     if (digest === undefined) return;
-    const moving = registry.get(reattachAtom);
+    const moving = registry.get(reattachAtom(review));
     if (moving !== undefined) {
-      registry.set(reattachAtom, undefined);
+      registry.set(reattachAtom(review), undefined);
       const outcome = await act({
         kind: "reattach",
         comment: moving,
@@ -542,7 +544,7 @@ const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>,
       if (outcome.ok) toast("The comment moved to the lines you chose.");
       return;
     }
-    openDraft(registry, { path: model.file.path, digest, start, end, opener });
+    openDraft(registry, review, { path: model.file.path, digest, start, end, opener });
   };
 
   // A drag ends wherever the pointer is released. The read-only patch above the diff takes no selection.
@@ -564,7 +566,7 @@ const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>,
     /** The rows the drag under way covers. */
     dragged: drag === undefined ? undefined : { start: Math.min(drag.from, drag.to), end: Math.max(drag.from, drag.to) },
     select: (row: Row, event: React.MouseEvent | React.KeyboardEvent, opener: string) => {
-      const open = registry.get(draftsAtom).find((draft) => !draft.submitting && draft.path === model.file.path);
+      const open = registry.get(draftsAtom(review)).find((draft) => !draft.submitting && draft.path === model.file.path);
       if (event.shiftKey && open !== undefined)
         void choose(Math.min(open.start, row.index), Math.max(open.end, row.index), open.opener);
       else void choose(row.index, row.index, opener);
@@ -594,8 +596,8 @@ export const DiffTable = ({
   readonly split: boolean;
   readonly patch?: string;
 }) => {
-  const { page, view } = usePage();
-  const [openNotes, setOpenNotes] = useAtom(openNotesAtom);
+  const { id: review, page, view } = usePage();
+  const [openNotes, setOpenNotes] = useAtom(openNotesAtom(review));
   const readOnly = patch !== undefined;
   const source = patch ?? model.file.patch ?? "";
   const split = wantSplit && !readOnly;
@@ -605,9 +607,9 @@ export const DiffTable = ({
   const shownKey = shown?.map((range) => `${range.start}-${range.end}`).join(",");
   const content = readOnly ? undefined : model.file.new_content;
   const layout = useMemo(() => layoutDiff(source, { shown, content }), [source, shownKey, content]);
-  const drafts = useAtomValue(draftsOf(model.file.path)).filter((draft) => !readOnly && draft.digest === model.digest);
-  const reattaching = useAtomValue(reattachAtom);
-  const flash = useAtomValue(flashOf(model.file.path));
+  const drafts = useAtomValue(draftsOf({ review, path: model.file.path })).filter((draft) => !readOnly && draft.digest === model.digest);
+  const reattaching = useAtomValue(reattachAtom(review));
+  const flash = useAtomValue(flashOf({ review, path: model.file.path }));
   const { dragged, select, startDrag, hover } = useSelection(model, id, layout.rows, split, readOnly);
   const editable = drafts.find((draft) => !draft.submitting);
   const whitespace = useAtomValue(whitespaceAtom);

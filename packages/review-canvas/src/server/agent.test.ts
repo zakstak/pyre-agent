@@ -23,7 +23,7 @@ import {
   RoundNumber,
 } from "../schema/primitives.ts";
 import { PageAction, PageRpcs, Refused } from "../schema/rpc.ts";
-import { StackId } from "../schema/primitives.ts";
+import { StackId, StepDigest } from "../schema/primitives.ts";
 import { StepKey } from "../schema/stack.ts";
 import { patchDigest } from "../review/anchor.ts";
 import { finishedSince, hasQuestions } from "./status.ts";
@@ -847,11 +847,45 @@ test("a stack walkthrough publishes over the socket with every layer's thread, a
     );
     const id = Schema.decodeSync(StackId)(published.body.stack);
     const step = Schema.decodeSync(StepKey);
+    const first = Option.getOrUndefined(
+      succeeded(
+        await rpc(pages.port, (client) =>
+          client("stack.watch", { id }).pipe(Stream.runHead),
+        ),
+      ),
+    );
+    const version = first?.steps.find(
+      (item) => item.key === "L0:other",
+    )?.version;
+    assert.ok(version !== undefined);
+    // A read of a version the page never showed is refused, and moves nothing.
+    assert.equal(
+      refused(
+        await rpc(pages.port, (client) =>
+          client("stack.act", {
+            id,
+            action: {
+              kind: "go",
+              step: step("L1:S0"),
+              read: {
+                step: step("L0:other"),
+                version: Schema.decodeSync(StepDigest)("0".repeat(64)),
+              },
+            },
+          }),
+        ),
+      ).kind,
+      "changed",
+    );
     succeeded(
       await rpc(pages.port, (client) =>
         client("stack.act", {
           id,
-          action: { kind: "go", step: step("L1:S0"), read: step("L0:other") },
+          action: {
+            kind: "go",
+            step: step("L1:S0"),
+            read: { step: step("L0:other"), version },
+          },
         }),
       ),
     );
