@@ -187,6 +187,25 @@ test("a historical walkthrough path pins each layer's final retained head and le
   );
 });
 
+test("a historical walkthrough refuses missing or ambiguous root dependencies", () => {
+  const rows = walkthroughRows();
+  assert.throws(
+    () => hostStackPath(pull(76), true, walkthroughClients(rows.slice(1))),
+    /root dependency is missing or ambiguous/,
+  );
+  const root = rows[0];
+  assert.ok(root !== undefined);
+  assert.throws(
+    () =>
+      hostStackPath(
+        pull(76),
+        true,
+        walkthroughClients([...rows, { ...root, url: pull(78) }]),
+      ),
+    /root dependency is missing or ambiguous/,
+  );
+});
+
 test("a historical path with truncated base-change history is refused", () => {
   const truncated = walkthroughRows();
   const layer = truncated[2];
@@ -194,6 +213,6 @@ test("a historical path with truncated base-change history is refused", () => {
   layer.timelineItems.pageInfo.hasNextPage = true;
   assert.throws(
     () => hostStackPath(pull(76), true, walkthroughClients(truncated)),
-    /truncated|absent/,
+    /truncated|absent|missing or ambiguous/,
   );
 });

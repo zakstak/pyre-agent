@@ -91,6 +91,16 @@ export const hostStackPath = (
         ? "The tip is absent from the repository's PR history."
         : "The tip is not an open PR. Use --history for merged or closed stacks.",
     );
+  const rootHistory = found.path[0]?.history;
+  if (
+    rootHistory !== undefined &&
+    rootHistory.base_branches.some(
+      (branch) => branch !== rootHistory.default_branch,
+    )
+  )
+    throw new Error(
+      "The stack's root dependency is missing or ambiguous. Its walkthrough cannot be reconstructed safely.",
+    );
   const path = found.path.map((pull) => {
     if (pull.history !== undefined) {
       if (!pull.history.timeline_complete)
