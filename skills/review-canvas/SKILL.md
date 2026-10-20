@@ -6,7 +6,7 @@ description:
   work. The agent writes a tour and answers browser comments through a local
   server."
 metadata:
-  version: "5.2.3"
+  version: "5.3.0"
 ---
 
 # Review canvas
@@ -15,9 +15,10 @@ A review canvas is a page the reviewer walks stop by stop. The agent gathers the
 change, writes a tour of it, and publishes a round to a local server. The server
 serves the page, keeps every comment and approval, and tells the agent when the
 reviewer finishes or asks a question. The agent answers each comment and
-publishes the next round. The browser has no git host credentials, and the
-server reads open PRs for monitored repositories through the configured host
-adapters. Hosted comments still come from the agent CLI.
+publishes the next round. The browser has no git host credentials. The server
+reads open PRs for monitored repositories through the configured host adapters.
+PR discovery does not require a registered review. Stacks appear in base-first
+order, with links between layers; saved reviews remain usable offline.
 
 ## Run the command
 

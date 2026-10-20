@@ -125,6 +125,19 @@ agent sessions and saved feedback continue to work.
 
 ## Repository monitoring
 
+The home page lists every open PR for the selected monitored repository, even
+when no agent has registered a review. Choose a repository or use **Refresh
+PRs** to read the host again. Existing local reviews open in review-canvas;
+other PRs link to their host. Host authentication failures appear separately
+from saved reviews, which remain usable offline.
+
+PRs whose base branches match other open PRs' source branches appear as stacks,
+ordered from base to tip. Each layer shows its dependency. The same navigation
+appears while reviewing a layer. Fork branches and ambiguous source branches are
+not inferred as parents. Discovery uses the existing GitHub, GitLab, and
+Gitea/Forgejo credentials and host configuration described above. Monitoring a
+repository permits this read; registering individual PRs is unnecessary.
+
 The repository settings show one summary per monitored repository. Expand a
 repository to see its local clones and worktrees. Missing paths are grouped in
 **Missing checkouts**. **Stop monitoring** keeps the repository's reviews.

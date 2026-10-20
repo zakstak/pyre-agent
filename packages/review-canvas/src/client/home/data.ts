@@ -21,7 +21,11 @@ const textParam = (key: string, absent: string) =>
       if (value === absent) params.delete(key);
       else params.set(key, value);
       const search = params.toString();
-      history.replaceState(history.state, "", `${location.pathname}${search === "" ? "" : `?${search}`}${location.hash}`);
+      history.replaceState(
+        history.state,
+        "",
+        `${location.pathname}${search === "" ? "" : `?${search}`}${location.hash}`,
+      );
       context.setSelf(value);
     },
   );
@@ -41,7 +45,9 @@ export const reviewQueryAtom = textParam("q", "is:open");
  */
 const FILTERS = ["monitored", "discovered", "changed", "unavailable"] as const;
 export type Filter = (typeof FILTERS)[number];
-export const filterAtom = Atom.searchParam("filter", { schema: Schema.Literals(FILTERS) });
+export const filterAtom = Atom.searchParam("filter", {
+  schema: Schema.Literals(FILTERS),
+});
 
 /** A directory to scan instead of the server's scan directories, kept in the URL as `root`; empty for theirs. */
 export const rootAtom = Atom.searchParam("root");
@@ -58,22 +64,42 @@ export const homeAtom = PageClient.runtime.atom((get) => {
 
 /** Monitoring one repository from one of its checkouts, or no longer monitoring it. */
 export type MonitoringChange =
-  | { readonly kind: "accept"; readonly id: RepositoryId; readonly root: WorktreeRoot }
+  | {
+      readonly kind: "accept";
+      readonly id: RepositoryId;
+      readonly root: WorktreeRoot;
+    }
   | { readonly kind: "remove"; readonly id: RepositoryId };
 
 /**
  * Sends one monitoring change, then reads the snapshot again so the lists show it. The page allows one change at a
  * time: its buttons wait while a change or the reload after it is under way.
  */
-export const monitoringAtom = PageClient.runtime.fn((change: MonitoringChange, get) =>
-  Effect.gen(function* () {
-    const client = yield* PageClient;
-    if (change.kind === "accept") yield* client("repositories.accept", { root: change.root, id: change.id });
-    else yield* client("repositories.remove", { id: change.id });
-    get.registry.refresh(homeAtom);
-  }),
+export const monitoringAtom = PageClient.runtime.fn(
+  (change: MonitoringChange, get) =>
+    Effect.gen(function* () {
+      const client = yield* PageClient;
+      if (change.kind === "accept")
+        yield* client("repositories.accept", {
+          root: change.root,
+          id: change.id,
+        });
+      else yield* client("repositories.remove", { id: change.id });
+      get.registry.refresh(homeAtom);
+    }),
 );
 
 /** Whether a change, or the reload after it, is under way. Rescan, Monitor, and Remove wait meanwhile. */
-export const busyAtom = Atom.make((get) => get(monitoringAtom).waiting || get(homeAtom).waiting);
+export const busyAtom = Atom.make(
+  (get) => get(monitoringAtom).waiting || get(homeAtom).waiting,
+);
 
+/** Hosted lists load independently of the local home snapshot. */
+export const repositoryPullRequestsAtom = Atom.family((id: RepositoryId) =>
+  PageClient.runtime.atom((get) => {
+    if (get(epochAtom) === 0) return Effect.never;
+    return Effect.flatMap(PageClient, (client) =>
+      client("repositories.pulls", { id }),
+    );
+  }),
+);
