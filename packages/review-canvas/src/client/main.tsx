@@ -12,7 +12,8 @@ import { createRoot } from "react-dom/client";
 import { RepositoryId } from "../schema/repositories.ts";
 import { PullPage } from "./pulls/PullPage.tsx";
 import { PullRequestUrl } from "../schema/primitives.ts";
-import { ReviewId } from "../schema/primitives.ts";
+import { ReviewId, StackId } from "../schema/primitives.ts";
+import { StackPage } from "./stacks/StackPage.tsx";
 import { HomePage } from "./home/HomePage.tsx";
 import { isSectionId, type SectionId } from "./home/settings.ts";
 import { SettingsPage } from "./home/SettingsPage.tsx";
@@ -30,6 +31,7 @@ type Route =
     }
   | { readonly kind: "settings"; readonly section: SectionId }
   | { readonly kind: "review"; readonly id: ReviewId }
+  | { readonly kind: "stack"; readonly id: StackId }
   | { readonly kind: "missing" };
 
 const route = (path: string): Route => {
@@ -50,6 +52,13 @@ const route = (path: string): Route => {
     const section = settings[1] ?? "appearance";
     return isSectionId(section)
       ? { kind: "settings", section }
+      : { kind: "missing" };
+  }
+  const stack = /^\/stacks\/([^/]+)$/.exec(path);
+  if (stack !== null) {
+    const id = Schema.decodeOption(StackId)(stack[1] ?? "");
+    return Option.isSome(id)
+      ? { kind: "stack", id: id.value }
       : { kind: "missing" };
   }
   const match = /^\/reviews\/([^/]+)$/.exec(path);
@@ -74,6 +83,8 @@ const App = () => {
       return <SettingsPage section={here.section} />;
     case "review":
       return <ReviewPage id={here.id} />;
+    case "stack":
+      return <StackPage id={here.id} />;
     case "missing":
       return <Message title="No such page" />;
   }

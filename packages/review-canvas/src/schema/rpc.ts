@@ -34,6 +34,8 @@ import {
   PullRequestSnapshot,
 } from "./pull-requests.ts";
 import { Thread } from "./thread.ts";
+import { StackAction, StackSnapshot, StackSummary } from "./stack.ts";
+import { StackId } from "./primitives.ts";
 
 /**
  * Why the server refused a request, in words the page shows. `kind` names the rule; `revision` is the review's
@@ -221,6 +223,8 @@ export type RepositoryEntry = typeof RepositoryEntry.Type;
 export const HomeSnapshot = Schema.Struct({
   reviews: Schema.Array(ReviewSummary),
   repositories: Schema.Array(RepositoryEntry),
+  /** Open stack walkthroughs, which per-PR pages link from their stack navigation. */
+  stacks: Schema.Array(StackSummary),
   /** The scanned directories, with the home folder as `~`. */
   roots: Schema.Array(Schema.String),
   warnings: Schema.Array(Schema.String),
@@ -291,6 +295,18 @@ export class PageRpcs extends RpcGroup.make(
       revision: Schema.optional(Revision),
     },
     success: Schema.Struct({ revision: Revision, report: ImportReport }),
+    error: Refused,
+  }),
+  /** A stack walkthrough now, then again after each change to it or to a review of one of its layers. */
+  Rpc.make("stack.watch", {
+    payload: { id: StackId },
+    success: StackSnapshot,
+    error: Refused,
+    stream: true,
+  }),
+  Rpc.make("stack.act", {
+    payload: { id: StackId, action: StackAction },
+    success: Schema.Struct({ revision: Revision }),
     error: Refused,
   }),
 ) {}

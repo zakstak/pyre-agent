@@ -113,5 +113,8 @@ export const MAX_NOTES_PER_STOP = 10;
 export const MAX_QUESTIONS_PER_STOP = 5;
 /** New: patch rows one excerpt may show. The server clamps a longer excerpt to this many rows around its start. */
 export const MAX_EXCERPT_ROWS = 60;
+/** Layers of one stack walkthrough's ancestor path, and the steps the agent writes across them. */
+export const MAX_STACK_LAYERS = 32;
+export const MAX_STACK_STEPS = 200;
 /** New: a review submission's summary. */
 export const MAX_SUBMISSIONS = 1000;

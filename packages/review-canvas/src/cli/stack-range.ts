@@ -1,11 +1,15 @@
 import type { ComparisonRequest } from "../schema/pull-requests.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
+import type { StackPathLayer } from "../schema/stack.ts";
 import { stackAncestors } from "../review/stacks.ts";
+import { stackPath } from "../review/stack-walk.ts";
 import {
   addressOf,
   readOpenPullRequests,
+  readMergeBase,
   readPullRequest,
   type ForgeClients,
+  type PullRequestView,
 } from "./hosted.ts";
 import { readHistoricalPullRequests } from "./pull-history.ts";
 
@@ -68,4 +72,78 @@ export const stackRange = (
       ? first.view.headRefOid
       : first.view.baseRefOid;
   return { base, head: last.view.headRefOid, selected: last.view, views };
+};
+
+/**
+ * The tip's ancestor path as the host shows it now, with each layer's head and the commit its diff starts from, and the
+ * other PRs of its stack, which a walkthrough leaves out. A layer above the root starts from its parent's head, as a
+ * layer comparison does; the root starts from its merge base with the branch it merges into, so unrelated commits
+ * there change nothing. A historical path uses each PR's final retained head and base, and needs complete base-change
+ * history.
+ */
+export const hostStackPath = (
+  tip: PullRequestUrl,
+  historical: boolean,
+  clients: ForgeClients,
+) => {
+  const address = addressOf(tip);
+  const items = historical
+    ? readHistoricalPullRequests(address, clients)
+    : readOpenPullRequests(address, clients);
+  const found = stackPath(items, tip);
+  if (found === undefined)
+    throw new Error(
+      historical
+        ? "The tip is absent from the repository's PR history."
+        : "The tip is not an open PR. Use --history for merged or closed stacks.",
+    );
+  const rootHistory = found.path[0]?.history;
+  if (
+    rootHistory !== undefined &&
+    rootHistory.base_branches.some(
+      (branch) => branch !== rootHistory.default_branch,
+    )
+  )
+    throw new Error(
+      "The stack's root dependency is missing or ambiguous. Its walkthrough cannot be reconstructed safely.",
+    );
+  const path: Array<StackPathLayer> = [];
+  for (const pull of found.path) {
+    const parent = path.at(-1);
+    let layer: Pick<PullRequestView, "title" | "baseRefOid" | "headRefOid">;
+    if (pull.history !== undefined) {
+      if (!pull.history.timeline_complete)
+        throw new Error(
+          `Base-change history of ${pull.url} is truncated; this stack cannot be reconstructed safely.`,
+        );
+      layer = {
+        title: pull.title,
+        baseRefOid: pull.history.base_sha,
+        headRefOid: pull.history.head_sha,
+      };
+    } else {
+      const view = readPullRequest(pull.url, clients);
+      if (view.baseRefName !== pull.base_branch)
+        throw new Error(
+          "A stack base branch changed while loading. Run the command again.",
+        );
+      layer = view;
+    }
+    path.push({
+      url: pull.url,
+      title: layer.title,
+      head_sha: layer.headRefOid,
+      base_sha:
+        parent === undefined
+          ? readMergeBase(pull.url, layer, clients)
+          : parent.head_sha,
+    });
+  }
+  return {
+    path,
+    excluded: found.excluded.map((pull) => ({
+      url: pull.url,
+      title: pull.title,
+    })),
+  };
 };

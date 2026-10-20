@@ -9,7 +9,7 @@ import {
   parseStrictJson,
 } from "../schema/document.ts";
 import { ActionError } from "../review/state.ts";
-import { NoSuchReview, StaleRevision } from "../store/store.ts";
+import { NoSuchReview, NoSuchStack, StaleRevision } from "../store/store.ts";
 
 export class RequestRefused extends Error {
   readonly status: number;
@@ -65,7 +65,8 @@ export const readJson = <S extends Schema.Codec<unknown, unknown>>(
       );
     const raw = yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-      catch: () => new RequestRefused(400, "encoding", "The body is not UTF-8."),
+      catch: () =>
+        new RequestRefused(400, "encoding", "The body is not UTF-8."),
     });
     const parsed = parseStrictJson(raw);
     if (Result.isFailure(parsed))
@@ -150,7 +151,7 @@ export const refusal = (error: unknown): RequestRefused => {
     return new RequestRefused(STATUS[error.kind], error.kind, error.message);
   if (error instanceof StaleRevision)
     return new RequestRefused(409, "stale", error.message, error.revision);
-  if (error instanceof NoSuchReview)
+  if (error instanceof NoSuchReview || error instanceof NoSuchStack)
     return new RequestRefused(404, "not_found", error.message);
   throw error;
 };

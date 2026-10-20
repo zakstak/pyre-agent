@@ -244,3 +244,35 @@ sibling branches. Historical comparisons reconstruct final retained heads, not
 every earlier force-pushed revision. Merge-sync and conflict-resolution changes
 can remain. GitLab and Gitea/Forgejo retain open-stack navigation and
 comparison; historical discovery currently requires GitHub.
+
+## Stack walkthroughs
+
+An agent can publish one walkthrough across a stack with
+`review-canvas stack-publish --input STACK.json --session DIR...`, after it
+publishes a round of every layer. The command reads the tip's ancestor path from
+the host and passes it to the server with a thread token of each layer's review.
+Each step is a tour stop of one layer. The server resolves it against that
+layer's current round, so excerpts, notes, inline threads, Viewed marks,
+answers, and feedback stay in the per-PR review. Each layer ends with a closing
+step for files no step covers. For a branching stack, only the tip's ancestors
+are steps; siblings and PRs built on the tip are listed as left out.
+
+`/stacks/ID` shows one step at a time. **Next** marks the step read and moves
+across PR boundaries; the step list and **Previous** move without marking. The
+server stores the position and read marks, so a reload or another tab resumes at
+the same step. A mark records the layer's head and the version of each file the
+step covers. When the head or one of those files changes, the step shows
+**changed since you read it**. Each layer is pinned to its head and to the
+commit its diff starts from: its parent layer's head, or for the root layer, its
+merge base with the branch it merges into, which unrelated commits there do not
+move. When a layer's review moves to a head or base the walkthrough was not
+written for, as after a parent's force-push or a retarget, the layer is stale.
+Its steps keep the agent's prose without excerpts until the agent publishes the
+walkthrough again. A layer without an open review is missing and appears as a
+placeholder step. Republishing a tip's walkthrough replaces the earlier one and
+keeps progress on steps the agent left unchanged, following them when steps or
+layers before them were added or removed. A stop written twice in one PR keeps
+no progress, since which copy the reviewer read is unknown. `--history` builds
+the path from merged and closed GitHub PRs' final retained heads, with the
+limitations described above. Walkthroughs live in their own table of the same
+database; older builds ignore it.

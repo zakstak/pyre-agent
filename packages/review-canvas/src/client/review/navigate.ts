@@ -11,6 +11,7 @@ import { RegistryContext } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { commentElementId, FINISH_ELEMENT_ID, fileElementId, type Next } from "../../review/next.ts";
+import type { ReviewId } from "../../schema/primitives.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
 import { layoutDiff, nextStage } from "./diff-model.ts";
@@ -183,8 +184,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       const place = placeOf(page, id);
       if (place === undefined) return;
       if (view === "source" && fileAt(page, place.path)?.notes.some((note) => note.id === id) === true) {
-        const notes = registry.get(openNotesAtom);
-        if (!notes.has(id)) registry.set(openNotesAtom, new Set([...notes, id]));
+        const notes = registry.get(openNotesAtom(key.id));
+        if (!notes.has(id)) registry.set(openNotesAtom(key.id), new Set([...notes, id]));
       }
       const model = fileAt(page, place.path);
       if (model === undefined) return;
@@ -317,12 +318,12 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     const flash = async (path: string, index: number, start: number, end: number) => {
       revealState(`f${index}-r${start}`);
       // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
-      registry.set(flashAtom, { path, start, end });
+      registry.set(flashAtom(key.id), { path, start, end });
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       document.querySelector(`table[data-table="f${index}"] [data-row="${start}"]`)?.scrollIntoView({ block: "center" });
       setTimeout(() => {
-        const now = registry.get(flashAtom);
-        if (now?.path === path && now.start === start) registry.set(flashAtom, undefined);
+        const now = registry.get(flashAtom(key.id));
+        if (now?.path === path && now.start === start) registry.set(flashAtom(key.id), undefined);
       }, 2000);
     };
 
@@ -336,7 +337,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (stop !== -1) tour.current.stop = stop;
       revealState(note ?? `f${index}-r${start}`);
       // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
-      registry.set(flashAtom, { path, start, end });
+      registry.set(flashAtom(key.id), { path, start, end });
       const landing =
         note === undefined
           ? await new Promise<HTMLElement | null>((resolve) =>
@@ -355,8 +356,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
         focus.focus({ preventScroll: true });
       }
       setTimeout(() => {
-        const now = registry.get(flashAtom);
-        if (now?.path === path && now.start === start) registry.set(flashAtom, undefined);
+        const now = registry.get(flashAtom(key.id));
+        if (now?.path === path && now.start === start) registry.set(flashAtom(key.id), undefined);
       }, 2000);
     };
 
@@ -471,16 +472,25 @@ export const useScrollSpy = (navigate: Navigation) => {
   }, [navigate, registry]);
 };
 
-/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
-export const useKeys = (navigate: Navigation) => {
+/** Esc stops moving a comment of the review. */
+export const useCancelReattach = (review: ReviewId) => {
   const registry = useContext(RegistryContext);
   useEffect(() => {
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || registry.get(reattachAtom(review)) === undefined) return;
+      registry.set(reattachAtom(review), undefined);
+      toast("The comment stays where it was.");
+    };
+    document.addEventListener("keydown", cancel);
+    return () => document.removeEventListener("keydown", cancel);
+  }, [review, registry]);
+};
+
+/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
+export const useKeys = (review: ReviewId, navigate: Navigation) => {
+  useCancelReattach(review);
+  useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && registry.get(reattachAtom) !== undefined) {
-        registry.set(reattachAtom, undefined);
-        toast("The comment stays where it was.");
-        return;
-      }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("textarea, input, select, [contenteditable='true']") !== null) return;
@@ -493,5 +503,5 @@ export const useKeys = (navigate: Navigation) => {
     };
     document.addEventListener("keydown", keys);
     return () => document.removeEventListener("keydown", keys);
-  }, [navigate, registry]);
+  }, [navigate]);
 };

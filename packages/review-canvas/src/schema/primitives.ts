@@ -57,6 +57,9 @@ export type ThreadId = typeof ThreadId.Type;
 /** A review's ID. A target can have several reviews: the open one, and earlier ones that a fresh start closed. */
 export const ReviewId = LocalId.pipe(Schema.brand("ReviewId"));
 export type ReviewId = typeof ReviewId.Type;
+/** A stack walkthrough's ID. Republishing a stack's walkthrough starts a new one and closes the one before. */
+export const StackId = LocalId.pipe(Schema.brand("StackId"));
+export type StackId = typeof StackId.Type;
 
 /** The host's own ID for an agent session, such as a Claude Code session ID. */
 export const HostSessionId = nonEmptyText(Limits.MAX_LABEL_UNITS).pipe(
@@ -84,6 +87,10 @@ export type InputDigest = typeof InputDigest.Type;
 /** The SHA-256 of one file's patch, so an anchor attaches at once to the same patch. */
 export const PatchDigest = Sha256.pipe(Schema.brand("PatchDigest"));
 export type PatchDigest = typeof PatchDigest.Type;
+
+/** SHA-256 over what a stack walkthrough step shows: its layer's head and the version of each file it covers. */
+export const StepDigest = Sha256.pipe(Schema.brand("StepDigest"));
+export type StepDigest = typeof StepDigest.Type;
 
 /** A full commit hash: 40 hexadecimal characters for SHA-1, 64 for SHA-256. */
 export const CommitSha = pattern(
@@ -172,8 +179,11 @@ export type WorktreeRoot = typeof WorktreeRoot.Type;
 /** An HTTPS pull/merge request on GitHub, GitLab, or Gitea/Forgejo, including private hosts. */
 export const PullRequestUrl = text(Limits.MAX_TEXT_UNITS)
   .check(
-    Schema.makeFilter((value: string) => parsePullRequest(value) !== undefined ||
-      "Expected an HTTPS GitHub /pull/N, GitLab /-/merge_requests/N, or Gitea /pulls/N URL without credentials, query, or fragment"),
+    Schema.makeFilter(
+      (value: string) =>
+        parsePullRequest(value) !== undefined ||
+        "Expected an HTTPS GitHub /pull/N, GitLab /-/merge_requests/N, or Gitea /pulls/N URL without credentials, query, or fragment",
+    ),
   )
   .pipe(Schema.brand("PullRequestUrl"));
 export type PullRequestUrl = typeof PullRequestUrl.Type;
@@ -181,7 +191,11 @@ export type PullRequestUrl = typeof PullRequestUrl.Type;
 /** A comment on a pull request: a review comment, a conversation comment, or a review summary. */
 export const GitHubCommentUrl = text(Limits.MAX_TEXT_UNITS)
   .check(
-    Schema.makeFilter((value: string) => parseForgeComment(value) !== undefined || "Expected a pull request comment URL on GitHub, GitLab, or Gitea/Forgejo"),
+    Schema.makeFilter(
+      (value: string) =>
+        parseForgeComment(value) !== undefined ||
+        "Expected a pull request comment URL on GitHub, GitLab, or Gitea/Forgejo",
+    ),
   )
   .pipe(Schema.brand("GitHubCommentUrl"));
 export type GitHubCommentUrl = typeof GitHubCommentUrl.Type;

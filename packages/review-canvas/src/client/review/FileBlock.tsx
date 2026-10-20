@@ -186,11 +186,11 @@ const StopLink = ({ path }: { readonly path: string }) => {
 };
 
 export const FileBlock = ({ model, split }: { readonly model: FileModel; readonly split: boolean }) => {
-  const { page } = usePage();
+  const { id, page } = usePage();
   const { file } = model;
   const { folded, chosen, set } = useFold(model);
-  const [aboutOpen, setAbout] = useAtom(extraAtom({ path: file.path, block: "about" }));
-  const [sinceOpen, setSince] = useAtom(extraAtom({ path: file.path, block: "since" }));
+  const [aboutOpen, setAbout] = useAtom(extraAtom({ review: id, path: file.path, block: "about" }));
+  const [sinceOpen, setSince] = useAtom(extraAtom({ review: id, path: file.path, block: "since" }));
   // The viewed state the reviewer asked for, until the page shows it. Meanwhile the file stays as it is: the page
   // still shows the file held open, and holding it would undo the fold that marking it viewed brings.
   const [requested, setRequested] = useState<boolean | undefined>(undefined);

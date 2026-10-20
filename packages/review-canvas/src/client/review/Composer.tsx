@@ -9,7 +9,8 @@ import { flushSync } from "react-dom";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import { useAct } from "./act.ts";
+import type { PatchDigest, RepoPath, ReviewId } from "../../schema/primitives.ts";
+import { useAct, usePage } from "./act.ts";
 import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
 import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
 
@@ -19,25 +20,58 @@ import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
  */
 export const openDraft = (
   registry: AtomRegistry.AtomRegistry,
+  review: ReviewId,
   draft: Omit<Draft, "id" | "body" | "submitting" | "focusPending">,
 ) => {
-  const drafts = registry.get(draftsAtom);
+  const drafts = registry.get(draftsAtom(review));
   let body = drafts.find((item) => !item.submitting)?.body ?? "";
   if (body === "") {
-    body = registry.get(stashAtom);
-    registry.set(stashAtom, "");
+    body = registry.get(stashAtom(review));
+    registry.set(stashAtom(review), "");
   }
   // An ID no draft has, the one it replaces included: composers are keyed by it.
   const id = Math.max(0, ...drafts.map((item) => item.id)) + 1;
-  registry.set(draftsAtom, [
+  registry.set(draftsAtom(review), [
     ...drafts.filter((item) => item.submitting),
     { ...draft, id, body, submitting: false, focusPending: true },
   ]);
 };
 
+/**
+ * Takes a review's drafts off patches its round no longer has. A draft whose code changed cannot stay on its rows: its
+ * text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the review shows a
+ * round, so a draft left on a review the page moved away from is recovered when the page shows that review again.
+ */
+export const useStashChangedDrafts = (
+  review: ReviewId,
+  files: ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }> | undefined,
+) => {
+  const registry = useContext(RegistryContext);
+  useEffect(() => {
+    if (files === undefined) return;
+    const drafts = registry.get(draftsAtom(review));
+    const lost = drafts.filter((draft) => !draft.submitting && files.get(draft.path)?.digest !== draft.digest);
+    if (lost.length === 0) return;
+    registry.set(
+      draftsAtom(review),
+      drafts.filter((draft) => !lost.includes(draft)),
+    );
+    const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
+    if (text !== undefined) {
+      registry.set(stashAtom(review), text);
+      toast(
+        "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
+        "danger",
+      );
+    }
+  }, [review, files, registry]);
+};
+
 /** `table` is the ID of the diff table the composer is in, and `range` names the lines it comments on. */
 export const Composer = ({ draft, table, range }: { readonly draft: Draft; readonly table: string; readonly range: string }) => {
   const registry = useContext(RegistryContext);
+  const { id: review } = usePage();
+  const drafts = draftsAtom(review);
   const act = useAct();
   const area = useRef<HTMLTextAreaElement>(null);
   const textId = `composer-${draft.id}`;
@@ -51,8 +85,8 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
   }, []);
   const update = (change: (draft: Draft) => Draft | undefined) =>
     registry.set(
-      draftsAtom,
-      registry.get(draftsAtom).flatMap((item) => {
+      drafts,
+      registry.get(drafts).flatMap((item) => {
         if (item.id !== draft.id) return [item];
         const next = change(item);
         return next === undefined ? [] : [next];
@@ -77,7 +111,7 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
   };
   const send = async (question: boolean) => {
     // The atom, not this render's props: Ctrl+Enter twice must send once.
-    if (registry.get(draftsAtom).find((item) => item.id === draft.id)?.submitting !== false) return;
+    if (registry.get(drafts).find((item) => item.id === draft.id)?.submitting !== false) return;
     const body = draft.body.trim();
     if (body === "") return area.current?.focus();
     update((item) => ({ ...item, submitting: true }));
@@ -96,7 +130,7 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
       toast(outcome.message, "danger");
     } else {
       update(() => undefined);
-      registry.set(stashAtom, body);
+      registry.set(stashAtom(review), body);
       toast(
         `Your comment was not added: ${outcome.message} Your text is kept: select lines to comment on, and it fills the new comment.`,
         "danger",
@@ -131,7 +165,7 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
         onKeyDown={(event) => {
           submitOnModEnter(event);
           // While a comment is being moved, Esc ends the move and leaves the composer open.
-          if (event.key === "Escape" && !draft.submitting && registry.get(reattachAtom) === undefined) {
+          if (event.key === "Escape" && !draft.submitting && registry.get(reattachAtom(review)) === undefined) {
             event.preventDefault();
             close();
           }

@@ -34,7 +34,9 @@ local clone that holds the PR's base and head commits.
   `github_pr` is the original GitHub target format, also accepted for GitHub
   Enterprise. Its review keys remain unchanged.
 - `head_sha` and `base_sha` are full commit hashes. For a working tree,
-  `head_sha` is the `HEAD` commit the uncommitted changes are compared with.
+  `head_sha` is the `HEAD` commit the uncommitted changes are compared with. For
+  a pull request, `base_sha` is the merge base the diff starts from, as
+  `collect --pr` records it, not the tip of the branch it merges into.
 - `root` is the working tree's absolute POSIX path, as
   `git rev-parse --show-toplevel` prints it. `branch` is the checked-out branch;
   omit it for a detached `HEAD`.

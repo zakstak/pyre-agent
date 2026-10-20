@@ -5,7 +5,11 @@
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { WorktreeRoot } from "../schema/primitives.ts";
-import { Repository, RepositoryId, repositoryId } from "../schema/repositories.ts";
+import {
+  Repository,
+  RepositoryId,
+  repositoryId,
+} from "../schema/repositories.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -43,14 +47,58 @@ import type {
 import { type Target, targetKey } from "../schema/target.ts";
 import type { Thread, ThreadHost } from "../schema/thread.ts";
 import type { RowSelection } from "../review/anchor.ts";
-import { type ActionContext, ActionError, addGeneralComment, addInlineComment, agentAnswer, approve, carriedApprovals, publishRound, reattach, reportDrift, reviewerReply, submit, unapprove } from "../review/state.ts";
-import { approvalHolds, currentRound, currentSubmission, type ReviewState, turnOf, type Round } from "../review/queries.ts";
+import {
+  type ActionContext,
+  ActionError,
+  addGeneralComment,
+  addInlineComment,
+  agentAnswer,
+  approve,
+  carriedApprovals,
+  publishRound,
+  reattach,
+  reportDrift,
+  reviewerReply,
+  submit,
+  unapprove,
+} from "../review/state.ts";
+import {
+  approvalHolds,
+  currentRound,
+  currentSubmission,
+  type ReviewState,
+  turnOf,
+  type Round,
+} from "../review/queries.ts";
 import { tourView } from "../review/tour.ts";
 import { progress } from "../review/progress.ts";
-import type { ImportReport, ReviewSnapshot, ReviewSummary } from "../schema/rpc.ts";
+import type {
+  ImportReport,
+  ReviewSnapshot,
+  ReviewSummary,
+} from "../schema/rpc.ts";
 import { importFeedback, importGitHub } from "../review/imports.ts";
 import type { GitHubItem } from "../schema/github.ts";
 import { pullRequestKey } from "../schema/target.ts";
+import type { StackId } from "../schema/primitives.ts";
+import {
+  type StackAction,
+  StackProgress,
+  type StackPublishRequest,
+  StackRecord,
+  type StackSnapshot,
+  type StackSummary,
+} from "../schema/stack.ts";
+import {
+  carryProgress,
+  type LayerSource,
+  layerSource,
+  pinLayers,
+  resolveStack,
+  type ResolvedStack,
+  stepDigest,
+  StackRefused,
+} from "../review/stack-walk.ts";
 
 /**
  * Version 4 monitors repository identities rather than checkout paths. Versions 2 and 3 upgrade in place; version 1
@@ -66,6 +114,23 @@ CREATE TABLE monitored_repositories (
 CREATE TABLE pending_repository_migrations (
   root TEXT PRIMARY KEY
 ) WITHOUT ROWID;
+`;
+
+/**
+ * Stack walkthroughs, added without a version change: builds that predate them never read this table, so they keep
+ * opening the database. Each row holds the published record and the reviewer's progress through it.
+ */
+const STACKS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS stack_walkthroughs (
+  id TEXT PRIMARY KEY,
+  tip_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  closed_at TEXT,
+  revision INTEGER NOT NULL DEFAULT 0,
+  record TEXT NOT NULL,
+  progress TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS stack_walkthroughs_by_tip ON stack_walkthroughs (tip_key, created_at);
 `;
 
 const SCHEMA = `
@@ -176,6 +241,37 @@ export type Action =
 
 export type ChangeListener = (reviewId: ReviewId, revision: Revision) => void;
 
+/** What publishing a stack walkthrough made. */
+export interface StackPublished {
+  readonly id: StackId;
+  readonly snapshot: StackSnapshot;
+  /** The walkthrough of the same tip it replaced, if any. */
+  readonly replaced: StackId | undefined;
+}
+
+export class NoSuchStack extends Error {
+  constructor(id: string) {
+    super(`No stack walkthrough ${id}.`);
+  }
+}
+
+interface StackRow {
+  readonly id: string;
+  readonly tip_key: string;
+  readonly created_at: string;
+  readonly closed_at: string | null;
+  readonly revision: number;
+  readonly record: string;
+  readonly progress: string;
+}
+
+const decodeStackRecord = Schema.decodeUnknownSync(
+  Schema.fromJsonString(StackRecord),
+);
+const decodeStackProgress = Schema.decodeUnknownSync(
+  Schema.fromJsonString(StackProgress),
+);
+
 export class StaleRevision extends Error {
   readonly revision: Revision;
   constructor(revision: Revision) {
@@ -189,6 +285,9 @@ export class NoSuchReview extends Error {
     super(`No review ${id}.`);
   }
 }
+
+/** The stored size of round inputs kept decoded in memory. */
+const INPUT_CACHE_BYTES = 64 * 1024 * 1024;
 
 const now = (): Timestamp => new Date().toISOString() as Timestamp;
 
@@ -253,10 +352,24 @@ export const feedbackOf = (
 export class Store {
   readonly #db: DatabaseSync;
   readonly #listeners = new Set<ChangeListener>();
+  readonly #stackListeners = new Set<(id: StackId) => void>();
   /** Changes made by the open transaction, announced only once it commits. */
   #pending: Array<readonly [ReviewId, Revision]> = [];
+  #pendingStacks: Array<StackId> = [];
+  /**
+   * Recently read round inputs, which never change once published: a walkthrough reads every layer's on each change.
+   * Bounded by their stored size, oldest first out.
+   */
+  readonly #inputCache = new Map<
+    string,
+    { readonly input: ReviewInput; readonly bytes: number }
+  >();
+  #inputCacheBytes = 0;
   /** Each review's last progress count, by the round input and revision it counted. */
-  readonly #progressCache = new Map<string, { readonly key: string; readonly progress: ReviewSummary["progress"] }>();
+  readonly #progressCache = new Map<
+    string,
+    { readonly key: string; readonly progress: ReviewSummary["progress"] }
+  >();
 
   private constructor(db: DatabaseSync) {
     this.#db = db;
@@ -281,18 +394,26 @@ export class Store {
     if (row.user_version === 0) {
       db.exec(SCHEMA);
       db.exec(REPOSITORIES_SCHEMA);
+      db.exec(STACKS_SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } else if (row.user_version === 2) {
       db.exec(REPOSITORIES_SCHEMA);
+      db.exec(STACKS_SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } else if (row.user_version === 3) {
-      db.exec("ALTER TABLE monitored_repositories RENAME TO pending_repository_migrations");
-      db.exec("CREATE TABLE monitored_repositories (id TEXT PRIMARY KEY, repository TEXT NOT NULL) WITHOUT ROWID");
+      db.exec(
+        "ALTER TABLE monitored_repositories RENAME TO pending_repository_migrations",
+      );
+      db.exec(
+        "CREATE TABLE monitored_repositories (id TEXT PRIMARY KEY, repository TEXT NOT NULL) WITHOUT ROWID",
+      );
+      db.exec(STACKS_SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } else if (row.user_version === SCHEMA_VERSION) {
+      db.exec(STACKS_SCHEMA);
       db.exec("COMMIT");
     } else {
       db.exec("ROLLBACK");
@@ -310,22 +431,29 @@ export class Store {
 
   /** Only an explicit acceptance adds a repository; reviews and scans never do. */
   monitoredRepositories(): ReadonlyArray<Repository> {
-    return this.#db.prepare("SELECT repository FROM monitored_repositories ORDER BY id").all()
+    return this.#db
+      .prepare("SELECT repository FROM monitored_repositories ORDER BY id")
+      .all()
       .map((row) => {
-        if (typeof row.repository !== "string") throw new Error("Invalid stored repository.");
+        if (typeof row.repository !== "string")
+          throw new Error("Invalid stored repository.");
         const decoded: unknown = JSON.parse(row.repository);
         return Schema.decodeUnknownSync(Repository)(decoded);
       });
   }
 
   monitorRepository(repository: Repository): void {
-    this.#db.prepare("INSERT INTO monitored_repositories (id, repository) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET repository = excluded.repository")
+    this.#db
+      .prepare(
+        "INSERT INTO monitored_repositories (id, repository) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET repository = excluded.repository",
+      )
       .run(repositoryId(repository.identity), JSON.stringify(repository));
   }
 
   /** A scan can refresh copies of an accepted repo, but cannot enroll a new repository identity. */
   refreshMonitoredRepository(repository: Repository): void {
-    this.#db.prepare("UPDATE monitored_repositories SET repository = ? WHERE id = ?")
+    this.#db
+      .prepare("UPDATE monitored_repositories SET repository = ? WHERE id = ?")
       .run(JSON.stringify(repository), repositoryId(repository.identity));
   }
 
@@ -334,20 +462,26 @@ export class Store {
   }
 
   pendingRepositoryMigrations(): ReadonlyArray<WorktreeRoot> {
-    return this.#db.prepare("SELECT root FROM pending_repository_migrations ORDER BY root").all()
+    return this.#db
+      .prepare("SELECT root FROM pending_repository_migrations ORDER BY root")
+      .all()
       .map((row) => Schema.decodeUnknownSync(WorktreeRoot)(row.root));
   }
 
   migrateAcceptedCheckout(root: WorktreeRoot, repository: Repository): void {
     this.#transaction(() => {
       this.monitorRepository(repository);
-      this.#db.prepare("DELETE FROM pending_repository_migrations WHERE root = ?").run(root);
+      this.#db
+        .prepare("DELETE FROM pending_repository_migrations WHERE root = ?")
+        .run(root);
     });
   }
 
   resolveMigratedRepository(id: RepositoryId, repository: Repository): void {
     this.#transaction(() => {
-      const removed = this.#db.prepare("DELETE FROM monitored_repositories WHERE id = ?").run(id);
+      const removed = this.#db
+        .prepare("DELETE FROM monitored_repositories WHERE id = ?")
+        .run(id);
       if (removed.changes > 0) this.monitorRepository(repository);
     });
   }
@@ -360,6 +494,7 @@ export class Store {
   #transaction<T>(work: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
     this.#pending = [];
+    this.#pendingStacks = [];
     let value: T;
     try {
       value = work();
@@ -367,21 +502,27 @@ export class Store {
     } catch (error) {
       this.#db.exec("ROLLBACK");
       this.#pending = [];
+      this.#pendingStacks = [];
       throw error;
     }
     const changes = this.#pending;
+    const stacks = this.#pendingStacks;
     this.#pending = [];
+    this.#pendingStacks = [];
     // Listeners run after the caller's code, never inside the transaction.
     queueMicrotask(() => {
       for (const [reviewId, revision] of changes)
         for (const listener of this.#listeners) listener(reviewId, revision);
+      for (const id of stacks)
+        for (const listener of this.#stackListeners) listener(id);
     });
     return value;
   }
 
   #row(id: string): ReviewRow | undefined {
     return this.#db.prepare("SELECT * FROM reviews WHERE id = ?").get(id) as
-      ReviewRow | undefined;
+      | ReviewRow
+      | undefined;
   }
 
   #threads(reviewId: string): ReadonlyArray<Thread> {
@@ -398,6 +539,9 @@ export class Store {
   }
 
   #input(reviewId: string, round: number): ReviewInput | undefined {
+    const key = `${reviewId}:${round}`;
+    const cached = this.#inputCache.get(key);
+    if (cached !== undefined) return cached.input;
     const row = this.#db
       .prepare("SELECT input FROM rounds WHERE review_id = ? AND round = ?")
       .get(reviewId, round) as { input: Uint8Array } | undefined;
@@ -407,6 +551,16 @@ export class Store {
       throw new Error(
         `Stored round ${round} of ${reviewId} no longer decodes: ${decoded.failure.message}`,
       );
+    this.#inputCache.set(key, {
+      input: decoded.success,
+      bytes: row.input.byteLength,
+    });
+    this.#inputCacheBytes += row.input.byteLength;
+    for (const [stale, entry] of this.#inputCache) {
+      if (this.#inputCacheBytes <= INPUT_CACHE_BYTES) break;
+      this.#inputCache.delete(stale);
+      this.#inputCacheBytes -= entry.bytes;
+    }
     return decoded.success;
   }
 
@@ -435,7 +589,8 @@ export class Store {
     const row = this.#row(id);
     if (row === undefined) return undefined;
     const state = JSON.parse(row.state) as ReviewState;
-    const replaced = state.closed_at === undefined ? undefined : this.#replacedBy(row.id);
+    const replaced =
+      state.closed_at === undefined ? undefined : this.#replacedBy(row.id);
     return {
       state,
       revision: row.revision as Revision,
@@ -453,13 +608,20 @@ export class Store {
    * A review's progress for the list page. A round's input holds whole patches and file texts, so it is read and
    * decoded only when the review changed since the last count.
    */
-  #progress(row: ReviewRow, state: ReviewState, round: Round): ReviewSummary["progress"] {
+  #progress(
+    row: ReviewRow,
+    state: ReviewState,
+    round: Round,
+  ): ReviewSummary["progress"] {
     const key = `${round.input_sha256}:${row.revision}`;
     const known = this.#progressCache.get(row.id);
     if (known?.key === key) return known.progress;
     const input = this.#input(row.id, round.round);
     const counts = input === undefined ? undefined : progress(state, input);
-    const result = counts === undefined ? undefined : { ...counts, viewed: counts.viewed.size };
+    const result =
+      counts === undefined
+        ? undefined
+        : { ...counts, viewed: counts.viewed.size };
     this.#progressCache.set(row.id, { key, progress: result });
     return result;
   }
@@ -467,7 +629,9 @@ export class Store {
   /** The review that replaced this one with a fresh start, if any. */
   #replacedBy(id: string): ReviewId | undefined {
     const row = this.#db
-      .prepare("SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT id FROM reviews WHERE json_extract(state, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1",
+      )
       .get(id) as { id: string } | undefined;
     return row?.id as ReviewId | undefined;
   }
@@ -502,7 +666,10 @@ export class Store {
         carry_from: state.carry_from,
         published_at: round?.published_at,
         verdict: currentSubmission(state)?.verdict,
-        progress: round === undefined || state.closed_at !== undefined ? undefined : this.#progress(row, state, round),
+        progress:
+          round === undefined || state.closed_at !== undefined
+            ? undefined
+            : this.#progress(row, state, round),
         drift:
           state.drift !== undefined && state.drift.round === round?.round
             ? state.drift.paths.length
@@ -843,6 +1010,277 @@ export class Store {
       const outcome = importGitHub(view.state, context, items, head);
       if (Result.isFailure(outcome)) throw outcome.failure;
       return outcome.success;
+    });
+  }
+
+  subscribeStacks(listener: (id: StackId) => void): () => void {
+    this.#stackListeners.add(listener);
+    return () => this.#stackListeners.delete(listener);
+  }
+
+  /**
+   * Calls `listener` when a walkthrough changes, or when a review of one of its layers does: a new round, an approval,
+   * or a fresh start can each change what the walkthrough shows.
+   */
+  watchStack(id: StackId, listener: () => void): () => void {
+    const row = this.#stackRow(id);
+    const keys = new Set(
+      row === undefined
+        ? []
+        : decodeStackRecord(row.record).layers.map((layer) => layer.target_key),
+    );
+    const stopReviews = this.subscribe((review) => {
+      const changed = this.#row(review);
+      if (changed !== undefined && keys.has(changed.target_key)) listener();
+    });
+    const stopStacks = this.subscribeStacks((changed) => {
+      if (changed === id) listener();
+    });
+    return () => {
+      stopReviews();
+      stopStacks();
+    };
+  }
+
+  #stackRow(id: string): StackRow | undefined {
+    return this.#db
+      .prepare("SELECT * FROM stack_walkthroughs WHERE id = ?")
+      .get(id) as StackRow | undefined;
+  }
+
+  /** Each layer's open review now, by the target its walkthrough pinned. */
+  #layerSources(record: StackRecord): ReadonlyArray<LayerSource> {
+    return record.layers.map((layer): LayerSource => {
+      const row = this.#db
+        .prepare(
+          "SELECT * FROM reviews WHERE target_key = ? AND closed_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(layer.target_key) as ReviewRow | undefined;
+      if (row === undefined) return { kind: "missing" };
+      const state = JSON.parse(row.state) as ReviewState;
+      const round = currentRound(state);
+      const input =
+        round === undefined ? undefined : this.#input(row.id, round.round);
+      if (round === undefined || input === undefined)
+        return { kind: "missing", review: state.id };
+      return layerSource(layer, state.id, round.round, input);
+    });
+  }
+
+  #resolved(row: StackRow): {
+    readonly record: StackRecord;
+    readonly progress: StackProgress;
+    readonly resolved: ResolvedStack;
+  } {
+    const record = decodeStackRecord(row.record);
+    const progress = decodeStackProgress(row.progress);
+    return {
+      record,
+      progress,
+      resolved: resolveStack(record, this.#layerSources(record), progress),
+    };
+  }
+
+  /** A walkthrough with every layer's state and every step, as its page shows it. */
+  stackSnapshot(id: string): StackSnapshot | undefined {
+    const row = this.#stackRow(id);
+    if (row === undefined) return undefined;
+    const { record, resolved } = this.#resolved(row);
+    const replaced =
+      record.closed_at === undefined
+        ? undefined
+        : this.#stackReplacedBy(record.id);
+    return {
+      id: record.id,
+      revision: row.revision as Revision,
+      created_at: record.created_at,
+      ...(record.closed_at === undefined
+        ? {}
+        : { closed_at: record.closed_at }),
+      ...(replaced === undefined ? {} : { replaced_by: replaced }),
+      walkthrough: record.walkthrough,
+      historical: record.historical,
+      layers: resolved.layers,
+      excluded: record.excluded,
+      steps: resolved.steps,
+      position: resolved.position,
+      warnings: resolved.warnings,
+    };
+  }
+
+  #stackReplacedBy(id: StackId): StackId | undefined {
+    const row = this.#db
+      .prepare(
+        "SELECT id FROM stack_walkthroughs WHERE json_extract(record, '$.carry_from') = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(id) as { id: string } | undefined;
+    return row?.id as StackId | undefined;
+  }
+
+  /** The open walkthroughs, newest first, with how many of their steps the reviewer read at their current versions. */
+  stacks(): ReadonlyArray<StackSummary> {
+    const rows = this.#db
+      .prepare(
+        "SELECT * FROM stack_walkthroughs WHERE closed_at IS NULL ORDER BY created_at DESC, id",
+      )
+      .all() as unknown as Array<StackRow>;
+    return rows.map((row) => {
+      const { record, resolved } = this.#resolved(row);
+      return {
+        id: record.id,
+        title: record.walkthrough.title,
+        tip: record.walkthrough.tip,
+        layers: record.layers.map((layer) => layer.url),
+        steps: resolved.steps.length,
+        read: resolved.steps.filter((step) => step.read === "read").length,
+        historical: record.historical,
+      };
+    });
+  }
+
+  /**
+   * Publishes a walkthrough of the reviews `reviews` names, which the caller authenticated a thread of. It closes the
+   * open walkthrough of the same tip, and keeps the progress of steps the agent left as they were.
+   */
+  publishStack(
+    request: Omit<StackPublishRequest, "sessions">,
+    reviews: ReadonlyArray<ReviewId>,
+  ): StackPublished {
+    return this.#transaction(() => {
+      const layerReviews = reviews.map((reviewId) => {
+        const view = this.review(reviewId);
+        if (view === undefined) throw new NoSuchReview(reviewId);
+        const target = view.state.target;
+        if (target.kind === "worktree")
+          throw new ActionError(
+            "invalid",
+            "A stack walkthrough covers pull requests; a working tree review cannot be a layer.",
+          );
+        if (view.state.closed_at !== undefined)
+          throw new ActionError(
+            "invalid",
+            `Review ${reviewId} is closed. Register with the open review of its PR.`,
+          );
+        return {
+          review: reviewId,
+          url: target.url,
+          target_key: targetKey(target),
+          input: view.input,
+        };
+      });
+      let layers;
+      try {
+        layers = pinLayers(request, layerReviews);
+      } catch (error) {
+        if (error instanceof StackRefused)
+          throw new ActionError("invalid", error.message);
+        throw error;
+      }
+      const at = now();
+      const tipKey = layers.at(-1)?.target_key ?? "";
+      const earlier = this.#db
+        .prepare(
+          "SELECT * FROM stack_walkthroughs WHERE tip_key = ? AND closed_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .get(tipKey) as StackRow | undefined;
+      const id = randomId<StackId>("stack");
+      const record: StackRecord = {
+        id,
+        created_at: at,
+        ...(earlier === undefined ? {} : { carry_from: earlier.id as StackId }),
+        walkthrough: request.walkthrough,
+        historical: request.historical,
+        layers,
+        excluded: request.excluded,
+      };
+      let progress: StackProgress = { marks: [] };
+      if (earlier !== undefined) {
+        const before = decodeStackRecord(earlier.record);
+        progress = carryProgress(
+          before,
+          record,
+          decodeStackProgress(earlier.progress),
+        );
+        this.#db
+          .prepare(
+            "UPDATE stack_walkthroughs SET closed_at = ?, record = ?, revision = revision + 1 WHERE id = ?",
+          )
+          .run(at, JSON.stringify({ ...before, closed_at: at }), earlier.id);
+        this.#pendingStacks.push(earlier.id as StackId);
+      }
+      this.#db
+        .prepare(
+          "INSERT INTO stack_walkthroughs (id, tip_key, created_at, closed_at, revision, record, progress) VALUES (?, ?, ?, NULL, 1, ?, ?)",
+        )
+        .run(id, tipKey, at, JSON.stringify(record), JSON.stringify(progress));
+      this.#pendingStacks.push(id);
+      const snapshot = this.stackSnapshot(id);
+      if (snapshot === undefined) throw new NoSuchStack(id);
+      return { id, snapshot, replaced: earlier?.id as StackId | undefined };
+    });
+  }
+
+  /**
+   * Moves the reviewer through a walkthrough. Going on can mark the step being left read, at the head and file
+   * versions its layer shows now; only a step of a current layer can be read.
+   */
+  stackAct(id: string, action: StackAction): Revision {
+    return this.#transaction(() => {
+      const row = this.#stackRow(id);
+      if (row === undefined) throw new NoSuchStack(id);
+      const { record, progress, resolved } = this.#resolved(row);
+      if (record.closed_at !== undefined)
+        throw new ActionError(
+          "closed",
+          "This walkthrough was replaced. Open the newer one to continue.",
+        );
+      const exists = (step: string) =>
+        resolved.steps.some((item) => item.key === step);
+      let next: StackProgress;
+      switch (action.kind) {
+        case "go": {
+          if (!exists(action.step))
+            throw new ActionError(
+              "invalid",
+              `The walkthrough has no step ${action.step}.`,
+            );
+          let marks = progress.marks;
+          if (action.read !== undefined) {
+            const read = action.read.step;
+            const version = resolved.versions.get(read);
+            if (version === undefined)
+              throw new ActionError(
+                "invalid",
+                "That step's layer is not current, so it cannot be marked read. Open the layer's review instead.",
+              );
+            // A page that showed an older round or head would certify code the reviewer has not seen.
+            if (stepDigest(version) !== action.read.version)
+              throw new ActionError(
+                "changed",
+                "That step changed since your page showed it, so it was not marked read. Read it as it is now, then go on.",
+              );
+            marks = [
+              ...marks.filter((mark) => mark.step !== read),
+              { step: read, ...version, read_at: now() },
+            ];
+          }
+          next = { position: action.step, marks };
+          break;
+        }
+        case "unread":
+          next = {
+            ...progress,
+            marks: progress.marks.filter((mark) => mark.step !== action.step),
+          };
+          break;
+      }
+      this.#db
+        .prepare(
+          "UPDATE stack_walkthroughs SET progress = ?, revision = revision + 1 WHERE id = ?",
+        )
+        .run(JSON.stringify(next), id);
+      this.#pendingStacks.push(record.id);
+      return (row.revision + 1) as Revision;
     });
   }
 

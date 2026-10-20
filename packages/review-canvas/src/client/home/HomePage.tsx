@@ -3,7 +3,7 @@ import { Settings2 } from "lucide-react";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { HomeLayout } from "./HomeLayout.tsx";
-import { PullRequests } from "./PullRequests.tsx";
+import { PullRequests, StackWalkthroughs } from "./PullRequests.tsx";
 import { Reviews } from "./Reviews.tsx";
 
 export const HomePage = () => (
@@ -24,6 +24,17 @@ export const HomePage = () => (
   >
     {(home) => (
       <>
+        {home.stacks.length === 0 ? null : (
+          <section aria-labelledby="stack-walkthroughs" className="mb-8">
+            <h2
+              id="stack-walkthroughs"
+              className="mb-3 text-heading font-semibold"
+            >
+              Stack walkthroughs
+            </h2>
+            <StackWalkthroughs stacks={home.stacks} />
+          </section>
+        )}
         <PullRequests home={home} />
         <h2 className="mb-3 text-heading font-semibold">Local reviews</h2>
         <Reviews reviews={home.reviews} />

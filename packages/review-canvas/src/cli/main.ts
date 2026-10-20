@@ -50,6 +50,8 @@ import {
   SocketFailed,
 } from "./socket.ts";
 import { runtimeDir, socketPath } from "../server/paths.ts";
+import { StackWalkthroughInput } from "../schema/stack.ts";
+import { hostStackPath } from "./stack-range.ts";
 
 const USAGE = `review-canvas: a local server where a reviewer walks an agent's change and the agent answers.
 
@@ -81,6 +83,11 @@ Commands
   check    --session DIR [--head SHA]     Compare the code with the current round, and show the reviewer what
                                           changed since: a working tree's files, or a pull request's head.
   export   --session DIR --output FILE    Write the review's feedback document.
+  stack-publish --input FILE              Publish one walkthrough across a PR stack: the input's tip and its
+           --session DIR...               ancestors, base first. Pass the --session of every layer's review; each
+           [--history]                    must show the host's current head, diffed from its parent's head or, for
+                                          the root, its merge base. Sibling branches are left out.
+                                          --history reads merged and closed GitHub PRs' final retained heads.
 
 The session folder holds session.json: the review, the thread, and its token. Keep it private.`;
 
@@ -744,6 +751,63 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
       }),
     );
     print({ ok: true, revision: reply.revision });
+  },
+
+  /** One walkthrough across the tip's ancestor path, which the host verifies; each layer's review resolves its steps. */
+  async "stack-publish"(args) {
+    const { values } = parseArgs({
+      args,
+      options: {
+        input: { type: "string" },
+        session: { type: "string", multiple: true },
+        history: { type: "boolean", default: false },
+      },
+    });
+    const file = need(values.input, "stack-publish needs --input FILE");
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(file, "utf8"));
+    } catch (error) {
+      return fail(
+        `cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const decoded = Schema.decodeUnknownResult(StackWalkthroughInput)(raw, {
+      onExcessProperty: "error",
+    });
+    if (Result.isFailure(decoded))
+      return fail(
+        `${file} is not a stack walkthrough: ${decoded.failure.message}`,
+      );
+    const walkthrough = decoded.success;
+    const folders = values.session ?? [];
+    if (folders.length === 0)
+      return fail(
+        "stack-publish needs a --session DIR for each layer's review",
+      );
+    const sessions = folders.map((folder) => session(folder));
+    let host;
+    try {
+      host = hostStackPath(walkthrough.tip, values.history, forgeClients);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+    const reply = await expectOk<{ readonly ok: true; readonly url: string }>(
+      await call("POST", "/agent/stacks", {
+        body: JSON.stringify({
+          walkthrough,
+          historical: values.history,
+          path: host.path,
+          excluded: host.excluded,
+          sessions: sessions.map((item) => ({
+            review: item.review,
+            token: item.token,
+          })),
+        }),
+        timeoutMs: 120_000,
+      }),
+    );
+    print(reply);
   },
 
   async export(args) {

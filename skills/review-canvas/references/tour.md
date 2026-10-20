@@ -68,6 +68,44 @@ phrase, but do not excerpt, explain, or judge that layer's code as part of this
 change. [The pull request reference](pull-request.md) says how to find the
 layers.
 
+## A walkthrough across a stack
+
+When the reviewer asks for one walkthrough of a whole stack, review each layer
+first: register, collect, and publish a round of every pull request from the
+base to the tip you were given. Then write one stack file:
+
+```json
+{
+  "format": "review-canvas.stack/1",
+  "title": "Retry limits, base to tip",
+  "summary": "Why the stack exists, and the order to read it in.",
+  "tip": "https://github.com/acme/project/pull/69",
+  "steps": [{ "layer": "https://github.com/acme/project/pull/68", "title": "…" }]
+}
+```
+
+Each step is a stop of this reference with a `layer`: the URL of the pull
+request whose round its excerpts and notes name. Order the steps from the base
+layer to the tip. A layer's files that no step covers get a closing step.
+Publish with every layer's session:
+
+```sh
+"$RC" stack-publish --input "$STACK" --session "$BASE" --session "$TIP"
+```
+
+The command reads the tip's ancestor path from the host. It refuses steps on a
+sibling branch, steps out of order, and a layer whose round is not at the host's
+current head and base. A layer above the root must diff from its parent's head:
+after a parent is force-pushed, rebase the layer on it if needed, then collect
+and publish a round again. The root must diff from its merge base with the
+branch it merges into, which new commits on that branch do not change. Pass
+`--history` for merged or closed GitHub stacks, which uses each pull request's
+final retained head; say in the summary that earlier force-pushed revisions are
+not shown. Publish the stack file again after a new round of any layer: the page
+hides a moved layer's excerpts until you do, and keeps the reviewer's progress
+on steps you left unchanged, even when steps or layers before them were added or
+removed.
+
 ## Later rounds
 
 Tour what changed since the last round. The page marks each file new or changed

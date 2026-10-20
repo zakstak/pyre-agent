@@ -159,6 +159,7 @@ export const App = (options: {
     shellAt("/repositories"),
     shellAt("/pulls"),
     shellAt("/reviews/:id"),
+    shellAt("/stacks/:id"),
     Export,
     PageRpcServer(options.repositoryRoots ?? []),
     HttpStaticServer.layer({

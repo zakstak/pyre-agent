@@ -8,6 +8,7 @@ import { pullRequestStacks, stackAncestors } from "../review/stacks.ts";
 import { addressOf, type ForgeClients } from "./hosted.ts";
 import { browsePullRequest } from "./browse-pull.ts";
 import { readHistoricalPullRequests } from "./pull-history.ts";
+import { hostStackPath } from "./stack-range.ts";
 
 export const historicalRow = (
   n: number,
@@ -138,4 +139,102 @@ test("historical discovery preserves branch ambiguity and incomplete timelines",
   if (first !== undefined) first.timelineItems.pageInfo.hasNextPage = true;
   items = readHistoricalPullRequests(addressOf(url), clients);
   assert.equal(items[0]?.history?.timeline_complete, false);
+});
+
+const pull = (n: number) =>
+  Schema.decodeSync(PullRequestUrl)(
+    `https://github.com/example/notes/pull/${n}`,
+  );
+const sha = (n: number) => String(n).padStart(2, "0").repeat(20);
+
+/**
+ * #67 -> #73 -> #74 -> #75 -> #76, all merged after retargeting to main, with #77 a sibling of #74. As on the host,
+ * each layer's final base is main after its parent's merge commit (sha(81) and on), not its parent's head.
+ */
+const walkthroughRows = () => [
+  historicalRow(67, sha(67), sha(1), "one", "main"),
+  historicalRow(73, sha(73), sha(81), "two", "one"),
+  historicalRow(74, sha(74), sha(82), "three", "two"),
+  historicalRow(75, sha(75), sha(83), "four", "three"),
+  historicalRow(76, sha(76), sha(84), "five", "four"),
+  historicalRow(77, sha(77), sha(82), "side", "two"),
+];
+
+/** The host's merge base of #67's final base and head: older than the base, which moved on before the merge. */
+const rootMergeBase = sha(2);
+
+const walkthroughClients = (
+  nodes: ReturnType<typeof walkthroughRows>,
+  calls: Array<string> = [],
+): ForgeClients => ({
+  api: () => {
+    throw new Error("Unexpected API");
+  },
+  gh: (args) => {
+    if (args.includes("graphql")) return historyResponse(nodes);
+    const compare = args.find((arg) => arg.includes("/compare/"));
+    if (compare !== undefined) {
+      calls.push(compare);
+      return `${rootMergeBase}\n`;
+    }
+    throw new Error(
+      `A historical path reads heads from history, not ${args.join(" ")}`,
+    );
+  },
+});
+
+test("a historical walkthrough path pins each layer's final retained head and leaves the sibling out", () => {
+  const calls: Array<string> = [];
+  const found = hostStackPath(
+    pull(76),
+    true,
+    walkthroughClients(walkthroughRows(), calls),
+  );
+  assert.deepEqual(
+    found.path.map((layer) => [layer.url, layer.head_sha]),
+    [67, 73, 74, 75, 76].map((n) => [pull(n), sha(n)]),
+  );
+  // Each layer above the root diffs from its parent's retained head, not the merge commit its final base names;
+  // the root diffs from its merge base with main, which only the root's final base and head determine.
+  assert.deepEqual(
+    found.path.map((layer) => layer.base_sha),
+    [rootMergeBase, sha(67), sha(73), sha(74), sha(75)],
+  );
+  assert.deepEqual(calls, [
+    `repos/example/notes/compare/${sha(1)}...${sha(67)}?per_page=1`,
+  ]);
+  assert.deepEqual(
+    found.excluded.map((item) => item.url),
+    [pull(77)],
+  );
+});
+
+test("a historical walkthrough refuses missing or ambiguous root dependencies", () => {
+  const rows = walkthroughRows();
+  assert.throws(
+    () => hostStackPath(pull(76), true, walkthroughClients(rows.slice(1))),
+    /root dependency is missing or ambiguous/,
+  );
+  const root = rows[0];
+  assert.ok(root !== undefined);
+  assert.throws(
+    () =>
+      hostStackPath(
+        pull(76),
+        true,
+        walkthroughClients([...rows, { ...root, url: pull(78) }]),
+      ),
+    /root dependency is missing or ambiguous/,
+  );
+});
+
+test("a historical path with truncated base-change history is refused", () => {
+  const truncated = walkthroughRows();
+  const layer = truncated[2];
+  assert.ok(layer !== undefined);
+  layer.timelineItems.pageInfo.hasNextPage = true;
+  assert.throws(
+    () => hostStackPath(pull(76), true, walkthroughClients(truncated)),
+    /truncated|absent|missing or ambiguous/,
+  );
 });

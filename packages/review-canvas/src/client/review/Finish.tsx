@@ -29,9 +29,9 @@ const VERDICTS: ReadonlyArray<{ readonly value: Verdict; readonly label: string 
  * summary carry over.
  */
 export const Finish = () => {
-  const { page } = usePage();
+  const { id, page } = usePage();
   const act = useAct();
-  const [draft, setDraft] = useAtom(finishDraftAtom);
+  const [draft, setDraft] = useAtom(finishDraftAtom(id));
   const { busy, run } = useSending();
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
