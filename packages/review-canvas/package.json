@@ -18,12 +18,12 @@
     "test:github": "node scripts/github-live-test.ts"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.4",
-    "effect": "4.0.4"
+    "@effect/platform-node": "4.0.5",
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@base-ui/react": "1.9.0",
-    "@effect/atom-react": "4.0.4",
+    "@effect/atom-react": "4.0.5",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "^26.6.5",
     "@types/react": "19.3.0",
@@ -31,9 +31,9 @@
     "@vitejs/plugin-react": "6.1.2",
     "class-variance-authority": "0.7.1",
     "lucide-react": "1.55.0",
-    "playwright": "1.64.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "playwright": "1.64.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "tailwind-merge": "3.7.0",
     "tailwindcss": "4.3.3",
     "tsc-rs": "0.2.0",
