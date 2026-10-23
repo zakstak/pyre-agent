@@ -4,6 +4,8 @@ Engineering skills and review tools for Codex and Claude Code.
 
 - Code guidance for debugging, TypeScript, boundary validation, and API
   migrations.
+- [Effect client wrappers](skills/effect-client-wrapper/SKILL.md) for Effect 4
+  adapters around Promise-based SDKs.
 - [Technical writing](skills/technical-writing/SKILL.md) and
   [unslop](skills/unslop/SKILL.md) for documentation and prose editing.
 - A [review canvas](skills/review-canvas/SKILL.md) for guided code reviews and
