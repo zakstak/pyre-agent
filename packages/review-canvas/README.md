@@ -216,6 +216,10 @@ pnpm test:browser   # needs Chromium: pnpm exec playwright install chromium
 pnpm test:pack      # installs the packed tarball with npm and serves a review from it
 ```
 
+TypeScript and Effect errors block `pnpm typecheck`. Effect warnings remain
+visible but do not fail the check; `ignoreEffectWarningsInTscExitCode` makes
+that policy explicit for ts-rust 0.8.0.
+
 `pnpm test:github https://github.com/OWNER/REPO/pull/NUMBER [CLONE]` imports a
 real pull request's comments, read with the signed-in `gh`, into a round built
 from a local clone, and checks that every thread GitHub calls current attaches
