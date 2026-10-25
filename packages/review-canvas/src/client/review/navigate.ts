@@ -10,13 +10,26 @@
 import { RegistryContext } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { commentElementId, FINISH_ELEMENT_ID, fileElementId, type Next } from "../../review/next.ts";
+import {
+  commentElementId,
+  FINISH_ELEMENT_ID,
+  fileElementId,
+  type Next,
+} from "../../review/next.ts";
 import type { ReviewId } from "../../schema/primitives.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
 import { layoutDiff, nextStage } from "./diff-model.ts";
 import { parseHash } from "./places.ts";
-import { flashAtom, foldsAtom, gapAtom, openNotesAtom, reattachAtom, seenAtom, type View } from "./ui.ts";
+import {
+  flashAtom,
+  foldsAtom,
+  gapAtom,
+  openNotesAtom,
+  reattachAtom,
+  seenAtom,
+  type View,
+} from "./ui.ts";
 import type { FileModel, PageModel } from "./view.ts";
 
 /** The block of the file at a path, if the round has the file. A path from the hash can be any text. */
@@ -26,14 +39,23 @@ const fileAt = (page: PageModel, path: string): FileModel | undefined => {
 };
 
 /** The file and row an element ID names, when the element is in a file's body. */
-const placeOf = (page: PageModel, id: string): { readonly path: string; readonly row?: number } | undefined => {
-  if (id.startsWith("files/")) return fileAt(page, id.slice(6)) === undefined ? undefined : { path: id.slice(6) };
+const placeOf = (
+  page: PageModel,
+  id: string,
+): { readonly path: string; readonly row?: number } | undefined => {
+  if (id.startsWith("files/"))
+    return fileAt(page, id.slice(6)) === undefined
+      ? undefined
+      : { path: id.slice(6) };
   for (const model of page.files.values()) {
     const note = model.notes.find((item) => item.id === id);
     if (note !== undefined) return { path: model.file.path, row: note.row };
-    const placed = model.placed.find((item) => commentElementId(item.comment.id) === id);
+    const placed = model.placed.find(
+      (item) => commentElementId(item.comment.id) === id,
+    );
     if (placed !== undefined) return { path: model.file.path, row: placed.end };
-    if (model.orphans.some((comment) => commentElementId(comment.id) === id)) return { path: model.file.path };
+    if (model.orphans.some((comment) => commentElementId(comment.id) === id))
+      return { path: model.file.path };
     const row = new RegExp(`^f${model.index}-r([0-9]+)$`).exec(id);
     if (row !== null) return { path: model.file.path, row: Number(row[1]) };
   }
@@ -41,24 +63,35 @@ const placeOf = (page: PageModel, id: string): { readonly path: string; readonly
 };
 
 /** The stop a file belongs to, as the contents count it. */
-const stopOfPath = (page: PageModel, path: string) => page.stops.findIndex((stop) => stop.owns.some((owned) => owned === path));
+const stopOfPath = (page: PageModel, path: string) =>
+  page.stops.findIndex((stop) => stop.owns.some((owned) => owned === path));
 
 /**
  * The last of the marks whose top passed the line under the sticky bars. At the bottom of the page, the last file that
  * shows; above the first mark, the first when it shows.
  */
-const markAt = (found: NodeListOf<HTMLElement>, line: number): HTMLElement | undefined => {
+const markAt = (
+  found: NodeListOf<HTMLElement>,
+  line: number,
+): HTMLElement | undefined => {
   const marks = [...found];
-  const atBottom = innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
+  const atBottom =
+    innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
   let current: HTMLElement | undefined;
-  for (const mark of marks) if (mark.getBoundingClientRect().top <= line) current = mark;
+  for (const mark of marks)
+    if (mark.getBoundingClientRect().top <= line) current = mark;
   if (atBottom) {
-    const visible = marks.filter((mark) => mark.dataset.path !== undefined && mark.getBoundingClientRect().top < innerHeight);
+    const visible = marks.filter(
+      (mark) =>
+        mark.dataset.path !== undefined &&
+        mark.getBoundingClientRect().top < innerHeight,
+    );
     current = visible.at(-1) ?? current;
   }
   if (current === undefined) {
     const first = marks[0];
-    if (first !== undefined && first.getBoundingClientRect().top < innerHeight) current = first;
+    if (first !== undefined && first.getBoundingClientRect().top < innerHeight)
+      current = first;
   }
   return current;
 };
@@ -83,11 +116,13 @@ const land = (element: HTMLElement) => {
   element.dataset.landed = "arrived";
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
-      if (element.dataset.landed === "arrived") element.dataset.landed = "fading";
+      if (element.dataset.landed === "arrived")
+        element.dataset.landed = "fading";
     }),
   );
   setTimeout(() => {
-    if (element.dataset.landed === "fading") delete element.dataset.landed;
+    if (element.dataset.landed === "fading")
+      element.removeAttribute("data-landed");
   }, 1500);
 };
 
@@ -95,14 +130,21 @@ const land = (element: HTMLElement) => {
  * Scrolls the rail's own scroller so an element of it shows, and nothing else: the page around the rail stays where
  * it is. Only a wide page's rail scrolls on its own and carries `data-rail-scroll`; false for one in a disclosure.
  */
-const scrollRail = (element: HTMLElement, block: "start" | "nearest"): boolean => {
+const scrollRail = (
+  element: HTMLElement,
+  block: "start" | "nearest",
+): boolean => {
   const scroller = element.closest<HTMLElement>("[data-rail-scroll]");
   if (scroller === null) return false;
   const box = scroller.getBoundingClientRect();
   const rect = element.getBoundingClientRect();
   if (block === "start") scroller.scrollTop += rect.top - box.top;
   else if (rect.top < box.top) scroller.scrollTop += rect.top - box.top;
-  else if (rect.bottom > box.bottom) scroller.scrollTop += Math.min(rect.top - box.top, rect.bottom - box.bottom);
+  else if (rect.bottom > box.bottom)
+    scroller.scrollTop += Math.min(
+      rect.top - box.top,
+      rect.bottom - box.bottom,
+    );
   return true;
 };
 
@@ -137,16 +179,30 @@ export const useMoved = (): boolean => {
 };
 
 /** The contents row the scroll-spy marks: `file:PATH` or `stop:N`. Only the contents read it, so scrolling redraws them alone. */
-export const spiedAtom = Atom.make<string | undefined>(undefined).pipe(Atom.keepAlive);
+export const spiedAtom = Atom.make<string | undefined>(undefined).pipe(
+  Atom.keepAlive,
+);
 
 /** The file the spy marks and the stop that owns it, or the stop it marks when it marks no file. */
-export const spiedPlace = (page: PageModel, spied: string | undefined): { readonly file: string | undefined; readonly stop: number | undefined } => {
-  const file = spied?.startsWith("file:") === true ? spied.slice("file:".length) : undefined;
+export const spiedPlace = (
+  page: PageModel,
+  spied: string | undefined,
+): { readonly file: string | undefined; readonly stop: number | undefined } => {
+  const file =
+    spied?.startsWith("file:") === true
+      ? spied.slice("file:".length)
+      : undefined;
   if (file !== undefined) {
     const stop = stopOfPath(page, file);
     return { file, stop: stop === -1 ? undefined : stop };
   }
-  return { file: undefined, stop: spied?.startsWith("stop:") === true ? Number(spied.slice("stop:".length)) : undefined };
+  return {
+    file: undefined,
+    stop:
+      spied?.startsWith("stop:") === true
+        ? Number(spied.slice("stop:".length))
+        : undefined,
+  };
 };
 
 /** An excerpt's rows in a file's diff, or one note on them, as the guide links to them. */
@@ -183,22 +239,38 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     const revealState = (id: string) => {
       const place = placeOf(page, id);
       if (place === undefined) return;
-      if (view === "source" && fileAt(page, place.path)?.notes.some((note) => note.id === id) === true) {
+      if (
+        view === "source" &&
+        fileAt(page, place.path)?.notes.some((note) => note.id === id) === true
+      ) {
         const notes = registry.get(openNotesAtom(key.id));
-        if (!notes.has(id)) registry.set(openNotesAtom(key.id), new Set([...notes, id]));
+        if (!notes.has(id))
+          registry.set(openNotesAtom(key.id), new Set([...notes, id]));
       }
       const model = fileAt(page, place.path);
       if (model === undefined) return;
       const folds = registry.get(foldsAtom(key));
-      if (folds[place.path] !== "open") registry.set(foldsAtom(key), { ...folds, [place.path]: "open" });
+      if (folds[place.path] !== "open")
+        registry.set(foldsAtom(key), { ...folds, [place.path]: "open" });
       if (place.row === undefined || model.file.patch === undefined) return;
       const row = place.row;
-      const layout = layoutDiff(model.file.patch, { shown: model.shown, content: model.file.new_content });
+      const layout = layoutDiff(model.file.patch, {
+        shown: model.shown,
+        content: model.file.new_content,
+      });
       for (const segment of layout.segments) {
         if (segment.kind !== "gap") continue;
-        const holds = segment.parts.some((part) => part.kind === "folded" && part.rows.some((item) => item.index === row));
+        const holds = segment.parts.some(
+          (part) =>
+            part.kind === "folded" &&
+            part.rows.some((item) => item.index === row),
+        );
         if (!holds) continue;
-        const gap = gapAtom({ path: model.file.path, digest: model.digest, gap: segment.key });
+        const gap = gapAtom({
+          path: model.file.path,
+          digest: model.digest,
+          gap: segment.key,
+        });
         if (registry.get(gap) === 0) registry.set(gap, nextStage(0, segment));
       }
     };
@@ -208,22 +280,30 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       return shown(id);
     };
 
-    const showStop = async (index: number, options: { readonly keepHash?: boolean; readonly scroll?: boolean } = {}) => {
+    const showStop = async (
+      index: number,
+      options: { readonly keepHash?: boolean; readonly scroll?: boolean } = {},
+    ) => {
       if (page.stops.length === 0) return;
       const stop = Math.max(0, Math.min(index, page.stops.length - 1));
       tour.current.stop = stop;
       markRead([stop]);
-      if (options.keepHash !== true) history.replaceState(null, "", `#tour/${stop + 1}`);
+      if (options.keepHash !== true)
+        history.replaceState(null, "", `#tour/${stop + 1}`);
       if (options.scroll === false) return;
       if (view === "source") {
         // The guide goes to the stop and the diff to the stop's first file; the hash stays the stop's.
         steer();
         const guided = showGuideStop(stop);
         const path = page.stops[stop]?.owns[0];
-        const article = path === undefined ? null : await reveal(fileElementId(path));
+        const article =
+          path === undefined ? null : await reveal(fileElementId(path));
         steer();
         article?.scrollIntoView({ block: "start" });
-        if (!guided) article?.querySelector<HTMLElement>("h3")?.focus({ preventScroll: true });
+        if (!guided)
+          article
+            ?.querySelector<HTMLElement>("h3")
+            ?.focus({ preventScroll: true });
         return;
       }
       const heading = await shown(`stop-${stop + 1}-title`);
@@ -247,7 +327,10 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (section === null) return;
       steer();
       section.scrollIntoView({ block: "start" });
-      (section.querySelector<HTMLElement>("input[name='verdict']") ?? section.querySelector<HTMLElement>("h2"))?.focus({
+      (
+        section.querySelector<HTMLElement>("input[name='verdict']") ??
+        section.querySelector<HTMLElement>("h2")
+      )?.focus({
         preventScroll: true,
       });
     };
@@ -263,7 +346,9 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       const focus =
         next.kind === "answer"
           ? (target.querySelector<HTMLElement>("[data-accept]") ?? target)
-          : (target.querySelector<HTMLElement>("[data-viewed]") ?? target.querySelector<HTMLElement>("h3") ?? target);
+          : (target.querySelector<HTMLElement>("[data-viewed]") ??
+            target.querySelector<HTMLElement>("h3") ??
+            target);
       steer();
       target.scrollIntoView({ block: "start" });
       focus.focus({ preventScroll: true });
@@ -307,7 +392,9 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
           }
           if (element.id === "main") return;
           steer();
-          element.scrollIntoView({ block: element.matches("section, article") ? "start" : "center" });
+          element.scrollIntoView({
+            block: element.matches("section, article") ? "start" : "center",
+          });
           if (element.matches("article[data-comment]")) land(element);
           return;
         }
@@ -315,15 +402,25 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     };
 
     /** Lights the rows a later stop points back at, for a moment, after bringing the first into view. */
-    const flash = async (path: string, index: number, start: number, end: number) => {
+    const flash = async (
+      path: string,
+      index: number,
+      start: number,
+      end: number,
+    ) => {
       revealState(`f${index}-r${start}`);
       // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
       registry.set(flashAtom(key.id), { path, start, end });
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      document.querySelector(`table[data-table="f${index}"] [data-row="${start}"]`)?.scrollIntoView({ block: "center" });
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      );
+      document
+        .querySelector(`table[data-table="f${index}"] [data-row="${start}"]`)
+        ?.scrollIntoView({ block: "center" });
       setTimeout(() => {
         const now = registry.get(flashAtom(key.id));
-        if (now?.path === path && now.start === start) registry.set(flashAtom(key.id), undefined);
+        if (now?.path === path && now.start === start)
+          registry.set(flashAtom(key.id), undefined);
       }, 2000);
     };
 
@@ -343,7 +440,11 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
           ? await new Promise<HTMLElement | null>((resolve) =>
               requestAnimationFrame(() =>
                 requestAnimationFrame(() =>
-                  resolve(document.querySelector<HTMLElement>(`table[data-table="f${index}"] [data-row="${start}"]`)),
+                  resolve(
+                    document.querySelector<HTMLElement>(
+                      `table[data-table="f${index}"] [data-row="${start}"]`,
+                    ),
+                  ),
                 ),
               ),
             )
@@ -351,13 +452,17 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (landing !== null) {
         steer();
         landing.scrollIntoView({ block: "start" });
-        const focus = landing instanceof HTMLTableRowElement && note === undefined ? (landing.cells[0] ?? landing) : landing;
+        const focus =
+          landing instanceof HTMLTableRowElement && note === undefined
+            ? (landing.cells[0] ?? landing)
+            : landing;
         focus.tabIndex = -1;
         focus.focus({ preventScroll: true });
       }
       setTimeout(() => {
         const now = registry.get(flashAtom(key.id));
-        if (now?.path === path && now.start === start) registry.set(flashAtom(key.id), undefined);
+        if (now?.path === path && now.start === start)
+          registry.set(flashAtom(key.id), undefined);
       }, 2000);
     };
 
@@ -368,22 +473,41 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
      */
     const spy = (): string | undefined => {
       if (view === "source") return spySource();
-      const line = (document.querySelector("[data-next]")?.getBoundingClientRect().bottom ?? 0) + 12;
-      const heads = page.stops.map((_, at) => document.getElementById(`stop-${at + 1}-title`));
-      const passed = heads.flatMap((head, at) => (head !== null && head.getBoundingClientRect().top <= line ? [at] : []));
+      const line =
+        (document.querySelector("[data-next]")?.getBoundingClientRect()
+          .bottom ?? 0) + 12;
+      const heads = page.stops.map((_, at) =>
+        document.getElementById(`stop-${at + 1}-title`),
+      );
+      const passed = heads.flatMap((head, at) =>
+        head !== null && head.getBoundingClientRect().top <= line ? [at] : [],
+      );
       if (passed.length > 0) markRead(passed);
       if (!steering()) {
         const first = heads[0];
         tour.current.stop =
           passed.at(-1) ??
-          (first !== null && first !== undefined && first.getBoundingClientRect().top < innerHeight ? 0 : -1);
+          (first !== null &&
+          first !== undefined &&
+          first.getBoundingClientRect().top < innerHeight
+            ? 0
+            : -1);
       }
       const end = document.querySelector("[data-end-section]");
-      if (end !== null && end.getBoundingClientRect().top <= line) return undefined;
-      const current = markAt(document.querySelectorAll<HTMLElement>("[data-stop] > [data-stop-head], [data-stop] article[data-path]"), line);
+      if (end !== null && end.getBoundingClientRect().top <= line)
+        return undefined;
+      const current = markAt(
+        document.querySelectorAll<HTMLElement>(
+          "[data-stop] > [data-stop-head], [data-stop] article[data-path]",
+        ),
+        line,
+      );
       if (current === undefined) return undefined;
-      if (current.dataset.path !== undefined) return `file:${current.dataset.path}`;
-      const stop = Number(current.closest<HTMLElement>("[data-stop]")?.dataset.stop ?? -1);
+      if (current.dataset.path !== undefined)
+        return `file:${current.dataset.path}`;
+      const stop = Number(
+        current.closest<HTMLElement>("[data-stop]")?.dataset.stop ?? -1,
+      );
       const owned = page.stops[stop]?.owns[0];
       return owned === undefined ? `stop:${stop}` : `file:${owned}`;
     };
@@ -394,10 +518,15 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
      * reaches the line, nothing is marked and J and K count from before the first stop.
      */
     const spySource = (): string | undefined => {
-      const line = (document.querySelector("[data-next]")?.getBoundingClientRect().bottom ?? 0) + 12;
+      const line =
+        (document.querySelector("[data-next]")?.getBoundingClientRect()
+          .bottom ?? 0) + 12;
       const end = document.querySelector("[data-end-section]");
-      if (end !== null && end.getBoundingClientRect().top <= line) return undefined;
-      const articles = document.querySelectorAll<HTMLElement>("main article[data-path]");
+      if (end !== null && end.getBoundingClientRect().top <= line)
+        return undefined;
+      const articles = document.querySelectorAll<HTMLElement>(
+        "main article[data-path]",
+      );
       // Above the first file the reviewer has read nothing yet, and J goes to the first stop.
       const first = articles[0];
       if (first === undefined || first.getBoundingClientRect().top > line) {
@@ -477,7 +606,11 @@ export const useCancelReattach = (review: ReviewId) => {
   const registry = useContext(RegistryContext);
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || registry.get(reattachAtom(review)) === undefined) return;
+      if (
+        event.key !== "Escape" ||
+        registry.get(reattachAtom(review)) === undefined
+      )
+        return;
       registry.set(reattachAtom(review), undefined);
       toast("The comment stays where it was.");
     };
@@ -493,7 +626,12 @@ export const useKeys = (review: ReviewId, navigate: Navigation) => {
     const keys = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target;
-      if (target instanceof HTMLElement && target.closest("textarea, input, select, [contenteditable='true']") !== null) return;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("textarea, input, select, [contenteditable='true']") !==
+          null
+      )
+        return;
       const key = event.key.toLowerCase();
       if (key === "j") void navigate.next();
       else if (key === "k") void navigate.previous();
