@@ -36,10 +36,10 @@ and provide a command to refresh them without editing a second set of rules.
 Match each plugin's name and version across its Codex and Claude manifests.
 Raise its release version when its contents change. Raise a changed skill's
 `metadata.version` too, as described in the
-[contribution guide](CONTRIBUTING.md#skill-versions).
-Keep referenced resources inside the installed package. Use host-native plugins
-for installation and hooks, rather than writing global instruction files or
-copying skills into a user's home directory.
+[contribution guide](CONTRIBUTING.md#skill-versions). Keep referenced resources
+inside the installed package. Use host-native plugins for installation and
+hooks, rather than writing global instruction files or copying skills into a
+user's home directory.
 
 ## Experiment in temporary host configurations
 
@@ -50,6 +50,6 @@ binaries that respect those directories. Do not copy credentials into the test.
 This isolates host configuration, but is not an operating-system sandbox.
 
 Follow [installation verification](docs/verify-install.md). Check installation,
-discovery, hooks, refresh, and removal without model inference. Report hook trust
-and model behavior separately from package validation. Do not repoint a live
-marketplace or change deployment pins as part of a local packaging test.
+discovery, hooks, refresh, and removal without model inference. Report hook
+trust and model behavior separately from package validation. Do not repoint a
+live marketplace or change deployment pins as part of a local packaging test.

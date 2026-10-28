@@ -18,10 +18,17 @@ export interface Connection {
   readonly lost: number;
 }
 
-export const connectionAtom = Atom.make<Connection>({ state: "connecting", epoch: 0, lost: 0 }).pipe(Atom.keepAlive);
+export const connectionAtom = Atom.make<Connection>({
+  state: "connecting",
+  epoch: 0,
+  lost: 0,
+}).pipe(Atom.keepAlive);
 
 /** The socket's connection count. Atoms that read it run again after a reconnect; 0 means not connected yet. */
-export const epochAtom = Atom.map(connectionAtom, (connection) => connection.epoch);
+export const epochAtom = Atom.map(
+  connectionAtom,
+  (connection) => connection.epoch,
+);
 
 /** The socket's state as every page says it, empty while it is up or not up yet. */
 export const CONNECTION_TEXT: Readonly<Record<Connection["state"], string>> = {
@@ -42,34 +49,51 @@ export const NO_ANSWER = "The server did not answer. Is it still running?";
  * socket's or a watch that ended, as the server not answering. `fallback` is for a failure with no error in it, such
  * as an interruption.
  */
-export const failureText = (cause: Cause.Cause<unknown>, fallback = NO_ANSWER): string =>
+export const failureText = (
+  cause: Cause.Cause<unknown>,
+  fallback = NO_ANSWER,
+): string =>
   Cause.findErrorOption(cause).pipe(
-    Option.map((error) => (error instanceof Refused ? error.message : NO_ANSWER)),
+    Option.map((error) =>
+      error instanceof Refused ? error.message : NO_ANSWER,
+    ),
     Option.getOrElse(() => fallback),
   );
 
-const socketUrl = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/rpc`;
+const socketUrl = () =>
+  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/rpc`;
 
-export class PageClient extends AtomRpc.Service<PageClient>()("review-canvas/PageClient", {
-  group: PageRpcs,
-  protocol: (get) =>
-    RpcClient.layerProtocolSocket({ retryTransientErrors: true }).pipe(
-      Layer.provide(
-        Layer.succeed(RpcClient.ConnectionHooks, {
-          // `once` reads without subscribing: a dependency here would rebuild the runtime on every change.
-          onConnect: Effect.sync(() => {
-            const now = get.once(connectionAtom);
-            get.set(connectionAtom, { state: "connected", epoch: now.epoch + 1, lost: 0 });
+export class PageClient extends AtomRpc.Service<PageClient>()(
+  "review-canvas/PageClient",
+  {
+    group: PageRpcs,
+    protocol: (get) =>
+      RpcClient.layerProtocolSocket({ retryTransientErrors: true }).pipe(
+        Layer.provide(
+          Layer.succeed(RpcClient.ConnectionHooks, {
+            // `once` reads without subscribing: a dependency here would rebuild the runtime on every change.
+            onConnect: Effect.sync(() => {
+              const now = get.once(connectionAtom);
+              get.set(connectionAtom, {
+                state: "connected",
+                epoch: now.epoch + 1,
+                lost: 0,
+              });
+            }),
+            onDisconnect: Effect.sync(() => {
+              const now = get.once(connectionAtom);
+              const lost = now.lost + 1;
+              get.set(connectionAtom, {
+                ...now,
+                state: lost >= 2 ? "disconnected" : "reconnecting",
+                lost,
+              });
+            }),
           }),
-          onDisconnect: Effect.sync(() => {
-            const now = get.once(connectionAtom);
-            const lost = now.lost + 1;
-            get.set(connectionAtom, { ...now, state: lost >= 2 ? "disconnected" : "reconnecting", lost });
-          }),
-        }),
+        ),
+        Layer.provide(Socket.layerWebSocket(socketUrl())),
+        Layer.provide(Socket.layerWebSocketConstructorGlobal),
+        Layer.provide(RpcSerialization.layerJson),
       ),
-      Layer.provide(Socket.layerWebSocket(socketUrl())),
-      Layer.provide(Socket.layerWebSocketConstructorGlobal),
-      Layer.provide(RpcSerialization.layerJson),
-    ),
-}) {}
+  },
+) {}

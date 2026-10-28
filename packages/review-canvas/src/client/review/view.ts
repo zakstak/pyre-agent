@@ -4,19 +4,41 @@
  */
 import type { Comment, Verdict } from "../../schema/feedback.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
-import type { PatchDigest, RepoPath, RoundNumber } from "../../schema/primitives.ts";
+import type {
+  PatchDigest,
+  RepoPath,
+  RoundNumber,
+} from "../../schema/primitives.ts";
 import type { ReviewSnapshot } from "../../schema/rpc.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
-import { answerStep, fileStep, type Next, nextStep } from "../../review/next.ts";
-import { type Progress, progress, type Standing, standingOf } from "../../review/progress.ts";
+import {
+  answerStep,
+  fileStep,
+  type Next,
+  nextStep,
+} from "../../review/next.ts";
+import {
+  type Progress,
+  progress,
+  type Standing,
+  standingOf,
+} from "../../review/progress.ts";
 import { currentSubmission, type Round } from "../../review/queries.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
 import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
-import { type InlineComment, type PlacedComment, placeComments } from "./diff-model.ts";
+import {
+  type InlineComment,
+  type PlacedComment,
+  placeComments,
+} from "./diff-model.ts";
 
 /** The element ID of a note in the diff: by its stop, its excerpt in the stop, and its letter. */
-export const noteElementId = (stop: number, excerpt: number, letter: string): string => `s${stop}e${excerpt}-note-${letter}`;
+export const noteElementId = (
+  stop: number,
+  excerpt: number,
+  letter: string,
+): string => `s${stop}e${excerpt}-note-${letter}`;
 
 /** A note of the tour, shown in the diff under the row it explains. */
 export interface InlineNote {
@@ -35,7 +57,12 @@ export interface InlineNote {
  */
 export type FileStatus =
   | { readonly kind: "word"; readonly text: string; readonly warning: boolean }
-  | { readonly kind: "since"; readonly text: string; readonly warning: boolean; readonly patch: string };
+  | {
+      readonly kind: "since";
+      readonly text: string;
+      readonly warning: boolean;
+      readonly patch: string;
+    };
 
 export interface FileModel {
   /** The file's place in the round, which names its table. */
@@ -56,7 +83,9 @@ export interface FileModel {
   /** The first excerpt's caption, when the owning stop excerpts the file. */
   readonly caption: string | undefined;
   /** The rows the tour excerpts and comments sit on; the rest fold. Undefined shows every row. */
-  readonly shown: ReadonlyArray<{ readonly start: number; readonly end: number }> | undefined;
+  readonly shown:
+    | ReadonlyArray<{ readonly start: number; readonly end: number }>
+    | undefined;
   readonly notes: ReadonlyArray<InlineNote>;
   /** Whether the page folds the file when the reviewer has not chosen. */
   readonly folded: boolean;
@@ -77,15 +106,26 @@ export const fileStatus = (
   since: { readonly round: number; readonly patch: string } | undefined,
 ): FileStatus | undefined => {
   const word = (text: string, warning = false): FileStatus =>
-    since === undefined ? { kind: "word", text, warning } : { kind: "since", text, warning, patch: since.patch };
+    since === undefined
+      ? { kind: "word", text, warning }
+      : { kind: "since", text, warning, patch: since.patch };
   if (lapsed) return word("changed since you viewed it", true);
   if (since !== undefined) return word(`changed since round ${since.round}`);
-  const plain = (text: string): FileStatus => ({ kind: "word", text, warning: false });
-  if (file.status === "deleted" || file.status === "removed") return plain("deleted");
-  if (file.status === "renamed") return plain(file.old_path === undefined ? "renamed" : `renamed from ${file.old_path}`);
+  const plain = (text: string): FileStatus => ({
+    kind: "word",
+    text,
+    warning: false,
+  });
+  if (file.status === "deleted" || file.status === "removed")
+    return plain("deleted");
+  if (file.status === "renamed")
+    return plain(
+      file.old_path === undefined ? "renamed" : `renamed from ${file.old_path}`,
+    );
   if (file.patch_note === "binary") return plain("binary");
   if (file.patch_note === "too_large") return plain("too large");
-  if (file.status === "added" || file.status === "copied") return plain(file.status);
+  if (file.status === "added" || file.status === "copied")
+    return plain(file.status);
   return undefined;
 };
 
@@ -103,8 +143,11 @@ const fileModels = (
 ): ReadonlyMap<RepoPath, FileModel> => {
   const { state } = snapshot;
   const owner = new Map<string, StopView>();
-  for (const stop of stops) for (const path of stop.owns) if (!owner.has(path)) owner.set(path, stop);
-  const before = new Map(previous?.files.map((file) => [file.path, file]) ?? []);
+  for (const stop of stops)
+    for (const path of stop.owns) if (!owner.has(path)) owner.set(path, stop);
+  const before = new Map(
+    previous?.files.map((file) => [file.path, file]) ?? [],
+  );
   // The page unfolds what the strip points at.
   const target =
     next.kind === "file"
@@ -115,9 +158,14 @@ const fileModels = (
   return new Map(
     input.files.map((file, index): [RepoPath, FileModel] => {
       const { placed, orphans } = placeComments(file, state.comments);
-      const comments: ReadonlyArray<Comment> = [...placed.map((item) => item.comment), ...orphans];
+      const comments: ReadonlyArray<Comment> = [
+        ...placed.map((item) => item.comment),
+        ...orphans,
+      ];
       const approved = counts.viewed.has(file.path);
-      const lapsed = !approved && state.approvals.some((approval) => approval.path === file.path);
+      const lapsed =
+        !approved &&
+        state.approvals.some((approval) => approval.path === file.path);
       const stop = owner.get(file.path);
       const excerpts = stops.flatMap((item) =>
         item.excerpts
@@ -137,13 +185,22 @@ const fileModels = (
       const owned = excerpts.filter((item) => item.stop === stop);
       const earlier = before.get(file.path);
       const unchangedSince =
-        earlier?.fingerprint !== undefined && earlier.fingerprint === file.fingerprint ? round - 1 : undefined;
+        earlier?.fingerprint !== undefined &&
+        earlier.fingerprint === file.fingerprint
+          ? round - 1
+          : undefined;
       const sincePatch =
-        unchangedSince !== undefined || earlier?.new_content === undefined || file.new_content === undefined
+        unchangedSince !== undefined ||
+        earlier?.new_content === undefined ||
+        file.new_content === undefined
           ? undefined
           : unifiedDiff(earlier.new_content, file.new_content);
-      const open = comments.filter((comment) => standing(comment) !== "resolved").length;
-      const forYou = comments.filter((comment) => standing(comment) === "reviewer").length;
+      const open = comments.filter(
+        (comment) => standing(comment) !== "resolved",
+      ).length;
+      const forYou = comments.filter(
+        (comment) => standing(comment) === "reviewer",
+      ).length;
       const foldable =
         approved ||
         file.group === "mechanical" ||
@@ -165,20 +222,38 @@ const fileModels = (
           orphans,
           open,
           forYou,
-          status: fileStatus(file, lapsed, sincePatch === undefined ? undefined : { round: round - 1, patch: sincePatch }),
+          status: fileStatus(
+            file,
+            lapsed,
+            sincePatch === undefined
+              ? undefined
+              : { round: round - 1, patch: sincePatch },
+          ),
           caption: owned[0]?.excerpt.caption,
           shown:
             excerpts.length === 0
               ? undefined
               : [
-                  ...excerpts.map(({ excerpt }) => ({ start: excerpt.start_row, end: excerpt.end_row })),
-                  ...placed.map((item) => ({ start: item.start, end: item.end })),
+                  ...excerpts.map(({ excerpt }) => ({
+                    start: excerpt.start_row,
+                    end: excerpt.end_row,
+                  })),
+                  ...placed.map((item) => ({
+                    start: item.start,
+                    end: item.end,
+                  })),
                 ],
           notes,
           folded: foldable && !held,
           held,
-          hasBody: file.patch !== undefined || file.patch_note !== undefined || orphans.length > 0,
-          talk: open === 0 ? undefined : `${count(open, "comment")}${forYou > 0 ? ` · ${forYou} for you` : ""}`,
+          hasBody:
+            file.patch !== undefined ||
+            file.patch_note !== undefined ||
+            orphans.length > 0,
+          talk:
+            open === 0
+              ? undefined
+              : `${count(open, "comment")}${forYou > 0 ? ` · ${forYou} for you` : ""}`,
         },
       ];
     }),
@@ -187,8 +262,18 @@ const fileModels = (
 
 /** The next strip: what to do, why, and the ID of the element it points at. */
 export type Strip =
-  | { readonly kind: "go"; readonly what: string; readonly code: string | undefined; readonly why: string; readonly next: Extract<Next, { target: string }> }
-  | { readonly kind: "finished"; readonly round: RoundNumber; readonly verdict: Verdict }
+  | {
+      readonly kind: "go";
+      readonly what: string;
+      readonly code: string | undefined;
+      readonly why: string;
+      readonly next: Extract<Next, { target: string }>;
+    }
+  | {
+      readonly kind: "finished";
+      readonly round: RoundNumber;
+      readonly verdict: Verdict;
+    }
   | { readonly kind: "closed" };
 
 const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
@@ -200,14 +285,25 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
           : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
       return {
         kind: "go",
-        what: next.github ? "Read the reply" : `Read ${threadNameOf(threads, next.thread ?? "")}’s answer`,
+        what: next.github
+          ? "Read the reply"
+          : `Read ${threadNameOf(threads, next.thread ?? "")}’s answer`,
         code: undefined,
-        why: [place, ...(next.more > 0 ? [`${next.more} more after this`] : [])].join(" · "),
+        why: [
+          place,
+          ...(next.more > 0 ? [`${next.more} more after this`] : []),
+        ].join(" · "),
         next,
       };
     }
     case "file":
-      return { kind: "go", what: "Review", code: next.path, why: `stop ${next.stop} · ${count(next.left, "file")} left`, next };
+      return {
+        kind: "go",
+        what: "Review",
+        code: next.path,
+        why: `stop ${next.stop} · ${count(next.left, "file")} left`,
+        next,
+      };
     case "finish":
       return {
         kind: "go",
@@ -261,7 +357,17 @@ export const pageModel = (
   const next = nextStep(state, input, stops, round);
   const counts = progress(state, input);
   const standing = standingOf(state);
-  const files = fileModels(snapshot, input, digests, stops, next, previous, round.round, counts, standing);
+  const files = fileModels(
+    snapshot,
+    input,
+    digests,
+    stops,
+    next,
+    previous,
+    round.round,
+    counts,
+    standing,
+  );
   return {
     snapshot,
     input,
@@ -270,13 +376,17 @@ export const pageModel = (
     files,
     next,
     strip: stripOf(next, snapshot.threads),
-    steps: { answer: answerStep(state, input, stops), file: fileStep(state, input, stops) },
+    steps: {
+      answer: answerStep(state, input, stops),
+      file: fileStep(state, input, stops),
+    },
     progress: counts,
     standing,
     writable: state.closed_at === undefined,
     finished: currentSubmission(state) !== undefined,
     departed: state.comments.filter(
-      (comment): comment is InlineComment => comment.kind === "inline" && !files.has(comment.anchor.path),
+      (comment): comment is InlineComment =>
+        comment.kind === "inline" && !files.has(comment.anchor.path),
     ),
     general: state.comments.filter((comment) => comment.kind === "general"),
     updated: [
@@ -290,26 +400,39 @@ export const pageModel = (
 };
 
 /** Paths in path order, grouped by their folder; files at the root come first, under no folder. */
-export const byDirectory = (paths: Iterable<RepoPath>): ReadonlyArray<{ readonly dir: string; readonly paths: ReadonlyArray<RepoPath> }> => {
+export const byDirectory = (
+  paths: Iterable<RepoPath>,
+): ReadonlyArray<{
+  readonly dir: string;
+  readonly paths: ReadonlyArray<RepoPath>;
+}> => {
   const groups = new Map<string, Array<RepoPath>>();
   for (const path of [...paths].sort((a, b) => a.localeCompare(b))) {
     const { dir } = splitPath(path);
     groups.set(dir, [...(groups.get(dir) ?? []), path]);
   }
-  return [...groups].map(([dir, grouped]) => ({ dir, paths: grouped })).sort((a, b) => (a.dir === "" ? -1 : b.dir === "" ? 1 : 0));
+  return [...groups]
+    .map(([dir, grouped]) => ({ dir, paths: grouped }))
+    .sort((a, b) => (a.dir === "" ? -1 : b.dir === "" ? 1 : 0));
 };
 
 /** Paths in the order the contents list them, which the source view shows its diff in. */
-export const pathOrder = (paths: Iterable<RepoPath>): ReadonlyArray<RepoPath> => byDirectory(paths).flatMap((group) => group.paths);
+export const pathOrder = (paths: Iterable<RepoPath>): ReadonlyArray<RepoPath> =>
+  byDirectory(paths).flatMap((group) => group.paths);
 
 /** What the finish section says before the reviewer finishes. */
 export const finishState = (counts: Progress): string => {
   const notViewed = counts.viewable - counts.viewed.size;
-  if (notViewed === 0 && counts.forYou === 0 && counts.waiting === 0) return "Everything viewed, nothing waiting.";
+  if (notViewed === 0 && counts.forYou === 0 && counts.waiting === 0)
+    return "Everything viewed, nothing waiting.";
   return `${[
     ...(notViewed === 0 ? [] : [`${count(notViewed, "file")} not yet viewed`]),
-    ...(counts.forYou === 0 ? [] : [`${count(counts.forYou, "answer")} waiting for you`]),
-    ...(counts.waiting === 0 ? [] : [`${count(counts.waiting, "comment")} waiting for agents`]),
+    ...(counts.forYou === 0
+      ? []
+      : [`${count(counts.forYou, "answer")} waiting for you`]),
+    ...(counts.waiting === 0
+      ? []
+      : [`${count(counts.waiting, "comment")} waiting for agents`]),
   ].join(" · ")}. You can finish anyway.`;
 };
 
@@ -318,11 +441,16 @@ export const orphanPlace = (comment: InlineComment, round: number): string => {
   const { anchor } = comment;
   const lines = lineRange(anchor.start_line, anchor.end_line, "Line");
   const side = anchor.side === "old" ? " (old side)" : "";
-  const when = anchor.snapshot.round === round - 1 ? "the previous round" : `round ${anchor.snapshot.round}`;
+  const when =
+    anchor.snapshot.round === round - 1
+      ? "the previous round"
+      : `round ${anchor.snapshot.round}`;
   return `${lines}${side} of ${when}`;
 };
 
-export const PATCH_NOTE_TEXT: Readonly<Record<NonNullable<ReviewFile["patch_note"]>, string>> = {
+export const PATCH_NOTE_TEXT: Readonly<
+  Record<NonNullable<ReviewFile["patch_note"]>, string>
+> = {
   binary: "A binary file; there is no text to show.",
   too_large: "The patch is too large to show.",
   symlink: "A symbolic link; the patch shows its target.",
@@ -330,5 +458,6 @@ export const PATCH_NOTE_TEXT: Readonly<Record<NonNullable<ReviewFile["patch_note
   secret: "Likely a secret, so its contents were left out.",
   no_content_change: "Only the mode changed.",
   empty: "An empty file.",
-  replaced_characters: "Hidden or reordering characters in this patch were replaced.",
+  replaced_characters:
+    "Hidden or reordering characters in this patch were replaced.",
 };

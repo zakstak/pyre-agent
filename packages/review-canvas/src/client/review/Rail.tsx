@@ -42,17 +42,32 @@ export const Rail = ({
     {wide ? (
       <>
         {head}
-        <div ref={scroller} data-rail-scroll className={cn("min-h-0 flex-1 overflow-y-auto", head === undefined || "mt-3")}>
+        <div
+          ref={scroller}
+          data-rail-scroll
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            head === undefined || "mt-3",
+          )}
+        >
           {children}
         </div>
         {foot}
       </>
     ) : (
-      <details open={open} onToggle={(event) => onOpen(event.currentTarget.open)} className="mt-4 rounded-panel bg-surface px-3">
-        <summary className="flex min-h-11 items-center font-semibold">{summary}</summary>
+      <details
+        open={open}
+        onToggle={(event) => onOpen(event.currentTarget.open)}
+        className="mt-4 rounded-panel bg-surface px-3"
+      >
+        <summary className="flex min-h-11 items-center font-semibold">
+          {summary}
+        </summary>
         <div className="pb-3">
           {head}
-          <div className={head === undefined ? undefined : "mt-3"}>{children}</div>
+          <div className={head === undefined ? undefined : "mt-3"}>
+            {children}
+          </div>
           {foot}
         </div>
       </details>

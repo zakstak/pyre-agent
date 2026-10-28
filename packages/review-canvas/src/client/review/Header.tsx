@@ -27,7 +27,10 @@ export const ViewControl = () => {
     <Segmented
       label="View"
       attribute="data-view"
-      choices={[["guided", "Guided"], ["source", "Source"]]}
+      choices={[
+        ["guided", "Guided"],
+        ["source", "Source"],
+      ]}
       value={view}
       onChange={setView}
       className="max-md:hidden"
@@ -58,7 +61,13 @@ export const ReviewBar = ({
         <>
           <TargetText target={target} />
           {name.kind === "pr" ? (
-            <a href={name.url} rel="noopener" title={`Open on ${new URL(name.url).host}`} aria-label={`Open on ${new URL(name.url).host}`} className="inline-flex self-center px-1 text-muted no-underline">
+            <a
+              href={name.url}
+              rel="noopener"
+              title={`Open on ${new URL(name.url).host}`}
+              aria-label={`Open on ${new URL(name.url).host}`}
+              className="inline-flex self-center px-1 text-muted no-underline"
+            >
               <ArrowUpRight aria-hidden="true" className="size-3.5" />
             </a>
           ) : null}
@@ -79,15 +88,27 @@ export const Who = ({
   readonly children: React.ReactNode;
 }) => (
   <span className="inline-flex flex-wrap items-center gap-x-1.5">
-    {thread === undefined ? <Voice kind="agent" name={id} /> : <AgentVoice label={thread.label} />}
+    {thread === undefined ? (
+      <Voice kind="agent" name={id} />
+    ) : (
+      <AgentVoice label={thread.label} />
+    )}
     <span>{children}</span>
   </span>
 );
 
 /** The agent's narration, as a kicker over it: the voice of the thread that published the round, then what it is. */
-export const Narration = ({ children, className }: { readonly children: React.ReactNode; readonly className?: string }) => {
+export const Narration = ({
+  children,
+  className,
+}: {
+  readonly children: React.ReactNode;
+  readonly className?: string;
+}) => {
   const { page } = usePage();
-  const publisher = page.snapshot.threads.find((item) => item.id === page.round.thread);
+  const publisher = page.snapshot.threads.find(
+    (item) => item.id === page.round.thread,
+  );
   return (
     <p className={cn("text-small text-muted", className)}>
       <Who thread={publisher} id={page.round.thread}>
@@ -104,21 +125,33 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
   const earlier = useAtomValue(earlierAtom({ id, round: page.round.round }));
   const summaries = new Map(
     AsyncResult.value(earlier).pipe(
-      Option.map((rounds) => rounds.map((item) => [item.round, item.summary] as const)),
+      Option.map((rounds) =>
+        rounds.map((item) => [item.round, item.summary] as const),
+      ),
       Option.getOrElse(() => []),
     ),
   );
-  const submissionOf = (round: number) => state.submissions.findLast((item) => item.round === round);
+  const submissionOf = (round: number) =>
+    state.submissions.findLast((item) => item.round === round);
   return (
     <>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-b border-separator text-small">
         {state.rounds.map((round) => {
           const submission = submissionOf(round.round);
-          const done = submission === undefined ? undefined : `you ${VERDICT_DONE[submission.verdict]}`;
+          const done =
+            submission === undefined
+              ? undefined
+              : `you ${VERDICT_DONE[submission.verdict]}`;
           if (round.round === page.round.round)
             return (
-              <span key={round.round} data-round-current aria-current="true" className="-mb-px border-b-2 border-accent pb-2 font-semibold text-ink">
-                Round {round.round} · {done ?? (state.closed_at === undefined ? "open" : "closed")}
+              <span
+                key={round.round}
+                data-round-current
+                aria-current="true"
+                className="-mb-px border-b-2 border-accent pb-2 font-semibold text-ink"
+              >
+                Round {round.round} ·{" "}
+                {done ?? (state.closed_at === undefined ? "open" : "closed")}
               </span>
             );
           const expanded = open.has(round.round);
@@ -138,31 +171,50 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
               }
               className="pb-2 text-muted hover:text-ink"
             >
-              Round {round.round} · {done ?? "not finished"} · <Time at={submission?.submitted_at ?? round.published_at} />
-              <ChevronDown aria-hidden="true" className={cn("ml-1 inline size-3.5 align-[-0.125em] transition-transform", !expanded && "-rotate-90")} />
+              Round {round.round} · {done ?? "not finished"} ·{" "}
+              <Time at={submission?.submitted_at ?? round.published_at} />
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "ml-1 inline size-3.5 align-[-0.125em] transition-transform",
+                  !expanded && "-rotate-90",
+                )}
+              />
             </button>
           );
         })}
       </div>
       {state.rounds
-        .filter((round) => round.round !== page.round.round && open.has(round.round))
+        .filter(
+          (round) => round.round !== page.round.round && open.has(round.round),
+        )
         .map((round) => {
           const submission = submissionOf(round.round);
           const summary = summaries.get(round.round);
           const publisher = threads.find((item) => item.id === round.thread);
           return (
-            <div key={round.round} id={`round-${round.round}-detail`} className="my-3 flex flex-col gap-2 rounded-panel bg-surface px-4 py-3">
+            <div
+              key={round.round}
+              id={`round-${round.round}-detail`}
+              className="my-3 flex flex-col gap-2 rounded-panel bg-surface px-4 py-3"
+            >
               <p className="text-small text-muted">
                 <Who thread={publisher} id={round.thread}>
-                  published round {round.round} at <Time at={round.published_at} />
+                  published round {round.round} at{" "}
+                  <Time at={round.published_at} />
                 </Who>
               </p>
-              {summary === undefined ? <p className="text-muted">No summary.</p> : <Prose text={summary} />}
+              {summary === undefined ? (
+                <p className="text-muted">No summary.</p>
+              ) : (
+                <Prose text={summary} />
+              )}
               {submission === undefined ? null : (
                 <p>
                   <Voice kind="you" name="You" />{" "}
                   <span className="text-muted">
-                    · {VERDICT_TEXT[submission.verdict]} · <Time at={submission.submitted_at} />
+                    · {VERDICT_TEXT[submission.verdict]} ·{" "}
+                    <Time at={submission.submitted_at} />
                   </span>
                   {submission.body.trim() === "" ? null : (
                     <>
@@ -195,7 +247,10 @@ const DriftLine = () => {
           <Joined
             items={shown.map((path) =>
               page.files.has(path) ? (
-                <a href={hashOf(fileElementId(path))} className="text-link underline underline-offset-3">
+                <a
+                  href={hashOf(fileElementId(path))}
+                  className="text-link underline underline-offset-3"
+                >
                   <code>{path}</code>
                 </a>
               ) : (
@@ -203,17 +258,21 @@ const DriftLine = () => {
               ),
             )}
           />
-          {drift.paths.length > shown.length ? ` and ${drift.paths.length - shown.length} more` : ""}
+          {drift.paths.length > shown.length
+            ? ` and ${drift.paths.length - shown.length} more`
+            : ""}
         </>
       )}
       {drift.head_sha === undefined ? null : (
         <>
           {" "}
-          <span className="text-muted">· head</span> <code>{drift.head_sha.slice(0, 7)}</code>
+          <span className="text-muted">· head</span>{" "}
+          <code>{drift.head_sha.slice(0, 7)}</code>
         </>
       )}{" "}
       <span className="text-muted">
-        · checked <Time at={drift.checked_at} /> · the agents publish a new round with the change.
+        · checked <Time at={drift.checked_at} /> · the agents publish a new
+        round with the change.
       </span>
     </p>
   );
@@ -228,19 +287,27 @@ export const Title = ({ id }: { readonly id: ReviewId }) => {
   const sha = input.target.head_sha;
   return (
     <header className="col-span-full min-w-0 pt-6">
-      <h1 className="mb-1.5 text-title leading-tight font-semibold tracking-tight break-words">{input.target.title}</h1>
+      <h1 className="mb-1.5 text-title leading-tight font-semibold tracking-tight break-words">
+        {input.target.title}
+      </h1>
       <p className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5 text-small text-muted">
         <Who thread={publisher} id={round.thread}>
-          published round {round.round} at{" "}
-          <Time at={round.published_at} />
+          published round {round.round} at <Time at={round.published_at} />
         </Who>
         <span>
-          <strong className="text-ink">{count(input.files.length, "file")}</strong> · <LineCounts additions={additions} deletions={deletions} />
+          <strong className="text-ink">
+            {count(input.files.length, "file")}
+          </strong>{" "}
+          · <LineCounts additions={additions} deletions={deletions} />
         </span>
         <code title={sha}>{sha.slice(0, 7)}</code>
       </p>
       <DriftLine />
-      {input.files_complete ? null : <p className="mt-2 text-small text-muted">The file list may be incomplete.</p>}
+      {input.files_complete ? null : (
+        <p className="mt-2 text-small text-muted">
+          The file list may be incomplete.
+        </p>
+      )}
       <RoundsLine id={id} />
     </header>
   );

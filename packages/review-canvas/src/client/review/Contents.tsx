@@ -21,7 +21,8 @@ import { Rail } from "./Rail.tsx";
 import { layoutAtom, seenAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
 import { byDirectory } from "./view.ts";
 
-const KICKER = "text-technical font-semibold tracking-wide text-muted uppercase";
+const KICKER =
+  "text-technical font-semibold tracking-wide text-muted uppercase";
 
 /** Every file of the round by folder, marking the one in view, what was viewed, and what has open comments. */
 export const FileList = ({
@@ -39,7 +40,10 @@ export const FileList = ({
       {byDirectory(page.files.keys()).map(({ dir, paths }) => (
         <li key={dir} className="m-0">
           {dir === "" ? null : (
-            <p title={dir} className="truncate px-1 pt-1.5 font-mono text-technical text-muted">
+            <p
+              title={dir}
+              className="truncate px-1 pt-1.5 font-mono text-technical text-muted"
+            >
               {dir}
             </p>
           )}
@@ -63,11 +67,21 @@ export const FileList = ({
                       model.approved ? "text-muted" : "text-ink",
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{splitPath(path).base}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {splitPath(path).base}
+                    </span>
                     {model.approved ? (
-                      <Check role="img" aria-label="viewed" className="size-3.5 shrink-0 text-ink" />
+                      <Check
+                        role="img"
+                        aria-label="viewed"
+                        className="size-3.5 shrink-0 text-ink"
+                      />
                     ) : model.open > 0 ? (
-                      <Stat icon={MessageSquare} tone="ink" title={count(model.open, "open comment")}>
+                      <Stat
+                        icon={MessageSquare}
+                        tone="ink"
+                        title={count(model.open, "open comment")}
+                      >
                         {model.open}
                       </Stat>
                     ) : null}
@@ -91,7 +105,10 @@ export const DiffChoices = ({ wide }: { readonly wide: boolean }) => {
       <Segmented
         label="Diff layout"
         attribute="data-layout"
-        choices={[["unified", "Unified"], ["split", "Split"]]}
+        choices={[
+          ["unified", "Unified"],
+          ["split", "Split"],
+        ]}
         value={layout}
         onChange={setLayout}
         className="max-md:hidden"
@@ -101,7 +118,9 @@ export const DiffChoices = ({ wide }: { readonly wide: boolean }) => {
           type="checkbox"
           data-whitespace
           checked={whitespace === "hide"}
-          onChange={(event) => setWhitespace(event.currentTarget.checked ? "hide" : "show")}
+          onChange={(event) =>
+            setWhitespace(event.currentTarget.checked ? "hide" : "show")
+          }
           className="size-4 accent-accent"
         />
         Hide whitespace
@@ -130,7 +149,9 @@ export const Contents = ({
   // else the stop's, without moving the page: only the rail scrolls.
   useEffect(() => {
     if (!wide || !moved) return;
-    const rows = nav.current?.querySelectorAll<HTMLElement>("[aria-current='location']");
+    const rows = nav.current?.querySelectorAll<HTMLElement>(
+      "[aria-current='location']",
+    );
     const last = rows?.[rows.length - 1];
     if (last !== undefined) keepInRail(last);
   }, [current, wide, moved]);
@@ -153,7 +174,14 @@ export const Contents = ({
               }}
               className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
             >
-              <span className={cn("font-mono text-technical font-normal", read.has(stop.index) ? "text-accent" : "text-muted")}>{stop.index + 1}</span>
+              <span
+                className={cn(
+                  "font-mono text-technical font-normal",
+                  read.has(stop.index) ? "text-accent" : "text-muted",
+                )}
+              >
+                {stop.index + 1}
+              </span>
               <span className="min-w-0">{stop.title}</span>
             </a>
           </li>

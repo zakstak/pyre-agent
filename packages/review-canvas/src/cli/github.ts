@@ -57,19 +57,51 @@ export type BranchHome =
   | { readonly kind: "none"; readonly reason: string };
 
 /** A clone URL alone cannot distinguish self-hosted APIs. Bind each private host to its configured provider. */
-export const forgeRemote = (url: string, configured = process.env.REVIEW_CANVAS_FORGE_HOSTS): { readonly kind: Forge; readonly repo: string } | undefined => {
+export const forgeRemote = (
+  url: string,
+  configured = process.env.REVIEW_CANVAS_FORGE_HOSTS,
+): { readonly kind: Forge; readonly repo: string } | undefined => {
   const address = remoteAddress(url);
   if (address === null) return undefined;
   const at = address.indexOf("/");
   const host = address.slice(0, at);
   const repository = address.slice(at + 1);
-  const settings = configured === undefined ? {} : Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Literals(["github", "gitlab", "gitea"])))(JSON.parse(configured));
-  const provider = settings[host] ?? (host === "github.com" || host === process.env.GH_HOST ? "github" : host === "gitlab.com" ? "gitlab" : host === "codeberg.org" ? "gitea" : undefined);
+  const settings =
+    configured === undefined
+      ? {}
+      : Schema.decodeUnknownSync(
+          Schema.Record(
+            Schema.String,
+            Schema.Literals(["github", "gitlab", "gitea"]),
+          ),
+        )(JSON.parse(configured));
+  const provider =
+    settings[host] ??
+    (host === "github.com" || host === process.env.GH_HOST
+      ? "github"
+      : host === "gitlab.com"
+        ? "gitlab"
+        : host === "codeberg.org"
+          ? "gitea"
+          : undefined);
   if (provider === undefined) return undefined;
   // A custom SSH port does not establish where that host serves HTTPS.
-  if (url.startsWith("ssh://") && new URL(url).port !== "" && new URL(url).port !== "22") return undefined;
-  const route = provider === "github" ? "pull" : provider === "gitlab" ? "-/merge_requests" : "pulls";
-  if (parsePullRequest(`https://${host}/${repository}/${route}/1`) === undefined) return undefined;
+  if (
+    url.startsWith("ssh://") &&
+    new URL(url).port !== "" &&
+    new URL(url).port !== "22"
+  )
+    return undefined;
+  const route =
+    provider === "github"
+      ? "pull"
+      : provider === "gitlab"
+        ? "-/merge_requests"
+        : "pulls";
+  if (
+    parsePullRequest(`https://${host}/${repository}/${route}/1`) === undefined
+  )
+    return undefined;
   return { kind: provider, repo: `https://${host}/${repository}` };
 };
 
@@ -115,7 +147,10 @@ export const branchHome = (root: string): BranchHome => {
   const url = git(["config", "--get", `remote.${remote}.url`]);
   const home = url === undefined ? undefined : forgeRemote(url);
   return home === undefined
-    ? { kind: "none", reason: `the remote ${remote} has no configured review provider; collect an explicit --pr URL or set REVIEW_CANVAS_FORGE_HOSTS` }
+    ? {
+        kind: "none",
+        reason: `the remote ${remote} has no configured review provider; collect an explicit --pr URL or set REVIEW_CANVAS_FORGE_HOSTS`,
+      }
     : { ...home, branch };
 };
 
@@ -128,7 +163,11 @@ export const findPullRequest = (
   if (target.kind !== "worktree") return { kind: "found", url: target.url };
   const found = home(target.root);
   if (found.kind === "none") return found;
-  if (found.kind !== "github") return { kind: "none", reason: "This branch uses another review provider." };
+  if (found.kind !== "github")
+    return {
+      kind: "none",
+      reason: "This branch uses another review provider.",
+    };
   let answer: Array<{ url?: unknown }>;
   try {
     answer = JSON.parse(
@@ -161,7 +200,6 @@ export const findPullRequest = (
         reason: `no open pull request for ${found.branch} in ${found.repo}`,
       };
 };
-
 
 interface Page<T> {
   readonly pageInfo: {
@@ -287,7 +325,8 @@ const post = (node: Post) => ({
  */
 export const readComments = (url: string, gh: Gh): GitHubImport => {
   const pull = parsePullRequest(url);
-  if (pull === undefined || pull.provider !== "github") throw new GhFailed(`${url} is not a GitHub pull request URL`);
+  if (pull === undefined || pull.provider !== "github")
+    throw new GhFailed(`${url} is not a GitHub pull request URL`);
   const [owner, name] = pull.repository.split("/");
   const pr = {
     host: pull.host,

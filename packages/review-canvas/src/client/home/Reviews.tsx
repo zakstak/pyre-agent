@@ -3,10 +3,35 @@
  * them, as on GitHub's pull request list; the standing chips write its `is:` term.
  */
 import { useAtom } from "@effect/atom-react";
-import { Archive, Check, CircleCheck, CircleX, FileDiff, Hourglass, type LucideIcon, MessageCircle } from "lucide-react";
+import {
+  Archive,
+  Check,
+  CircleCheck,
+  CircleX,
+  FileDiff,
+  Hourglass,
+  type LucideIcon,
+  MessageCircle,
+} from "lucide-react";
 import type { Verdict } from "../../schema/feedback.ts";
-import { facetValues, isStateTerm, STATE_OPTIONS, withoutKey, withoutState } from "../../review/facets.ts";
-import { formatQuery, hasStanding, matches, parseQuery, type Query, type Standing, standing, withoutStanding, withStanding } from "../../review/query.ts";
+import {
+  facetValues,
+  isStateTerm,
+  STATE_OPTIONS,
+  withoutKey,
+  withoutState,
+} from "../../review/facets.ts";
+import {
+  formatQuery,
+  hasStanding,
+  matches,
+  parseQuery,
+  type Query,
+  type Standing,
+  standing,
+  withoutStanding,
+  withStanding,
+} from "../../review/query.ts";
 import type { ReviewSummary } from "../../schema/rpc.ts";
 import { count, VERDICT_TEXT } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
@@ -20,7 +45,11 @@ import { AgentVoice } from "../ui/voice.tsx";
 import { reviewQueryAtom } from "./data.ts";
 import { FilterMenu, type MenuRow } from "./FilterMenu.tsx";
 
-const STANDING_ORDER: Readonly<Record<Standing, number>> = { yours: 0, agents: 1, closed: 2 };
+const STANDING_ORDER: Readonly<Record<Standing, number>> = {
+  yours: 0,
+  agents: 1,
+  closed: 2,
+};
 
 const STANDING_LABEL: Readonly<Record<Standing, string>> = {
   yours: "Needs you",
@@ -28,7 +57,12 @@ const STANDING_LABEL: Readonly<Record<Standing, string>> = {
   closed: "Closed",
 };
 
-const VERDICT_STAT: Readonly<Record<Verdict, { readonly icon: LucideIcon; readonly tone: "success" | "danger" | "muted" }>> = {
+const VERDICT_STAT: Readonly<
+  Record<
+    Verdict,
+    { readonly icon: LucideIcon; readonly tone: "success" | "danger" | "muted" }
+  >
+> = {
   approve: { icon: CircleCheck, tone: "success" },
   request_changes: { icon: CircleX, tone: "danger" },
   comment: { icon: MessageCircle, tone: "muted" },
@@ -39,13 +73,23 @@ const VERDICT_STAT: Readonly<Record<Verdict, { readonly icon: LucideIcon; readon
  * the reviewer's: answers to read first, then files left, then Finish.
  */
 const Stats = ({ item }: { readonly item: ReviewSummary }) => {
-  if (item.closed_at !== undefined) return <Stat icon={Archive} title="Closed · replaced by a fresh start" />;
+  if (item.closed_at !== undefined)
+    return <Stat icon={Archive} title="Closed · replaced by a fresh start" />;
   if (item.round === undefined)
-    return <Stat icon={Hourglass} title={`Waiting for the first round · started ${timeTitle(item.created_at)}`} />;
+    return (
+      <Stat
+        icon={Hourglass}
+        title={`Waiting for the first round · started ${timeTitle(item.created_at)}`}
+      />
+    );
   const progress = item.progress;
   const viewed = (tone: "action" | "muted") =>
     progress === undefined ? null : (
-      <Stat icon={Check} tone={tone} title={`${progress.viewed} of ${count(progress.viewable, "file")} viewed`}>
+      <Stat
+        icon={Check}
+        tone={tone}
+        title={`${progress.viewed} of ${count(progress.viewable, "file")} viewed`}
+      >
         {progress.viewed}/{progress.viewable}
       </Stat>
     );
@@ -54,7 +98,11 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
     const verdict = VERDICT_STAT[item.verdict];
     return (
       <>
-        <Stat icon={verdict.icon} tone={verdict.tone} title={`Round ${item.round} finished · ${VERDICT_TEXT[item.verdict]}`} />
+        <Stat
+          icon={verdict.icon}
+          tone={verdict.tone}
+          title={`Round ${item.round} finished · ${VERDICT_TEXT[item.verdict]}`}
+        />
         {viewed("muted")}
       </>
     );
@@ -65,16 +113,27 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
   return (
     <>
       {forYou === 0 ? null : (
-        <AnswerStat count={forYou} title={`${count(forYou, "answer")} to read`} />
+        <AnswerStat
+          count={forYou}
+          title={`${count(forYou, "answer")} to read`}
+        />
       )}
       {viewed(forYou === 0 && left > 0 ? "action" : "muted")}
       {drift === 0 ? null : (
-        <Stat icon={FileDiff} tone="warning" title={`${count(drift, "file")} changed since the round`}>
+        <Stat
+          icon={FileDiff}
+          tone="warning"
+          title={`${count(drift, "file")} changed since the round`}
+        >
           {drift}
         </Stat>
       )}
       {forYou === 0 && left === 0 ? (
-        <Stat icon={CircleCheck} tone="action" title={`Finish round ${item.round}`}>
+        <Stat
+          icon={CircleCheck}
+          tone="action"
+          title={`Finish round ${item.round}`}
+        >
           Finish
         </Stat>
       ) : null}
@@ -120,7 +179,9 @@ const ReviewRow = ({ item }: { readonly item: ReviewSummary }) => {
               ))}
             </span>
           )}
-          {closed || item.round === undefined ? null : <span>Round {item.round}</span>}
+          {closed || item.round === undefined ? null : (
+            <span>Round {item.round}</span>
+          )}
         </p>
       </div>
       <p className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1 self-start text-small max-md:col-start-2 max-md:justify-start">
@@ -141,7 +202,11 @@ const CHIPS = [
   ["closed", "Closed"],
 ] as const;
 
-export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSummary> }) => {
+export const Reviews = ({
+  reviews,
+}: {
+  readonly reviews: ReadonlyArray<ReviewSummary>;
+}) => {
   const [text, setText] = useAtom(reviewQueryAtom);
   const query = parseQuery(text);
   // Each chip counts the reviews the rest of the query leaves.
@@ -151,7 +216,11 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
   const shown = reviews
     .filter((item) => matches(query, item))
     .sort((a, b) => STANDING_ORDER[standing(a)] - STANDING_ORDER[standing(b)]);
-  const menu = { reviews, query, onQuery: (next: Query) => setText(formatQuery(next)) };
+  const menu = {
+    reviews,
+    query,
+    onQuery: (next: Query) => setText(formatQuery(next)),
+  };
   return (
     <section aria-label="Reviews">
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -164,11 +233,19 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
                 value,
                 <>
                   {label}{" "}
-                  <span className="font-normal tabular-nums">{left.filter((item) => matches(parseQuery(`is:${value}`), item)).length}</span>
+                  <span className="font-normal tabular-nums">
+                    {
+                      left.filter((item) =>
+                        matches(parseQuery(`is:${value}`), item),
+                      ).length
+                    }
+                  </span>
                 </>,
               ] as const,
           )}
-          value={CHIPS.map(([value]) => value).find((value) => hasStanding(query, value))}
+          value={CHIPS.map(([value]) => value).find((value) =>
+            hasStanding(query, value),
+          )}
           onChange={(value) => setText(formatQuery(withStanding(query, value)))}
         />
         <div className="ml-auto flex items-center gap-1">
@@ -176,7 +253,16 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
             name="repo"
             label="Repo"
             finds="repositories"
-            groups={[facetValues(reviews, "repo").map(({ value }): MenuRow => ({ key: "repo", value, exclusive: true, label: value }))]}
+            groups={[
+              facetValues(reviews, "repo").map(
+                ({ value }): MenuRow => ({
+                  key: "repo",
+                  value,
+                  exclusive: true,
+                  label: value,
+                }),
+              ),
+            ]}
             {...menu}
             active={query.terms.some((term) => term.key === "repo")}
             clear={(next) => withoutKey(next, "repo")}
@@ -187,7 +273,13 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
             finds="authors"
             groups={[
               facetValues(reviews, "author").map(
-                ({ value }): MenuRow => ({ key: "author", value, exclusive: true, label: value, content: <AgentVoice label={value} /> }),
+                ({ value }): MenuRow => ({
+                  key: "author",
+                  value,
+                  exclusive: true,
+                  label: value,
+                  content: <AgentVoice label={value} />,
+                }),
               ),
             ]}
             {...menu}
@@ -220,7 +312,8 @@ export const Reviews = ({ reviews }: { readonly reviews: ReadonlyArray<ReviewSum
       </p>
       {reviews.length === 0 ? (
         <p className="text-muted">
-          No reviews yet. An agent starts one with <code>review-canvas register</code>.
+          No reviews yet. An agent starts one with{" "}
+          <code>review-canvas register</code>.
         </p>
       ) : shown.length === 0 ? (
         <p className="text-muted">No reviews match.</p>

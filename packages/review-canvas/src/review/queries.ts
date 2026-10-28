@@ -6,7 +6,12 @@ import type { Approval, Comment } from "../schema/feedback.ts";
 import type { ReviewFile } from "../schema/input.ts";
 import type { ReviewState, Round, SubmissionRecord } from "../schema/state.ts";
 
-export type { Drift, ReviewState, Round, SubmissionRecord } from "../schema/state.ts";
+export type {
+  Drift,
+  ReviewState,
+  Round,
+  SubmissionRecord,
+} from "../schema/state.ts";
 
 /** A question the reviewer asked now, which the agents answer without waiting for the round to finish. */
 export const isQuestion = (comment: Comment): boolean =>

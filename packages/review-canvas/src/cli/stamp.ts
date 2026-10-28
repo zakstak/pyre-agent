@@ -11,14 +11,29 @@
  *   node src/cli/stamp.ts --write   writes the hash into dist/build.json, after a build
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The build's inputs, relative to the package root: single files, then every file under these folders. */
-const FILES = ["package.json", "pnpm-lock.yaml", "tsconfig.json", "index.html", "vite.config.ts", "vite.node.config.ts"];
+const FILES = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
+  "index.html",
+  "vite.config.ts",
+  "vite.node.config.ts",
+];
 const FOLDERS = ["src", "../../skills/internal-visual-style/assets"];
 
 /** Every file under a folder, deepest last within each folder, in name order, so the hash does not depend on the disk. */
@@ -26,13 +41,22 @@ const walk = (dir: string): ReadonlyArray<string> =>
   existsSync(dir)
     ? readdirSync(dir, { withFileTypes: true })
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-        .flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : entry.isFile() ? [join(dir, entry.name)] : []))
+        .flatMap((entry) =>
+          entry.isDirectory()
+            ? walk(join(dir, entry.name))
+            : entry.isFile()
+              ? [join(dir, entry.name)]
+              : [],
+        )
     : [];
 
 /** The hash of the inputs' paths and contents. */
 export const inputsHash = (root = here): string => {
   const hash = createHash("sha256");
-  const files = [...FILES.map((file) => join(root, file)).filter(existsSync), ...FOLDERS.flatMap((folder) => walk(join(root, folder)))];
+  const files = [
+    ...FILES.map((file) => join(root, file)).filter(existsSync),
+    ...FOLDERS.flatMap((folder) => walk(join(root, folder))),
+  ];
   for (const file of files) {
     hash.update(relative(root, file).split(sep).join("/"));
     hash.update("\0");
@@ -48,7 +72,12 @@ export const stampPath = (root = here): string => join(root, "dist/build.json");
 export const readStamp = (root = here): string | undefined => {
   try {
     const stamp: unknown = JSON.parse(readFileSync(stampPath(root), "utf8"));
-    return typeof stamp === "object" && stamp !== null && "inputs" in stamp && typeof stamp.inputs === "string" ? stamp.inputs : undefined;
+    return typeof stamp === "object" &&
+      stamp !== null &&
+      "inputs" in stamp &&
+      typeof stamp.inputs === "string"
+      ? stamp.inputs
+      : undefined;
   } catch {
     return undefined;
   }
@@ -57,7 +86,10 @@ export const readStamp = (root = here): string | undefined => {
 /** Records the inputs' hash beside the build, once the build has finished. */
 export const writeStamp = (root = here): void => {
   mkdirSync(join(root, "dist"), { recursive: true });
-  writeFileSync(stampPath(root), `${JSON.stringify({ inputs: inputsHash(root), built_at: new Date().toISOString() }, null, 2)}\n`);
+  writeFileSync(
+    stampPath(root),
+    `${JSON.stringify({ inputs: inputsHash(root), built_at: new Date().toISOString() }, null, 2)}\n`,
+  );
 };
 
 /** Removes the stamp, before a build starts: until the build finishes, dist is not a build of anything. */
@@ -66,14 +98,18 @@ export const clearStamp = (root = here): void => {
 };
 
 /** Whether the build in dist was made from the sources beside it. */
-export const fresh = (root = here): boolean => readStamp(root) === inputsHash(root);
+export const fresh = (root = here): boolean =>
+  readStamp(root) === inputsHash(root);
 
 /** Whether this module is the one the command ran, by real path: the given path may go through a symlink, as macOS's temp folder does. */
 const isEntry = (): boolean => {
   const entry = process.argv[1];
   if (entry === undefined) return false;
   try {
-    return pathToFileURL(realpathSync(entry)).href === pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href;
+    return (
+      pathToFileURL(realpathSync(entry)).href ===
+      pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href
+    );
   } catch {
     return false;
   }

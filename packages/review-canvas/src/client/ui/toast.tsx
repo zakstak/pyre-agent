@@ -14,7 +14,11 @@ let current: string | undefined;
 
 export const toast = (message: string, kind: ToastKind = "info"): void => {
   if (current !== undefined) manager.close(current);
-  current = manager.add({ description: message, type: kind, timeout: kind === "danger" ? 8000 : 3500 });
+  current = manager.add({
+    description: message,
+    type: kind,
+    timeout: kind === "danger" ? 8000 : 3500,
+  });
 };
 
 const List = () => {
@@ -33,7 +37,11 @@ const List = () => {
   ));
 };
 
-export const Toasts = ({ children }: { readonly children: React.ReactNode }) => (
+export const Toasts = ({
+  children,
+}: {
+  readonly children: React.ReactNode;
+}) => (
   <Toast.Provider toastManager={manager} limit={1}>
     {children}
     <Toast.Portal>

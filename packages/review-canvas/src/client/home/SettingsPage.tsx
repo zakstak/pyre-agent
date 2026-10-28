@@ -32,8 +32,16 @@ export const SettingsPage = ({ section }: { readonly section: SectionId }) => {
   return (
     <>
       <SkipLink />
-      <TopBar width="home" place={<h1 className="font-semibold">Settings</h1>} />
-      <div className={cn(frame({ width: "home" }), "grid gap-x-8 gap-y-6 pt-8 pb-16 md:grid-cols-[12rem_minmax(0,1fr)]")}>
+      <TopBar
+        width="home"
+        place={<h1 className="font-semibold">Settings</h1>}
+      />
+      <div
+        className={cn(
+          frame({ width: "home" }),
+          "grid gap-x-8 gap-y-6 pt-8 pb-16 md:grid-cols-[12rem_minmax(0,1fr)]",
+        )}
+      >
         <SettingsNav current={section} />
         <main id="main" tabIndex={-1} className="min-w-0">
           <Content section={section} />

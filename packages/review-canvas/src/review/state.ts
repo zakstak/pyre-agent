@@ -11,25 +11,21 @@ import type {
   Comment,
   Reply,
   ReviewerReply,
-  Submission,
   Verdict,
 } from "../schema/feedback.ts";
 import { compareReplies } from "../schema/feedback.ts";
-import type { ReviewFile, ReviewInput } from "../schema/input.ts";
+import type { ReviewInput } from "../schema/input.ts";
 import type {
   CommentId,
   CommitSha,
   Fingerprint,
-  InputDigest,
   ReplyId,
   RepoPath,
-  ReviewId,
   Revision,
   RoundNumber,
   ThreadId,
   Timestamp,
 } from "../schema/primitives.ts";
-import type { Target } from "../schema/target.ts";
 import {
   type AnchorProblem,
   anchorForRows,

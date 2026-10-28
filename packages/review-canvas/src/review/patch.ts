@@ -94,7 +94,6 @@ export const parseRows = (patch: string): ReadonlyArray<Row> => {
 export const joinedRows = (rows: ReadonlyArray<Row>): string =>
   rows.map((row) => row.text).join("\n");
 
-
 /** The row that shows a source line on one side, if the patch shows it. */
 export const rowForLine = (
   rows: ReadonlyArray<Row>,
@@ -173,7 +172,9 @@ export const attachedRows = (
  * deletion and the addition in its place hold the same text once all whitespace is removed. A view of the rows, not
  * a new diff: indexes and anchors stay as they are.
  */
-export const whitespaceOnly = (rows: ReadonlyArray<Row>): ReadonlySet<number> => {
+export const whitespaceOnly = (
+  rows: ReadonlyArray<Row>,
+): ReadonlySet<number> => {
   const found = new Set<number>();
   const run = (from: number, kind: RowKind) => {
     let to = from;
@@ -189,7 +190,10 @@ export const whitespaceOnly = (rows: ReadonlyArray<Row>): ReadonlySet<number> =>
     }
     const adds = run(at + dels.length, "add");
     at += dels.length + adds.length;
-    if (dels.length === adds.length && dels.every((row, pair) => bare(row) === bare(adds[pair])))
+    if (
+      dels.length === adds.length &&
+      dels.every((row, pair) => bare(row) === bare(adds[pair]))
+    )
       for (const row of [...dels, ...adds]) found.add(row.index);
   }
   return found;

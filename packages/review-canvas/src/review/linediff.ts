@@ -93,7 +93,7 @@ export const unifiedDiff = (
   const ops = editScript(lines(before), lines(after), options.limit ?? 2000);
   if (ops === undefined || ops.every((op) => op.kind === " ")) return undefined;
   // Line numbers of each op on both sides, and which ops a hunk keeps: changes and the context around them.
-  const keep = new Array<boolean>(ops.length).fill(false);
+  const keep = Array.from({ length: ops.length }, () => false);
   ops.forEach((op, at) => {
     if (op.kind === " ") return;
     for (

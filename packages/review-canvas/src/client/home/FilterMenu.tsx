@@ -6,7 +6,13 @@
 import { Popover } from "@base-ui/react/popover";
 import { Ban, Check, ChevronDown, Minus } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
-import { exclude, include, type Option, restFor, termState } from "../../review/facets.ts";
+import {
+  exclude,
+  include,
+  type Option,
+  restFor,
+  termState,
+} from "../../review/facets.ts";
 import { matches, type Query } from "../../review/query.ts";
 import type { ReviewSummary } from "../../schema/rpc.ts";
 import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
@@ -15,7 +21,10 @@ import { FIELD } from "../ui/field.ts";
 import { PRESSED } from "../ui/segmented.tsx";
 
 /** A row of a menu: the term it writes, the text its search narrows by, and how it shows when not plain text. */
-export type MenuRow = Option & { readonly label: string; readonly content?: ReactNode };
+export type MenuRow = Option & {
+  readonly label: string;
+  readonly content?: ReactNode;
+};
 
 /** With more values than this, a search field narrows the rows. */
 const SEARCH_AFTER = 7;
@@ -42,7 +51,11 @@ export const FilterMenu = (props: FilterMenuProps) => (
     <Popover.Trigger
       data-filter-menu={props.name}
       data-active={props.active ? "" : undefined}
-      className={cn(buttonVariants({ variant: "quiet", size: "sm" }), "gap-1", props.active && PRESSED)}
+      className={cn(
+        buttonVariants({ variant: "quiet", size: "sm" }),
+        "gap-1",
+        props.active && PRESSED,
+      )}
     >
       {props.label}
       <ChevronDown aria-hidden="true" className="size-3.5" />
@@ -64,18 +77,29 @@ export const FilterMenu = (props: FilterMenuProps) => (
  * The popup's content, mounted while it is open so the search starts empty each time. Opening focuses its first
  * control, the search field when there is one, else the first row.
  */
-const MenuBody = ({ finds, groups, reviews, query, onQuery, active, clear }: FilterMenuProps) => {
+const MenuBody = ({
+  finds,
+  groups,
+  reviews,
+  query,
+  onQuery,
+  active,
+  clear,
+}: FilterMenuProps) => {
   const [search, setSearch] = useState("");
   const list = useRef<HTMLUListElement>(null);
   const total = groups.reduce((sum, group) => sum + group.length, 0);
   const needle = search.trim().toLowerCase();
   const shown = groups
-    .map((group) => group.filter((row) => row.label.toLowerCase().includes(needle)))
+    .map((group) =>
+      group.filter((row) => row.label.toLowerCase().includes(needle)),
+    )
     .filter((group) => group.length > 0);
   const flat = shown.flat();
 
   const rowButtons = (): ReadonlyArray<HTMLButtonElement> => [
-    ...(list.current?.querySelectorAll<HTMLButtonElement>("button[data-row]") ?? []),
+    ...(list.current?.querySelectorAll<HTMLButtonElement>("button[data-row]") ??
+      []),
   ];
 
   // Arrows move between the rows, wrapping at the ends; Alt+Enter excludes, as Alt+click does.
@@ -128,9 +152,13 @@ const MenuBody = ({ finds, groups, reviews, query, onQuery, active, clear }: Fil
       ) : null}
       <ul ref={list} onKeyDown={onKeyDown} className="max-h-80 overflow-y-auto">
         {total === 0 ? (
-          <li className="flex h-8 items-center px-2.5 text-muted">Nothing to filter by.</li>
+          <li className="flex h-8 items-center px-2.5 text-muted">
+            Nothing to filter by.
+          </li>
         ) : flat.length === 0 ? (
-          <li className="flex h-8 items-center px-2.5 text-muted">Nothing matches.</li>
+          <li className="flex h-8 items-center px-2.5 text-muted">
+            Nothing matches.
+          </li>
         ) : (
           shown.map((group, at) =>
             group.map((row, index) => (
@@ -156,7 +184,10 @@ const MenuBody = ({ finds, groups, reviews, query, onQuery, active, clear }: Fil
                 rowButtons()[0]?.focus();
                 onQuery(clear(query));
               }}
-              className={cn(TOUCH_TARGET, "flex h-8 w-full items-center px-2.5 text-left text-muted hover:bg-subtle focus-visible:bg-subtle")}
+              className={cn(
+                TOUCH_TARGET,
+                "flex h-8 w-full items-center px-2.5 text-left text-muted hover:bg-subtle focus-visible:bg-subtle",
+              )}
             >
               Clear
             </button>
@@ -185,7 +216,12 @@ const Row = ({
 }) => {
   const state = termState(query, row.key, row.value);
   // The reviews the rest of the query leaves with this value: the key's positive terms give way, its negated stay.
-  const counted: Query = { terms: [...restFor(query, row).terms, { key: row.key, value: row.value, negated: false }] };
+  const counted: Query = {
+    terms: [
+      ...restFor(query, row).terms,
+      { key: row.key, value: row.value, negated: false },
+    ],
+  };
   const count = reviews.filter((review) => matches(counted, review)).length;
   const excluded = state === "excluded";
   return (
@@ -201,17 +237,34 @@ const Row = ({
         data-row=""
         data-index={index}
         aria-pressed={state === "included"}
-        onClick={(event) => onQuery(event.altKey ? exclude(query, row) : include(query, row))}
-        className={cn(TOUCH_TARGET, "col-span-3 grid h-8 w-full grid-cols-subgrid items-center pl-2.5 text-left outline-none")}
+        onClick={(event) =>
+          onQuery(event.altKey ? exclude(query, row) : include(query, row))
+        }
+        className={cn(
+          TOUCH_TARGET,
+          "col-span-3 grid h-8 w-full grid-cols-subgrid items-center pl-2.5 text-left outline-none",
+        )}
       >
         <span aria-hidden="true">
-          {state === "included" ? <Check className="size-3.5" /> : excluded ? <Minus className="size-3.5 text-muted" /> : null}
+          {state === "included" ? (
+            <Check className="size-3.5" />
+          ) : excluded ? (
+            <Minus className="size-3.5 text-muted" />
+          ) : null}
         </span>
         {/* A voice is inline-flex and its name text-ink, so a strike and the muted colour go on its parts. */}
-        <span className={cn("min-w-0 truncate", excluded && "text-muted line-through [&_*]:line-through [&_.text-ink]:text-muted")}>
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            excluded &&
+              "text-muted line-through [&_*]:line-through [&_.text-ink]:text-muted",
+          )}
+        >
           {row.content ?? row.label}
         </span>
-        <span className="justify-self-end text-muted tabular-nums">{count}</span>
+        <span className="justify-self-end text-muted tabular-nums">
+          {count}
+        </span>
       </button>
       <button
         type="button"

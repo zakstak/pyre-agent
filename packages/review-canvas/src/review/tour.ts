@@ -1,7 +1,7 @@
 import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
 import type { RepoPath } from "../schema/primitives.ts";
-import type { Attention, Stop, StopFile } from "../schema/tour.ts";
+import type { Attention, StopFile } from "../schema/tour.ts";
 import { parseRows, rowsForLines } from "./patch.ts";
 
 /** An excerpt resolved to rows of its file's patch. */

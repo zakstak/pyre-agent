@@ -5,7 +5,12 @@
  */
 import type { Comment, Verdict } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
-import type { CommentId, RepoPath, RoundNumber, ThreadId } from "../schema/primitives.ts";
+import type {
+  CommentId,
+  RepoPath,
+  RoundNumber,
+  ThreadId,
+} from "../schema/primitives.ts";
 import { progress, standingOf } from "./progress.ts";
 import { currentSubmission, type ReviewState, type Round } from "./queries.ts";
 import type { StopView } from "./tour.ts";
@@ -95,16 +100,23 @@ const pageOrder = (
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
 ): ((a: Comment, b: Comment) => number) => {
-  const files = new Map(walkthroughOrder(stops).map((item, at) => [item.path, at]));
+  const files = new Map(
+    walkthroughOrder(stops).map((item, at) => [item.path, at]),
+  );
   const departed = files.size;
   const place = (comment: Comment): readonly [number, number] => {
     if (comment.kind === "general") return [departed + 1, 0];
     const file = files.get(comment.anchor.path);
-    if (file === undefined || !input.files.some((item) => item.path === comment.anchor.path))
+    if (
+      file === undefined ||
+      !input.files.some((item) => item.path === comment.anchor.path)
+    )
       return [departed, 0];
     return [
       file,
-      comment.attachment.state === "attached" ? comment.attachment.end : Number.POSITIVE_INFINITY,
+      comment.attachment.state === "attached"
+        ? comment.attachment.end
+        : Number.POSITIVE_INFINITY,
     ];
   };
   return (a, b) => {
@@ -112,7 +124,11 @@ const pageOrder = (
     const [fileB, rowB] = place(b);
     if (fileA !== fileB) return fileA - fileB;
     if (rowA !== rowB) return rowA < rowB ? -1 : 1;
-    return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
+    return a.created_at < b.created_at
+      ? -1
+      : a.created_at > b.created_at
+        ? 1
+        : 0;
   };
 };
 
@@ -151,7 +167,9 @@ export const fileStep = (
 ): Extract<Next, { kind: "file" }> | undefined => {
   const counts = progress(state, input);
   const viewable = new Set(
-    input.files.filter((file) => file.fingerprint !== undefined).map((file) => file.path),
+    input.files
+      .filter((file) => file.fingerprint !== undefined)
+      .map((file) => file.path),
   );
   const unviewed = walkthroughOrder(stops).filter(
     (item) => viewable.has(item.path) && !counts.viewed.has(item.path),
@@ -182,7 +200,11 @@ export const nextStep = (
   if (state.closed_at !== undefined) return { kind: "closed" };
   const submission = currentSubmission(state);
   if (submission !== undefined)
-    return { kind: "finished", round: round.round, verdict: submission.verdict };
+    return {
+      kind: "finished",
+      round: round.round,
+      verdict: submission.verdict,
+    };
   return (
     answerStep(state, input, stops) ??
     fileStep(state, input, stops) ?? {

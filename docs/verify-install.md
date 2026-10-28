@@ -16,10 +16,10 @@ python3 -m unittest tests/test_plugins.py tests/test_skill_versions.py tests/tes
 ```
 
 Tests refuse wrappers that overwrite temporary configuration directories. They
-install core in temporary homes, verify skills and the absence of startup
-hooks, check refresh behavior, and remove the plugin. They do not copy
-credentials or perform model inference. Temporary profiles isolate host
-configuration, but are not an operating-system sandbox.
+install core in temporary homes, verify skills and the absence of startup hooks,
+check refresh behavior, and remove the plugin. They do not copy credentials or
+perform model inference. Temporary profiles isolate host configuration, but are
+not an operating-system sandbox.
 
 Both installed copies must retain local instruction references, companion
 skills, and the source LICENSE and README. They must contain no personal
@@ -43,11 +43,11 @@ For direct GitHub installations, Codex supports ref selection through
 `marketplace add --ref`; see the
 [CLI reference](https://learn.chatgpt.com/docs/cli/reference#codex-plugin-marketplace).
 
-Follow [Install](../README.md#install) in temporary host
-profiles. A local checkout test does not prove Git acquisition or private
-repository access. Verify the installed source URL, revision, and version.
-Inspect the installed package and host component inventory. Core must provide
-engineering skills and no startup hook.
+Follow [Install](../README.md#install) in temporary host profiles. A local
+checkout test does not prove Git acquisition or private repository access.
+Verify the installed source URL, revision, and version. Inspect the installed
+package and host component inventory. Core must provide engineering skills and
+no startup hook.
 
 In the same temporary profiles, register the separately configured private
 extras source and select its personal plugin. Confirm that the hook and context
@@ -59,9 +59,9 @@ separately. Package tests stop before user hook acceptance.
 
 ## Accept optional Codex hooks
 
-Core has no startup hook, so a core-only install needs no hook acceptance.
-For an extras plugin with hooks, finish setup in the same user profile where
-you installed it. Run this command yourself in a terminal:
+Core has no startup hook, so a core-only install needs no hook acceptance. For
+an extras plugin with hooks, finish setup in the same user profile where you
+installed it. Run this command yourself in a terminal:
 
 ```sh
 codex
@@ -110,8 +110,8 @@ claude plugin list --json
 
 Back up the relevant registration files and plugin caches outside the source
 repository. Keep backup permissions private. Install the GitHub base and the
-private extras in a temporary profile first, and verify both before changing
-the real profile.
+private extras in a temporary profile first, and verify both before changing the
+real profile.
 
 For a direct installation, register the GitHub core catalog and the private
 extras catalog separately. Remove the superseded plugin IDs through the host's
@@ -119,13 +119,13 @@ native commands, preserving persistent data. Keep each plugin installed from
 only one catalog to avoid duplicate skills and hooks. Preserve unrelated
 marketplaces and the source checkout.
 
-For a managed installation, use its catalog name in plugin IDs. Keep source
-URLs and revision pins in deployment configuration. Update catalog entries so
-core pins a revision of this repository and personal plugins pin revisions of
-their extras source.
-Changing a user registration does not necessarily override machine policy.
-Use the environment's established owner operation when managed settings enforce
-a plugin or source. Do not alter authentication or elevation policy to proceed.
+For a managed installation, use its catalog name in plugin IDs. Keep source URLs
+and revision pins in deployment configuration. Update catalog entries so core
+pins a revision of this repository and personal plugins pin revisions of their
+extras source. Changing a user registration does not necessarily override
+machine policy. Use the environment's established owner operation when managed
+settings enforce a plugin or source. Do not alter authentication or elevation
+policy to proceed.
 
 List plugins again. Verify one enabled core copy, one selected personal plugin
 copy, their expected source revisions, and no personal hook attributed to core.

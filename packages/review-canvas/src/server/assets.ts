@@ -1,9 +1,10 @@
 import { Context, Data, Effect, FileSystem, Layer, Path } from "effect";
 
 /** The page shell Vite builds: its `index.html`, which links the hashed scripts and styles under /assets. */
-export class Assets extends Context.Service<Assets, { readonly index: string }>()(
-  "review-canvas/Assets",
-) {}
+export class Assets extends Context.Service<
+  Assets,
+  { readonly index: string }
+>()("review-canvas/Assets") {}
 
 export class AssetsNotBuilt extends Data.TaggedError("AssetsNotBuilt")<{
   readonly file: string;

@@ -21,7 +21,12 @@ import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
 import { anchorAt, attach } from "./anchor.ts";
 import { attachedRows, parseRows, type Row } from "./patch.ts";
-import { type ActionContext, ActionError, appendReply, withRound } from "./state.ts";
+import {
+  type ActionContext,
+  ActionError,
+  appendReply,
+  withRound,
+} from "./state.ts";
 import { type ReviewState, type Turn } from "./queries.ts";
 
 /**
@@ -321,7 +326,7 @@ const placedAnchor = (
   const end = rows.findIndex((row) => row[side] === thread.line);
   if (end === -1) return undefined;
   let from = end;
-  for (let counted = 1; counted < lines;) {
+  for (let counted = 1; counted < lines; ) {
     const before = rows[from - 1];
     if (before === undefined || before.kind === "hunk") break;
     from--;

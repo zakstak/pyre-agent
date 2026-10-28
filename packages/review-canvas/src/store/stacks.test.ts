@@ -474,7 +474,7 @@ test("a version 4 database from before walkthroughs opens with its reviews and g
   upgraded.close();
   const version = new DatabaseSync(path);
   assert.deepEqual(
-    { ...(version.prepare("PRAGMA user_version").get() ?? {}) },
+    { ...version.prepare("PRAGMA user_version").get() },
     { user_version: 4 },
   );
   version.close();

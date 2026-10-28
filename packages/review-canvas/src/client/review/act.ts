@@ -5,7 +5,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+} from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { PageAction } from "../../schema/rpc.ts";
 import { type CallError, failureText, NO_ANSWER } from "../rpc.ts";
@@ -15,19 +21,29 @@ import type { View } from "./ui.ts";
 import type { PageModel } from "./view.ts";
 
 /** What a change came to: its result, or why it did not go through. */
-type Outcome<A> = { readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string };
+type Outcome<A> =
+  | { readonly ok: true; readonly value: A }
+  | { readonly ok: false; readonly message: string };
 
 /** A change's exit as an outcome. No exit means the change could not be sent: the socket was not ready. */
-const outcomeOf = <A>(exit: Exit.Exit<A, CallError> | undefined): Outcome<A> => {
+const outcomeOf = <A>(
+  exit: Exit.Exit<A, CallError> | undefined,
+): Outcome<A> => {
   if (exit === undefined) return { ok: false, message: NO_ANSWER };
-  return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : { ok: false, message: failureText(exit.cause) };
+  return Exit.isSuccess(exit)
+    ? { ok: true, value: exit.value }
+    : { ok: false, message: failureText(exit.cause) };
 };
 
 /**
  * The page for one review: its ID, what it shows now, and how it reads: the reviewer's view, except that a narrow
  * page reads guided.
  */
-export const ReviewContext = createContext<{ readonly id: ReviewId; readonly page: PageModel; readonly view: View } | null>(null);
+export const ReviewContext = createContext<{
+  readonly id: ReviewId;
+  readonly page: PageModel;
+  readonly view: View;
+} | null>(null);
 
 export const usePage = () => {
   const value = useContext(ReviewContext);
@@ -38,7 +54,9 @@ export const usePage = () => {
 /** The page's changes for the review it shows, once the RPC client is ready. */
 const useActions = () => {
   const { id, page } = usePage();
-  const actions = Option.getOrUndefined(AsyncResult.value(useAtomValue(actionsAtom(id))));
+  const actions = Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(actionsAtom(id))),
+  );
   return { actions, shown: page.snapshot.revision };
 };
 
@@ -47,8 +65,11 @@ export const useAct = () => {
   const { actions, shown } = useActions();
   return useCallback(
     async (action: PageAction, options: { readonly quiet?: boolean } = {}) => {
-      const outcome = outcomeOf(actions === undefined ? undefined : await actions.act(action, shown));
-      if (!outcome.ok && options.quiet !== true) toast(outcome.message, "danger");
+      const outcome = outcomeOf(
+        actions === undefined ? undefined : await actions.act(action, shown),
+      );
+      if (!outcome.ok && options.quiet !== true)
+        toast(outcome.message, "danger");
       return outcome;
     },
     [actions, shown],
@@ -59,7 +80,12 @@ export const useAct = () => {
 export const useImport = () => {
   const { actions, shown } = useActions();
   return useCallback(
-    async (text: string) => outcomeOf(actions === undefined ? undefined : await actions.importFeedback(text, shown)),
+    async (text: string) =>
+      outcomeOf(
+        actions === undefined
+          ? undefined
+          : await actions.importFeedback(text, shown),
+      ),
     [actions, shown],
   );
 };

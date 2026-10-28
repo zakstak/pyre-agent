@@ -4,7 +4,11 @@
  */
 import { Effect, type Exit, Option, Ref, Semaphore, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import type { ReviewId, Revision, RoundNumber } from "../../schema/primitives.ts";
+import type {
+  ReviewId,
+  Revision,
+  RoundNumber,
+} from "../../schema/primitives.ts";
 import type { ImportReport, PageAction } from "../../schema/rpc.ts";
 import { type CallError, epochAtom, PageClient } from "../rpc.ts";
 
@@ -37,7 +41,9 @@ export interface RoundKey {
  */
 const readOnce = <A, E>(read: Effect.Effect<A, E, PageClient>) =>
   PageClient.runtime.atom((get) => {
-    const before = get.self<AsyncResult.AsyncResult<A, E>>().pipe(Option.flatMap(AsyncResult.value));
+    const before = get
+      .self<AsyncResult.AsyncResult<A, E>>()
+      .pipe(Option.flatMap(AsyncResult.value));
     if (Option.isSome(before)) return Effect.succeed(before.value);
     if (get(epochAtom) === 0) return Effect.never;
     return read;
@@ -64,7 +70,8 @@ export const earlierAtom = Atom.family((key: RoundKey) =>
 );
 
 /** The basis an action leaves: advanced when the action made exactly the next revision. */
-export const afterOwnAction = (basis: Revision, made: Revision): Revision => (made === basis + 1 ? made : basis);
+export const afterOwnAction = (basis: Revision, made: Revision): Revision =>
+  made === basis + 1 ? made : basis;
 
 /** `shown` is the revision of the snapshot the page shows, which can trail the newest while a new round loads. */
 export interface ReviewActions {
@@ -102,7 +109,8 @@ export const actionsAtom = Atom.family((id: ReviewId) =>
           lock.withPermits(1)(
             Effect.gen(function* () {
               const ownBasis = yield* Ref.get(own);
-              const basis = ownBasis !== undefined && ownBasis > shown ? ownBasis : shown;
+              const basis =
+                ownBasis !== undefined && ownBasis > shown ? ownBasis : shown;
               const done = yield* change(basis);
               yield* Ref.set(own, afterOwnAction(basis, done.revision));
               return done;
@@ -111,15 +119,15 @@ export const actionsAtom = Atom.family((id: ReviewId) =>
         return {
           act: (action, shown) =>
             Effect.runPromiseExit(
-              send(shown, (revision) => client("review.act", { id, action, revision })).pipe(
-                Effect.map((done) => done.revision),
-              ),
+              send(shown, (revision) =>
+                client("review.act", { id, action, revision }),
+              ).pipe(Effect.map((done) => done.revision)),
             ),
           importFeedback: (text, shown) =>
             Effect.runPromiseExit(
-              send(shown, (revision) => client("review.import", { id, text, revision })).pipe(
-                Effect.map((done) => done.report),
-              ),
+              send(shown, (revision) =>
+                client("review.import", { id, text, revision }),
+              ).pipe(Effect.map((done) => done.report)),
             ),
         } satisfies ReviewActions;
       }),

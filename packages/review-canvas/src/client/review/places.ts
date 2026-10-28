@@ -26,4 +26,5 @@ export const parseHash = (hash: string): Place => {
 };
 
 /** A hash that points at an element by its ID, encoded for a path's characters a hash cannot hold. */
-export const hashOf = (id: string): string => `#${encodeURI(id).replaceAll("#", "%23")}`;
+export const hashOf = (id: string): string =>
+  `#${encodeURI(id).replaceAll("#", "%23")}`;

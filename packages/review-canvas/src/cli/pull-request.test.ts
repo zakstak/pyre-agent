@@ -12,7 +12,7 @@ import { prFingerprints } from "../collector/fingerprint.ts";
 import { Fixture, PRIVATE_KEY, script } from "../collector/testing.ts";
 import { decodeBytes, InputDocument } from "../schema/document.ts";
 import type { PullRequestUrl } from "../schema/primitives.ts";
-import { GhFailed, type Gh } from "./github.ts";
+import { GhFailed } from "./github.ts";
 import type { ForgeClients } from "./hosted.ts";
 import { collectPullRequest, reconcile } from "./pull-request.ts";
 

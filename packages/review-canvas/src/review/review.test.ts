@@ -195,7 +195,12 @@ test("hunk ranges give each hunk's lines on both sides", () => {
 test("the tour says which stop owns each file, and warns about the entries it leaves out", () => {
   const input = {
     format: "review-canvas.input/1",
-    target: { kind: "worktree", title: "t", root: "/r", head_sha: "d".repeat(40) },
+    target: {
+      kind: "worktree",
+      title: "t",
+      root: "/r",
+      head_sha: "d".repeat(40),
+    },
     files_complete: false,
     files: [
       { ...file("@@ -1 +1 @@\n-a\n+b\n"), path: "a.txt" },
@@ -207,7 +212,9 @@ test("the tour says which stop owns each file, and warns about the entries it le
         title: "First",
         summary: "",
         attention: null,
-        excerpts: [{ path: "a.txt", side: "new", start: 1, end: 1, caption: "" }],
+        excerpts: [
+          { path: "a.txt", side: "new", start: 1, end: 1, caption: "" },
+        ],
         files: [{ path: "a.txt", note: "lost" }, { path: "b.txt" }],
         notes: [],
         questions: [],
@@ -216,7 +223,9 @@ test("the tour says which stop owns each file, and warns about the entries it le
         title: "Second",
         summary: "",
         attention: null,
-        excerpts: [{ path: "a.txt", side: "new", start: 1, end: 1, caption: "" }],
+        excerpts: [
+          { path: "a.txt", side: "new", start: 1, end: 1, caption: "" },
+        ],
         files: [{ path: "b.txt" }],
         notes: [],
         questions: [],

@@ -103,7 +103,10 @@ const fixture = (t: TestContext) => {
     start: async (port?: number) => {
       server = spawn(process.execPath, ["src/server/main.ts"], {
         cwd: pkg,
-        env: port === undefined ? env : { ...env, REVIEW_CANVAS_PORT: String(port) },
+        env:
+          port === undefined
+            ? env
+            : { ...env, REVIEW_CANVAS_PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
       });
       server.stderr?.on("data", (chunk) => {
@@ -171,7 +174,9 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
       t.after(() => stream.destroy());
       resolve();
     });
-    socket.once("response", (response) => reject(new Error(`no upgrade: ${response.statusCode}`)));
+    socket.once("response", (response) =>
+      reject(new Error(`no upgrade: ${response.statusCode}`)),
+    );
   });
   socket.on("error", () => {});
   socket.end();
@@ -182,7 +187,10 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
   assert.equal(await (await fetch(missing)).text(), "No such review");
   writeFileSync(
     app,
-    readFileSync(app, "utf8").replace('"No such review"', '"Upgraded: no such review"'),
+    readFileSync(app, "utf8").replace(
+      '"No such review"',
+      '"Upgraded: no such review"',
+    ),
   );
   await f.node(["src/cli/build.ts"]);
   // Rebuild removed the old hash, after the old daemon relinquished its listeners and store.
@@ -219,7 +227,10 @@ test("a running daemon stops before rebuild, then new code and assets serve the 
 
   writeFileSync(
     app,
-    readFileSync(app, "utf8").replace("Upgraded: no such review", "Second upgrade"),
+    readFileSync(app, "utf8").replace(
+      "Upgraded: no such review",
+      "Second upgrade",
+    ),
   );
   await f.helper(
     'import { ensureServer } from "./src/cli/socket.ts"; await ensureServer();',
@@ -337,7 +348,9 @@ lock.release();`);
 test("a restarted server remembers an explicit port, or follows a new port when the old one is busy", async (t) => {
   const f = fixture(t);
   const reservation = createServer();
-  await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) =>
+    reservation.listen(0, "127.0.0.1", resolve),
+  );
   const address = reservation.address();
   assert.ok(address !== null && typeof address === "object");
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
@@ -361,7 +374,10 @@ test("a restarted server remembers an explicit port, or follows a new port when 
     "Restart fixture",
   );
   const port = Number(new URL(registered.url).port);
-  assert.equal(Number(readFileSync(join(f.env.REVIEW_CANVAS_RUNTIME, "port"), "utf8")), port);
+  assert.equal(
+    Number(readFileSync(join(f.env.REVIEW_CANVAS_RUNTIME, "port"), "utf8")),
+    port,
+  );
 
   await stop();
   const same = await cli("status", "--session", sessionDir);

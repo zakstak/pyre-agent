@@ -20,7 +20,13 @@ import { DiffChoices, FileList } from "./Contents.tsx";
 import { Marker } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
 import { fileElementId } from "../../review/next.ts";
-import { type ExcerptTarget, keepInRail, spiedAtom, spiedPlace, useMoved } from "./navigate.ts";
+import {
+  type ExcerptTarget,
+  keepInRail,
+  spiedAtom,
+  spiedPlace,
+  useMoved,
+} from "./navigate.ts";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
 import { Attention, Questions, StopProse } from "./Sections.tsx";
@@ -47,11 +53,21 @@ const Excerpt = ({
   const { page } = usePage();
   const model = page.files.get(excerpt.path);
   if (model === undefined) return null;
-  const rows = parseRows(model.file.patch ?? "").slice(excerpt.start_row, excerpt.end_row + 1);
-  const lines = rows.map((row) => row[excerpt.side]).filter((line) => line !== undefined);
+  const rows = parseRows(model.file.patch ?? "").slice(
+    excerpt.start_row,
+    excerpt.end_row + 1,
+  );
+  const lines = rows
+    .map((row) => row[excerpt.side])
+    .filter((line) => line !== undefined);
   const first = lines[0];
   const last = lines.at(-1);
-  const target: ExcerptTarget = { path: excerpt.path, index: model.index, start: excerpt.start_row, end: excerpt.end_row };
+  const target: ExcerptTarget = {
+    path: excerpt.path,
+    index: model.index,
+    start: excerpt.start_row,
+    end: excerpt.end_row,
+  };
   const more = rows.length - EXCERPT_ROWS;
   return (
     <div data-excerpt className="mt-3">
@@ -65,7 +81,9 @@ const Excerpt = ({
         className="font-mono text-technical break-all text-link no-underline hover:underline"
       >
         {excerpt.path}
-        {first === undefined || last === undefined ? "" : ` · ${lineRange(first, last, "line")}`}
+        {first === undefined || last === undefined
+          ? ""
+          : ` · ${lineRange(first, last, "line")}`}
       </a>
       {/* The caption is the keyboard's way to the rows; a click anywhere on them goes there too. */}
       <pre
@@ -73,7 +91,14 @@ const Excerpt = ({
         className="mt-1 cursor-pointer overflow-x-auto rounded-control bg-code px-2 py-1.5 font-mono text-technical leading-5"
       >
         {rows.slice(0, EXCERPT_ROWS).map((row) => (
-          <div key={row.index} className={row.kind === "hunk" || row.kind === "meta" ? "text-muted" : "text-ink"}>
+          <div
+            key={row.index}
+            className={
+              row.kind === "hunk" || row.kind === "meta"
+                ? "text-muted"
+                : "text-ink"
+            }
+          >
             <Marker kind={row.kind} />
             {row.content}
           </div>
@@ -142,18 +167,34 @@ const GuideStop = ({
       className="m-0 border-t border-separator px-2 pt-3 pb-4 aria-[current]:bg-selected"
     >
       <div className="flex items-baseline gap-2">
-        <span className={cn("font-mono text-technical", read ? "text-accent" : "text-muted")}>{stop.index + 1}</span>
+        <span
+          className={cn(
+            "font-mono text-technical",
+            read ? "text-accent" : "text-muted",
+          )}
+        >
+          {stop.index + 1}
+        </span>
         <h2 tabIndex={-1} className="min-w-0 flex-1 font-semibold text-ink">
           {stop.title}
         </h2>
-        <Stat icon={Check} title={`${viewed} of ${count(owned.length, "file")} viewed`}>
+        <Stat
+          icon={Check}
+          title={`${viewed} of ${count(owned.length, "file")} viewed`}
+        >
           {viewed}/{owned.length}
         </Stat>
       </div>
       <StopProse stop={stop} />
       <Attention stop={stop} />
       {stop.excerpts.map((excerpt, at) => (
-        <Excerpt key={at} stop={stop} excerpt={excerpt} at={at} onExcerpt={onExcerpt} />
+        <Excerpt
+          key={at}
+          stop={stop}
+          excerpt={excerpt}
+          at={at}
+          onExcerpt={onExcerpt}
+        />
       ))}
       <Questions stop={stop} onAsk={onAsk} />
       {owned.length === 0 ? null : (
@@ -173,7 +214,13 @@ const GuideStop = ({
               >
                 {splitPath(model.file.path).base}
               </a>
-              {model.approved ? <Check role="img" aria-label="viewed" className="ml-0.5 inline size-3.5 align-[-0.125em] text-ink" /> : null}
+              {model.approved ? (
+                <Check
+                  role="img"
+                  aria-label="viewed"
+                  className="ml-0.5 inline size-3.5 align-[-0.125em] text-ink"
+                />
+              ) : null}
             </span>
           ))}
         </p>
@@ -207,7 +254,9 @@ export const Guide = ({
   // view, unless the page put it somewhere itself.
   useEffect(() => {
     if (!wide || !moved || steering()) return;
-    const marked = scroller.current?.querySelector<HTMLElement>("[aria-current='location']");
+    const marked = scroller.current?.querySelector<HTMLElement>(
+      "[aria-current='location']",
+    );
     if (marked !== null && marked !== undefined) keepInRail(marked);
   }, [spiedStop, spiedFile, tab, wide, moved, steering]);
   const pick = (path: RepoPath) => {
@@ -218,7 +267,10 @@ export const Guide = ({
     <Segmented
       label="Guide"
       attribute="data-guide-tab"
-      choices={[["walkthrough", "Walkthrough"], ["files", "Files"]]}
+      choices={[
+        ["walkthrough", "Walkthrough"],
+        ["files", "Files"],
+      ]}
       value={tab}
       onChange={setTab}
       className="self-start"
@@ -234,7 +286,8 @@ export const Guide = ({
         {page.input.summary === undefined ? null : (
           <div className="px-2 pb-4">
             <Narration className="mb-1.5">
-              · Round {page.round.round} · published <Time at={page.round.published_at} />
+              · Round {page.round.round} · published{" "}
+              <Time at={page.round.published_at} />
             </Narration>
             <Prose text={page.input.summary} />
           </div>

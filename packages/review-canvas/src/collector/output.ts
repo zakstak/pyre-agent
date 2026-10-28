@@ -88,7 +88,9 @@ export const writeOutput = (output: Output, review: ReviewInput) => {
 };
 
 // C0 and C1 controls and the line and paragraph separators, which could end or forge a terminal line.
+// oxlint-disable-next-line no-control-regex -- Escape control characters to prevent forged terminal lines.
 const ESCAPED = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/g;
+// oxlint-disable-next-line no-control-regex -- Detect the same unsafe terminal controls before output.
 const UNSAFE = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/;
 const SHORT_ESCAPES: ReadonlyMap<string, string> = new Map([
   ["\t", "\\t"],

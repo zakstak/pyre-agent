@@ -7,7 +7,10 @@ export const Inline = ({ text }: { readonly text: string }) => {
   const parts: Array<React.ReactNode> = [];
   let at = 0;
   for (const match of text.matchAll(/`([^`\n]+)`/g)) {
-    parts.push(text.slice(at, match.index), <code key={match.index}>{match[1]}</code>);
+    parts.push(
+      text.slice(at, match.index),
+      <code key={match.index}>{match[1]}</code>,
+    );
     at = match.index + match[0].length;
   }
   parts.push(text.slice(at));
@@ -18,7 +21,13 @@ export const Inline = ({ text }: { readonly text: string }) => {
  * Prose from the agent: paragraphs split on blank lines, each keeping its line breaks and code spans. It fills where it
  * sits; prose on the page's canvas sits in a reading measure, prose in a card fills the card.
  */
-export const Prose = ({ text, className }: { readonly text: string; readonly className?: string }) => (
+export const Prose = ({
+  text,
+  className,
+}: {
+  readonly text: string;
+  readonly className?: string;
+}) => (
   <>
     {text
       .split(/\n{2,}/)
@@ -41,8 +50,16 @@ export const Lead = ({ title }: { readonly title: string }) => (
 );
 
 const clock = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
-const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-const full = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const day = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const full = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 
 /** A time on the reader's clock, in full, for a title. */
 export const timeTitle = (at: string): string => {
@@ -56,7 +73,11 @@ export const Time = ({ at }: { readonly at: string }) => {
   if (!Number.isFinite(when.getTime())) return <time dateTime={at}>{at}</time>;
   const now = new Date();
   const format =
-    when.toDateString() === now.toDateString() ? clock : when.getFullYear() === now.getFullYear() ? day : full;
+    when.toDateString() === now.toDateString()
+      ? clock
+      : when.getFullYear() === now.getFullYear()
+        ? day
+        : full;
   return (
     <time dateTime={at} title={full.format(when)}>
       {format.format(when)}
@@ -75,12 +96,17 @@ export const LineCounts = ({
   readonly className?: string;
 }) => (
   <code className={className}>
-    <span className="text-success">+{additions}</span> <span className="text-danger">−{deletions}</span>
+    <span className="text-success">+{additions}</span>{" "}
+    <span className="text-danger">−{deletions}</span>
   </code>
 );
 
 /** A list joined with commas, as in running text. */
-export const Joined = ({ items }: { readonly items: ReadonlyArray<React.ReactNode> }) => (
+export const Joined = ({
+  items,
+}: {
+  readonly items: ReadonlyArray<React.ReactNode>;
+}) => (
   <>
     {items.map((item, at) => (
       <Fragment key={at}>

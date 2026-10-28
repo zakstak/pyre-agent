@@ -27,7 +27,8 @@ const Connection = ({ updated }: { readonly updated: string | undefined }) => {
   const lost = CONNECTION_TEXT[connection.state];
   const said = useRef("");
   useEffect(() => {
-    if (lost === CONNECTION_TEXT.disconnected && said.current !== lost) toast(LOST, "danger");
+    if (lost === CONNECTION_TEXT.disconnected && said.current !== lost)
+      toast(LOST, "danger");
     said.current = lost;
   }, [lost]);
   return (
@@ -37,7 +38,12 @@ const Connection = ({ updated }: { readonly updated: string | undefined }) => {
           Connected · updated <Time at={updated} />
         </span>
       ) : null}
-      <span data-connection role="status" title={lost === "" ? undefined : LOST} className="font-semibold text-warning">
+      <span
+        data-connection
+        role="status"
+        title={lost === "" ? undefined : LOST}
+        className="font-semibold text-warning"
+      >
         {lost}
       </span>
     </span>
@@ -63,8 +69,16 @@ export const TopBar = ({
   readonly controls?: React.ReactNode;
   readonly children?: React.ReactNode;
 }) => (
-  <header data-topbar className="z-20 border-b border-separator bg-surface text-small md:sticky md:top-0">
-    <div className={cn(frame({ width }), "flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1 md:min-h-11")}>
+  <header
+    data-topbar
+    className="z-20 border-b border-separator bg-surface text-small md:sticky md:top-0"
+  >
+    <div
+      className={cn(
+        frame({ width }),
+        "flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1 md:min-h-11",
+      )}
+    >
       <div className="flex min-w-0 flex-[1_1_12rem] flex-wrap items-baseline gap-x-2">
         {place === undefined ? (
           <h1 className="font-semibold">Review canvas</h1>
@@ -95,7 +109,8 @@ export const TopBar = ({
  */
 export const landOnHash = () => {
   const id = decodeURIComponent(location.hash.slice(1));
-  if (id !== "") document.getElementById(id)?.scrollIntoView({ block: "start" });
+  if (id !== "")
+    document.getElementById(id)?.scrollIntoView({ block: "start" });
 };
 
 export const SkipLink = () => (
@@ -108,12 +123,24 @@ export const SkipLink = () => (
 );
 
 /** A page that has nothing to show but a message: the title is its place in the bar, and the way back is the body. */
-export const Message = ({ title, children }: { readonly title: string; readonly children?: React.ReactNode }) => (
+export const Message = ({
+  title,
+  children,
+}: {
+  readonly title: string;
+  readonly children?: React.ReactNode;
+}) => (
   <>
     <SkipLink />
     <TopBar width="home" place={<h1 className="font-semibold">{title}</h1>} />
-    <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-12")}>
-      {children === undefined ? null : <p className="mb-4 text-muted">{children}</p>}
+    <main
+      id="main"
+      tabIndex={-1}
+      className={cn(frame({ width: "home" }), "pt-8 pb-12")}
+    >
+      {children === undefined ? null : (
+        <p className="mb-4 text-muted">{children}</p>
+      )}
       <a className="text-link underline underline-offset-3" href="/">
         Back to the review canvas
       </a>
@@ -122,11 +149,21 @@ export const Message = ({ title, children }: { readonly title: string; readonly 
 );
 
 /** A page whose contents are on their way: the top bar, and one line that says so. */
-export const Loading = ({ width, children = "Loading…" }: { readonly width: "review" | "home"; readonly children?: string }) => (
+export const Loading = ({
+  width,
+  children = "Loading…",
+}: {
+  readonly width: "review" | "home";
+  readonly children?: string;
+}) => (
   <>
     <SkipLink />
     <TopBar width={width} />
-    <main id="main" tabIndex={-1} className={cn(frame({ width }), "pt-8 pb-12")}>
+    <main
+      id="main"
+      tabIndex={-1}
+      className={cn(frame({ width }), "pt-8 pb-12")}
+    >
       <p className="text-muted" role="status">
         {children}
       </p>

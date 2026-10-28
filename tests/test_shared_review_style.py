@@ -35,8 +35,13 @@ def _block(css: str, opening: str) -> str:
 
 def _declarations(css: str) -> dict[str, str]:
     found = {}
-    for opening in (":root,\n[data-palette] {\n  --palette-hue", ":root,\n[data-palette] {\n  --pyre-background"):
-        for match in re.finditer(r"(--[\w-]+)\s*:\s*((?:[^;{}]|\n)*?);", _block(css, opening)):
+    for opening in (
+        ":root,\n[data-palette] {\n  --palette-hue",
+        ":root,\n[data-palette] {\n  --pyre-background",
+    ):
+        for match in re.finditer(
+            r"(--[\w-]+)\s*:\s*((?:[^;{}]|\n)*?);", _block(css, opening)
+        ):
             found[match.group(1)] = " ".join(match.group(2).split())
     return found
 
@@ -57,7 +62,11 @@ def _split_args(text: str) -> list[str]:
 
 def _resolve(declarations: dict[str, str], value: str, mode: str) -> str:
     """The value with every var() substituted and every light-dark() taken on `mode`'s side."""
-    value = re.sub(r"var\((--[\w-]+)\)", lambda m: _resolve(declarations, declarations[m.group(1)], mode), value)
+    value = re.sub(
+        r"var\((--[\w-]+)\)",
+        lambda m: _resolve(declarations, declarations[m.group(1)], mode),
+        value,
+    )
     while "light-dark(" in value:
         at = value.index("light-dark(")
         start = at + len("light-dark(")
@@ -84,10 +93,14 @@ def _oklch_to_hex(lightness: float, chroma: float, hue: float) -> str:
 
     def encode(channel: float) -> int:
         channel = max(0.0, min(1.0, channel))
-        channel = 12.92 * channel if channel <= 0.0031308 else 1.055 * channel ** (1 / 2.4) - 0.055
+        channel = (
+            12.92 * channel
+            if channel <= 0.0031308
+            else 1.055 * channel ** (1 / 2.4) - 0.055
+        )
         return round(channel * 255)
 
-    return "#%02x%02x%02x" % (encode(red), encode(green), encode(blue))
+    return f"#{encode(red):02x}{encode(green):02x}{encode(blue):02x}"
 
 
 def _colour(value: str) -> str | None:
@@ -108,12 +121,16 @@ def _colour(value: str) -> str | None:
         depth -= char == ")"
         current += char
     parts.append(current)
-    lightness, chroma, hue = (eval(part, {"__builtins__": {}}, {"min": min, "max": max}) for part in parts)  # noqa: S307
+    lightness, chroma, hue = (
+        eval(part, {"__builtins__": {}}, {"min": min, "max": max}) for part in parts
+    )
     return _oklch_to_hex(lightness, chroma, hue)
 
 
 def _distance(a: str, b: str) -> int:
-    return max(abs(int(a[at : at + 2], 16) - int(b[at : at + 2], 16)) for at in (1, 3, 5))
+    return max(
+        abs(int(a[at : at + 2], 16) - int(b[at : at + 2], 16)) for at in (1, 3, 5)
+    )
 
 
 def _role_name(role: str) -> str:
@@ -136,20 +153,33 @@ class SharedStyleTests(unittest.TestCase):
     def test_signal_colours_accent_and_action_stay_exact(self):
         light, dark = self.contract["light"], self.contract["dark"]
         for role in ("error", "warning", "success"):
-            self.assertIn(f"--pyre-{role}: light-dark({light[role]}, {dark[role]});", self.tokens)
+            self.assertIn(
+                f"--pyre-{role}: light-dark({light[role]}, {dark[role]});", self.tokens
+            )
         for role in ("accent", "action"):
-            self.assertEqual(self.declarations[f"--palette-{role}"], f"light-dark({light[role]}, {dark[role]})")
+            self.assertEqual(
+                self.declarations[f"--palette-{role}"],
+                f"light-dark({light[role]}, {dark[role]})",
+            )
 
     def test_default_palette_reproduces_the_contract_in_light(self):
         checked = 0
         for role, want in self.contract["light"].items():
             # The contract's "border" is the consumer alias --border, which points at the control border.
             declared = self.declarations.get(f"--pyre-{_role_name(role)}")
-            got = None if declared is None else _colour(_resolve(self.declarations, declared, "light"))
+            got = (
+                None
+                if declared is None
+                else _colour(_resolve(self.declarations, declared, "light"))
+            )
             if got is None:
                 continue
             checked += 1
-            self.assertLessEqual(_distance(got, want), TOLERANCE, f"{role}: {got} is not within {TOLERANCE} of {want}")
+            self.assertLessEqual(
+                _distance(got, want),
+                TOLERANCE,
+                f"{role}: {got} is not within {TOLERANCE} of {want}",
+            )
         self.assertGreaterEqual(checked, 28)
 
     def test_every_palette_names_its_parameters(self):
