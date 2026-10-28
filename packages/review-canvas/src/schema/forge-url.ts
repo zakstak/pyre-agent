@@ -28,6 +28,7 @@ export const parsePullRequest = (
     url.password !== "" ||
     url.search !== "" ||
     url.hash !== "" ||
+    // oxlint-disable-next-line no-control-regex -- Reject controls that URL parsing could silently normalize.
     /[\x00-\x20\\%]/.test(value) ||
     rawPath !== url.pathname
   )

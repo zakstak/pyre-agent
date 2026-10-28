@@ -2,7 +2,6 @@
 // converted to review-canvas.feedback/1, and the rules that format adds: threads, answers, GitHub comments, and rounds.
 import * as Schema from "effect/Schema";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import {
   decodeBytes,
@@ -204,8 +203,7 @@ const ported: ReadonlyArray<Case> = [
   {
     python: "invalid-pr-url",
     edit: change(["target", "url"], "https://github.com/example/repo/pull/2\n"),
-    message:
-      /target\.url: Expected an HTTPS GitHub/,
+    message: /target\.url: Expected an HTTPS GitHub/,
   },
   {
     python: "invalid-prefix-too-long",
@@ -315,7 +313,8 @@ const ported: ReadonlyArray<Case> = [
   {
     python: "invalid-target-kind",
     edit: change(["target", "kind"], "branch"),
-    message: /target: Expected a target whose kind is github_pr, pull_request, or worktree/,
+    message:
+      /target: Expected a target whose kind is github_pr, pull_request, or worktree/,
   },
   {
     python: "invalid-unknown-field",
@@ -508,7 +507,6 @@ for (const { python, raw, message, reason } of rawCases) {
 }
 
 // Version 1 keeps a comment's replies as an array, so an empty one is the only spelling of none.
-const nowValid = ["invalid-replies-empty"];
 test("feedback: invalid-replies-empty is valid now, and replies are required", () => {
   accepted(
     decode(

@@ -12,11 +12,14 @@ import { usePage } from "./act.ts";
 import { hashOf } from "./places.ts";
 
 const Kbd = ({ children }: { readonly children: string }) => (
-  <kbd className="inline-block rounded-sm border border-line px-[0.3em] leading-[1.3] font-semibold text-muted">{children}</kbd>
+  <kbd className="inline-block rounded-sm border border-line px-[0.3em] leading-[1.3] font-semibold text-muted">
+    {children}
+  </kbd>
 );
 
 /** A step of the round in the strip, as a link: underlined on hover only. */
-const STEP_LINK = "inline-flex min-h-11 items-center no-underline hover:underline";
+const STEP_LINK =
+  "inline-flex min-h-11 items-center no-underline hover:underline";
 
 /** A step's link to an element of the page, which `onGo` brings into view. */
 const StepLink = ({
@@ -69,11 +72,21 @@ const Steps = ({
     </Stat>
   );
   return (
-    <ol aria-label={`Round ${page.round.round}`} className="m-0 ml-auto flex list-none flex-wrap items-center gap-x-5 p-0">
+    <ol
+      aria-label={`Round ${page.round.round}`}
+      className="m-0 ml-auto flex list-none flex-wrap items-center gap-x-5 p-0"
+    >
       {forYou === 0 || page.steps.answer === undefined ? null : (
         <li>
-          <StepLink target={page.steps.answer.target} onGo={() => onGo("answer")}>
-            <AnswerStat data-for-you count={forYou} title={`${count(forYou, "answer")} to read`} />
+          <StepLink
+            target={page.steps.answer.target}
+            onGo={() => onGo("answer")}
+          >
+            <AnswerStat
+              data-for-you
+              count={forYou}
+              title={`${count(forYou, "answer")} to read`}
+            />
           </StepLink>
         </li>
       )}
@@ -95,7 +108,10 @@ const Steps = ({
               event.preventDefault();
               onFinish();
             }}
-            className={buttonVariants({ variant: current === "finish" ? "primary" : "quiet", size: "sm" })}
+            className={buttonVariants({
+              variant: current === "finish" ? "primary" : "quiet",
+              size: "sm",
+            })}
           >
             Finish
           </a>
@@ -135,7 +151,10 @@ export const NextStrip = ({
             }}
             className="-ml-2 inline-flex min-h-11 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-control px-2 py-1 font-semibold text-ink no-underline hover:bg-subtle"
           >
-            <span aria-hidden="true" className="inline-grid size-6 flex-none place-items-center rounded-control bg-accent text-chip text-on-accent">
+            <span
+              aria-hidden="true"
+              className="inline-grid size-6 flex-none place-items-center rounded-control bg-accent text-chip text-on-accent"
+            >
               <ArrowRight className="size-3.5" />
             </span>
             <span className="min-w-0 break-words">
@@ -155,16 +174,22 @@ export const NextStrip = ({
         ) : strip.kind === "finished" ? (
           <p className="py-2.5">
             <strong>You finished round {strip.round}</strong>{" "}
-            <span className="text-muted">· {VERDICT_TEXT[strip.verdict]} · the agents have the turn</span>
+            <span className="text-muted">
+              · {VERDICT_TEXT[strip.verdict]} · the agents have the turn
+            </span>
           </p>
         ) : (
           <p className="py-2.5">
-            <strong>Closed</strong> <span className="text-muted">· replaced by a fresh start</span>
+            <strong>Closed</strong>{" "}
+            <span className="text-muted">· replaced by a fresh start</span>
             {page.snapshot.replaced_by === undefined ? null : (
               <>
                 {" "}
                 ·{" "}
-                <a href={`/reviews/${page.snapshot.replaced_by}`} className="text-link underline underline-offset-3">
+                <a
+                  href={`/reviews/${page.snapshot.replaced_by}`}
+                  className="text-link underline underline-offset-3"
+                >
                   Open the newer review
                 </a>
               </>
@@ -172,7 +197,10 @@ export const NextStrip = ({
           </p>
         )}
         {strip.kind === "go" ? (
-          <span aria-hidden="true" className="text-muted max-md:hidden pointer-coarse:hidden">
+          <span
+            aria-hidden="true"
+            className="text-muted max-md:hidden pointer-coarse:hidden"
+          >
             <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops
           </span>
         ) : null}
@@ -188,17 +216,25 @@ export const useStickyBars = () => {
     const measure = () => {
       const bar = document.querySelector<HTMLElement>("[data-topbar]");
       const strip = document.querySelector<HTMLElement>("[data-next]");
-      const barSticks = bar !== null && getComputedStyle(bar).position === "sticky";
-      const stripSticks = strip !== null && getComputedStyle(strip).position === "sticky";
+      const barSticks =
+        bar !== null && getComputedStyle(bar).position === "sticky";
+      const stripSticks =
+        strip !== null && getComputedStyle(strip).position === "sticky";
       const top = barSticks ? (bar?.offsetHeight ?? 0) : 0;
       document.documentElement.style.setProperty("--topbar-height", `${top}px`);
       const sticky = top + (stripSticks ? (strip?.offsetHeight ?? 0) : 0) + 8;
       document.documentElement.style.setProperty("--sticky-top", `${sticky}px`);
       // What a jump to a row, a note, or a thread keeps above it: the file's header and a line of code.
-      document.documentElement.style.setProperty("--scroll-top", `calc(${sticky}px + 3.75rem)`);
+      document.documentElement.style.setProperty(
+        "--scroll-top",
+        `calc(${sticky}px + 3.75rem)`,
+      );
     };
     const observer = new ResizeObserver(measure);
-    for (const element of document.querySelectorAll("[data-topbar], [data-next]")) observer.observe(element);
+    for (const element of document.querySelectorAll(
+      "[data-topbar], [data-next]",
+    ))
+      observer.observe(element);
     measure();
     addEventListener("resize", measure);
     return () => {

@@ -5,16 +5,25 @@
 import { useState } from "react";
 import { cn } from "../ui/cn.ts";
 import { FIELD } from "../ui/field.ts";
-import { searchSettings, type SectionId, SECTIONS, settingsPath } from "./settings.ts";
+import {
+  searchSettings,
+  type SectionId,
+  SECTIONS,
+  settingsPath,
+} from "./settings.ts";
 
-const ROW = "flex min-h-8 items-center rounded-control px-2 text-small no-underline hover:bg-subtle";
+const ROW =
+  "flex min-h-8 items-center rounded-control px-2 text-small no-underline hover:bg-subtle";
 
 export const SettingsNav = ({ current }: { readonly current: SectionId }) => {
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
   const hits = searchSettings(query);
   return (
-    <nav aria-label="Settings" className="min-w-0 md:sticky md:top-14 md:self-start">
+    <nav
+      aria-label="Settings"
+      className="min-w-0 md:sticky md:top-14 md:self-start"
+    >
       <label className="block">
         <span className="sr-only">Search settings</span>
         <input
@@ -34,7 +43,10 @@ export const SettingsNav = ({ current }: { readonly current: SectionId }) => {
                 href={settingsPath(section.id)}
                 data-settings-section={section.id}
                 aria-current={section.id === current ? "page" : undefined}
-                className={cn(ROW, "text-ink aria-[current]:bg-selected aria-[current]:font-semibold")}
+                className={cn(
+                  ROW,
+                  "text-ink aria-[current]:bg-selected aria-[current]:font-semibold",
+                )}
               >
                 {section.title}
               </a>
@@ -46,12 +58,21 @@ export const SettingsNav = ({ current }: { readonly current: SectionId }) => {
           Nothing matches.
         </p>
       ) : (
-        <ul data-settings-results className="mt-3 flex flex-col gap-0.5" aria-label="Settings found">
+        <ul
+          data-settings-results
+          className="mt-3 flex flex-col gap-0.5"
+          aria-label="Settings found"
+        >
           {hits.map(({ section, item }) => (
             <li key={`${section.id}/${item.id}`}>
-              <a href={settingsPath(section.id, item.id)} className={cn(ROW, "flex-col items-start justify-center py-1")}>
+              <a
+                href={settingsPath(section.id, item.id)}
+                className={cn(ROW, "flex-col items-start justify-center py-1")}
+              >
                 <span className="font-medium text-ink">{item.title}</span>
-                <span className="text-technical text-muted">{section.title}</span>
+                <span className="text-technical text-muted">
+                  {section.title}
+                </span>
               </a>
             </li>
           ))}

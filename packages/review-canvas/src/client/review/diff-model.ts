@@ -20,12 +20,16 @@ export interface PlacedComment {
 export const placeComments = (
   file: ReviewFile,
   comments: ReadonlyArray<Comment>,
-): { readonly placed: ReadonlyArray<PlacedComment>; readonly orphans: ReadonlyArray<InlineComment> } => {
+): {
+  readonly placed: ReadonlyArray<PlacedComment>;
+  readonly orphans: ReadonlyArray<InlineComment>;
+} => {
   const rows = parseRows(file.patch ?? "");
   const placed: Array<PlacedComment> = [];
   const orphans: Array<InlineComment> = [];
   for (const comment of comments) {
-    if (comment.kind !== "inline" || comment.anchor.path !== file.path) continue;
+    if (comment.kind !== "inline" || comment.anchor.path !== file.path)
+      continue;
     const span = attachedRows(rows, comment.attachment);
     if (span === undefined) orphans.push(comment);
     else placed.push({ comment, ...span });
@@ -113,7 +117,8 @@ export const pairRows = (rows: ReadonlyArray<Row>): ReadonlyArray<Pair> => {
     } else if (row.kind === "add") adds.push(row);
     else {
       flush();
-      if (row.kind === "context") pairs.push({ old: row, new: row, whole: undefined });
+      if (row.kind === "context")
+        pairs.push({ old: row, new: row, whole: undefined });
       else pairs.push({ old: undefined, new: undefined, whole: row });
     }
   }
@@ -122,7 +127,8 @@ export const pairRows = (rows: ReadonlyArray<Row>): ReadonlyArray<Pair> => {
 };
 
 /** Whether a reviewer can select a row to comment on it. */
-export const changeable = (row: Row): boolean => row.kind === "add" || row.kind === "del" || row.kind === "context";
+export const changeable = (row: Row): boolean =>
+  row.kind === "add" || row.kind === "del" || row.kind === "context";
 
 /** A run of hidden rows shorter than this shows instead: a fold for two lines costs more than it saves. */
 const MIN_FOLD = 4;
@@ -161,15 +167,19 @@ export interface DiffLayout {
 export const layoutDiff = (
   patch: string,
   options: {
-    readonly shown?: ReadonlyArray<{ readonly start: number; readonly end: number }> | undefined;
+    readonly shown?:
+      | ReadonlyArray<{ readonly start: number; readonly end: number }>
+      | undefined;
     readonly content?: string | undefined;
   } = {},
 ): DiffLayout => {
   const rows = parseRows(patch);
   const visible = new Set<number>();
-  if (options.shown === undefined) for (const row of rows) visible.add(row.index);
+  if (options.shown === undefined)
+    for (const row of rows) visible.add(row.index);
   else {
-    for (const range of options.shown) for (let at = range.start; at <= range.end; at++) visible.add(at);
+    for (const range of options.shown)
+      for (let at = range.start; at <= range.end; at++) visible.add(at);
     let run: Array<number> = [];
     const flush = () => {
       if (run.length < MIN_FOLD) for (const at of run) visible.add(at);
@@ -184,7 +194,11 @@ export const layoutDiff = (
 
   type Piece =
     | { readonly kind: "shown"; readonly rows: ReadonlyArray<Row> }
-    | { readonly kind: "folded"; readonly key: string; readonly rows: ReadonlyArray<Row> }
+    | {
+        readonly kind: "folded";
+        readonly key: string;
+        readonly rows: ReadonlyArray<Row>;
+      }
     | { readonly kind: "context"; readonly key: string; readonly gap: Gap };
   const pieces: Array<Piece> = [];
   const cut = (piece: ReadonlyArray<Row>) => {
@@ -193,7 +207,11 @@ export const layoutDiff = (
     const flush = () => {
       const first = run[0];
       if (first !== undefined)
-        pieces.push(shown ? { kind: "shown", rows: run } : { kind: "folded", key: `r${first.index}`, rows: run });
+        pieces.push(
+          shown
+            ? { kind: "shown", rows: run }
+            : { kind: "folded", key: `r${first.index}`, rows: run },
+        );
       run = [];
     };
     for (const row of piece) {
@@ -205,21 +223,26 @@ export const layoutDiff = (
     }
     flush();
   };
-  const found = options.content === undefined ? [] : gaps(patch, options.content);
+  const found =
+    options.content === undefined ? [] : gaps(patch, options.content);
   // With the file's text, the patch is cut into a piece per hunk, so the unchanged lines go between them.
   if (found.length === 0) cut(rows);
   else {
-    const starts = rows.filter((row) => row.kind === "hunk").map((row) => row.index);
+    const starts = rows
+      .filter((row) => row.kind === "hunk")
+      .map((row) => row.index);
     if ((starts[0] ?? 0) > 0) cut(rows.slice(0, starts[0]));
     starts.forEach((start, hunk) => {
       const at = found.findIndex((gap) => gap.before === start);
       const gap = found[at];
-      if (gap !== undefined) pieces.push({ kind: "context", key: String(at), gap });
+      if (gap !== undefined)
+        pieces.push({ kind: "context", key: String(at), gap });
       cut(rows.slice(start, starts[hunk + 1] ?? rows.length));
     });
     const at = found.findIndex((gap) => gap.before === -1);
     const trailing = found[at];
-    if (trailing !== undefined) pieces.push({ kind: "context", key: String(at), gap: trailing });
+    if (trailing !== undefined)
+      pieces.push({ kind: "context", key: String(at), gap: trailing });
   }
 
   const segments: Array<Segment> = [];
@@ -235,9 +258,20 @@ export const layoutDiff = (
             ? { kind: "folded", rows: piece.rows }
             : { kind: "context", lines: piece.gap.lines },
         ),
-        folded: hidden.reduce((sum, piece) => sum + (piece.kind === "folded" ? piece.rows.length : 0), 0),
-        context: hidden.reduce((sum, piece) => sum + (piece.kind === "context" ? piece.gap.lines.length : 0), 0),
-        toggleAt: Math.max(0, hidden.findIndex((piece) => piece.kind === "context")),
+        folded: hidden.reduce(
+          (sum, piece) =>
+            sum + (piece.kind === "folded" ? piece.rows.length : 0),
+          0,
+        ),
+        context: hidden.reduce(
+          (sum, piece) =>
+            sum + (piece.kind === "context" ? piece.gap.lines.length : 0),
+          0,
+        ),
+        toggleAt: Math.max(
+          0,
+          hidden.findIndex((piece) => piece.kind === "context"),
+        ),
       });
     hidden = [];
   };
@@ -259,13 +293,19 @@ export const layoutDiff = (
  */
 export type GapStage = 0 | 1 | 2;
 
-export const nextStage = (stage: GapStage, gap: { readonly folded: number; readonly context: number }): GapStage => {
+export const nextStage = (
+  stage: GapStage,
+  gap: { readonly folded: number; readonly context: number },
+): GapStage => {
   if (stage === 2) return 0;
   return stage === 0 && gap.folded > 0 && gap.context > 0 ? 1 : 2;
 };
 
 /** The words on a gap's control at a stage. */
-export const gapLabel = (stage: GapStage, gap: { readonly folded: number; readonly context: number }): string => {
+export const gapLabel = (
+  stage: GapStage,
+  gap: { readonly folded: number; readonly context: number },
+): string => {
   const lines = (n: number) => `${n} line${n === 1 ? "" : "s"}`;
   const total = gap.folded + gap.context;
   return stage === 0

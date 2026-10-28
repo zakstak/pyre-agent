@@ -1,7 +1,15 @@
 /** A review as an agent reads it: the feedback document, whose turn each comment waits for, and where it lives. */
 import type { Feedback } from "../schema/feedback.ts";
 import type { CommentId, Timestamp } from "../schema/primitives.ts";
-import { approvalHolds, currentSubmission, type Drift, isQuestion, type SubmissionRecord, type Turn, turnOf } from "../review/queries.ts";
+import {
+  approvalHolds,
+  currentSubmission,
+  type Drift,
+  isQuestion,
+  type SubmissionRecord,
+  type Turn,
+  turnOf,
+} from "../review/queries.ts";
 import { feedbackOf, type ReviewView } from "../store/store.ts";
 
 export interface Status {

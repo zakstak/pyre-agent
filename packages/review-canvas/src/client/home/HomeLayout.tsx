@@ -22,7 +22,10 @@ export const Snapshot = ({
 }) => {
   const result = useAtomValue(homeAtom);
   const snapshot = AsyncResult.value(result);
-  const error = AsyncResult.isFailure(result) && !result.waiting ? failureText(result.cause, failure) : undefined;
+  const error =
+    AsyncResult.isFailure(result) && !result.waiting
+      ? failureText(result.cause, failure)
+      : undefined;
   return (
     <>
       {error === undefined ? null : (
@@ -55,7 +58,11 @@ export const HomeLayout = ({
   <>
     <SkipLink />
     <TopBar width="home">{actions}</TopBar>
-    <main id="main" tabIndex={-1} className={cn(frame({ width: "home" }), "pt-8 pb-16")}>
+    <main
+      id="main"
+      tabIndex={-1}
+      className={cn(frame({ width: "home" }), "pt-8 pb-16")}
+    >
       <Snapshot failure={failure}>{children}</Snapshot>
     </main>
   </>

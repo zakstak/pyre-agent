@@ -33,33 +33,64 @@ import {
   type Segment,
 } from "./diff-model.ts";
 import { ThreadView } from "./Thread.tsx";
-import { type Draft, draftsAtom, flashAtom, gapAtom, openNotesAtom, reattachAtom, whitespaceAtom } from "./ui.ts";
+import {
+  type Draft,
+  draftsAtom,
+  flashAtom,
+  gapAtom,
+  openNotesAtom,
+  reattachAtom,
+  whitespaceAtom,
+} from "./ui.ts";
 import type { FileModel, InlineNote } from "./view.ts";
 
 /** A drag over the line numbers of one file, from the row it started on to the row under the pointer. */
-const dragAtom = Atom.make<{ readonly path: string; readonly from: number; readonly to: number } | undefined>(undefined).pipe(
-  Atom.keepAlive,
-);
+const dragAtom = Atom.make<
+  | { readonly path: string; readonly from: number; readonly to: number }
+  | undefined
+>(undefined).pipe(Atom.keepAlive);
 
 /**
  * What one table reads of the page-wide drag, flash, and drafts. A table re-renders only when its own part changes,
  * so dragging or typing in one file leaves every other diff alone.
  */
 const dragOf = Atom.family((path: string) =>
-  Atom.map(dragAtom, (drag) => (drag?.path === path ? drag : undefined)).pipe(Atom.withEquality(Equal.equals)),
+  Atom.map(dragAtom, (drag) => (drag?.path === path ? drag : undefined)).pipe(
+    Atom.withEquality(Equal.equals),
+  ),
 );
-const flashOf = Atom.family(({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
-  Atom.map(flashAtom(review), (flash) => (flash?.path === path ? flash : undefined)).pipe(Atom.withEquality(Equal.equals)),
+const flashOf = Atom.family(
+  ({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
+    Atom.map(flashAtom(review), (flash) =>
+      flash?.path === path ? flash : undefined,
+    ).pipe(Atom.withEquality(Equal.equals)),
 );
-const draftsOf = Atom.family(({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
-  Atom.map(draftsAtom(review), (drafts) => drafts.filter((draft) => draft.path === path)).pipe(Atom.withEquality(Equal.equals)),
+const draftsOf = Atom.family(
+  ({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
+    Atom.map(draftsAtom(review), (drafts) =>
+      drafts.filter((draft) => draft.path === path),
+    ).pipe(Atom.withEquality(Equal.equals)),
 );
 
 /** The selected lines as the server will anchor them: old-side when only deleted lines are selected, else new-side. */
-const lineLabel = (rows: ReadonlyArray<Row>, start: number, end: number): string => {
-  const units = rows.filter((row) => row.index >= start && row.index <= end && changeable(row));
-  const old = units.some((row) => row.kind === "del") && !units.some((row) => row.kind === "add");
-  const numbers = [...new Set(units.map((row) => (old ? row.old : row.new)).filter((line) => line !== undefined))];
+const lineLabel = (
+  rows: ReadonlyArray<Row>,
+  start: number,
+  end: number,
+): string => {
+  const units = rows.filter(
+    (row) => row.index >= start && row.index <= end && changeable(row),
+  );
+  const old =
+    units.some((row) => row.kind === "del") &&
+    !units.some((row) => row.kind === "add");
+  const numbers = [
+    ...new Set(
+      units
+        .map((row) => (old ? row.old : row.new))
+        .filter((line) => line !== undefined),
+    ),
+  ];
   const first = numbers[0];
   const last = numbers.at(-1);
   if (first === undefined || last === undefined) return "the selected rows";
@@ -67,7 +98,8 @@ const lineLabel = (rows: ReadonlyArray<Row>, start: number, end: number): string
 };
 
 /** The ID of a unit's + button, where focus returns when its composer closes. */
-const plusId = (table: string, row: number, side: "old" | "new" | "unified") => `${table}-plus-${row}-${side}`;
+const plusId = (table: string, row: number, side: "old" | "new" | "unified") =>
+  `${table}-plus-${row}-${side}`;
 
 const ROW_TONE: Readonly<Record<Row["kind"], string>> = {
   add: "bg-diff-addition",
@@ -86,23 +118,41 @@ const MARKER_TONE: Readonly<Record<Row["kind"], string>> = {
   meta: "",
 };
 
-const MARKER: Readonly<Record<Row["kind"], string>> = { add: "+", del: "−", context: " ", hunk: "", meta: "" };
+const MARKER: Readonly<Record<Row["kind"], string>> = {
+  add: "+",
+  del: "−",
+  context: " ",
+  hunk: "",
+  meta: "",
+};
 
 /** What the marker means, for a reader who hears the table instead of seeing its colours. */
-const SPOKEN: Readonly<Record<Row["kind"], string>> = { add: "Added", del: "Deleted", context: "", hunk: "", meta: "" };
+const SPOKEN: Readonly<Record<Row["kind"], string>> = {
+  add: "Added",
+  del: "Deleted",
+  context: "",
+  hunk: "",
+  meta: "",
+};
 
 export const Marker = ({ kind }: { readonly kind: Row["kind"] }) => (
   <>
-    <span aria-hidden="true" className={cn("inline-block w-[1em] text-center", MARKER_TONE[kind])}>
+    <span
+      aria-hidden="true"
+      className={cn("inline-block w-[1em] text-center", MARKER_TONE[kind])}
+    >
       {MARKER[kind]}
     </span>
-    {SPOKEN[kind] === "" ? null : <span className="sr-only">{SPOKEN[kind]}</span>}
+    {SPOKEN[kind] === "" ? null : (
+      <span className="sr-only">{SPOKEN[kind]}</span>
+    )}
   </>
 );
 
 const ROW_BODY = "sticky left-0 box-border max-w-[100cqi] px-3 py-1.5 pl-11";
 
-const UNDER = "bg-surface p-0 font-sans text-small leading-[1.45] whitespace-normal";
+const UNDER =
+  "bg-surface p-0 font-sans text-small leading-[1.45] whitespace-normal";
 
 const NOTE_MARKER =
   "mr-0.5 inline-grid h-4.5 min-w-4.5 place-items-center rounded-full border border-current px-0.5 align-[0.125rem] font-mono text-xs leading-none font-bold text-accent max-md:hidden";
@@ -111,7 +161,13 @@ const NOTE_MARKER =
  * The letters of the notes on a row. Where notes show on demand, it is the button that shows and hides them; pressing
  * it starts no selection.
  */
-const NoteMarker = ({ table, index }: { readonly table: TableContext; readonly index: number }) => {
+const NoteMarker = ({
+  table,
+  index,
+}: {
+  readonly table: TableContext;
+  readonly index: number;
+}) => {
   const notes = table.notesAt.get(index);
   if (notes === undefined || notes.length === 0) return null;
   const letters = notes.map((note) => note.letter).join("");
@@ -132,14 +188,24 @@ const NoteMarker = ({ table, index }: { readonly table: TableContext; readonly i
       title={notes.map((note) => note.title).join(" · ")}
       onMouseDown={(event) => event.stopPropagation()}
       onClick={() => table.toggleNotes(notes, !open)}
-      className={cn(NOTE_MARKER, "cursor-pointer", open ? "border-accent bg-accent text-on-accent" : "hover:bg-subtle")}
+      className={cn(
+        NOTE_MARKER,
+        "cursor-pointer",
+        open ? "border-accent bg-accent text-on-accent" : "hover:bg-subtle",
+      )}
     >
       {letters}
     </button>
   );
 };
 
-const NoteRow = ({ note, columns }: { readonly note: InlineNote; readonly columns: number }) => (
+const NoteRow = ({
+  note,
+  columns,
+}: {
+  readonly note: InlineNote;
+  readonly columns: number;
+}) => (
   <tr id={note.id} data-note className="scroll-my-(--scroll-top)">
     <td colSpan={columns} className={cn(UNDER, "border-l-2 border-accent")}>
       <div className={ROW_BODY}>
@@ -147,7 +213,9 @@ const NoteRow = ({ note, columns }: { readonly note: InlineNote; readonly column
         <span className="mr-2 inline-grid size-4.5 place-items-center rounded-full bg-accent align-[0.0625rem] font-mono text-xs leading-none font-bold text-on-accent">
           {note.letter}
         </span>
-        {note.stop === undefined ? null : <span className="text-muted">Stop {note.stop} · </span>}
+        {note.stop === undefined ? null : (
+          <span className="text-muted">Stop {note.stop} · </span>
+        )}
         <strong className="font-semibold">
           <Lead title={note.title} />
         </strong>{" "}
@@ -166,7 +234,9 @@ interface TableContext {
   /** Whether units take selections: a writable review, not a read-only patch. */
   readonly selectable: boolean;
   readonly reattaching: boolean;
-  readonly selected: { readonly start: number; readonly end: number } | undefined;
+  readonly selected:
+    | { readonly start: number; readonly end: number }
+    | undefined;
   readonly flash: { readonly start: number; readonly end: number } | undefined;
   readonly commented: ReadonlySet<number>;
   /** Rows whose change is whitespace only, when the reviewer hides such changes; else none. */
@@ -176,18 +246,29 @@ interface TableContext {
   readonly notesAt: ReadonlyMap<number, ReadonlyArray<InlineNote>>;
   /** Where notes show only on demand, the IDs of those the reviewer opened; undefined where every note shows. */
   readonly openNotes: ReadonlySet<string> | undefined;
-  readonly toggleNotes: (notes: ReadonlyArray<InlineNote>, open: boolean) => void;
+  readonly toggleNotes: (
+    notes: ReadonlyArray<InlineNote>,
+    open: boolean,
+  ) => void;
   readonly threadsAt: ReadonlyMap<number, ReadonlyArray<PlacedComment>>;
   readonly drafts: ReadonlyArray<Draft>;
-  readonly select: (row: Row, event: React.MouseEvent | React.KeyboardEvent, opener: string) => void;
+  readonly select: (
+    row: Row,
+    event: React.MouseEvent | React.KeyboardEvent,
+    opener: string,
+  ) => void;
   readonly startDrag: (row: Row, event: React.MouseEvent) => void;
   readonly hover: (row: Row) => void;
 }
 
 const lit = (table: TableContext, row: Row) =>
-  table.selected !== undefined && row.index >= table.selected.start && row.index <= table.selected.end
+  table.selected !== undefined &&
+  row.index >= table.selected.start &&
+  row.index <= table.selected.end
     ? "!bg-selection"
-    : table.flash !== undefined && row.index >= table.flash.start && row.index <= table.flash.end
+    : table.flash !== undefined &&
+        row.index >= table.flash.start &&
+        row.index <= table.flash.end
       ? "!bg-highlight"
       : undefined;
 
@@ -196,7 +277,9 @@ const anchored = (table: TableContext, index: number) =>
   table.commented.has(index) ||
   table.notesAt.has(index) ||
   table.drafts.some((draft) => index >= draft.start && index <= draft.end) ||
-  (table.flash !== undefined && index >= table.flash.start && index <= table.flash.end);
+  (table.flash !== undefined &&
+    index >= table.flash.start &&
+    index <= table.flash.end);
 
 /**
  * How a row shows. A whitespace-only change the reviewer hides shows as unchanged: its addition always, its deletion
@@ -209,7 +292,15 @@ const look = (table: TableContext, row: Row): Row["kind"] | "hidden" => {
   return table.split ? "context" : "hidden";
 };
 
-const Plus = ({ table, row, side }: { readonly table: TableContext; readonly row: Row; readonly side: "old" | "new" | "unified" }) => {
+const Plus = ({
+  table,
+  row,
+  side,
+}: {
+  readonly table: TableContext;
+  readonly row: Row;
+  readonly side: "old" | "new" | "unified";
+}) => {
   const id = plusId(table.id, row.index, side);
   return (
     <button
@@ -252,11 +343,19 @@ const gutterProps = (table: TableContext, row: Row) =>
     : {};
 
 /** Notes on the rows, then the threads that end there, then the composer anchored there. */
-const Extras = ({ table, indexes }: { readonly table: TableContext; readonly indexes: ReadonlyArray<number> }) => {
+const Extras = ({
+  table,
+  indexes,
+}: {
+  readonly table: TableContext;
+  readonly indexes: ReadonlyArray<number>;
+}) => {
   const unique = [...new Set(indexes)];
   const notes = unique
     .flatMap((index) => table.notesAt.get(index) ?? [])
-    .filter((note) => table.openNotes === undefined || table.openNotes.has(note.id));
+    .filter(
+      (note) => table.openNotes === undefined || table.openNotes.has(note.id),
+    );
   const placed = unique.flatMap((index) => table.threadsAt.get(index) ?? []);
   const drafts = table.drafts.filter((draft) => unique.includes(draft.end));
   return (
@@ -279,7 +378,11 @@ const Extras = ({ table, indexes }: { readonly table: TableContext; readonly ind
         <tr key={draft.id} data-composer>
           <td colSpan={table.columns} className={UNDER}>
             <div className={cn(ROW_BODY, "pt-2.5 pb-3")}>
-              <Composer draft={draft} table={table.id} range={lineLabel(table.rows, draft.start, draft.end)} />
+              <Composer
+                draft={draft}
+                table={table.id}
+                range={lineLabel(table.rows, draft.start, draft.end)}
+              />
             </div>
           </td>
         </tr>
@@ -292,12 +395,32 @@ const Extras = ({ table, indexes }: { readonly table: TableContext; readonly ind
  * Both line numbers in one gutter cell; a narrow page shows one, the old for a deletion and the new otherwise, in a
  * column no wider than the + button that covers it.
  */
-const LineNumbers = ({ old, fresh, deleted = false }: { readonly old: number | undefined; readonly fresh: number | undefined; readonly deleted?: boolean }) => (
+const LineNumbers = ({
+  old,
+  fresh,
+  deleted = false,
+}: {
+  readonly old: number | undefined;
+  readonly fresh: number | undefined;
+  readonly deleted?: boolean;
+}) => (
   <>
-    <span data-ln="old" className={cn("inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0", !deleted && "max-md:hidden")}>
+    <span
+      data-ln="old"
+      className={cn(
+        "inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0",
+        !deleted && "max-md:hidden",
+      )}
+    >
       {old ?? ""}
     </span>
-    <span data-ln="new" className={cn("inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0", deleted && "max-md:hidden")}>
+    <span
+      data-ln="new"
+      className={cn(
+        "inline-block min-w-9 pl-1 max-md:min-w-[2ch] max-md:pl-0",
+        deleted && "max-md:hidden",
+      )}
+    >
       {fresh ?? ""}
     </span>
   </>
@@ -307,20 +430,36 @@ const LineNumbers = ({ old, fresh, deleted = false }: { readonly old: number | u
  * The gutters: line numbers, then the change marker. In the unified layout each is a cell, and both narrow on a
  * narrow page; in the split layout each is a box at the start of its half.
  */
-const NUMBER_GUTTER = "w-px pr-1 pl-3 text-right whitespace-nowrap text-muted max-md:pr-0.5 max-md:pl-0";
-const MARKER_GUTTER = "w-px min-w-7 px-1 text-right whitespace-nowrap text-muted max-md:min-w-0 max-md:px-0 max-md:text-center";
-const HALF_NUMBER_GUTTER = "inline-block min-w-12 pr-1 pl-3 text-right text-muted";
+const NUMBER_GUTTER =
+  "w-px pr-1 pl-3 text-right whitespace-nowrap text-muted max-md:pr-0.5 max-md:pl-0";
+const MARKER_GUTTER =
+  "w-px min-w-7 px-1 text-right whitespace-nowrap text-muted max-md:min-w-0 max-md:px-0 max-md:text-center";
+const HALF_NUMBER_GUTTER =
+  "inline-block min-w-12 pr-1 pl-3 text-right text-muted";
 const HALF_MARKER_GUTTER = "inline-block min-w-6 px-1 text-right text-muted";
 const SOURCE = "pr-4 whitespace-pre max-md:pr-3 max-md:pl-1";
 /** A split half keeps a long line to itself: the table is fixed, so it clips with an ellipsis instead of spilling. */
-const SPLIT_UNCHANGED = "w-1/2 overflow-hidden pr-3 text-ellipsis whitespace-pre";
+const SPLIT_UNCHANGED =
+  "w-1/2 overflow-hidden pr-3 text-ellipsis whitespace-pre";
 
 /** The source of a row: code in ink, a hunk header or meta row in the row's muted tone. */
 const Source = ({ row }: { readonly row: Row }) => (
-  <code className={row.kind === "hunk" || row.kind === "meta" ? "text-technical" : "text-ink"}>{row.content}</code>
+  <code
+    className={
+      row.kind === "hunk" || row.kind === "meta" ? "text-technical" : "text-ink"
+    }
+  >
+    {row.content}
+  </code>
 );
 
-const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row: Row }) => {
+const UnifiedRow = ({
+  table,
+  row,
+}: {
+  readonly table: TableContext;
+  readonly row: Row;
+}) => {
   const unit = table.selectable && changeable(row);
   const shown = look(table, row);
   if (shown === "hidden") return null;
@@ -331,13 +470,36 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
         {...unitProps(table, row)}
         data-kind={row.kind}
         data-whitespace={shown === row.kind ? undefined : "hidden"}
-        className={cn("group/unit scroll-my-(--scroll-top)", ROW_TONE[shown], table.commented.has(row.index) && "shadow-mark", lit(table, row))}
+        className={cn(
+          "group/unit scroll-my-(--scroll-top)",
+          ROW_TONE[shown],
+          table.commented.has(row.index) && "shadow-mark",
+          lit(table, row),
+        )}
       >
-        <td {...gutterProps(table, row)} className={cn("relative select-none", NUMBER_GUTTER, gutterProps(table, row).className)}>
+        <td
+          {...gutterProps(table, row)}
+          className={cn(
+            "relative select-none",
+            NUMBER_GUTTER,
+            gutterProps(table, row).className,
+          )}
+        >
           {unit ? <Plus table={table} row={row} side="unified" /> : null}
-          <LineNumbers old={row.old} fresh={row.new} deleted={row.kind === "del"} />
+          <LineNumbers
+            old={row.old}
+            fresh={row.new}
+            deleted={row.kind === "del"}
+          />
         </td>
-        <td {...gutterProps(table, row)} className={cn("relative select-none", MARKER_GUTTER, gutterProps(table, row).className)}>
+        <td
+          {...gutterProps(table, row)}
+          className={cn(
+            "relative select-none",
+            MARKER_GUTTER,
+            gutterProps(table, row).className,
+          )}
+        >
           <NoteMarker table={table} index={row.index} />
           <Marker kind={shown} />
         </td>
@@ -350,8 +512,17 @@ const UnifiedRow = ({ table, row }: { readonly table: TableContext; readonly row
   );
 };
 
-const Half = ({ table, row, side }: { readonly table: TableContext; readonly row: Row | undefined; readonly side: "old" | "new" }) => {
-  if (row === undefined) return <td data-half={side} className="w-1/2 bg-surface" />;
+const Half = ({
+  table,
+  row,
+  side,
+}: {
+  readonly table: TableContext;
+  readonly row: Row | undefined;
+  readonly side: "old" | "new";
+}) => {
+  if (row === undefined)
+    return <td data-half={side} className="w-1/2 bg-surface" />;
   const unit = table.selectable && changeable(row);
   // A half is never hidden: the split layout shows a whitespace-only deletion as the old side of an unchanged pair.
   const shown = look(table, row) === "context" ? "context" : row.kind;
@@ -369,12 +540,28 @@ const Half = ({ table, row, side }: { readonly table: TableContext; readonly row
         lit(table, row),
       )}
     >
-      <span {...gutterProps(table, row)} className={cn("relative select-none", HALF_NUMBER_GUTTER, gutterProps(table, row).className)}>
+      <span
+        {...gutterProps(table, row)}
+        className={cn(
+          "relative select-none",
+          HALF_NUMBER_GUTTER,
+          gutterProps(table, row).className,
+        )}
+      >
         {unit ? <Plus table={table} row={row} side={side} /> : null}
         {row[side] ?? ""}
       </span>
-      <span {...gutterProps(table, row)} className={cn("select-none", HALF_MARKER_GUTTER, gutterProps(table, row).className)}>
-        {side === "new" || row.kind === "del" ? <NoteMarker table={table} index={row.index} /> : null}
+      <span
+        {...gutterProps(table, row)}
+        className={cn(
+          "select-none",
+          HALF_MARKER_GUTTER,
+          gutterProps(table, row).className,
+        )}
+      >
+        {side === "new" || row.kind === "del" ? (
+          <NoteMarker table={table} index={row.index} />
+        ) : null}
         <Marker kind={shown} />
       </span>
       <Source row={row} />
@@ -382,14 +569,27 @@ const Half = ({ table, row, side }: { readonly table: TableContext; readonly row
   );
 };
 
-const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly rows: ReadonlyArray<Row> }) => {
+const RowsOf = ({
+  table,
+  rows: all,
+}: {
+  readonly table: TableContext;
+  readonly rows: ReadonlyArray<Row>;
+}) => {
   const rows = all.filter((row) => !table.absorbed.has(row.index));
-  if (!table.split) return rows.map((row) => <UnifiedRow key={row.index} table={table} row={row} />);
+  if (!table.split)
+    return rows.map((row) => (
+      <UnifiedRow key={row.index} table={table} row={row} />
+    ));
   return pairRows(rows).map((pair) => {
     if (pair.whole !== undefined)
       return (
         <Fragment key={`w${pair.whole.index}`}>
-          <tr data-row={pair.whole.index} data-kind={pair.whole.kind} className={ROW_TONE[pair.whole.kind]}>
+          <tr
+            data-row={pair.whole.index}
+            data-kind={pair.whole.kind}
+            className={ROW_TONE[pair.whole.kind]}
+          >
             <td colSpan={2} className="px-3 whitespace-pre">
               <code className="text-technical">{pair.whole.content}</code>
             </td>
@@ -397,10 +597,15 @@ const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly r
           <Extras table={table} indexes={[pair.whole.index]} />
         </Fragment>
       );
-    const indexes = [pair.old?.index, pair.new?.index].filter((index): index is number => index !== undefined);
+    const indexes = [pair.old?.index, pair.new?.index].filter(
+      (index): index is number => index !== undefined,
+    );
     return (
       <Fragment key={`p${Math.min(...indexes)}`}>
-        <tr id={`${table.id}-p${Math.min(...indexes)}`} className="scroll-my-(--scroll-top)">
+        <tr
+          id={`${table.id}-p${Math.min(...indexes)}`}
+          className="scroll-my-(--scroll-top)"
+        >
           <Half table={table} row={pair.old} side="old" />
           <Half table={table} row={pair.new} side="new" />
         </tr>
@@ -410,7 +615,13 @@ const RowsOf = ({ table, rows: all }: { readonly table: TableContext; readonly r
   });
 };
 
-const UnchangedLine = ({ table, line }: { readonly table: TableContext; readonly line: GapLine }) =>
+const UnchangedLine = ({
+  table,
+  line,
+}: {
+  readonly table: TableContext;
+  readonly line: GapLine;
+}) =>
   table.split ? (
     <tr data-unchanged className="text-muted">
       <td className={SPLIT_UNCHANGED}>
@@ -436,11 +647,19 @@ const UnchangedLine = ({ table, line }: { readonly table: TableContext; readonly
     </tr>
   );
 
-const GapPartRows = ({ table, part }: { readonly table: TableContext; readonly part: GapPart }) =>
+const GapPartRows = ({
+  table,
+  part,
+}: {
+  readonly table: TableContext;
+  readonly part: GapPart;
+}) =>
   part.kind === "folded" ? (
     <RowsOf table={table} rows={part.rows} />
   ) : (
-    part.lines.map((line) => <UnchangedLine key={line.new} table={table} line={line} />)
+    part.lines.map((line) => (
+      <UnchangedLine key={line.new} table={table} line={line} />
+    ))
   );
 
 /**
@@ -456,9 +675,16 @@ const GapGroup = ({
   readonly gap: Extract<Segment, { kind: "gap" }>;
   readonly header: Row | undefined;
 }) => {
-  const [stage, setStage] = useAtom(gapAtom({ path: table.model.file.path, digest: table.model.digest, gap: gap.key }));
+  const [stage, setStage] = useAtom(
+    gapAtom({
+      path: table.model.file.path,
+      digest: table.model.digest,
+      gap: gap.key,
+    }),
+  );
   // A gap with only one kind of hidden line has no first stage.
-  const shown = stage === 1 && (gap.folded === 0 || gap.context === 0) ? 2 : stage;
+  const shown =
+    stage === 1 && (gap.folded === 0 || gap.context === 0) ? 2 : stage;
   const label = gapLabel(shown, gap);
   const Icon = shown === 2 ? FoldVertical : UnfoldVertical;
   const button = (
@@ -471,7 +697,10 @@ const GapGroup = ({
       aria-label={label}
       title={label}
       onClick={() => setStage(nextStage(shown, gap))}
-      className={cn(TOUCH_TARGET, "inline-grid h-6 w-full place-items-center align-top text-muted hover:text-ink")}
+      className={cn(
+        TOUCH_TARGET,
+        "inline-grid h-6 w-full place-items-center align-top text-muted hover:text-ink",
+      )}
     >
       <Icon aria-hidden="true" className="size-3.5" />
     </button>
@@ -483,13 +712,18 @@ const GapGroup = ({
       <code className="text-technical text-muted">{header.content}</code>
     );
   // The header's row ID stays on the row that shows it, so links to the hunk still land.
-  const anchor = header === undefined ? {} : { id: `${table.id}-r${header.index}`, "data-row": header.index };
+  const anchor =
+    header === undefined
+      ? {}
+      : { id: `${table.id}-r${header.index}`, "data-row": header.index };
   const toggle = (
     <tbody data-gap={gap.key}>
       {table.split ? (
         <tr {...anchor} className="h-6 scroll-my-(--scroll-top) bg-surface">
           <td colSpan={2} className="pr-3 whitespace-pre">
-            <span className={cn(HALF_NUMBER_GUTTER, "align-top")}>{button}</span>
+            <span className={cn(HALF_NUMBER_GUTTER, "align-top")}>
+              {button}
+            </span>
             <span className={HALF_MARKER_GUTTER} />
             {words}
           </td>
@@ -501,7 +735,9 @@ const GapGroup = ({
           <td className={SOURCE}>{words}</td>
         </tr>
       )}
-      {header === undefined ? null : <Extras table={table} indexes={[header.index]} />}
+      {header === undefined ? null : (
+        <Extras table={table} indexes={[header.index]} />
+      )}
     </tbody>
   );
   return gap.parts.map((part, at) => {
@@ -510,7 +746,9 @@ const GapGroup = ({
       <Fragment key={at}>
         {at === gap.toggleAt ? toggle : null}
         {open ? (
-          <tbody data-gap-lines={part.kind === "folded" ? "folded" : "unchanged"}>
+          <tbody
+            data-gap-lines={part.kind === "folded" ? "folded" : "unchanged"}
+          >
             <GapPartRows table={table} part={part} />
           </tbody>
         ) : null}
@@ -524,7 +762,13 @@ const GapGroup = ({
  * composer's range. A selection moves the comment being moved, or opens a composer on the rows. `table` is the
  * table's ID and `rows` its rows.
  */
-const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>, split: boolean, readOnly: boolean) => {
+const useSelection = (
+  model: FileModel,
+  table: string,
+  rows: ReadonlyArray<Row>,
+  split: boolean,
+  readOnly: boolean,
+) => {
   const registry = useContext(RegistryContext);
   const { id: review } = usePage();
   const act = useAct();
@@ -539,12 +783,23 @@ const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>,
       const outcome = await act({
         kind: "reattach",
         comment: moving,
-        selection: { path: model.file.path, patch_sha256: digest, start_row: start, end_row: end },
+        selection: {
+          path: model.file.path,
+          patch_sha256: digest,
+          start_row: start,
+          end_row: end,
+        },
       });
       if (outcome.ok) toast("The comment moved to the lines you chose.");
       return;
     }
-    openDraft(registry, review, { path: model.file.path, digest, start, end, opener });
+    openDraft(registry, review, {
+      path: model.file.path,
+      digest,
+      start,
+      end,
+      opener,
+    });
   };
 
   // A drag ends wherever the pointer is released. The read-only patch above the diff takes no selection.
@@ -555,7 +810,11 @@ const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>,
       if (now === undefined || now.path !== model.file.path) return;
       registry.set(dragAtom, undefined);
       const end = Math.max(now.from, now.to);
-      const side = !split ? "unified" : rows[end]?.kind === "del" ? "old" : "new";
+      const side = !split
+        ? "unified"
+        : rows[end]?.kind === "del"
+          ? "old"
+          : "new";
       void choose(Math.min(now.from, now.to), end, plusId(table, end, side));
     };
     document.addEventListener("mouseup", release);
@@ -564,21 +823,46 @@ const useSelection = (model: FileModel, table: string, rows: ReadonlyArray<Row>,
 
   return {
     /** The rows the drag under way covers. */
-    dragged: drag === undefined ? undefined : { start: Math.min(drag.from, drag.to), end: Math.max(drag.from, drag.to) },
-    select: (row: Row, event: React.MouseEvent | React.KeyboardEvent, opener: string) => {
-      const open = registry.get(draftsAtom(review)).find((draft) => !draft.submitting && draft.path === model.file.path);
+    dragged:
+      drag === undefined
+        ? undefined
+        : {
+            start: Math.min(drag.from, drag.to),
+            end: Math.max(drag.from, drag.to),
+          },
+    select: (
+      row: Row,
+      event: React.MouseEvent | React.KeyboardEvent,
+      opener: string,
+    ) => {
+      const open = registry
+        .get(draftsAtom(review))
+        .find((draft) => !draft.submitting && draft.path === model.file.path);
       if (event.shiftKey && open !== undefined)
-        void choose(Math.min(open.start, row.index), Math.max(open.end, row.index), open.opener);
+        void choose(
+          Math.min(open.start, row.index),
+          Math.max(open.end, row.index),
+          open.opener,
+        );
       else void choose(row.index, row.index, opener);
     },
     startDrag: (row: Row, event: React.MouseEvent) => {
       if (event.button !== 0) return;
       event.preventDefault();
-      registry.set(dragAtom, { path: model.file.path, from: row.index, to: row.index });
+      registry.set(dragAtom, {
+        path: model.file.path,
+        from: row.index,
+        to: row.index,
+      });
     },
     hover: (row: Row) => {
       const now = registry.get(dragAtom);
-      if (now !== undefined && now.path === model.file.path && now.to !== row.index) registry.set(dragAtom, { ...now, to: row.index });
+      if (
+        now !== undefined &&
+        now.path === model.file.path &&
+        now.to !== row.index
+      )
+        registry.set(dragAtom, { ...now, to: row.index });
     },
   };
 };
@@ -604,27 +888,55 @@ export const DiffTable = ({
   const id = readOnly ? `f${model.index}-since` : `f${model.index}`;
   // A new snapshot rebuilds the file's model, but the patch and the rows it shows rarely change: lay out once per both.
   const shown = readOnly ? undefined : model.shown;
-  const shownKey = shown?.map((range) => `${range.start}-${range.end}`).join(",");
+  const shownKey = shown
+    ?.map((range) => `${range.start}-${range.end}`)
+    .join(",");
   const content = readOnly ? undefined : model.file.new_content;
-  const layout = useMemo(() => layoutDiff(source, { shown, content }), [source, shownKey, content]);
-  const drafts = useAtomValue(draftsOf({ review, path: model.file.path })).filter((draft) => !readOnly && draft.digest === model.digest);
+  const layout = useMemo(
+    () => layoutDiff(source, { shown, content }),
+    [source, shownKey, content],
+  );
+  const drafts = useAtomValue(
+    draftsOf({ review, path: model.file.path }),
+  ).filter((draft) => !readOnly && draft.digest === model.digest);
   const reattaching = useAtomValue(reattachAtom(review));
   const flash = useAtomValue(flashOf({ review, path: model.file.path }));
-  const { dragged, select, startDrag, hover } = useSelection(model, id, layout.rows, split, readOnly);
+  const { dragged, select, startDrag, hover } = useSelection(
+    model,
+    id,
+    layout.rows,
+    split,
+    readOnly,
+  );
   const editable = drafts.find((draft) => !draft.submitting);
   const whitespace = useAtomValue(whitespaceAtom);
-  const quiet = useMemo(() => (whitespace === "hide" ? whitespaceOnly(layout.rows) : new Set<number>()), [layout, whitespace]);
+  const quiet = useMemo(
+    () =>
+      whitespace === "hide" ? whitespaceOnly(layout.rows) : new Set<number>(),
+    [layout, whitespace],
+  );
   // A gap's control shows the header of the hunk right after it.
   const headers = useMemo(
     () =>
       layout.segments.map((segment, at) => {
         const next = layout.segments[at + 1];
-        const first = segment.kind === "gap" && next?.kind === "rows" ? next.rows[0] : undefined;
+        const first =
+          segment.kind === "gap" && next?.kind === "rows"
+            ? next.rows[0]
+            : undefined;
         return first?.kind === "hunk" ? first : undefined;
       }),
     [layout],
   );
-  const absorbed = useMemo(() => new Set(headers.flatMap((header) => (header === undefined ? [] : [header.index]))), [headers]);
+  const absorbed = useMemo(
+    () =>
+      new Set(
+        headers.flatMap((header) =>
+          header === undefined ? [] : [header.index],
+        ),
+      ),
+    [headers],
+  );
 
   const table: TableContext = {
     model,
@@ -634,11 +946,22 @@ export const DiffTable = ({
     columns: split ? 2 : 3,
     selectable: page.writable && !readOnly && model.digest !== undefined,
     reattaching: reattaching !== undefined,
-    selected: dragged ?? (editable === undefined ? undefined : { start: editable.start, end: editable.end }),
+    selected:
+      dragged ??
+      (editable === undefined
+        ? undefined
+        : { start: editable.start, end: editable.end }),
     flash: readOnly ? undefined : flash,
     quiet,
     absorbed,
-    commented: new Set(model.placed.flatMap((item) => Array.from({ length: item.end - item.start + 1 }, (_, at) => item.start + at))),
+    commented: new Set(
+      model.placed.flatMap((item) =>
+        Array.from(
+          { length: item.end - item.start + 1 },
+          (_, at) => item.start + at,
+        ),
+      ),
+    ),
     notesAt: readOnly ? new Map() : groupBy(model.notes, (note) => note.row),
     openNotes: view === "source" ? openNotes : undefined,
     toggleNotes: (notes, open) =>
@@ -658,13 +981,21 @@ export const DiffTable = ({
   };
 
   return (
-    <div role="group" aria-label={`Diff of ${model.file.path}`} tabIndex={0} className="@container overflow-x-auto bg-code focus-visible:-outline-offset-2">
+    <div
+      role="group"
+      aria-label={`Diff of ${model.file.path}`}
+      tabIndex={0}
+      className="@container overflow-x-auto bg-code focus-visible:-outline-offset-2"
+    >
       <table
         data-path={model.file.path}
         data-patch={readOnly ? undefined : model.digest}
         data-table={id}
         data-layout={split ? "split" : "unified"}
-        className={cn("w-full border-collapse font-mono text-technical leading-6", split && "table-fixed")}
+        className={cn(
+          "w-full border-collapse font-mono text-technical leading-6",
+          split && "table-fixed",
+        )}
       >
         <thead className="sr-only">
           {split ? (
@@ -686,7 +1017,12 @@ export const DiffTable = ({
               <RowsOf table={table} rows={segment.rows} />
             </tbody>
           ) : (
-            <GapGroup key={at} table={table} gap={segment} header={headers[at]} />
+            <GapGroup
+              key={at}
+              table={table}
+              gap={segment}
+              header={headers[at]}
+            />
           ),
         )}
       </table>
@@ -694,8 +1030,12 @@ export const DiffTable = ({
   );
 };
 
-const groupBy = <A,>(items: ReadonlyArray<A>, key: (item: A) => number): ReadonlyMap<number, ReadonlyArray<A>> => {
+const groupBy = <A,>(
+  items: ReadonlyArray<A>,
+  key: (item: A) => number,
+): ReadonlyMap<number, ReadonlyArray<A>> => {
   const map = new Map<number, Array<A>>();
-  for (const item of items) map.set(key(item), [...(map.get(key(item)) ?? []), item]);
+  for (const item of items)
+    map.set(key(item), [...(map.get(key(item)) ?? []), item]);
   return map;
 };

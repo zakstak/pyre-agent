@@ -27,7 +27,10 @@ export const Segmented = <A extends string>({
   <div
     role="group"
     aria-label={label}
-    className={cn("inline-flex h-7 overflow-hidden rounded-control border border-line text-small", className)}
+    className={cn(
+      "inline-flex h-7 overflow-hidden rounded-control border border-line text-small",
+      className,
+    )}
   >
     {choices.map(([choice, text]) => (
       <button
@@ -36,7 +39,11 @@ export const Segmented = <A extends string>({
         {...{ [attribute]: choice }}
         aria-pressed={value === choice}
         onClick={() => onChange(choice)}
-        className={cn(TOUCH_TARGET, "px-2.5 font-medium", value === choice ? PRESSED : "bg-raised text-muted hover:bg-subtle")}
+        className={cn(
+          TOUCH_TARGET,
+          "px-2.5 font-medium",
+          value === choice ? PRESSED : "bg-raised text-muted hover:bg-subtle",
+        )}
       >
         {text}
       </button>

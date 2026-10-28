@@ -29,17 +29,30 @@ const TONE: Readonly<Record<Tone, string>> = {
   wait: "border-separator text-muted",
 };
 
-const Chip = ({ tone = "neutral", title, children }: { readonly tone?: Tone; readonly title?: string; readonly children: string }) => (
+const Chip = ({
+  tone = "neutral",
+  title,
+  children,
+}: {
+  readonly tone?: Tone;
+  readonly title?: string;
+  readonly children: string;
+}) => (
   <span
     data-chip
     title={title}
-    className={cn("inline-flex items-center rounded-full border px-2 text-chip leading-5 font-semibold", TONE[tone])}
+    className={cn(
+      "inline-flex items-center rounded-full border px-2 text-chip leading-5 font-semibold",
+      TONE[tone],
+    )}
   >
     {children}
   </span>
 );
 
-const DISPOSITION: Readonly<Record<Disposition, { readonly label: string; readonly tone: Tone }>> = {
+const DISPOSITION: Readonly<
+  Record<Disposition, { readonly label: string; readonly tone: Tone }>
+> = {
   fixed: { label: "Fixed", tone: "ok" },
   rejected: { label: "Rejected", tone: "warn" },
   deferred: { label: "Deferred", tone: "neutral" },
@@ -56,7 +69,13 @@ const waitingFor = (comment: Comment, threads: ReadonlyArray<AgentThread>) => {
 };
 
 /** What the comment's state says: whose turn it is, or how it ended. */
-const TurnChip = ({ comment, standing }: { readonly comment: Comment; readonly standing: Standing }) => {
+const TurnChip = ({
+  comment,
+  standing,
+}: {
+  readonly comment: Comment;
+  readonly standing: Standing;
+}) => {
   const { page } = usePage();
   switch (standing) {
     case "pending":
@@ -64,7 +83,9 @@ const TurnChip = ({ comment, standing }: { readonly comment: Comment; readonly s
     case "reviewer":
       return <Chip tone="turn">Your turn</Chip>;
     case "agent":
-      return <Chip tone="wait">{`Waiting for ${waitingFor(comment, page.snapshot.threads)}`}</Chip>;
+      return (
+        <Chip tone="wait">{`Waiting for ${waitingFor(comment, page.snapshot.threads)}`}</Chip>
+      );
     case "resolved":
       // An accept with no answer before it is the reviewer taking the comment back.
       return comment.replies.some((item) => item.actor !== "reviewer") ? (
@@ -76,7 +97,9 @@ const TurnChip = ({ comment, standing }: { readonly comment: Comment; readonly s
 };
 
 const By = ({ children }: { readonly children: React.ReactNode }) => (
-  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted">{children}</p>
+  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted">
+    {children}
+  </p>
 );
 
 /** A GitHub author as a voice; a deleted account is GitHub's "ghost". */
@@ -99,12 +122,18 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
   const { page } = usePage();
   switch (item.actor) {
     case "agent": {
-      const thread = page.snapshot.threads.find((candidate) => candidate.id === item.thread);
+      const thread = page.snapshot.threads.find(
+        (candidate) => candidate.id === item.thread,
+      );
       const disposition = DISPOSITION[item.disposition];
       return (
         <li data-reply="agent" className="pt-3">
           <By>
-            {thread === undefined ? <Voice kind="agent" name={item.thread} /> : <AgentVoice label={thread.label} />}
+            {thread === undefined ? (
+              <Voice kind="agent" name={item.thread} />
+            ) : (
+              <AgentVoice label={thread.label} />
+            )}
             <Chip tone={disposition.tone}>{disposition.label}</Chip>
             <Time at={item.created_at} />
           </By>
@@ -123,7 +152,8 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
                 </>
               ) : (
                 <>
-                  file version <code>{item.fixed_in.fingerprint.slice(0, 7)}</code>
+                  file version{" "}
+                  <code>{item.fixed_in.fingerprint.slice(0, 7)}</code>
                 </>
               )}
             </p>
@@ -136,7 +166,11 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
         <li data-reply="reviewer" className="pt-3">
           <By>
             <Voice kind="you" name="You" />
-            {item.action === "accept" ? <span>accepted</span> : item.action === "reopen" ? <span>reopened</span> : null}
+            {item.action === "accept" ? (
+              <span>accepted</span>
+            ) : item.action === "reopen" ? (
+              <span>reopened</span>
+            ) : null}
             <Time at={item.created_at} />
           </By>
           {item.body.trim() === "" ? null : <Body text={item.body} />}
@@ -157,7 +191,9 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
 };
 
 /** Ctrl or Cmd with Enter sends the form a text box is in. */
-export const submitOnModEnter = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+export const submitOnModEnter = (
+  event: React.KeyboardEvent<HTMLTextAreaElement>,
+) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
@@ -181,7 +217,9 @@ const Moves = ({
   const { id } = usePage();
   const act = useAct();
   const registry = useContext(RegistryContext);
-  const [reply, setReply] = useAtom(replyAtom({ review: id, comment: comment.id }));
+  const [reply, setReply] = useAtom(
+    replyAtom({ review: id, comment: comment.id }),
+  );
   const { busy, run } = useSending();
   const area = useRef<HTMLTextAreaElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -191,19 +229,32 @@ const Moves = ({
     opener.current?.focus();
   };
   /** Sends a move. `typed` is the reply box's text as it was, so text typed meanwhile stays in the box. */
-  const send = async (action: "reply" | "accept" | "reopen", body: string, typed?: string) => {
+  const send = async (
+    action: "reply" | "accept" | "reopen",
+    body: string,
+    typed?: string,
+  ) => {
     const outcome = await run(() => {
       onMoved("sent");
       return act({ kind: "reply", comment: comment.id, action, body });
     });
     if (outcome === undefined) return;
     if (!outcome.ok) return onMoved("refused");
-    if (typed !== undefined) setReply((now) => (now.body === typed ? { open: false, body: "" } : { ...now, open: false }));
+    if (typed !== undefined)
+      setReply((now) =>
+        now.body === typed
+          ? { open: false, body: "" }
+          : { ...now, open: false },
+      );
   };
   if (turn === "resolved")
     return (
       <div data-thread-actions className={ACTIONS_CLASS}>
-        <Button size="sm" disabled={busy} onClick={() => void send("reopen", "Reopened.")}>
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() => void send("reopen", "Reopened.")}
+        >
           Reopen
         </Button>
         {extra}
@@ -230,12 +281,19 @@ const Moves = ({
             readOnly={busy}
             rows={3}
             value={reply.body}
-            placeholder={turn === "agent" ? "Add to the comment" : "Reply to the answer"}
-            onChange={(event) => setReply({ open: true, body: event.currentTarget.value })}
+            placeholder={
+              turn === "agent" ? "Add to the comment" : "Reply to the answer"
+            }
+            onChange={(event) =>
+              setReply({ open: true, body: event.currentTarget.value })
+            }
             onKeyDown={(event) => {
               submitOnModEnter(event);
               // While a comment is being moved, Esc ends the move and leaves the reply open.
-              if (event.key === "Escape" && registry.get(reattachAtom(id)) === undefined) {
+              if (
+                event.key === "Escape" &&
+                registry.get(reattachAtom(id)) === undefined
+              ) {
                 event.preventDefault();
                 closeEditor();
               }
@@ -245,11 +303,7 @@ const Moves = ({
             <Button type="submit" size="sm" variant="primary" disabled={busy}>
               Reply
             </Button>
-            <Button
-              size="sm"
-              variant="quiet"
-              onClick={closeEditor}
-            >
+            <Button size="sm" variant="quiet" onClick={closeEditor}>
               Cancel
             </Button>
             <span className="text-small text-muted">Ctrl+Enter · Esc</span>
@@ -258,7 +312,13 @@ const Moves = ({
       ) : (
         <div data-thread-actions className={ACTIONS_CLASS}>
           {turn === "reviewer" ? (
-            <Button size="sm" disabled={busy} title="The answer settles the comment" data-accept onClick={() => void send("accept", reply.body.trim(), reply.body)}>
+            <Button
+              size="sm"
+              disabled={busy}
+              title="The answer settles the comment"
+              data-accept
+              onClick={() => void send("accept", reply.body.trim(), reply.body)}
+            >
               Accept
             </Button>
           ) : null}
@@ -274,7 +334,13 @@ const Moves = ({
             Reply
           </Button>
           {turn === "agent" ? (
-            <Button size="sm" variant="quiet" disabled={busy} title="Take the comment back" onClick={() => void send("accept", reply.body.trim(), reply.body)}>
+            <Button
+              size="sm"
+              variant="quiet"
+              disabled={busy}
+              title="Take the comment back"
+              onClick={() => void send("accept", reply.body.trim(), reply.body)}
+            >
               Withdraw
             </Button>
           ) : null}
@@ -286,27 +352,47 @@ const Moves = ({
 };
 
 /** One comment with its conversation and the reviewer's moves. `extra` adds a move, such as moving the comment. */
-export const ThreadView = ({ comment, extra }: { readonly comment: Comment; readonly extra?: React.ReactNode }) => {
+export const ThreadView = ({
+  comment,
+  extra,
+}: {
+  readonly comment: Comment;
+  readonly extra?: React.ReactNode;
+}) => {
   const { page } = usePage();
   const turn = turnOf(comment);
   const standing = page.standing(comment);
-  const starter = comment.source.kind === "github" ? voiceOf(comment.source.author ?? "ghost") : "you";
+  const starter =
+    comment.source.kind === "github"
+      ? voiceOf(comment.source.author ?? "ghost")
+      : "you";
   const article = useRef<HTMLElement>(null);
   /**
    * The thread as it was when the reviewer made a move. When the move shows, the thread's actions have changed, and
    * focus goes to its first one, or the thread itself, once: a later answer from an agent leaves focus alone.
    */
-  const pending = useRef<{ readonly turn: string; readonly replies: number } | undefined>(undefined);
+  const pending = useRef<
+    { readonly turn: string; readonly replies: number } | undefined
+  >(undefined);
   useEffect(() => {
     const was = pending.current;
-    if (was === undefined || (was.turn === turn && was.replies === comment.replies.length)) return;
+    if (
+      was === undefined ||
+      (was.turn === turn && was.replies === comment.replies.length)
+    )
+      return;
     pending.current = undefined;
-    const target = article.current?.querySelector<HTMLElement>("[data-thread-actions] button") ?? article.current;
+    const target =
+      article.current?.querySelector<HTMLElement>(
+        "[data-thread-actions] button",
+      ) ?? article.current;
     target?.focus({ preventScroll: true });
   }, [turn, comment.replies.length]);
   // The reattachment's reason, only where it found the lines somewhere else; the comment already sits on them.
   const reason =
-    comment.kind === "inline" && comment.attachment.state === "attached" && comment.attachment.reason !== "Same patch."
+    comment.kind === "inline" &&
+    comment.attachment.state === "attached" &&
+    comment.attachment.reason !== "Same patch."
       ? comment.attachment.reason
       : undefined;
   return (
@@ -350,20 +436,38 @@ export const ThreadView = ({ comment, extra }: { readonly comment: Comment; read
           ))}
         </ol>
       )}
-      {page.writable ? <Moves comment={comment} turn={turn} extra={extra} onMoved={(outcome) => {
-            pending.current = outcome === "sent" ? { turn, replies: comment.replies.length } : undefined;
-          }} /> : null}
+      {page.writable ? (
+        <Moves
+          comment={comment}
+          turn={turn}
+          extra={extra}
+          onMoved={(outcome) => {
+            pending.current =
+              outcome === "sent"
+                ? { turn, replies: comment.replies.length }
+                : undefined;
+          }}
+        />
+      ) : null}
     </article>
   );
 };
 
 /** An inline comment whose lines are not in this round, with where it pointed and a way to move it. */
-export const Orphan = ({ comment, withPath = false }: { readonly comment: InlineComment; readonly withPath?: boolean }) => {
+export const Orphan = ({
+  comment,
+  withPath = false,
+}: {
+  readonly comment: InlineComment;
+  readonly withPath?: boolean;
+}) => {
   const { id, page } = usePage();
   const setMoving = useAtomSet(reattachAtom(id));
   const move = () => {
     setMoving(comment.id);
-    toast("Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.");
+    toast(
+      "Select the lines this comment is about, with the + button or by dragging the line numbers. Esc cancels.",
+    );
   };
   return (
     <div className="px-3 py-3">
@@ -374,7 +478,9 @@ export const Orphan = ({ comment, withPath = false }: { readonly comment: Inline
           </>
         ) : null}
         {orphanPlace(comment, page.round.round)}
-        {comment.attachment.state === "orphan" ? ` · ${comment.attachment.reason}` : ""}
+        {comment.attachment.state === "orphan"
+          ? ` · ${comment.attachment.reason}`
+          : ""}
       </p>
       <pre className="my-2 overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">
         <code>{comment.anchor.quote}</code>

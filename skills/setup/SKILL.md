@@ -5,23 +5,23 @@ description:
   extras in Codex or Claude Code. Perform native setup and verification, then
   hand hook acceptance to the user."
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Set up Pyre Agent
 
-Carry out the requested installation. Run the host commands yourself and
-verify the result; do not send the user a reading assignment or a list of
-installation commands. The user handles interactive hook acceptance when
-needed. This file also serves as the bootstrap instructions for an agent that
-has not installed the plugin yet.
+Carry out the requested installation. Run the host commands yourself and verify
+the result; do not send the user a reading assignment or a list of installation
+commands. The user handles interactive hook acceptance when needed. This file
+also serves as the bootstrap instructions for an agent that has not installed
+the plugin yet.
 
 ## Select the installation
 
 Identify the current machine, host CLI, and active configuration profile. Use
-the host the user selected, or the current agent's host when unspecified. Set
-up both hosts when requested. Resolve plugin sources and refs from the request
-or existing installation configuration. Core defaults to
+the host the user selected, or the current agent's host when unspecified. Set up
+both hosts when requested. Resolve plugin sources and refs from the request or
+existing installation configuration. Core defaults to
 `https://github.com/zakstak/pyre-agent.git`, catalog `pyre-agent-local`, plugin
 `pyre-agent`.
 
@@ -84,8 +84,8 @@ uses the selected real profile; temporary-profile success is separate evidence.
 
 Skip this step for a core-only install. For Codex extras with untrusted or
 modified hooks, identify the exact plugin, hook event, source, matcher, and
-command from the installed package or host inventory. Show those details to
-the user with these actions:
+command from the installed package or host inventory. Show those details to the
+user with these actions:
 
 1. In a terminal using the installation's profile, run `codex`.
 2. Inside Codex, enter `/hooks`, select the identified hook, review it, and

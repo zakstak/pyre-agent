@@ -1,6 +1,5 @@
 import * as Result from "effect/Result";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   decodeBytes,

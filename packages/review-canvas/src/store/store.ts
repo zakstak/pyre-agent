@@ -63,11 +63,9 @@ import {
   unapprove,
 } from "../review/state.ts";
 import {
-  approvalHolds,
   currentRound,
   currentSubmission,
   type ReviewState,
-  turnOf,
   type Round,
 } from "../review/queries.ts";
 import { tourView } from "../review/tour.ts";

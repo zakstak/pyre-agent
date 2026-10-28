@@ -10,9 +10,10 @@ The checks need Python 3.10 or newer. The review-canvas package needs Node 26
 and the pnpm version pinned in its `package.json`.
 
 Install [Pragma](https://github.com/zakstak/pragma) once per clone for
-formatting, lint, secret scanning, skill versions, and skill shape checks.
-Pre-push hooks run the Python suite and review-canvas typecheck, build, tests,
-and TypeScript documentation examples.
+formatting, lint, generated-artifact rejection, secret scanning, skill versions,
+and skill shape checks. Pre-push hooks run the Python suite and review-canvas
+typecheck, build, tests, and TypeScript documentation examples, and capture
+Pragma's ts-rust shadow receipts.
 
 If this clone uses `core.hooksPath=.githooks`, unset that local setting before
 installing Pragma:
@@ -35,9 +36,11 @@ setups do not run together.
 
 Pragma uses `prek.toml` for the full hook set. Regeneration replaces that file;
 retain the repository's skill-version, skill-shape, and nested review-canvas
-hooks. Formatting excludes `tests/fixtures/`, whose malformed JSON and precise
-byte encodings test protocol rejection, and `pnpm-lock.yaml`, which pnpm owns.
-YAML lint follows Prettier's flow style and GitHub Actions' `on` key.
+hooks, plus the custom `.pragma-hooks/test.sh` wrapper that clears inherited Git
+variables before the Python fixture tests. Preserve the formatting exclusions
+for protocol and demo fixtures, whose original bytes matter, and
+`pnpm-lock.yaml`, which pnpm owns. YAML lint follows Prettier's flow style and
+GitHub Actions' `on` key.
 
 ## Run checks
 

@@ -9,7 +9,11 @@ import { flushSync } from "react-dom";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import type { PatchDigest, RepoPath, ReviewId } from "../../schema/primitives.ts";
+import type {
+  PatchDigest,
+  RepoPath,
+  ReviewId,
+} from "../../schema/primitives.ts";
 import { useAct, usePage } from "./act.ts";
 import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
 import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
@@ -44,19 +48,26 @@ export const openDraft = (
  */
 export const useStashChangedDrafts = (
   review: ReviewId,
-  files: ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }> | undefined,
+  files:
+    | ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }>
+    | undefined,
 ) => {
   const registry = useContext(RegistryContext);
   useEffect(() => {
     if (files === undefined) return;
     const drafts = registry.get(draftsAtom(review));
-    const lost = drafts.filter((draft) => !draft.submitting && files.get(draft.path)?.digest !== draft.digest);
+    const lost = drafts.filter(
+      (draft) =>
+        !draft.submitting && files.get(draft.path)?.digest !== draft.digest,
+    );
     if (lost.length === 0) return;
     registry.set(
       draftsAtom(review),
       drafts.filter((draft) => !lost.includes(draft)),
     );
-    const text = lost.map((draft) => draft.body).find((body) => body.trim() !== "");
+    const text = lost
+      .map((draft) => draft.body)
+      .find((body) => body.trim() !== "");
     if (text !== undefined) {
       registry.set(stashAtom(review), text);
       toast(
@@ -68,7 +79,15 @@ export const useStashChangedDrafts = (
 };
 
 /** `table` is the ID of the diff table the composer is in, and `range` names the lines it comments on. */
-export const Composer = ({ draft, table, range }: { readonly draft: Draft; readonly table: string; readonly range: string }) => {
+export const Composer = ({
+  draft,
+  table,
+  range,
+}: {
+  readonly draft: Draft;
+  readonly table: string;
+  readonly range: string;
+}) => {
   const registry = useContext(RegistryContext);
   const { id: review } = usePage();
   const drafts = draftsAtom(review);
@@ -100,25 +119,38 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
   }, [draft.focusPending]);
   /** Closes the composer; focus goes back to the + that opened it, or the one on its last line in this layout. */
   const close = () => {
-    const inside = area.current?.closest("tr")?.contains(document.activeElement) === true || document.activeElement === document.body;
+    const inside =
+      area.current?.closest("tr")?.contains(document.activeElement) === true ||
+      document.activeElement === document.body;
     // Removed in the same frame as focus moves, so focus never rests on the page itself.
     flushSync(() => update(() => undefined));
     if (inside)
       (
         document.getElementById(draft.opener) ??
-        document.querySelector<HTMLElement>(`table[data-table="${table}"] [data-row="${draft.end}"] [data-add-comment]`)
+        document.querySelector<HTMLElement>(
+          `table[data-table="${table}"] [data-row="${draft.end}"] [data-add-comment]`,
+        )
       )?.focus();
   };
   const send = async (question: boolean) => {
     // The atom, not this render's props: Ctrl+Enter twice must send once.
-    if (registry.get(drafts).find((item) => item.id === draft.id)?.submitting !== false) return;
+    if (
+      registry.get(drafts).find((item) => item.id === draft.id)?.submitting !==
+      false
+    )
+      return;
     const body = draft.body.trim();
     if (body === "") return area.current?.focus();
     update((item) => ({ ...item, submitting: true }));
     const outcome = await act(
       {
         kind: "comment",
-        selection: { path: draft.path, patch_sha256: draft.digest, start_row: draft.start, end_row: draft.end },
+        selection: {
+          path: draft.path,
+          patch_sha256: draft.digest,
+          start_row: draft.start,
+          end_row: draft.end,
+        },
         body,
         ...(question ? { question: true } : {}),
       },
@@ -165,20 +197,38 @@ export const Composer = ({ draft, table, range }: { readonly draft: Draft; reado
         onKeyDown={(event) => {
           submitOnModEnter(event);
           // While a comment is being moved, Esc ends the move and leaves the composer open.
-          if (event.key === "Escape" && !draft.submitting && registry.get(reattachAtom(review)) === undefined) {
+          if (
+            event.key === "Escape" &&
+            !draft.submitting &&
+            registry.get(reattachAtom(review)) === undefined
+          ) {
             event.preventDefault();
             close();
           }
         }}
       />
       <div className={ACTIONS_CLASS}>
-        <Button type="submit" size="sm" variant="primary" disabled={draft.submitting}>
+        <Button
+          type="submit"
+          size="sm"
+          variant="primary"
+          disabled={draft.submitting}
+        >
           Comment
         </Button>
-        <Button size="sm" disabled={draft.submitting} onClick={() => void send(true)}>
+        <Button
+          size="sm"
+          disabled={draft.submitting}
+          onClick={() => void send(true)}
+        >
           Ask now
         </Button>
-        <Button size="sm" variant="quiet" disabled={draft.submitting} onClick={close}>
+        <Button
+          size="sm"
+          variant="quiet"
+          disabled={draft.submitting}
+          onClick={close}
+        >
           Cancel
         </Button>
         <span className="text-small text-muted">Ctrl+Enter · Esc</span>

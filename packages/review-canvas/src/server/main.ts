@@ -146,7 +146,8 @@ const cutPageSocketsSoon = () =>
  * The largest WebSocket message a page may send, refused before it is parsed: a feedback file at its limit with every
  * character escaped in JSON, and an action's worth beside it.
  */
-const MAX_PAGE_MESSAGE_BYTES = 2 * Limits.MAX_FEEDBACK_BYTES + MAX_REQUEST_BYTES;
+const MAX_PAGE_MESSAGE_BYTES =
+  2 * Limits.MAX_FEEDBACK_BYTES + MAX_REQUEST_BYTES;
 
 const pageServerOn = (port: number) =>
   NodeHttpServer.layer(createPageServer, {
@@ -165,13 +166,14 @@ const PageServer = Layer.unwrap(
   Effect.gen(function* () {
     const explicit = yield* Config.option(Config.Port("REVIEW_CANVAS_PORT"));
     const remembered = rememberedPort();
-    const listening = explicit._tag === "Some"
-      ? pageServerOn(explicit.value)
-      : remembered === undefined
-        ? pageServerOn(0)
-        : pageServerOn(remembered).pipe(
-            Layer.catchTag("ServeError", () => pageServerOn(0)),
-          );
+    const listening =
+      explicit._tag === "Some"
+        ? pageServerOn(explicit.value)
+        : remembered === undefined
+          ? pageServerOn(0)
+          : pageServerOn(remembered).pipe(
+              Layer.catchTag("ServeError", () => pageServerOn(0)),
+            );
     return listening.pipe(
       Layer.tap((context) =>
         Effect.sync(() => {
@@ -207,9 +209,12 @@ const idleWatcher = Effect.gen(function* () {
   }
 });
 
-const Pages = HttpRouter.serve(App({ clientDir, repositoryRoots: repositoryRoots() }), {
-  disableLogger: true,
-}).pipe(Layer.provideMerge(PageServer));
+const Pages = HttpRouter.serve(
+  App({ clientDir, repositoryRoots: repositoryRoots() }),
+  {
+    disableLogger: true,
+  },
+).pipe(Layer.provideMerge(PageServer));
 
 // The page address the agent API reports comes from the page server once it listens.
 const pageAddress = Layer.effect(

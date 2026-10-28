@@ -106,7 +106,7 @@ export const pinLayers = (
       );
   }
   let last = 0;
-  const perLayer = new Array<number>(keys.length).fill(0);
+  const perLayer = Array.from({ length: keys.length }, () => 0);
   for (const [index, step] of request.walkthrough.steps.entries()) {
     const layer = keys.indexOf(pullRequestKey(step.layer));
     if (layer === -1)

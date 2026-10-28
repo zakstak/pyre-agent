@@ -1,7 +1,15 @@
 /** The build stamp answers from contents, never from file times, and covers everything the build reads. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -25,7 +33,10 @@ const fixture = (t: TestContext) => {
   const link = `${dir}-link`;
   symlinkSync(dir, link, "dir");
   t.after(() => rmSync(link, { force: true }));
-  const stamp = (mode: string, at = link) => spawnSync(process.execPath, [join(at, "src/cli/stamp.ts"), mode], { encoding: "utf8" });
+  const stamp = (mode: string, at = link) =>
+    spawnSync(process.execPath, [join(at, "src/cli/stamp.ts"), mode], {
+      encoding: "utf8",
+    });
   return { dir, stamp };
 };
 
@@ -39,18 +50,29 @@ test("the hash follows the inputs' contents and paths, tests included, not their
   assert.equal(inputsHash(dir), first, "times do not count");
   writeFileSync(join(dir, "src/client/page.test.ts"), "test(2);\n");
   const tested = inputsHash(dir);
-  assert.notEqual(tested, first, "a test is an input: Tailwind reads class names from it");
+  assert.notEqual(
+    tested,
+    first,
+    "a test is an input: Tailwind reads class names from it",
+  );
   writeFileSync(join(dir, "src/client/page.ts"), "export const page = 2;\n");
   const changed = inputsHash(dir);
   assert.notEqual(changed, tested, "so is a source");
-  writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\nimporters: {}\n");
+  writeFileSync(
+    join(dir, "pnpm-lock.yaml"),
+    "lockfileVersion: 9\nimporters: {}\n",
+  );
   assert.notEqual(inputsHash(dir), changed, "so is the lockfile");
 });
 
 test("the command says whether dist was built from these sources", (t) => {
   const { dir, stamp } = fixture(t);
   assert.equal(stamp("--check").status, 1, "no build yet");
-  assert.equal(stamp("--check", dir).status, 1, "no build yet, by the real path either");
+  assert.equal(
+    stamp("--check", dir).status,
+    1,
+    "no build yet, by the real path either",
+  );
   assert.equal(stamp("--write").status, 0);
   assert.equal(stamp("--check").status, 0, "built from these sources");
   assert.equal(stamp("--check", dir).status, 0);

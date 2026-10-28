@@ -10,7 +10,8 @@ name = "format"
 entry = ".pragma-hooks/format.sh"
 language = "script"
 files = '\.(go|rs|ts|tsx|js|jsx|html|htm|yml|yaml|sh|md|toml|json|py)$'
-exclude = '(^tests/fixtures/|(^|/)pnpm-lock\.yaml$)'
+# Preserve protocol fixture bytes and the demo's unchanged approval target.
+exclude = '(^tests/fixtures/|(^|/)pnpm-lock\.yaml$|^packages/review-canvas/fixtures/python/feedback-v3\.json$|^docs/review-canvas-demo/unchanged\.md$)'
 stages = ["pre-commit"]
 
 [[repos.hooks]]
@@ -19,6 +20,15 @@ name = "lint"
 entry = ".pragma-hooks/lint.sh"
 language = "script"
 files = '(\.(go|rs|ts|tsx|js|jsx|yml|yaml|sh|toml|py)$)|((^|/)([Dd]ockerfile(\.[^/]+)?|[^/]+\.[Dd]ockerfile)$)'
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "generated-artifacts"
+name = "generated artifacts"
+entry = ".pragma-hooks/generated-artifacts.sh"
+language = "script"
+pass_filenames = false
+always_run = true
 stages = ["pre-commit"]
 
 [[repos.hooks]]
@@ -34,6 +44,15 @@ stages = ["pre-commit"]
 id = "test"
 name = "test"
 entry = ".pragma-hooks/test.sh"
+language = "script"
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+
+[[repos.hooks]]
+id = "pragma-shadow"
+name = "ts-rust shadow"
+entry = ".pragma-hooks/shadow.sh"
 language = "script"
 pass_filenames = false
 always_run = true

@@ -199,13 +199,12 @@ export const browsePullRequest = async (
       return {
         kind: "ready",
         input,
-        warnings: [
-          ...(collected.flagged.length > 0
+        warnings:
+          collected.flagged.length > 0
             ? [
                 `Contents omitted for likely secret files: ${collected.flagged.join(", ")}.`,
               ]
-            : []),
-        ],
+            : [],
         collected_at: new Date().toISOString(),
         comparison: {
           mode: comparison.mode,

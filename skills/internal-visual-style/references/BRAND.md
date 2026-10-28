@@ -35,46 +35,46 @@ them together in both modes. This file explains how to use them.
 
 Use roles, not hex values. Each role switches with the mode.
 
-| Role           | Token                                                     | Use                                                   |
-| -------------- | --------------------------------------------------------- | ----------------------------------------------------- |
-| Page           | `--bg-page`                                               | Page canvas and the app bar                           |
-| Surface        | `--bg-surface`                                            | Panels and file cards                                 |
-| Raised         | `--bg-raised`                                             | Headers inside panels, buttons, comment cards         |
-| Code           | `--bg-code`                                               | Code, diffs, and text fields                          |
-| Sidebar        | `--pyre-sidebar`                                          | Side navigation                                       |
-| Primary text   | `--text-primary`                                          | Body text and any text on a tinted fill               |
-| Secondary text | `--text-secondary`                                        | Metadata, hints, and line numbers                     |
-| Separator      | `--separator`                                             | Decorative lines around and between panels            |
-| Control border | `--border`                                                | Boundaries of fields and buttons                      |
-| Accent         | `--pyre-accent`, `--focus`                                | Focus rings, current item, the agent's voice          |
-| Link           | `--link`                                                  | Links                                                 |
-| Action         | `--pyre-action`                                           | The primary button only                               |
-| Subtle         | `--pyre-subtle`                                           | Hover fills, callouts, and diff hunk rows             |
-| Status         | `--status-success`, `--status-warning`, `--status-danger` | Results, paired with words                            |
-| Diff tints     | `--pyre-diff-addition`, `--pyre-diff-deletion`            | Added and deleted diff rows                           |
-| Selection      | `--pyre-selection`                                        | Selected text                                         |
+| Role           | Token                                                     | Use                                           |
+| -------------- | --------------------------------------------------------- | --------------------------------------------- |
+| Page           | `--bg-page`                                               | Page canvas and the app bar                   |
+| Surface        | `--bg-surface`                                            | Panels and file cards                         |
+| Raised         | `--bg-raised`                                             | Headers inside panels, buttons, comment cards |
+| Code           | `--bg-code`                                               | Code, diffs, and text fields                  |
+| Sidebar        | `--pyre-sidebar`                                          | Side navigation                               |
+| Primary text   | `--text-primary`                                          | Body text and any text on a tinted fill       |
+| Secondary text | `--text-secondary`                                        | Metadata, hints, and line numbers             |
+| Separator      | `--separator`                                             | Decorative lines around and between panels    |
+| Control border | `--border`                                                | Boundaries of fields and buttons              |
+| Accent         | `--pyre-accent`, `--focus`                                | Focus rings, current item, the agent's voice  |
+| Link           | `--link`                                                  | Links                                         |
+| Action         | `--pyre-action`                                           | The primary button only                       |
+| Subtle         | `--pyre-subtle`                                           | Hover fills, callouts, and diff hunk rows     |
+| Status         | `--status-success`, `--status-warning`, `--status-danger` | Results, paired with words                    |
+| Diff tints     | `--pyre-diff-addition`, `--pyre-diff-deletion`            | Added and deleted diff rows                   |
+| Selection      | `--pyre-selection`                                        | Selected text                                 |
 
-The colors come from palettes. A palette is a hue its neutrals lean to, how
-much they lean in each mode, how dark its dark page is, and its accent and
-action colors; tokens.css derives every surface, text, and border role from
-those in OKLCH, so each palette works in both modes. The default palette,
-`lifted`, keeps the brand palette's hues: its light surfaces match the
-reference, and its dark page is the reference's editor color, so code sits
-level with its card instead of below it, and borders stay below text. The
-signal colors (success, error, warning, and the link) are shared by every
-palette. [reference-theme-contract.json](reference-theme-contract.json) records
-the source contract, SHA-256
+The colors come from palettes. A palette is a hue its neutrals lean to, how much
+they lean in each mode, how dark its dark page is, and its accent and action
+colors; tokens.css derives every surface, text, and border role from those in
+OKLCH, so each palette works in both modes. The default palette, `lifted`, keeps
+the brand palette's hues: its light surfaces match the reference, and its dark
+page is the reference's editor color, so code sits level with its card instead
+of below it, and borders stay below text. The signal colors (success, error,
+warning, and the link) are shared by every palette.
+[reference-theme-contract.json](reference-theme-contract.json) records the
+source contract, SHA-256
 `15c1cde8fa5d169c755d492c851d5a8c36e5e9cc28110f8400b4cc0f543ae97c`, including
 its full contrast matrix; its dark surfaces are the ones the first version
 shipped, before the roles were lifted.
 
-The other palettes are `violet`, `charcoal`, `slate`, `ocean`, `forest`,
-`sand`, `ember`, `rose`, and `mono`. A document chooses one with
-`data-palette` on the root; theme.js applies the saved choice from local
-storage (`internal-visual-style-palette`) before the first paint. An element
-with its own `data-palette` recomputes every role, so a swatch shows a palette
-as it is. To add a palette, add one block of parameters to tokens.css and
-verify the result in both modes.
+The other palettes are `violet`, `charcoal`, `slate`, `ocean`, `forest`, `sand`,
+`ember`, `rose`, and `mono`. A document chooses one with `data-palette` on the
+root; theme.js applies the saved choice from local storage
+(`internal-visual-style-palette`) before the first paint. An element with its
+own `data-palette` recomputes every role, so a swatch shows a palette as it is.
+To add a palette, add one block of parameters to tokens.css and verify the
+result in both modes.
 
 If you need a role that does not exist, add it to tokens.css and verify it in
 both modes. Derive it from existing roles with `color-mix()` where possible. Do
@@ -133,8 +133,8 @@ The classes below are in components.css. The specimen shows each one.
 - **Mode switch.** `.theme-toggle` keeps the label **Dark mode** in a
   `.theme-label` span. The track and `aria-pressed` show the state. On phones
   the label is visually hidden but stays the accessible name, so the app bar
-  fits one row. Load theme.js in the head; it applies the saved mode and
-  palette before the first paint.
+  fits one row. Load theme.js in the head; it applies the saved mode and palette
+  before the first paint.
 - **Fields.** Text fields, selects, and text areas sit on the code fill with a
   control border. Give every field a label. A visually hidden label is
   acceptable only for a filter field whose placeholder states its purpose.

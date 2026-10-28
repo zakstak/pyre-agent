@@ -339,13 +339,21 @@ export const Comment = CommentFields.check(
           issue: `exceeds ${Limits.MAX_TEXT_UNITS} UTF-16 code units`,
         };
       }
-    } else if (comment.kind === "inline" && parseForgeComment(comment.source.url)?.provider === "github" && !isDiscussion(comment.source.url)) {
+    } else if (
+      comment.kind === "inline" &&
+      parseForgeComment(comment.source.url)?.provider === "github" &&
+      !isDiscussion(comment.source.url)
+    ) {
       return {
         path: ["source", "url"],
         issue:
           "an inline GitHub comment is a review comment, with a #discussion_r URL",
       };
-    } else if (comment.kind === "general" && parseForgeComment(comment.source.url)?.provider === "github" && isDiscussion(comment.source.url)) {
+    } else if (
+      comment.kind === "general" &&
+      parseForgeComment(comment.source.url)?.provider === "github" &&
+      isDiscussion(comment.source.url)
+    ) {
       return {
         path: ["source", "url"],
         issue:
@@ -382,7 +390,8 @@ export const Comment = CommentFields.check(
         };
       }
       if (
-        (parseForgeComment(reply.github.url)?.provider === "github" && !isDiscussion(reply.github.url)) ||
+        (parseForgeComment(reply.github.url)?.provider === "github" &&
+          !isDiscussion(reply.github.url)) ||
         pullRequestKey(reply.github.url) !== pullRequestKey(thread.url)
       ) {
         return {

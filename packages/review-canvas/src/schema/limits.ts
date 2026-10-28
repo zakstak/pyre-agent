@@ -98,6 +98,7 @@ export const MAX_LINE = 10 ** 12;
  * are refused too. Patches from the collector show other hidden characters as replacements instead.
  */
 export const REFUSED_CONTROL_CHARACTERS =
+  // oxlint-disable-next-line no-control-regex -- Protocol text explicitly rejects these C0 controls.
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/;
 
 /**

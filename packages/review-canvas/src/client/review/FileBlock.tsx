@@ -63,14 +63,27 @@ const Word = ({
     aria-expanded={open}
     aria-controls={controls}
     onClick={onToggle}
-    className={cn(TOUCH_TARGET, "inline-flex items-center gap-1 text-small font-medium hover:text-ink", warning ? "text-warning" : "text-muted")}
+    className={cn(
+      TOUCH_TARGET,
+      "inline-flex items-center gap-1 text-small font-medium hover:text-ink",
+      warning ? "text-warning" : "text-muted",
+    )}
   >
     {children}
-    <ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", !open && "-rotate-90")} />
+    <ChevronDown
+      aria-hidden="true"
+      className={cn("size-3.5 transition-transform", !open && "-rotate-90")}
+    />
   </button>
 );
 
-const About = ({ model, id }: { readonly model: FileModel; readonly id: string }) => {
+const About = ({
+  model,
+  id,
+}: {
+  readonly model: FileModel;
+  readonly id: string;
+}) => {
   const { file } = model;
   return (
     <div id={id} className="flex flex-col gap-2 bg-surface px-4 py-3">
@@ -84,18 +97,28 @@ const About = ({ model, id }: { readonly model: FileModel; readonly id: string }
       {file.pseudocode === undefined ? null : (
         <details>
           <summary className="font-semibold">Pseudocode</summary>
-          <pre className="mt-1 overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">{file.pseudocode}</pre>
+          <pre className="mt-1 overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">
+            {file.pseudocode}
+          </pre>
         </details>
       )}
       {file.trace === undefined ? null : (
         <details>
           <summary className="font-semibold">Trace</summary>
           <dl className="mt-1 grid gap-1">
-            {([["input", "Input"], ["before", "Before"], ["after", "After"]] as const).map(([part, label]) => (
+            {(
+              [
+                ["input", "Input"],
+                ["before", "Before"],
+                ["after", "After"],
+              ] as const
+            ).map(([part, label]) => (
               <div key={part}>
                 <dt className="text-small font-semibold">{label}</dt>
                 <dd className="m-0">
-                  <pre className="overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">{file.trace?.[part]}</pre>
+                  <pre className="overflow-x-auto rounded-control bg-code px-3 py-2 text-technical">
+                    {file.trace?.[part]}
+                  </pre>
                 </dd>
               </div>
             ))}
@@ -135,11 +158,17 @@ const Viewed = ({
       type="button"
       data-viewed
       aria-pressed={model.approved}
-      title={model.approved ? "Viewed. Activate to mark it not viewed" : "Mark this version of the file viewed"}
+      title={
+        model.approved
+          ? "Viewed. Activate to mark it not viewed"
+          : "Mark this version of the file viewed"
+      }
       onClick={async () => {
         onRequest(!model.approved);
         const outcome = await act(
-          model.approved ? { kind: "unapprove", path: file.path } : { kind: "approve", path: file.path, fingerprint },
+          model.approved
+            ? { kind: "unapprove", path: file.path }
+            : { kind: "approve", path: file.path, fingerprint },
         );
         // Once the server took it, marking a file viewed or not hands its fold back to the page: viewing folds it.
         // A refused change leaves the file as the reviewer had it.
@@ -149,14 +178,18 @@ const Viewed = ({
       className={cn(
         TOUCH_TARGET,
         "inline-flex h-7 items-center gap-1.5 rounded-control border px-2 text-small font-medium",
-        model.approved ? "border-accent bg-selected text-ink" : "border-line bg-raised text-ink hover:bg-subtle",
+        model.approved
+          ? "border-accent bg-selected text-ink"
+          : "border-line bg-raised text-ink hover:bg-subtle",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
           "inline-grid size-3.5 place-items-center rounded-sm border",
-          model.approved ? "border-accent bg-accent text-on-accent" : "border-line",
+          model.approved
+            ? "border-accent bg-accent text-on-accent"
+            : "border-line",
         )}
       >
         {model.approved ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -169,7 +202,9 @@ const Viewed = ({
 /** In the source view, where files are in path order: a link to the stop of the guide that owns the file. */
 const StopLink = ({ path }: { readonly path: string }) => {
   const { page, view } = usePage();
-  const stop = page.stops.findIndex((item) => item.owns.some((owned) => owned === path));
+  const stop = page.stops.findIndex((item) =>
+    item.owns.some((owned) => owned === path),
+  );
   if (view !== "source" || stop === -1) return null;
   return (
     <a
@@ -185,17 +220,28 @@ const StopLink = ({ path }: { readonly path: string }) => {
   );
 };
 
-export const FileBlock = ({ model, split }: { readonly model: FileModel; readonly split: boolean }) => {
+export const FileBlock = ({
+  model,
+  split,
+}: {
+  readonly model: FileModel;
+  readonly split: boolean;
+}) => {
   const { id, page } = usePage();
   const { file } = model;
   const { folded, chosen, set } = useFold(model);
-  const [aboutOpen, setAbout] = useAtom(extraAtom({ review: id, path: file.path, block: "about" }));
-  const [sinceOpen, setSince] = useAtom(extraAtom({ review: id, path: file.path, block: "since" }));
+  const [aboutOpen, setAbout] = useAtom(
+    extraAtom({ review: id, path: file.path, block: "about" }),
+  );
+  const [sinceOpen, setSince] = useAtom(
+    extraAtom({ review: id, path: file.path, block: "since" }),
+  );
   // The viewed state the reviewer asked for, until the page shows it. Meanwhile the file stays as it is: the page
   // still shows the file held open, and holding it would undo the fold that marking it viewed brings.
   const [requested, setRequested] = useState<boolean | undefined>(undefined);
   useEffect(() => {
-    if (requested !== undefined && model.approved === requested) setRequested(undefined);
+    if (requested !== undefined && model.approved === requested)
+      setRequested(undefined);
   }, [requested, model.approved]);
   // A file held open stays open from then on, until the reviewer folds it or marks it viewed.
   useEffect(() => {
@@ -204,7 +250,10 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
   const table = `f${model.index}`;
   const body = `body-${table}`;
   const hasAbout =
-    file.summary !== undefined || file.pseudocode !== undefined || file.trace !== undefined || (file.callouts ?? []).length > 0;
+    file.summary !== undefined ||
+    file.pseudocode !== undefined ||
+    file.trace !== undefined ||
+    (file.callouts ?? []).length > 0;
   const status = model.status;
   return (
     <article
@@ -232,9 +281,18 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
             aria-expanded={!folded}
             aria-label={folded ? "Show diff" : "Hide diff"}
             onClick={() => set(folded ? "open" : "closed")}
-            className={cn(TOUCH_TARGET, "inline-grid size-7 place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink")}
+            className={cn(
+              TOUCH_TARGET,
+              "inline-grid size-7 place-items-center rounded-control text-muted hover:bg-subtle hover:text-ink",
+            )}
           >
-            <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", folded && "-rotate-90")} />
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "size-4 transition-transform",
+                folded && "-rotate-90",
+              )}
+            />
           </button>
         ) : null}
         <h3 tabIndex={-1} className="min-w-0 text-technical font-normal">
@@ -242,16 +300,31 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         </h3>
         <StopLink path={file.path} />
         {model.caption === undefined || model.caption === "" ? null : (
-          <span title={model.caption} className="min-w-0 flex-[1_1_8rem] truncate text-small text-muted">
+          <span
+            title={model.caption}
+            className="min-w-0 flex-[1_1_8rem] truncate text-small text-muted"
+          >
             <Inline text={model.caption} />
           </span>
         )}
         {status === undefined ? null : status.kind === "since" ? (
-          <Word open={sinceOpen} controls={`since-${table}`} warning={status.warning} onToggle={() => setSince(!sinceOpen)}>
+          <Word
+            open={sinceOpen}
+            controls={`since-${table}`}
+            warning={status.warning}
+            onToggle={() => setSince(!sinceOpen)}
+          >
             {status.text}
           </Word>
         ) : (
-          <span className={cn("text-small", status.warning ? "text-warning" : "text-muted")}>{status.text}</span>
+          <span
+            className={cn(
+              "text-small",
+              status.warning ? "text-warning" : "text-muted",
+            )}
+          >
+            {status.text}
+          </span>
         )}
         {model.talk === undefined || !folded ? null : (
           <Stat icon={MessageSquare} title={model.talk}>
@@ -260,29 +333,45 @@ export const FileBlock = ({ model, split }: { readonly model: FileModel; readonl
         )}
         <span className="ml-auto flex items-center gap-3 max-md:w-full max-md:justify-end">
           {file.patch === undefined ? null : (
-            <LineCounts additions={file.additions} deletions={file.deletions} className="text-technical" />
+            <LineCounts
+              additions={file.additions}
+              deletions={file.deletions}
+              className="text-technical"
+            />
           )}
           {hasAbout ? (
-            <Word open={aboutOpen} controls={`about-${table}`} onToggle={() => setAbout(!aboutOpen)}>
+            <Word
+              open={aboutOpen}
+              controls={`about-${table}`}
+              onToggle={() => setAbout(!aboutOpen)}
+            >
               About
             </Word>
           ) : null}
           <Viewed model={model} onRequest={setRequested} />
         </span>
       </header>
-      {hasAbout && aboutOpen ? <About model={model} id={`about-${table}`} /> : null}
+      {hasAbout && aboutOpen ? (
+        <About model={model} id={`about-${table}`} />
+      ) : null}
       {status?.kind === "since" && sinceOpen ? (
         <div id={`since-${table}`}>
-          <p className="bg-surface px-4 py-2 text-small text-muted">Changes since round {page.round.round - 1}</p>
+          <p className="bg-surface px-4 py-2 text-small text-muted">
+            Changes since round {page.round.round - 1}
+          </p>
           <DiffTable model={model} split={false} patch={status.patch} />
         </div>
       ) : null}
       {model.hasBody && !folded ? (
         <div id={body} className="overflow-hidden rounded-b-panel">
           {file.patch_note === undefined ? null : (
-            <p className="px-4 py-2 text-small text-muted">{PATCH_NOTE_TEXT[file.patch_note]}</p>
+            <p className="px-4 py-2 text-small text-muted">
+              {PATCH_NOTE_TEXT[file.patch_note]}
+            </p>
           )}
-          {file.patch === undefined ? null : <DiffTable model={model} split={split} />}
+          {file.patch === undefined ? null : (
+            <DiffTable model={model} split={split} />
+          )}
           {model.orphans.length === 0 ? null : (
             <div>
               {model.orphans.map((comment) => (

@@ -6,14 +6,22 @@
 import type { ReviewSummary } from "../schema/rpc.ts";
 import { parsePullRequest } from "../schema/forge-url.ts";
 
-export type Term = { readonly key: string | undefined; readonly value: string; readonly negated: boolean };
+export type Term = {
+  readonly key: string | undefined;
+  readonly value: string;
+  readonly negated: boolean;
+};
 export type Query = { readonly terms: ReadonlyArray<Term> };
 
 /** Whose move a review waits for: the reviewer's, the agents', or nobody's once it is closed. */
 export type Standing = "yours" | "agents" | "closed";
 
 export const standing = (review: ReviewSummary): Standing =>
-  review.closed_at !== undefined ? "closed" : review.round !== undefined && !review.submitted ? "yours" : "agents";
+  review.closed_at !== undefined
+    ? "closed"
+    : review.round !== undefined && !review.submitted
+      ? "yours"
+      : "agents";
 
 /** The query's terms as written: the text split on spaces outside quotes. */
 const tokens = (text: string): ReadonlyArray<string> => {
@@ -63,12 +71,20 @@ export const repositoryOf = (review: ReviewSummary): string => {
   const { target } = review;
   if (target.kind !== "worktree") {
     const pull = pullRequest(target.url);
-    return pull === undefined ? target.url : `${pull.host === "github.com" ? "" : `${pull.host}/`}${pull.repository}`;
+    return pull === undefined
+      ? target.url
+      : `${pull.host === "github.com" ? "" : `${pull.host}/`}${pull.repository}`;
   }
-  return target.root.split("/").filter((part) => part !== "").at(-1) ?? target.root;
+  return (
+    target.root
+      .split("/")
+      .filter((part) => part !== "")
+      .at(-1) ?? target.root
+  );
 };
 
-const includes = (text: string, value: string): boolean => text.toLowerCase().includes(value.toLowerCase());
+const includes = (text: string, value: string): boolean =>
+  text.toLowerCase().includes(value.toLowerCase());
 
 const IS: ReadonlyMap<string, (review: ReviewSummary) => boolean> = new Map([
   ["open", (review) => review.closed_at === undefined],
@@ -85,18 +101,29 @@ const matchesTerm = (term: Term, review: ReviewSummary): boolean => {
   const value = term.value.toLowerCase();
   switch (term.key) {
     case undefined: {
-      const pull = target.kind === "worktree" ? undefined : pullRequest(target.url);
-      const number = pull === undefined ? "" : `${pull.provider === "gitlab" ? "!" : "#"}${pull.number}`;
+      const pull =
+        target.kind === "worktree" ? undefined : pullRequest(target.url);
+      const number =
+        pull === undefined
+          ? ""
+          : `${pull.provider === "gitlab" ? "!" : "#"}${pull.number}`;
       const branch = target.kind === "worktree" ? (target.branch ?? "") : "";
       const labels = threads.map((thread) => thread.label).join(" ");
-      return includes(`${target.title} ${repositoryOf(review)} ${branch} ${number} ${labels}`, value);
+      return includes(
+        `${target.title} ${repositoryOf(review)} ${branch} ${number} ${labels}`,
+        value,
+      );
     }
     case "is":
       return IS.get(value)?.(review) ?? false;
     case "repo":
       return includes(repositoryOf(review), value);
     case "branch":
-      return target.kind === "worktree" && target.branch !== undefined && includes(target.branch, value);
+      return (
+        target.kind === "worktree" &&
+        target.branch !== undefined &&
+        includes(target.branch, value)
+      );
     case "author":
       return threads.some((thread) => includes(thread.label, value));
     case "host":
@@ -118,20 +145,36 @@ export const matches = (query: Query, review: ReviewSummary): boolean =>
   query.terms.every((term) => matchesTerm(term, review) !== term.negated);
 
 /** The `is:` values the standing chips write; other `is:` terms, such as `is:pr`, sit beside them. */
-const STANDINGS: ReadonlySet<string> = new Set(["open", "closed", "yours", "waiting"]);
+const STANDINGS: ReadonlySet<string> = new Set([
+  "open",
+  "closed",
+  "yours",
+  "waiting",
+]);
 
-const isStanding = (term: Term): boolean => term.key === "is" && STANDINGS.has(term.value.toLowerCase());
+const isStanding = (term: Term): boolean =>
+  term.key === "is" && STANDINGS.has(term.value.toLowerCase());
 
 /** The query without its standing terms, which the chips count across. */
-export const withoutStanding = (query: Query): Query => ({ terms: query.terms.filter((term) => !isStanding(term)) });
+export const withoutStanding = (query: Query): Query => ({
+  terms: query.terms.filter((term) => !isStanding(term)),
+});
 
 /** The query with its standing terms replaced by `is:value`, first. */
 export const withStanding = (query: Query, value: string): Query => ({
-  terms: [{ key: "is", value, negated: false }, ...withoutStanding(query).terms],
+  terms: [
+    { key: "is", value, negated: false },
+    ...withoutStanding(query).terms,
+  ],
 });
 
 /** Whether the query holds `is:value` and no other standing term. */
 export const hasStanding = (query: Query, value: string): boolean => {
   const [only, ...others] = query.terms.filter(isStanding);
-  return only !== undefined && others.length === 0 && !only.negated && only.value.toLowerCase() === value;
+  return (
+    only !== undefined &&
+    others.length === 0 &&
+    !only.negated &&
+    only.value.toLowerCase() === value
+  );
 };
