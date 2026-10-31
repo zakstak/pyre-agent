@@ -24,9 +24,10 @@ Evaluate these axes separately:
 | Recovery and blast radius      | A failure is contained and the actual effects can be reverted without losing data or disrupting unrelated users            | Shared critical path, difficult rollback, merge-triggered actions with no verified recovery        |
 
 Overall risk is the highest individual rating. Automatic merging requires every
-axis to be low. Medium, high, and unknown require a separate follow-up thread.
-Reduce risk through scoped fixes and evidence. Do not lower a rating merely to
-finish unattended.
+axis to be low. Medium, high, and unknown leave the PR unmerged and require a
+handoff through the host's supported route. A separate top-level thread requires
+the user to have requested that delivery route. Reduce risk through scoped fixes
+and evidence. Do not lower a rating merely to finish unattended.
 
 Record the assessment in this form, with one line per axis:
 

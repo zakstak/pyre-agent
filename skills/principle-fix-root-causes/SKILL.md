@@ -5,7 +5,7 @@ description:
   reproduce first, ask why until you reach it, resist nil-check guards that
   silence crashes."
 metadata:
-  version: "1.0.2"
+  version: "1.1.0"
 ---
 
 # Fix Root Causes
@@ -26,8 +26,8 @@ reduce total debugging time.
   boundary
 - If a workaround needs a paragraph-long comment to justify it, the code is
   wrong (fix the code, not the comment)
-- Check for the pattern, not just the instance (search for the same pattern and
-  fix every instance)
+- Search for related occurrences to establish impact. Fix the affected paths
+  needed for the requested outcome; propose wider work separately
 - When stuck, instrument. Don't guess (add logging, read the actual error)
 
 **Restart bugs: suspect state before code**
