@@ -5,7 +5,7 @@ description:
   reproduce first, ask why until you reach it, resist nil-check guards that
   silence crashes."
 metadata:
-  version: "1.1.0"
+  version: "1.0.3"
 ---
 
 # Fix Root Causes

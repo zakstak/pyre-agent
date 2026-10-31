@@ -1,17 +1,17 @@
 ---
 name: typescript-best-practices
 description:
-  "Use when implementing or reviewing TypeScript behavior, types, or APIs.
-  Covers modeling, narrowing, boundary validation, and casts."
+  "Use when reading or editing any .ts or .tsx file. TypeScript rules for
+  modeling types, narrowing, boundary validation, and casts."
 metadata:
-  version: "1.2.0"
+  version: "1.1.0"
 ---
 
 # TypeScript best practices
 
-Apply the relevant rules below to the requested change. For deeper type-design
-tradeoffs, consult the
-[type-system-discipline principle](../principle-type-system-discipline/SKILL.md).
+Apply the
+[type-system-discipline principle](../principle-type-system-discipline/SKILL.md)
+first.
 
 | Rule                    | Summary                                                                                                                                                                                                                                             |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

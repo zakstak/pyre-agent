@@ -5,7 +5,7 @@ description:
   charts, terminal output, or rendered documents. Capture comparable images
   and prepare or publish them within the task's authorized scope."
 metadata:
-  version: "1.1.0"
+  version: "1.0.0"
 ---
 
 # PR screenshots
@@ -20,9 +20,7 @@ Otherwise, prepare the images and description locally.
 ## Choose what to show
 
 Capture the states that explain the change. Include responsive layouts,
-interaction states, or error conditions when they matter. Preserve explicit
-product requirements when choosing the comparison; reviewer preferences do not
-replace the agreed acceptance criteria.
+interaction states, or error conditions when they matter.
 
 Prefer a few focused images over a gallery. Use a short recording when motion or
 interaction carries information that screenshots cannot show.
@@ -142,7 +140,4 @@ immutable URL for revised captures, update the description, and verify the
 rendered result.
 
 Report capture, upload, and embedding status accurately. Screenshots document
-appearance. For interactive changes, verify representative complete user flows
-against the acceptance criteria and describe those checks separately. A rendered
-state, test count, or component check alone does not establish that the full
-interaction works. Name any unverified state or interaction.
+appearance. Describe functional checks separately.

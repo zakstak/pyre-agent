@@ -5,7 +5,7 @@ description:
   implementation, a ready-for-review GitHub PR, local and Codex reviews, and
   automatic merge when every merge-risk axis is low.
 metadata:
-  version: "1.1.0"
+  version: "1.0.1"
 ---
 
 # Deliver and merge a low-risk PR
@@ -21,8 +21,8 @@ and handoffs. Preserve repository-specific formats and templates.
 
 The user's request to run this workflow authorizes scoped implementation,
 checks, commits, task-branch pushes, a ready-for-review PR, Codex review
-requests, review replies and resolutions, and a low-risk merge. A separate
-top-level follow-up thread requires the user to request that delivery route.
+requests, review replies and resolutions, and a low-risk merge. It also
+authorizes a separate follow-up thread when human input becomes necessary.
 Loading or discovering this skill alone grants none of those permissions. Follow
 repository and environment restrictions. This workflow does not grant permission
 for separate deployment actions, paid services, credential or policy changes,
@@ -36,9 +36,7 @@ approval still applies and must already be established before merging.
 Read the plan and inspect enough repository context to identify real questions.
 Confirm the repository, target branch, acceptance criteria, scope exclusions,
 and any plan-specific limits. Infer routine choices from the repository. Record
-the chosen defaults, including the merge method and waiting budget. State that
-current-head GitHub Codex review is required and may add external waiting time.
-Ordinary requests to fix code do not select this unattended merge workflow.
+the chosen defaults, including the merge method and waiting budget.
 
 Ask all material questions together now, while the sender may still be present.
 Ask only about missing decisions that change scope, correctness, authority, or
@@ -46,10 +44,8 @@ the ability to finish unattended. Wait for essential answers before dependent
 work. Silence never grants missing authority. If the plan is sufficient, state
 the assumptions and proceed without a questionnaire.
 
-After this phase, continue independent work when a new decision is needed.
-Present the precise decision through the host's supported interaction route and
-wait before dependent actions. Keep it in the current thread unless the user
-requested a separate follow-up thread.
+After this phase, do not wait for answers in the original thread. Continue
+independent work and route new human decisions to a separate follow-up thread.
 
 ## Check open PRs and isolate the implementation
 
@@ -87,16 +83,7 @@ Register the PR with the host thread when a linking tool is available.
 Review the complete diff locally, including affected callers and failure paths.
 Check the plan's acceptance criteria and look for regressions, security issues,
 compatibility breaks, and unnecessary scope. Fix verified findings, rerun
-affected checks, and push. Review advice must preserve explicit product
-requirements. If a recommendation conflicts with one, preserve the requirement
-and explain why that recommendation is not applied. Ask only if a material
-choice remains unresolved. Local review does not replace GitHub Codex review.
-
-For interface changes, inspect actual rendered states and exercise
-representative complete interactions against the acceptance criteria. Source
-inspection, test counts, and isolated component checks do not prove the
-requested user flow. Report any acceptance state or interaction that could not
-be verified.
+affected checks, and push. Local review does not replace GitHub Codex review.
 
 ## Complete GitHub Codex review and get the PR clean
 
@@ -118,9 +105,8 @@ not resolve uncertainty by dismissing the report. Reconcile all review comments
 and conversations, not just the overall review status.
 
 Apply clear, valid, in-scope human fixes autonomously. Leave disputed or
-ambiguous human feedback unresolved and present the exact decision through the
-host's supported interaction route. Do not manufacture an approval or dismiss a
-blocking human review.
+ambiguous human feedback unresolved and move the decision to a follow-up thread.
+Do not manufacture an approval or dismiss a blocking human review.
 
 Repeat local review, affected checks, and Codex review after each new head.
 Preserve review history when practical. Re-read remote state before pushes and
@@ -131,17 +117,17 @@ needs a push, tie force-with-lease to the inspected remote SHA.
 Use the host's event-driven PR watcher when available. Save a checkpoint,
 register the watch, and end the turn so the host can resume on events. Process
 existing feedback before watching. A wake-up is a reason to reassess, not
-evidence of readiness. Follow the host's waiting rules. Without a supported
-watcher, check current state once and hand off the remaining wait. Do not create
-polling loops or scheduled wake-ups, or promise monitoring after execution ends.
+evidence of readiness. Without a watcher, use bounded polling within the
+execution limits. Do not promise monitoring after execution ends.
 
-Default to two hours of cumulative waiting and at most three fix-and-review
+Default to a two-hour wait budget per pushed head and three fix-and-review
 rounds, unless the plan or repository specifies another limit. Record elapsed
-waiting and rounds across resumes; a new head does not reset either budget.
-Quota failures and missing review do not count as clean reviews. At the limit,
-preserve the PR, checkpoint, and exact missing condition, then hand off. Do not
-extend the budget automatically or skip required checks. If the host cannot wake
-at the deadline, enforce it on the next resume and disclose that limitation.
+time across resumes. Quota failures and missing review do not count as clean
+reviews. At the limit, preserve the PR and hand off instead of skipping checks
+or looping indefinitely. Use a supported one-time deadline wake-up when
+available. Otherwise, enforce elapsed limits on each resume and disclose that
+the host cannot wake solely for the deadline. Do not create recurring scheduled
+work.
 
 ## Rate risk and merge only when low
 
@@ -188,20 +174,20 @@ ratings, retry budget, and next action. Reconcile it with live state on every
 resume to avoid duplicate PRs, fixes, replies, or merge attempts.
 
 If risk remains above low, evidence is missing, or a new human decision is
-required, complete independent authorized work and leave the PR unmerged.
-Present the blocker, decision needed, and resumption steps in the current thread
-through the host's supported interaction route. Stop the PR watcher when handing
-ownership back to the user.
+required, complete independent authorized work and leave the PR unmerged. Create
+one separate top-level follow-up thread using the host's thread tool when
+available. In T3, use `t3_thread_launch`, not a delegated child. Bind it to the
+existing task worktree and branch. Retain the returned thread ID and check for
+an existing follow-up before retrying a failed launch.
 
-Create a separate top-level follow-up only when the user requested that route
-and the host supports it. Bind it to the existing task checkout and branch, with
-the plan, PR, current evidence, exact blocker, and resumption steps. Retain the
-returned ID and check for an existing follow-up before retrying a failed launch.
-The follow-up must wait for the decision before dependent actions and must not
-restart this workflow or create another handoff automatically. Link it from the
-original thread using the host's returned link.
+Give that thread a standalone handoff with the original plan, PR and checkout,
+current evidence, risk ratings, exact blocker, decision needed, and resumption
+steps. Tell its agent to present the decision and await user input before
+dependent actions. It must not restart this workflow or create another handoff
+automatically. Link the follow-up from the original thread. Stop the original PR
+watcher when handing ownership back to the user.
 
-If the requested delivery route is unavailable, keep the handoff in the current
-thread and private checkpoint, and report the exact limitation. Do not claim
-another thread exists. Authentication blockers must name the failed operation
-without asking for passwords or changing authentication policy.
+If thread creation is unavailable or fails, save the same handoff privately and
+report its location and the exact limitation. Do not claim another thread
+exists. Authentication blockers must name the failed operation without asking
+for passwords or changing authentication policy.
