@@ -2,7 +2,7 @@
 name: leaving-pr-comments
 description: Use when leaving comments on GitHub.
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Leaving PR Comments
@@ -12,7 +12,7 @@ note callout:
 
 ```md
 > [!NOTE]
-> 🤖 **<model> responding with direction from Zak**
+> 🤖 **<model> responding with direction from <user>**
 
 Actual comment starts here.
 ```
@@ -20,6 +20,11 @@ Actual comment starts here.
 Use the verified public name of the model that wrote the comment.
 
 If the harness does not expose a model name, use the harness name. Do not guess.
+
+Use the directing user's name from explicit instructions or installed user
+context. Keep personal names in that context, outside this skill. If no name is
+available, use `the user`. Do not infer a name from the repository owner or
+authenticated GitHub account.
 
 Before posting, check the entire comment, including quoted text and attachments,
 for secrets and private details.
