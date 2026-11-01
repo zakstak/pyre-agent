@@ -10,6 +10,8 @@ Engineering skills and review tools for Codex and Claude Code.
   [unslop](skills/unslop/SKILL.md) for documentation and prose editing.
 - A [review canvas](skills/review-canvas/SKILL.md) for guided code reviews and
   [PR screenshots](skills/pr-screenshots/SKILL.md) for visual evidence.
+- [GitHub comments](skills/leaving-pr-comments/SKILL.md) with agent attribution
+  and checks before posting.
 - A [shared visual style](skills/internal-visual-style/SKILL.md) for UI work
   without an existing design system.
 
