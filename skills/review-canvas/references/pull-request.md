@@ -64,9 +64,13 @@ holds:
   Gitea/Forgejo lists the files the new commits touch.
 - `changed`: the files known to differ from the round's head.
 
-For a monitored repository, the server notices a new head on its own in the
-host's list of open pull requests, compares it the same way, and shows the
-reviewer what was pushed. `status` holds that comparison as `drift`, with the
-`head_sha` it found and `compared`. Collect the next round from the clone after
-fetching the new head. `fixed` answers name the fixing commit with
-`--fixed-in-commit`.
+The server also notices a new head on its own. While a page shows the review, it
+reads the pull request's head from the host every minute, and for a monitored
+repository it also reads the host's list of open pull requests. It compares a
+new head the same way and shows the reviewer what was pushed. `status` holds
+that comparison as `drift`, with the `head_sha` it found and `compared`. When
+the host could not compare a head, the server tries again after five minutes. It
+ignores a read that started before the round or the drift it would replace, and
+clears a recorded head once the host shows the round's head again. Collect the
+next round from the clone after fetching the new head. `fixed` answers name the
+fixing commit with `--fixed-in-commit`.

@@ -1,5 +1,12 @@
 import { Worker } from "node:worker_threads";
-import { Effect, Schema } from "effect";
+import {
+  type Duration,
+  Effect,
+  RcMap,
+  Schedule,
+  Schema,
+  type Scope,
+} from "effect";
 import type {
   CommitSha,
   PullRequestUrl,
@@ -9,7 +16,7 @@ import type {
 import {
   ComparedHeads,
   type HostRead,
-  type OpenPullRequest,
+  PullHead,
   RepositoryPullRequests,
   type PullScope,
 } from "../schema/pull-requests.ts";
@@ -83,6 +90,26 @@ export const repositoryPullRequests = (
     signal,
   );
 
+/** The head a pull request's host shows now. */
+const pullHead = (
+  url: PullRequestUrl,
+  signal: AbortSignal,
+): Promise<PullHead> =>
+  hostRead(
+    { kind: "head", url },
+    PullHead,
+    {
+      cancelled: "Reading the pull request's head was cancelled.",
+      timedOut:
+        "Reading the pull request's head timed out. Check the host connection and authentication.",
+      undecoded: "Could not decode the pull request's head.",
+      unstarted: "Could not start reading the pull request's head.",
+      stopped: "Reading the pull request's head stopped before returning.",
+    },
+    (message): PullHead => ({ kind: "unavailable", message }),
+    signal,
+  );
+
 /** The host's comparison of a pull request's round head `from` with its head now, `to`. */
 const compareHeads = (
   url: PullRequestUrl,
@@ -108,80 +135,150 @@ const compareHeads = (
     signal,
   );
 
+/** The reads from a host that tell the server of pushes: a pull request's head now, and the comparison of two heads. */
+export interface PushHost {
+  readonly head: (
+    url: PullRequestUrl,
+    signal: AbortSignal,
+  ) => Promise<PullHead>;
+  readonly compare: (
+    url: PullRequestUrl,
+    from: CommitSha,
+    to: CommitSha,
+    signal: AbortSignal,
+  ) => Promise<ComparedHeads>;
+}
+
+/** The pull requests' own hosts, read in workers. */
+export const forgeHost: PushHost = { head: pullHead, compare: compareHeads };
+
 /**
- * What a review of an open pull request should learn from the host's list of open pull requests: nothing while the
- * host shows its round's head, or once its drift records the head the host shows; otherwise the two heads to compare,
- * at the review's revision.
+ * A head the host showed for a pull request, from a read that began at `read_from`, in milliseconds since the epoch.
+ * Whatever a review learned after that moment, such as a new round, is newer than the head.
  */
-export const pushedSince = (
-  store: Store,
-  pull: OpenPullRequest,
-):
+export interface HeadSeen {
+  readonly url: PullRequestUrl;
+  readonly head_sha: CommitSha;
+  readonly read_from: number;
+}
+
+/** How long the server waits before it asks the host again to compare heads it could not compare. */
+export const COMPARE_AGAIN_MS = 5 * 60_000;
+
+/**
+ * What a review learns from a head the host showed: that its pull request's head moved, which the host should compare
+ * with its round's head, or that the head it recorded as moved is back at the round's, which clears its drift. Either
+ * applies at the review's revision.
+ */
+export type Noticed =
   | {
+      readonly kind: "compare";
       readonly review: ReviewId;
       readonly revision: Revision;
       readonly url: PullRequestUrl;
       readonly from: CommitSha;
       readonly to: CommitSha;
     }
-  | undefined => {
-  const head = pull.head_sha;
-  if (head === undefined) return undefined;
-  const view = store.openPullRequestReview(pull.url);
+  | {
+      readonly kind: "clear";
+      readonly review: ReviewId;
+      readonly revision: Revision;
+      readonly head_sha: CommitSha;
+    };
+
+/**
+ * What the open review of a pull request should learn from a head its host showed. Nothing from a read that began
+ * before the review's round was published or its drift recorded: the host showed the pull request as it was then, and
+ * the review knows newer. Nothing while the host shows the round's head and the drift records no moved head, or once
+ * the drift records the head the host shows with a comparison, unless the host failed to compare them a while ago.
+ */
+export const pushedSince = (
+  store: Store,
+  seen: HeadSeen,
+): Noticed | undefined => {
+  const view = store.openPullRequestReview(seen.url);
   if (view?.round === undefined) return undefined;
-  const { target, drift } = view.state;
+  const { target } = view.state;
   if (target.kind === "worktree") return undefined;
-  const same = (sha: string | undefined) =>
-    sha?.toLowerCase() === head.toLowerCase();
-  if (same(target.head_sha)) return undefined;
+  const drift =
+    view.state.drift?.round === view.round.round ? view.state.drift : undefined;
+  const known = Math.max(
+    Date.parse(view.round.published_at),
+    drift === undefined
+      ? Number.NEGATIVE_INFINITY
+      : Date.parse(drift.checked_at),
+  );
+  if (seen.read_from <= known) return undefined;
+  const same = (sha: string) =>
+    sha.toLowerCase() === seen.head_sha.toLowerCase();
+  const review = view.state.id;
+  const revision = view.revision;
+  if (same(target.head_sha))
+    return drift?.head_sha === undefined
+      ? undefined
+      : { kind: "clear", review, revision, head_sha: seen.head_sha };
+  // The drift holds this head's comparison already, unless the host failed to compare it a while ago.
   if (
-    drift?.round === view.round.round &&
+    drift?.head_sha !== undefined &&
     same(drift.head_sha) &&
-    drift.compared !== undefined
+    drift.compared !== undefined &&
+    (drift.compared.kind !== "failed" ||
+      seen.read_from < Date.parse(drift.checked_at) + COMPARE_AGAIN_MS)
   )
     return undefined;
   return {
-    review: view.state.id,
-    revision: view.revision,
+    kind: "compare",
+    review,
+    revision,
     url: target.url,
     from: target.head_sha,
-    to: head,
+    to: seen.head_sha,
   };
 };
 
 /**
- * Notices commits pushed to the open pull requests of a host's list since their reviews' rounds: has the host compare
- * each new head with the round's, and records what it found as the review's drift, which every open page shows. A
- * review that changed meanwhile, as by a new round, records nothing; the next list tries again. `comparing` holds the
- * comparisons under way, so pages that list the same pull requests at once compare each head once.
+ * Notices commits pushed to pull requests since their reviews' rounds, from the heads their host showed: has the host
+ * compare each new head with the round's, and records what it found as the review's drift, which every open page
+ * shows; a head back at the round's clears it. A review that changed meanwhile, as by a new round, records nothing;
+ * the next read tries again. `comparing` holds the comparisons under way, so pages that read the same pull requests at
+ * once compare each head once.
  */
-export const noticePushes = (
+const noticePushes = (
   store: Store,
-  pulls: ReadonlyArray<OpenPullRequest>,
+  host: PushHost,
+  seen: ReadonlyArray<HeadSeen>,
   comparing: Set<string>,
 ): Effect.Effect<void> =>
   Effect.forEach(
-    pulls,
-    (pull) => {
-      const pushed = pushedSince(store, pull);
-      if (pushed === undefined) return Effect.void;
-      const key = `${pushed.review}:${pushed.to.toLowerCase()}`;
+    seen,
+    (item) => {
+      const noticed = pushedSince(store, item);
+      if (noticed === undefined) return Effect.void;
+      if (noticed.kind === "clear")
+        return Effect.try(() =>
+          store.act(
+            noticed.review,
+            { kind: "drift", paths: [], head_sha: noticed.head_sha },
+            noticed.revision,
+          ),
+        ).pipe(Effect.ignore);
+      const key = `${noticed.review}:${noticed.to.toLowerCase()}`;
       if (comparing.has(key)) return Effect.void;
       comparing.add(key);
       return Effect.promise((signal) =>
-        compareHeads(pushed.url, pushed.from, pushed.to, signal),
+        host.compare(noticed.url, noticed.from, noticed.to, signal),
       ).pipe(
         Effect.flatMap(({ comparison, paths }) =>
           Effect.try(() =>
             store.act(
-              pushed.review,
+              noticed.review,
               {
                 kind: "drift",
                 paths,
-                head_sha: pushed.to,
+                head_sha: noticed.to,
                 compared: comparison,
               },
-              pushed.revision,
+              noticed.revision,
             ),
           ),
         ),
@@ -191,3 +288,54 @@ export const noticePushes = (
     },
     { discard: true },
   );
+
+/** How often the server reads the head of a pull request whose review a page shows. */
+export const HEAD_EVERY: Duration.Input = "1 minute";
+
+/** How the server learns of commits pushed to the pull requests of its reviews. */
+export interface Pushes {
+  /** Learns from heads the host showed, as in its list of a repository's open pull requests. */
+  readonly notice: (seen: ReadonlyArray<HeadSeen>) => Effect.Effect<void>;
+  /**
+   * While the scope lasts, reads the head of the open review's pull request at once and then every {@link HEAD_EVERY},
+   * and learns from it: one read however many pages show the review. A review of a working tree reads nothing.
+   */
+  readonly watch: (review: ReviewId) => Effect.Effect<void, never, Scope.Scope>;
+}
+
+/** The server's watch of its pull requests' heads, which stops with the scope. */
+export const makePushes = (
+  store: Store,
+  host: PushHost = forgeHost,
+  every: Duration.Input = HEAD_EVERY,
+): Effect.Effect<Pushes, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const comparing = new Set<string>();
+    const notice = (seen: ReadonlyArray<HeadSeen>) =>
+      noticePushes(store, host, seen, comparing);
+    const heads = yield* RcMap.make({
+      lookup: (url: PullRequestUrl) =>
+        Effect.forkScoped(
+          Effect.gen(function* () {
+            const read_from = Date.now();
+            const head = yield* Effect.promise((signal) =>
+              host.head(url, signal),
+            );
+            if (head.kind === "ready")
+              yield* notice([{ url, head_sha: head.head_sha, read_from }]);
+          }).pipe(Effect.repeat(Schedule.spaced(every))),
+        ),
+    });
+    return {
+      notice,
+      watch: (review) =>
+        Effect.suspend(() => {
+          const state = store.review(review)?.state;
+          return state === undefined ||
+            state.closed_at !== undefined ||
+            state.target.kind === "worktree"
+            ? Effect.void
+            : RcMap.get(heads, state.target.url).pipe(Effect.asVoid);
+        }),
+    };
+  });

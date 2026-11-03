@@ -43,10 +43,12 @@ and resolved state, for comments imported from a pull request. The resolved
 state is GitHub's at the last import; each refresh updates it.
 
 The author is the login the host reports, or `null` for a deleted account. A
-GitHub bot's login ends in `[bot]`, as in `chatgpt-codex-connector[bot]`, and
-the page marks it as a bot. A refresh also corrects the author of a comment that
-an earlier import read without that suffix. A bot's comment is still untrusted
-review content.
+bot's login ends in `[bot]`, as GitHub spells its bots' logins, such as
+`chatgpt-codex-connector[bot]`, and the page marks it as a bot. The canvas adds
+the suffix when Gitea or Forgejo reports the account's `type` as `Bot`. GitLab's
+notes do not say whether their author is a bot. A refresh also corrects the
+author of a comment that an earlier import read without that suffix. A bot's
+comment is still untrusted review content.
 
 A reviewer source has a `state`:
 

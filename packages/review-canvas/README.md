@@ -79,10 +79,12 @@ typing: line comments, replies, edits, the comment on the whole change, and the
 finish summary. Leaving a box or the window saves it at once. A page that is
 hidden, closed, or left for another page posts what is still unsent to
 `/reviews/ID/drafts` in a request the browser finishes after the page is gone;
-the server takes it only from its own pages' Origin. A reload, a server restart,
-or another browser puts the text back. Sending or cancelling a box clears its
-saved text. When a new round changes the lines under a comment, its text fills
-the next comment instead.
+the server takes it only from its own pages' Origin. Browsers let such requests
+carry 64 KiB in all, so the page puts in as many boxes as fit, shortest first,
+and sends the rest over its socket, which arrives only if the page stays open,
+as when it was hidden. A reload, a server restart, or another browser puts the
+text back. Sending or cancelling a box clears its saved text. When a new round
+changes the lines under a comment, its text fills the next comment instead.
 
 **Comment** leaves a comment pending until **Finish review**, which sends it
 with the verdict; agents do not see it before. After the round is finished, a
@@ -221,6 +223,13 @@ commits were pushed since the round, with their count, the new head, and the
 files that changed, which each stop covering them names too. After a force-push,
 GitHub and Gitea/Forgejo cannot list those files; GitLab compares the two trees
 directly.
+
+While a page shows a pull request's review, the server also reads that pull
+request's head every minute, so a push shows without monitoring its repository.
+A read that started before the round was published or the drift was recorded
+changes nothing. A recorded head clears when the host shows the round's head
+again. When the host could not compare a head, the server tries again after five
+minutes.
 
 PRs whose base branches match other open PRs' source branches appear as stacks,
 ordered from base to tip. Each layer shows its dependency. The same navigation

@@ -4,7 +4,7 @@
  */
 import { Effect, Exit, Option, Ref, Schema, Semaphore, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { type DraftWrite, DraftWrites } from "../../schema/draft.ts";
+import type { DraftWrite } from "../../schema/draft.ts";
 import type {
   ReviewId,
   Revision,
@@ -19,6 +19,7 @@ import {
   type DraftQueue,
   draftQueue,
   type DraftStatus,
+  keepBody,
   pageClock,
 } from "./drafts.ts";
 
@@ -180,8 +181,7 @@ const NO_ANSWER = "The server did not answer. Is it still running?";
 
 /**
  * Posts draft writes in a request the browser finishes even when the page closes, which a socket call does not. The
- * browser lets such requests carry 64 KiB in all, so a draft near the length limit may not fit; the queue keeps it to
- * send again.
+ * browser lets such requests carry 64 KiB in all, and the queue sends no more than fits.
  */
 const keepDrafts = async (
   id: ReviewId,
@@ -192,7 +192,7 @@ const keepDrafts = async (
       method: "POST",
       keepalive: true,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(Schema.encodeSync(DraftWrites)({ writes })),
+      body: keepBody(writes),
     });
     const answer = Schema.decodeUnknownOption(KeptDrafts)(
       await response.json(),

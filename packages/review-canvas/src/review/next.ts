@@ -134,12 +134,13 @@ export const pageOrder = (
     walkthroughOrder(stops).map((item, at) => [item.path, at]),
   );
   const departed = files.size;
-  // A stop's comments come after the files it owns, before the next stop's.
-  const afterStop = new Map<number, number>();
+  // A stop's comments come after the files it owns, before the next stop's: between the files, and among stops that
+  // share that place because the later ones own no files, in the stops' order.
+  const afterStop = new Map<number, readonly [number, number]>();
   let owned = 0;
   for (const stop of stops) {
     owned += stop.owns.length;
-    afterStop.set(stop.index, owned - 0.5);
+    afterStop.set(stop.index, [owned - 0.5, stop.index]);
   }
   const rowsOf = new Map<string, ReadonlyArray<Row>>();
   const rows = (path: RepoPath) => {
@@ -172,12 +173,12 @@ export const pageOrder = (
     if (comment.kind === "general") return [departed + 1, 0];
     if (comment.kind === "stop") {
       const stop = findStop(stops, comment.anchor.stop);
-      return [
-        stop === undefined
-          ? departed + 1
-          : (afterStop.get(stop.index) ?? departed + 1),
-        0,
-      ];
+      return (
+        (stop === undefined ? undefined : afterStop.get(stop.index)) ?? [
+          departed + 1,
+          0,
+        ]
+      );
     }
     const file = files.get(comment.anchor.path);
     if (

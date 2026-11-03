@@ -570,6 +570,50 @@ test("Gitea keeps reviews at the same location separate, with their own replies 
   assert.deepEqual(second.replies, []);
 });
 
+test("a comment by an account Gitea reports as a bot keeps its type, as a GitHub bot's login does", (t) => {
+  const f = fixture(t);
+  const { url, clients } = clientsFor("gitea", f);
+  const user = (login: string, type?: string) => ({
+    login,
+    ...(type === undefined ? {} : { type }),
+  });
+  const comments: ForgeClients = {
+    ...clients,
+    api: (pull, path) => {
+      if (path.includes("page=2")) return [];
+      if (path.includes("/issues/42/comments?"))
+        return [
+          ["renovate", "Bot"],
+          ["octocat", "User"],
+          ["older-host", undefined],
+        ].map(([login, type], at) => ({
+          id: at + 1,
+          body: `Comment ${at + 1}`,
+          user: user(login ?? "", type),
+          created_at: "2026-10-15T12:00:00Z",
+          html_url: `${url}#issuecomment-${at + 1}`,
+        }));
+      if (path.includes("/reviews?"))
+        return [
+          {
+            id: 7,
+            user: user("ci", "Bot"),
+            body: "Checks passed.",
+            submitted_at: "2026-10-15T12:00:00Z",
+            html_url: `${url}#pullreview-7`,
+            state: "COMMENT",
+          },
+        ];
+      if (path.includes("/reviews/7/comments?")) return [];
+      return clients.api(pull, path);
+    },
+  };
+  assert.deepEqual(
+    readHostedComments(url, comments).items.map((item) => item.author),
+    ["renovate[bot]", "octocat", "older-host", "ci[bot]"],
+  );
+});
+
 test("GitLab bounds normalized discussion notes and thread replies", (t) => {
   const f = fixture(t);
   const { url, clients } = clientsFor("gitlab", f);

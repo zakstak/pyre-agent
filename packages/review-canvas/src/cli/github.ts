@@ -320,19 +320,19 @@ export const cleanBody = (text: string): string =>
 const time = (at: string) => new Date(at).toISOString();
 
 /**
- * An actor's login as GitHub spells it outside GraphQL: a bot's with its `[bot]` suffix, which is how the review keeps
- * that a bot wrote a comment, and the page marks it.
+ * An actor's login as the review keeps it: a bot's with the `[bot]` suffix GitHub gives its bots' logins outside
+ * GraphQL, which is how the review keeps that a bot wrote a comment, and the page marks it. `type` is the actor's type
+ * as the host names it, "Bot" for a bot: GitHub's GraphQL `__typename`, or a Gitea or Forgejo user's `type`.
  */
-const actorLogin = (actor: Actor | null): string | null => {
-  if (actor === null) return null;
-  return actor.__typename === "Bot" && !actor.login.endsWith("[bot]")
-    ? `${actor.login}[bot]`
-    : actor.login;
-};
+export const actorLogin = (login: string, type: string | undefined): string =>
+  type === "Bot" && !login.endsWith("[bot]") ? `${login}[bot]` : login;
 
 const post = (node: Post) => ({
   id: node.id,
-  author: actorLogin(node.author),
+  author:
+    node.author === null
+      ? null
+      : actorLogin(node.author.login, node.author.__typename),
   url: node.url,
   body: cleanBody(node.body),
   created_at: time(node.createdAt),

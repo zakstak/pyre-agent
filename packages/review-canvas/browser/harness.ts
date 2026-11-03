@@ -3,7 +3,13 @@
  * temporary folder, helpers that act as an agent over the socket, and a count of a page's answered RPC calls.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { request } from "node:http";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -66,7 +72,11 @@ export interface Server {
   readonly start: () => Promise<void>;
 }
 
-/** Starts a server and waits until it answers on its socket. */
+/**
+ * Starts a server and waits until it answers on its socket. A page that shows a pull request's review has the server
+ * read the pull request's head with `gh`, so unless the test puts its own `gh` first on `PATH`, the server finds one
+ * that fails: no test reads a real host.
+ */
 export const startServer = async (
   options: {
     readonly repositoryRoots?: ReadonlyArray<string>;
@@ -76,12 +86,20 @@ export const startServer = async (
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-browser-"));
   const runtime = join(dir, "run");
   const socketPath = join(runtime, "agent.sock");
+  const offline = join(dir, "bin");
+  mkdirSync(offline);
+  writeFileSync(
+    join(offline, "gh"),
+    '#!/bin/sh\necho "browser tests read no real host: gh $*" >&2\nexit 1\n',
+    { mode: 0o755 },
+  );
   const port = await freePort();
   let child: ChildProcess;
   const spawnServer = async () => {
     child = spawn(process.execPath, [join(root, "src/server/main.ts")], {
       env: {
         ...process.env,
+        PATH: `${offline}${delimiter}${process.env.PATH ?? ""}`,
         ...options.environment,
         REVIEW_CANVAS_DATA: join(dir, "data/reviews.sqlite"),
         REVIEW_CANVAS_RUNTIME: runtime,

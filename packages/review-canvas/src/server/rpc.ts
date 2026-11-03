@@ -28,7 +28,7 @@ import {
   type Store,
 } from "../store/store.ts";
 import { browsePull } from "./browse.ts";
-import { noticePushes, repositoryPullRequests } from "./pull-requests.ts";
+import { makePushes, repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
 import { Activity, AgentPresence, ReviewStore } from "./services.ts";
@@ -80,8 +80,8 @@ const handlers = (roots: ReadonlyArray<string>) =>
       // Every call a page makes counts as activity.
       const touched = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         Effect.sync(() => activity.touch()).pipe(Effect.andThen(effect));
-      // The reviews whose new heads the server is comparing, by review and head.
-      const comparing = new Set<string>();
+      // What the server learns of commits pushed to its reviews' pull requests, from their hosts.
+      const pushes = yield* makePushes(store);
       return PageRpcs.of({
         "home.load": ({ root }) => touched(loadHome(store, roots, root)),
 
@@ -98,14 +98,27 @@ const handlers = (roots: ReadonlyArray<string>) =>
                     "Monitor a remote repository in Settings to discover its open PRs.",
                 };
               const address = repository.identity.address;
+              const read_from = Date.now();
               const pulls = yield* Effect.promise((signal) =>
                 repositoryPullRequests(address, signal, scope),
               );
-              // The open list shows each head now: a review whose round is behind it learns what was pushed, after
-              // the list is answered.
+              // The open list shows each head as of its read: a review whose round is behind it learns what was
+              // pushed, after the list is answered.
               if (pulls.kind === "ready" && scope !== "history")
                 yield* Effect.forkDetach(
-                  noticePushes(store, pulls.items, comparing),
+                  pushes.notice(
+                    pulls.items.flatMap((pull) =>
+                      pull.head_sha === undefined
+                        ? []
+                        : [
+                            {
+                              url: pull.url,
+                              head_sha: pull.head_sha,
+                              read_from,
+                            },
+                          ],
+                    ),
+                  ),
                 );
               return pulls;
             }),
@@ -160,7 +173,8 @@ const handlers = (roots: ReadonlyArray<string>) =>
 
         /**
          * The review now, then again after each change. A page that falls behind gets the newest snapshot, not every
-         * one between. An open watch keeps the server from idling out.
+         * one between. An open watch keeps the server from idling out, and has the server read the head of the
+         * review's pull request from its host, so the page learns of commits pushed since the round on its own.
          */
         "review.watch": ({ id }) =>
           Stream.callback<void>(
@@ -186,7 +200,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
                     unsubscribe();
                     activity.streamClosed();
                   }),
-              ),
+              ).pipe(Effect.andThen(pushes.watch(id))),
             { bufferSize: 1, strategy: "sliding" },
           ).pipe(Stream.mapEffect(() => snapshotOf(store, id))),
 

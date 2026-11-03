@@ -1,7 +1,7 @@
 /**
  * What changed since the round the page shows, until the next round replaces it: an agent's check of a working tree,
- * or commits pushed to a pull request, which the server notices in the host's list of open pull requests and has the
- * host compare with the round's head. A line under the title says it; each stop whose files changed names them, as a
+ * or commits pushed to a pull request, which the server notices in the head its host shows, read while the page shows
+ * the review or in the repository's list of open pull requests, and has the host compare with the round's head. A line under the title says it; each stop whose files changed names them, as a
  * stop a new round changed does.
  */
 import { TriangleAlert } from "lucide-react";

@@ -3,10 +3,12 @@
  * the calls go one at a time in the order they were made, so an older text never lands after a newer one. Pure of
  * the page and the socket, which `save` and `discard` stand for, so it can be tested with a fake clock.
  */
+import * as Schema from "effect/Schema";
 import {
   type Draft,
   type DraftSlot,
   type DraftWrite,
+  DraftWrites,
   slotKey,
   slotOf,
   slotOfWrite,
@@ -31,9 +33,56 @@ export type CallOutcome =
 export interface DraftCalls {
   readonly save: (draft: Draft) => Promise<CallOutcome>;
   readonly discard: (slot: DraftSlot) => Promise<CallOutcome>;
-  /** Sends the writes at once in one request that finishes even when the page closes, unlike a socket call. */
+  /**
+   * Sends the writes at once in one request that finishes even when the page closes, unlike a socket call, with
+   * {@link keepBody} as its body, which the queue keeps within {@link KEEP_BYTES}.
+   */
   readonly keep: (writes: ReadonlyArray<DraftWrite>) => Promise<CallOutcome>;
 }
+
+/**
+ * How many bytes of body the requests that outlive a page may carry in all, by the Fetch standard's keepalive limit.
+ * A browser refuses a request past it outright, and `sendBeacon` counts against the same limit.
+ */
+export const KEEP_BYTES = 64 * 1024;
+
+/** The body of the request that keeps `writes`. */
+export const keepBody = (writes: ReadonlyArray<DraftWrite>): string =>
+  JSON.stringify(Schema.encodeSync(DraftWrites)({ writes }));
+
+const utf8 = new TextEncoder();
+
+/**
+ * The writes one request within {@link KEEP_BYTES} can carry, chosen smallest first so that as many slots as fit are
+ * kept however long one text is, and the rest; each in the order given.
+ */
+export const keepable = (
+  writes: ReadonlyArray<DraftWrite>,
+): {
+  readonly kept: ReadonlyArray<DraftWrite>;
+  readonly rest: ReadonlyArray<DraftWrite>;
+} => {
+  // A body of several writes is the empty body with each write's own bytes inside, and a comma between two.
+  const empty = utf8.encode(keepBody([])).length;
+  const smallestFirst = writes
+    .map((write) => ({
+      write,
+      bytes: utf8.encode(keepBody([write])).length - empty,
+    }))
+    .toSorted((a, b) => a.bytes - b.bytes);
+  const chosen = new Set<DraftWrite>();
+  let total = empty;
+  for (const { write, bytes } of smallestFirst) {
+    const after = total + bytes + (chosen.size === 0 ? 0 : 1);
+    if (after > KEEP_BYTES) break;
+    chosen.add(write);
+    total = after;
+  }
+  return {
+    kept: writes.filter((write) => chosen.has(write)),
+    rest: writes.filter((write) => !chosen.has(write)),
+  };
+};
 
 /** The timers a queue uses: the page's, or a test's fake clock. */
 export interface Clock<H> {
@@ -55,7 +104,8 @@ export interface DraftQueue {
   /**
    * Sends every write not sent yet, scheduled or in line behind other calls, in one request that outlives the page:
    * for a page being hidden or closed, whose socket calls may never go out. Writes it could not send wait to be sent
-   * again, unless the reviewer wrote in their slots since.
+   * again, unless the reviewer wrote in their slots since. Writes past what such a request may carry go on the socket
+   * at once instead, which delivers them while the page lives on, as when it was only hidden.
    */
   readonly leave: () => Promise<void>;
   /**
@@ -165,11 +215,13 @@ export const draftQueue = <H>(
         return entry.write;
       });
       unsent.clear();
-      if (writes.length === 0) return;
+      const { kept, rest } = keepable(writes);
+      for (const write of rest) void line(slotKey(slotOfWrite(write)), write);
+      if (kept.length === 0) return;
       started();
-      const outcome = await answer(() => calls.keep(writes));
+      const outcome = await answer(() => calls.keep(kept));
       if (!outcome.ok)
-        for (const write of writes) {
+        for (const write of kept) {
           const key = slotKey(slotOfWrite(write));
           if (!unsent.has(key)) wait(key, write);
         }

@@ -3,8 +3,9 @@
  * tokens, and this turns the tokens into a tree of the few elements a body may show. The page renders the tree with
  * React and never injects markup. Of raw HTML, a short list of formatting tags, such as `<details>` and `<sub>`,
  * become their elements without their attributes; an HTML block's other tags go and their text stays, as GitHub
- * shows them, and its scripts and styles go with their content; HTML comments are dropped; in running text any other
- * tag is text. An image is a link to it: nothing remote loads by itself. Links go only to web and mail addresses.
+ * shows them, and its scripts and styles go with their content up to their end tag in the same block; HTML comments
+ * are dropped; in running text any other tag is text. An image is a link to it: nothing remote loads by itself. Links
+ * go only to web and mail addresses.
  */
 import MarkdownIt from "markdown-it";
 import type { Token } from "markdown-it";
@@ -321,8 +322,6 @@ class Builder {
   readonly #stack: Array<Frame> = [
     { opener: { kind: "root" }, make: undefined, children: [] },
   ];
-  /** Inside an element dropped with its content: the name that ends it. */
-  #skipping: string | undefined;
 
   get #top(): Frame {
     const top = this.#stack.at(-1);
@@ -331,7 +330,6 @@ class Builder {
   }
 
   add(node: MarkdownNode) {
-    if (this.#skipping !== undefined) return;
     if (node.kind === "text") {
       const last = this.#top.children.at(-1);
       if (last?.kind === "text") {
@@ -385,22 +383,28 @@ class Builder {
     }
   }
 
-  /** Raw HTML from a block or inline token: its formatting tags as elements, its text as text, the rest dropped. */
+  /**
+   * Raw HTML from a block or inline token: its formatting tags as elements, its text as text, the rest dropped. What
+   * goes with an element's content ends with the token: an element whose end tag the token does not hold drops only
+   * its tag, so nothing after the token, such as the Markdown below an unclosed `<iframe>`, can vanish with it.
+   */
   html(source: string, block: boolean) {
     // Between the tags of an HTML block, white space alone lays nothing out.
     const text = (raw: string) => {
       if (!block || raw.trim() !== "")
         this.add({ kind: "text", text: md.utils.unescapeAll(raw) });
     };
+    // Inside an element dropped with its content: the name of its end tag, which this token holds.
+    let skipping: string | undefined;
     let at = 0;
     for (const match of source.matchAll(HTML_PIECE)) {
-      text(source.slice(at, match.index));
+      if (skipping === undefined) text(source.slice(at, match.index));
       at = match.index + match[0].length;
       const name = match[2]?.toLowerCase();
       if (name === undefined) continue;
       const closing = match[1] === "/";
-      if (this.#skipping !== undefined) {
-        if (closing && name === this.#skipping) this.#skipping = undefined;
+      if (skipping !== undefined) {
+        if (closing && name === skipping) skipping = undefined;
         continue;
       }
       const attributes = match[3] ?? "";
@@ -443,19 +447,23 @@ class Builder {
       // In an HTML block, other elements go and their text stays, as GitHub shows them; a script or a style goes
       // with its content.
       if (block && DROPPED_WITH_CONTENT.has(name)) {
-        if (!closing && !/\/\s*$/.test(attributes)) this.#skipping = name;
+        if (
+          !closing &&
+          !/\/\s*$/.test(attributes) &&
+          new RegExp(`</${name}\\s*>`, "i").test(source.slice(at))
+        )
+          skipping = name;
         continue;
       }
       if (block && KNOWN_TAGS.has(name)) continue;
       // In running text a tag is text, as `<script>` in "escape <script>" or `<T>` in `List<T>`: it never runs.
       this.add({ kind: "text", text: match[0] });
     }
-    text(source.slice(at));
+    if (skipping === undefined) text(source.slice(at));
   }
 
   /** The tree, with every frame still open closed. */
   done(): ReadonlyArray<MarkdownNode> {
-    this.#skipping = undefined;
     while (this.#stack.length > 1) this.#pop();
     return this.#stack[0]?.children ?? [];
   }

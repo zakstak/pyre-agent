@@ -62,13 +62,27 @@ export const ComparedHeads = Schema.Struct({
 });
 export type ComparedHeads = typeof ComparedHeads.Type;
 
-/** What the server asks a worker to read from a host: a repository's pull requests, or a pull request's two heads. */
+/** The head a pull request's host shows now, or why the host could not say, as a worker reports it. */
+export const PullHead = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("ready"), head_sha: CommitSha }),
+  Schema.Struct({
+    kind: Schema.Literal("unavailable"),
+    message: Schema.String,
+  }),
+]);
+export type PullHead = typeof PullHead.Type;
+
+/**
+ * What the server asks a worker to read from a host: a repository's pull requests, a pull request's head, or the
+ * comparison of a pull request's two heads.
+ */
 export const HostRead = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("pulls"),
     address: Schema.String,
     scope: PullScope,
   }),
+  Schema.Struct({ kind: Schema.Literal("head"), url: PullRequestUrl }),
   Schema.Struct({
     kind: Schema.Literal("compare"),
     url: PullRequestUrl,

@@ -5,6 +5,7 @@ import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import {
   commentElementId,
   fileElementId,
+  pageOrder,
   roundSteps,
   walkthroughOrder,
 } from "./next.ts";
@@ -265,6 +266,49 @@ test("a stop's comments come after the stop's files, and one on a stop the round
     { kind: "stop", stop: 1, title: "First" },
   ]);
   assert.deepEqual(places.at(-1), { kind: "general" });
+});
+
+test("a stop that owns no files keeps its comments after the stop before it, in the order of the stops", () => {
+  // Second only excerpts b.ts, which First owns, so Second owns no file of its own.
+  const excerpting = {
+    ...input,
+    stops: [
+      ...(input.stops ?? []),
+      {
+        title: "Second",
+        summary: "",
+        attention: null,
+        excerpts: [
+          { path: "b.ts", side: "new", start: 1, end: 2, caption: "" },
+        ],
+        files: [],
+        notes: [],
+        questions: [],
+      },
+    ],
+  } as unknown as ReviewInput;
+  const tour = tourView(excerpting).stops;
+  assert.deepEqual(
+    tour.map((stop) => stop.owns.length),
+    [2, 0, 3],
+  );
+  // The reviewer asked on Second first, then on First.
+  const comments = [
+    onStop("c-second", 0, "Second", [answer("t1", 2)]),
+    onStop("c-first", 1, "First", [answer("t1", 3)]),
+    onStop("c-closing", 0, undefined, [answer("t1", 4)]),
+  ];
+  assert.deepEqual(
+    comments.toSorted(pageOrder(excerpting, tour)).map((item) => item.id),
+    ["c-first", "c-second", "c-closing"],
+  );
+  const step = roundSteps(
+    state({ comments }),
+    excerpting,
+    tour,
+    round as Round,
+  ).next;
+  assert.equal(step.kind === "answer" ? step.comment : step.kind, "c-first");
 });
 
 test("an answer counts how many more follow it", () => {

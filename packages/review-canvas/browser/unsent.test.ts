@@ -130,6 +130,34 @@ describe("unsent text", { skip: !built && "run pnpm build first" }, () => {
     await restored(agent.url, "#finish-body", "Closed at once");
   });
 
+  test("of long texts typed just before the tab closes, those one closing request can carry are back", async () => {
+    const agent = await review();
+    const page = await open(agent.url);
+    // Each text is 60,000 bytes as UTF-8: together they pass the 64 KiB a browser lets a closing page send.
+    const general = "€".repeat(20_000);
+    // Typed as by paste, without moving the focus, whose leaving would save a box over the socket at once.
+    await page.evaluate(
+      (texts) => {
+        for (const [selector, text] of texts) {
+          const box = document.querySelector(selector);
+          if (!(box instanceof HTMLTextAreaElement))
+            throw new Error(`no box ${selector}`);
+          Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            "value",
+          )?.set?.call(box, text);
+          box.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      },
+      [
+        ["#general-body", general],
+        ["#finish-body", "✓".repeat(20_000)],
+      ] as const,
+    );
+    await page.close({ runBeforeUnload: true });
+    await restored(agent.url, "#general-body", general);
+  });
+
   test("text typed just before a link leaves the review is back when it opens again", async () => {
     const agent = await review();
     const page = await open(agent.url);

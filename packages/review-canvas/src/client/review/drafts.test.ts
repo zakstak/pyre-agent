@@ -8,6 +8,9 @@ import {
   DRAFT_DELAY_MS,
   draftQueue,
   type DraftStatus,
+  KEEP_BYTES,
+  keepable,
+  keepBody,
 } from "./drafts.ts";
 
 /** A clock the test moves by hand. */
@@ -261,4 +264,60 @@ test("writes a refused request could not keep wait to be sent again, unless the 
     "save general Overall, and more",
     "save reply Why?",
   ]);
+});
+
+test("leaving keeps as many slots as one request may carry, and sends a text past it on the socket", async () => {
+  const time = fakeClock();
+  const record = recordingCalls();
+  const queue = draftQueue(record.calls, () => undefined, time.clock);
+  // Each long text is 60,000 bytes as UTF-8: two of them pass what a request that outlives the page may carry.
+  const long = (mark: string) => mark.repeat(20_000);
+  queue.schedule(general(long("€")));
+  queue.schedule({ kind: "finish", verdict: "approve", body: long("✓") });
+  queue.schedule({ kind: "reply", comment: "c-2" as CommentId, body: "Why?" });
+  const left = queue.leave();
+  await settle();
+  const sent = record.made.map((call) =>
+    call.replace(/(.)\1{19999}/g, (_, mark: string) => `${mark}×20000`),
+  );
+  // The short reply and one long text fit the request; the other long text goes on the socket.
+  assert.deepEqual(sent.toSorted(), [
+    "keep save general €×20000, save reply Why?",
+    "save finish ✓×20000",
+  ]);
+  assert.ok(
+    new TextEncoder().encode(
+      keepBody([
+        { kind: "save", draft: general(long("€")) },
+        {
+          kind: "save",
+          draft: { kind: "reply", comment: "c-2" as CommentId, body: "Why?" },
+        },
+      ]),
+    ).length <= KEEP_BYTES,
+  );
+  for (const answer of record.answers) answer({ ok: true, at: "t" });
+  await left;
+});
+
+test("what one request may carry is measured in the bytes of its body", () => {
+  const reply = (bytes: number): DraftWrite => ({
+    kind: "save",
+    draft: {
+      kind: "reply",
+      comment: "c-1" as CommentId,
+      // Three bytes a character as UTF-8, and one for each of the rest.
+      body: "€".repeat(Math.floor(bytes / 3)) + "a".repeat(bytes % 3),
+    },
+  });
+  const size = (writes: ReadonlyArray<DraftWrite>) =>
+    new TextEncoder().encode(keepBody(writes)).length;
+  // Two writes that exactly fill the request, with the comma between them; one byte more leaves the larger out.
+  const fill = KEEP_BYTES - size([]) - 1 - 2 * (size([reply(0)]) - size([]));
+  const small = reply(Math.floor(fill / 2));
+  const exact = [small, reply(Math.ceil(fill / 2))];
+  assert.equal(size(exact), KEEP_BYTES);
+  assert.deepEqual(keepable(exact), { kept: exact, rest: [] });
+  const large = reply(Math.ceil(fill / 2) + 1);
+  assert.deepEqual(keepable([large, small]), { kept: [small], rest: [large] });
 });

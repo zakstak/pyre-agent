@@ -17,6 +17,7 @@ import { GitHubImport } from "../schema/github.ts";
 import * as Limits from "../schema/limits.ts";
 import { parseRows } from "../review/patch.ts";
 import {
+  actorLogin,
   branchHome,
   cleanBody,
   findPullRequest,
@@ -569,18 +570,28 @@ const GitLabNote = Schema.Struct({
   position: Schema.optionalKey(Schema.NullOr(GitLabPosition)),
 });
 const GitLabDiscussion = Schema.Struct({ notes: Schema.Array(GitLabNote) });
+/**
+ * A Gitea or Forgejo account. Newer hosts name its type, "Bot" for a bot, as GitHub does; GitLab's notes never say
+ * whether their author is a bot.
+ */
+const GiteaUser = Schema.Struct({
+  login: Schema.String,
+  type: Schema.optionalKey(Schema.String),
+});
+const giteaAuthor = (user: typeof GiteaUser.Type | null): string | null =>
+  user === null ? null : actorLogin(user.login, user.type);
 const GiteaPost = Schema.Struct({
   id: Id,
   body: Schema.String,
   created_at: Schema.String,
   html_url: Schema.String,
-  user: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  user: Schema.NullOr(GiteaUser),
 });
 const GiteaReview = Schema.Struct({
   id: Id,
   body: Schema.String,
   submitted_at: Schema.String,
-  user: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  user: Schema.NullOr(GiteaUser),
   html_url: Schema.String,
   state: Schema.String,
 });
@@ -732,7 +743,7 @@ export const readHostedComments = (
   } else {
     const post = (note: typeof GiteaPost.Type) => ({
       id: `gitea_comment_${note.id}`,
-      author: note.user?.login ?? null,
+      author: giteaAuthor(note.user),
       body: cleanBody(note.body),
       created_at: time(note.created_at),
       url: note.html_url,
@@ -759,7 +770,7 @@ export const readHostedComments = (
         add({
           kind: "review",
           id: `gitea_review_${review.id}`,
-          author: review.user?.login ?? null,
+          author: giteaAuthor(review.user),
           body: cleanBody(review.body),
           created_at: time(review.submitted_at),
           url: review.html_url,

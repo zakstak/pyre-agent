@@ -60,9 +60,10 @@ export type HeadComparison = typeof HeadComparison.Type;
 
 /**
  * What was found changed since the current round, by an agent's check or, for a pull request, by the server when the
- * host's list of open pull requests showed a new head: the files known to have changed since, and for a pull request
- * the head found and, when the host compared it with the round's, what that found. A head with no comparison came from
- * an agent that could not compare it. The page shows it until the next round replaces the round it describes.
+ * host showed a new head, in the pull request or in its repository's list of open ones: the files known to have
+ * changed since, and for a pull request the head found and, when the host compared it with the round's, what that
+ * found. A head with no comparison came from an agent that could not compare it. The page shows it until the next
+ * round replaces the round it describes, or the host shows the round's head again.
  */
 export const Drift = Schema.Struct({
   round: RoundNumber,

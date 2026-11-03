@@ -118,6 +118,33 @@ test("raw HTML never becomes markup: scripts and their text go, other tags lose 
   assert.equal(show(markdownTree("a <sub>b\n\nc")), 'p("a " sub("b")) p("c")');
 });
 
+test("an element dropped with its content but never closed drops only its tag, and the rest of the body shows", () => {
+  // The Markdown after an unclosed frame is its own block, and shows as ever.
+  assert.equal(
+    show(
+      markdownTree(
+        '<iframe src="https://x">\n\nThis PR drops the users table.\n\nMore text',
+      ),
+    ),
+    'p("This PR drops the users table.") p("More text")',
+  );
+  // An unclosed textarea's HTML block runs to the end of the body: its text shows, as GitHub shows it.
+  assert.equal(
+    show(markdownTree("<textarea>\n\nhidden after\n\n- item")),
+    '"\\n\\nhidden after\\n\\n- item"',
+  );
+  // A closed one still goes with its content, and only up to its end tag.
+  assert.equal(
+    show(markdownTree("<svg>\n<text>logo</text>\n</svg>\nafter\n\nNext")),
+    '"\\nafter\\n" p("Next")',
+  );
+  // An end tag in a later block closes nothing: the text between shows.
+  assert.equal(
+    show(markdownTree("<object>\nfallback\n\nMiddle\n\n</object>\n\nEnd")),
+    '"\\nfallback\\n" p("Middle") p("End")',
+  );
+});
+
 test("links go only to web and mail addresses, and bare addresses link", () => {
   assert.equal(
     show(
