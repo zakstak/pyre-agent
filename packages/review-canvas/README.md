@@ -76,9 +76,13 @@ patches. The detector does not recognize every possible secret format.
 
 The server saves the reviewer's unsent text half a second after they stop
 typing: line comments, replies, edits, the comment on the whole change, and the
-finish summary. A reload, a server restart, or another browser puts the text
-back. Sending or cancelling a box clears its saved text. When a new round
-changes the lines under a comment, its text fills the next comment instead.
+finish summary. Leaving a box or the window saves it at once. A page that is
+hidden, closed, or left for another page posts what is still unsent to
+`/reviews/ID/drafts` in a request the browser finishes after the page is gone;
+the server takes it only from its own pages' Origin. A reload, a server restart,
+or another browser puts the text back. Sending or cancelling a box clears its
+saved text. When a new round changes the lines under a comment, its text fills
+the next comment instead.
 
 **Comment** leaves a comment pending until **Finish review**, which sends it
 with the verdict; agents do not see it before. After the round is finished, a
@@ -209,6 +213,14 @@ objects into a temporary repository and removes it after collection. Working
 files, branches, and indexes in monitored checkouts stay unchanged. Host
 authentication failures appear separately from saved reviews, which remain
 usable offline.
+
+When the list shows a head other than the one an open review's round shows, the
+server has the host compare the two heads once and keeps the result as the
+review's drift, as `review-canvas check` would. The review page then says that
+commits were pushed since the round, with their count, the new head, and the
+files that changed, which each stop covering them names too. After a force-push,
+GitHub and Gitea/Forgejo cannot list those files; GitLab compares the two trees
+directly.
 
 PRs whose base branches match other open PRs' source branches appear as stacks,
 ordered from base to tip. Each layer shows its dependency. The same navigation

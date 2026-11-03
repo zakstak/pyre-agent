@@ -34,8 +34,10 @@ import { HOSTS } from "../schema/thread.ts";
 import { finishedSince, hasQuestions, type Status } from "../server/status.ts";
 import { GhFailed } from "./github.ts";
 import { collectPullRequest } from "./pull-request.ts";
-import { PullRequestUrl } from "../schema/primitives.ts";
+import { CommitSha, PullRequestUrl } from "../schema/primitives.ts";
+import type { HeadComparison } from "../schema/state.ts";
 import {
+  comparePushed,
   findHostedPullRequest,
   forgeClients,
   readHostedComments,
@@ -81,7 +83,8 @@ Commands
            --disposition fixed|rejected|deferred|question|answered --body TEXT
            [--fixed-in-commit SHA | --fixed-in-fingerprint SHA256] [--blocker TEXT]
   check    --session DIR [--head SHA]     Compare the code with the current round, and show the reviewer what
-                                          changed since: a working tree's files, or a pull request's head.
+                                          changed since: a working tree's files, or a pull request's head and
+                                          the files the host lists between the round's head and it.
   export   --session DIR --output FILE    Write the review's feedback document.
   stack-publish --input FILE              Publish one walkthrough across a PR stack: the input's tip and its
            --session DIR...               ancestors, base first. Pass the --session of every layer's review; each
@@ -535,7 +538,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
 
   /**
    * Compares the code with the current round and reports what changed to the server, which shows it on the page:
-   * for a working tree, the files whose fingerprint differs, appeared, or went; for a pull request, a moved head.
+   * for a working tree, the files whose fingerprint differs, appeared, or went; for a pull request, a moved head and
+   * the files the host's comparison of it with the round's head lists.
    */
   async check(args) {
     const { values } = parseArgs({
@@ -549,7 +553,8 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
     if (target === undefined)
       return fail("the review has no round yet; publish one first");
     let paths: Array<string> = [];
-    let head: string | undefined;
+    let head: CommitSha | undefined;
+    let compared: HeadComparison | undefined;
     if (target.kind === "worktree") {
       try {
         const collected = collect(openWorktree({ repo: target.root }));
@@ -568,8 +573,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         throw error;
       }
     } else {
-      head = values.head;
-      if (head === undefined) {
+      if (values.head === undefined) {
         try {
           head = readPullRequest(target.url, forgeClients).headRefOid;
         } catch (error) {
@@ -577,6 +581,22 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
             `cannot read the pull request's head; pass --head SHA (${error instanceof Error ? error.message : String(error)})`,
           );
         }
+      } else {
+        const given = Schema.decodeOption(CommitSha)(values.head);
+        if (given._tag === "None")
+          return fail("--head must be a full commit SHA");
+        head = given.value;
+      }
+      // For a moved head, the host compares it with the round's head and names the files that differ.
+      if (head.toLowerCase() !== target.head_sha.toLowerCase()) {
+        const found = comparePushed(
+          target.url,
+          target.head_sha,
+          head,
+          forgeClients,
+        );
+        paths = [...found.paths];
+        compared = found.comparison;
       }
     }
     const reply = await expectOk<{ ok: true; revision: number }>(
@@ -584,6 +604,7 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
         body: JSON.stringify({
           paths,
           ...(head === undefined ? {} : { head_sha: head }),
+          ...(compared === undefined ? {} : { compared }),
         }),
         token: current.token,
       }),
@@ -591,10 +612,9 @@ const commands: Record<string, (args: Array<string>) => Promise<void>> = {
     print({
       ok: true,
       changed: paths,
-      head_moved:
-        head !== undefined && target.kind !== "worktree"
-          ? head.toLowerCase() !== target.head_sha.toLowerCase()
-          : false,
+      // The host compared the heads exactly when the head moved.
+      head_moved: compared !== undefined,
+      ...(compared === undefined ? {} : { compared }),
       revision: reply.revision,
     });
   },

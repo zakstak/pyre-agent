@@ -477,11 +477,17 @@ for (const kind of ["claude-code", "codex", "t3"] as const) {
         session_id: "test-session",
       });
 
-      // A page on the loopback port cannot reach the agent API.
+      // A page on the loopback port cannot reach the agent API: the page server has no such route, and a post that
+      // no page of its own sent is refused before any route.
       const crossed = await call(pages, "POST", "/agent/register", {
         body: "{}",
+        headers: { origin: `http://127.0.0.1:${pages.port}` },
       });
       assert.equal(crossed.status, 404);
+      const originless = await call(pages, "POST", "/agent/register", {
+        body: "{}",
+      });
+      assert.equal(originless.status, 403);
     }));
 }
 

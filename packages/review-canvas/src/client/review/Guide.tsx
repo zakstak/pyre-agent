@@ -33,6 +33,7 @@ import {
   spiedPlace,
   useMoved,
 } from "./navigate.ts";
+import { StopDrift } from "./Drift.tsx";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
 import {
@@ -205,6 +206,7 @@ const GuideStop = ({
         </Stat>
       </div>
       <StopChanged stop={stop.index} className="mt-2" />
+      <StopDrift stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
       <ReadToggle stop={stop.index} className="mt-2 -ml-2.5" />

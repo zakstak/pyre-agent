@@ -21,6 +21,7 @@ import { useMedia } from "../ui/media.ts";
 import { Segmented } from "../ui/segmented.tsx";
 import { Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
+import { DriftFiles } from "./Drift.tsx";
 import { keepInRail, spiedAtom, spiedPlace, useMoved } from "./navigate.ts";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
@@ -306,6 +307,7 @@ export const Contents = ({
                   ) : (
                     <span className="sr-only">, {READ_TEXT[read.state]}</span>
                   )}
+                  <DriftFiles stop={stop.index} />
                 </span>
                 <ReadMark read={read} className="self-center" />
               </a>

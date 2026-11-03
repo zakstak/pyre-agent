@@ -123,8 +123,12 @@ reviewer works, so questions reach you as they are asked.
 Beside rounds and answers, an agent reports two things the page shows:
 
 - **Drift.** `review-canvas check` compares the code with the current round: a
-  working tree's files, or a pull request's head. The page shows what changed
-  until the next round.
+  working tree's files, or a pull request's head and the files the host's
+  comparison of it with the round's head lists. The page shows what changed
+  until the next round. For a pull request of a monitored repository, the server
+  also notices a new head in the host's list of open pull requests and records
+  the comparison itself; see
+  [the hosted request reference](pull-request.md#later-rounds).
 - **Hosted comments.** `publish` and `review-canvas comments` read the pull
   request's comments through its provider adapter and hand them over, with the
   head it read them at. The server stores them once by provider comment ID

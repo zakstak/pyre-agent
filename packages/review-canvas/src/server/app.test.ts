@@ -19,7 +19,16 @@ import {
 import { Socket } from "effect/socket";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
-import { activityLayer, presenceLayer, storeLayer } from "./services.ts";
+import {
+  activityLayer,
+  presenceLayer,
+  ReviewStore,
+  storeLayer,
+} from "./services.ts";
+import { Store } from "../store/store.ts";
+import { decodeBytes, InputDocument } from "../schema/document.ts";
+import { fixtureBytes } from "../schema/testing.ts";
+import * as Result from "effect/Result";
 import { gitEnvironment } from "../collector/git.ts";
 import { identifyRepository } from "./repositories.ts";
 import { repositoryId } from "../schema/repositories.ts";
@@ -101,6 +110,7 @@ const clientBuild = () => {
 const withServer = (
   check: (port: number) => Promise<void>,
   repositoryRoots: ReadonlyArray<string> = [],
+  store?: Store,
 ) => {
   const clientDir = clientBuild();
   const TestAssets = Layer.succeed(Assets, { index: SHELL });
@@ -113,7 +123,11 @@ const withServer = (
     disableListenLog: true,
   }).pipe(
     Layer.provide(TestAssets),
-    Layer.provide(storeLayer(":memory:")),
+    Layer.provide(
+      store === undefined
+        ? storeLayer(":memory:")
+        : Layer.succeed(ReviewStore, store),
+    ),
     Layer.provide(activityLayer),
     Layer.provide(presenceLayer),
     Layer.provideMerge(Server),
@@ -395,3 +409,126 @@ test("PR discovery requires repository monitoring, not individual PR registratio
     if (answer.value.kind === "unavailable")
       assert.match(answer.value.message, /Monitor a remote repository/);
   }));
+
+/** A POST with a JSON body, from a page on `origin`, or with no Origin at all. */
+const post = (
+  port: number,
+  path: string,
+  body: unknown,
+  origin: string | undefined,
+  type = "application/json",
+) =>
+  new Promise<Reply>((resolve, reject) => {
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: {
+          host: `127.0.0.1:${port}`,
+          "content-type": type,
+          ...(origin === undefined ? {} : { origin }),
+        },
+      },
+      (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => (text += chunk));
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode ?? 0,
+            header: (name) => String(response.headers[name] ?? ""),
+            body: text,
+          }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(body));
+  });
+
+test("a page's drafts posted as it closes are kept, and only a page of this server can post them", async () => {
+  const store = Store.open(":memory:");
+  const decoded = decodeBytes(
+    InputDocument,
+    fixtureBytes("input/worktree.json"),
+  );
+  if (Result.isFailure(decoded)) assert.fail(decoded.failure.message);
+  const { review, thread } = store.register({
+    target: decoded.success.target,
+    label: "Claude Code: test",
+    host: { kind: "claude-code" },
+  });
+  const id = review.state.id;
+  store.publish(id, thread.id, decoded.success);
+  store.saveDraft(id, { kind: "finish", verdict: "approve", body: "Old" });
+  await withServer(
+    async (port) => {
+      const writes = {
+        writes: [
+          { kind: "save", draft: { kind: "general", body: "Typed at close" } },
+          { kind: "discard", slot: { kind: "finish" } },
+        ],
+      };
+      const path = `/reviews/${id}/drafts`;
+      // Another site's page, a request with no Origin, and a form post are refused, and change nothing.
+      for (const origin of ["https://evil.example", undefined])
+        assert.equal((await post(port, path, writes, origin)).status, 403);
+      const form = await post(
+        port,
+        path,
+        writes,
+        `http://127.0.0.1:${port}`,
+        "text/plain",
+      );
+      assert.equal(form.status, 415);
+      assert.deepEqual(
+        store.drafts(id).map(({ draft }) => draft.body),
+        ["Old"],
+      );
+
+      const kept = await post(port, path, writes, `http://localhost:${port}`);
+      assert.equal(kept.status, 200, kept.body);
+      assert.equal(JSON.parse(kept.body).ok, true);
+      assert.deepEqual(
+        store.drafts(id).map(({ draft }) => draft),
+        [{ kind: "general", body: "Typed at close" }],
+      );
+
+      // A refused write keeps the others, and the answer says why.
+      const mixed = await post(
+        port,
+        path,
+        {
+          writes: [
+            {
+              kind: "save",
+              draft: { kind: "reply", comment: "comment-none", body: "x" },
+            },
+            { kind: "save", draft: { kind: "general", body: "Still kept" } },
+          ],
+        },
+        `http://127.0.0.1:${port}`,
+      );
+      assert.equal(mixed.status, 404, mixed.body);
+      assert.deepEqual(
+        store.drafts(id).map(({ draft }) => draft.body),
+        ["Still kept"],
+      );
+      assert.equal(
+        (
+          await post(
+            port,
+            "/reviews/review-none/drafts",
+            writes,
+            `http://127.0.0.1:${port}`,
+          )
+        ).status,
+        404,
+      );
+    },
+    [],
+    store,
+  );
+});

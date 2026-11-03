@@ -28,7 +28,7 @@ import {
   type Store,
 } from "../store/store.ts";
 import { browsePull } from "./browse.ts";
-import { repositoryPullRequests } from "./pull-requests.ts";
+import { noticePushes, repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
 import { Activity, AgentPresence, ReviewStore } from "./services.ts";
@@ -80,6 +80,8 @@ const handlers = (roots: ReadonlyArray<string>) =>
       // Every call a page makes counts as activity.
       const touched = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         Effect.sync(() => activity.touch()).pipe(Effect.andThen(effect));
+      // The reviews whose new heads the server is comparing, by review and head.
+      const comparing = new Set<string>();
       return PageRpcs.of({
         "home.load": ({ root }) => touched(loadHome(store, roots, root)),
 
@@ -96,9 +98,16 @@ const handlers = (roots: ReadonlyArray<string>) =>
                     "Monitor a remote repository in Settings to discover its open PRs.",
                 };
               const address = repository.identity.address;
-              return yield* Effect.promise((signal) =>
+              const pulls = yield* Effect.promise((signal) =>
                 repositoryPullRequests(address, signal, scope),
               );
+              // The open list shows each head now: a review whose round is behind it learns what was pushed, after
+              // the list is answered.
+              if (pulls.kind === "ready" && scope !== "history")
+                yield* Effect.forkDetach(
+                  noticePushes(store, pulls.items, comparing),
+                );
+              return pulls;
             }),
           ),
 

@@ -203,6 +203,7 @@ const Drift = HttpRouter.add(
           kind: "drift",
           paths: body.paths,
           head_sha: body.head_sha,
+          compared: body.compared,
         }),
       );
       return ok({ ok: true, revision });

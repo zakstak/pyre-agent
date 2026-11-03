@@ -5,7 +5,7 @@ import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import {
   commentElementId,
   fileElementId,
-  nextStep,
+  roundSteps,
   walkthroughOrder,
 } from "./next.ts";
 import { progress, standingOf } from "./progress.ts";
@@ -127,8 +127,10 @@ test("walkthrough order is each stop's owned files in its order, then the closin
 
 const [round] = state().rounds;
 
-const next = (extra: Record<string, unknown> = {}) =>
-  nextStep(state(extra), input, stops, round as Round);
+const steps = (extra: Record<string, unknown> = {}) =>
+  roundSteps(state(extra), input, stops, round as Round);
+
+const next = (extra: Record<string, unknown> = {}) => steps(extra).next;
 
 /** An inline comment on b.ts, attached at a patch offset, or orphaned when the offset is undefined. */
 const inline = (
@@ -335,23 +337,54 @@ test("a file without a fingerprint is skipped, and with every file viewed the ro
   );
 });
 
-test("a finished round and a closed review have nothing next, even with answers to read", () => {
+const finished = {
+  round: 2,
+  verdict: "request_changes",
+  body: "",
+  submitted_at: at(7),
+  revision: 3,
+};
+
+test("after the finish, an answer to read is next; without one the agents have the turn, whatever files are left", () => {
   const comments = [general("c-late", 5, [answer("t1", 6)])];
-  assert.deepEqual(
-    next({
-      comments,
-      submissions: [
-        {
-          round: 2,
-          verdict: "request_changes",
-          body: "",
-          submitted_at: at(7),
-          revision: 3,
-        },
-      ],
-    }),
-    { kind: "finished", round: 2, verdict: "request_changes" },
-  );
+  const read = steps({ comments, submissions: [finished] });
+  assert.equal(read.next, read.answer);
+  assert.deepEqual(read.next, {
+    kind: "answer",
+    comment: "c-late",
+    thread: "t1",
+    github: false,
+    place: { kind: "general" },
+    more: 0,
+    target: commentElementId("c-late"),
+  });
+  // Accepted: nothing waits for the reviewer, and no file is next though none is viewed.
+  const accepted = {
+    ...comments[0],
+    replies: [
+      answer("t1", 6),
+      { id: "reply-9", created_at: at(9), actor: "reviewer", action: "accept" },
+    ],
+  };
+  const done = steps({ comments: [accepted], submissions: [finished] });
+  assert.equal(done.answer, undefined);
+  assert.equal(done.file?.path, "b.ts");
+  assert.deepEqual(done.next, {
+    kind: "finished",
+    round: 2,
+    verdict: "request_changes",
+  });
+});
+
+test("the step the strip names is the very step it links: the answer, else for an open round the file", () => {
+  const comments = [general("c-1", 1, [answer("t1", 2)])];
+  const open = steps({ comments });
+  assert.equal(open.next, open.answer);
+  const files = steps();
+  assert.equal(files.next, files.file);
+  const late = steps({ comments, submissions: [finished] });
+  assert.equal(late.next, late.answer);
+  // A closed review cannot be acted on: nothing is next, even with an answer to read.
   assert.deepEqual(next({ comments, closed_at: at(8) }), { kind: "closed" });
 });
 

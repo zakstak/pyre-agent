@@ -130,7 +130,8 @@ export const useSendDraft = (slot: DraftSlot) => {
 /**
  * Keeps the line comment slot holding the open composer's text, on the lines it is open on. Text kept from a composer
  * whose code changed stays saved on its old lines until a composer takes it, so opening the review again offers it
- * again. Closing the composer, as Cancel and Esc do, empties the slot.
+ * again. Closing the composer, as Cancel and Esc do, empties the slot. When the review leaves the page, as when a
+ * stack walkthrough moves to another layer, every box's text waiting to be saved is saved at once.
  */
 export const useKeepComposer = (review: ReviewId) => {
   const registry = useContext(RegistryContext);
@@ -161,6 +162,7 @@ export const useKeepComposer = (review: ReviewId) => {
     ];
     return () => {
       for (const stop of stops) stop();
+      void queue.flush();
     };
   }, [registry, queue, review]);
 };

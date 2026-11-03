@@ -69,6 +69,25 @@ export const SavedDraft = Schema.Struct({
 });
 export type SavedDraft = typeof SavedDraft.Type;
 
+/** A change to what a slot holds: a draft saved in it, or the slot emptied. */
+export const DraftWrite = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("save"), draft: Draft }),
+  Schema.Struct({ kind: Schema.Literal("discard"), slot: DraftSlot }),
+]).annotate({ expected: "a draft write whose kind is save or discard" });
+export type DraftWrite = typeof DraftWrite.Type;
+
+/**
+ * The writes a page sends in one request that outlives it, as when it is hidden or closed: the newest unsent write of
+ * each slot, so at most one for each slot a review can have. Those are the comment, general, and finish slots, a
+ * reply and an edit slot for each comment, and a stop slot for each stop of the tour, its closing stop included.
+ */
+export const DraftWrites = Schema.Struct({
+  writes: Schema.Array(DraftWrite).check(
+    Schema.isMaxLength(3 + 2 * Limits.MAX_COMMENTS + Limits.MAX_STOPS + 1),
+  ),
+});
+export type DraftWrites = typeof DraftWrites.Type;
+
 /** The slot a draft fills. */
 export const slotOf = (draft: Draft): DraftSlot => {
   switch (draft.kind) {
@@ -83,6 +102,10 @@ export const slotOf = (draft: Draft): DraftSlot => {
       return { kind: "stop", stop: draft.stop };
   }
 };
+
+/** The slot a write changes. */
+export const slotOfWrite = (write: DraftWrite): DraftSlot =>
+  write.kind === "save" ? slotOf(write.draft) : write.slot;
 
 /**
  * The one key of a slot, by which the store and the page keep a draft: `comment`, `reply:ID`, `edit:ID`, a stop's

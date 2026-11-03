@@ -17,7 +17,7 @@ import type { ReadFile } from "../schema/stack.ts";
 import { patchDigest } from "./anchor.ts";
 import { ActionError } from "./state.ts";
 import { refKey, stopRefs } from "./stop-anchor.ts";
-import { type StopView, tourView } from "./tour.ts";
+import { type StopView, stopFiles, tourView } from "./tour.ts";
 
 /** The version of a file a mark records: its fingerprint, or else its patch, so an unchanged file keeps its mark. */
 export const fileVersion = (file: ReviewFile): string =>
@@ -25,11 +25,6 @@ export const fileVersion = (file: ReviewFile): string =>
   (file.patch === undefined
     ? `none:${file.status}:${file.patch_note ?? ""}`
     : patchDigest(file.patch));
-
-/** The files a stop's reading covers: those it owns and those it excerpts, each once, in that order. */
-export const stopFiles = (stop: StopView): ReadonlyArray<RepoPath> => [
-  ...new Set([...stop.owns, ...stop.excerpts.map((excerpt) => excerpt.path)]),
-];
 
 /** What a mark of a stop records now: the version of each file it covers in the round's input. */
 export const stopVersions = (
