@@ -1,11 +1,18 @@
 // Comments on unchanged lines revealed around a hunk, in Chromium against a real server: the + button, a drag,
 // Shift-click, and the keyboard select them as they select patch rows; the comment anchors to new-side lines and
-// their text, stays on its line across a reload, and follows it when a later round moves it.
-// Run after `pnpm build`: pnpm test:browser.
+// their text, stays on its line across a reload, and follows it when a later round moves it. Its unsent text and its
+// suggested change work as they do on patch rows. Run after `pnpm build`: pnpm test:browser.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { type Browser, chromium, type Page } from "playwright";
-import { built, fixtureInput, type Server, startServer } from "./harness.ts";
+import {
+  built,
+  fixtureInput,
+  record,
+  type Server,
+  startServer,
+  thenAnswered,
+} from "./harness.ts";
 
 let server: Server;
 let browser: Browser;
@@ -22,6 +29,7 @@ const open = async (url: string, layout?: "split") => {
   const page = await browser.newPage({
     viewport: { width: 1280, height: 900 },
   });
+  record(page);
   if (layout !== undefined)
     await page.addInitScript(() =>
       localStorage.setItem("review-canvas-layout", JSON.stringify("split")),
@@ -272,6 +280,88 @@ describe(
         ],
         ["text", 7, 8],
       );
+      await page.close();
+    });
+
+    test("unsent text on expanded lines is back on them after a reload, and their suggested change reaches the agents", async () => {
+      const input = longInput();
+      const agent = await server.register(input);
+      await agent.publish(input);
+      const page = await open(`${agent.url}#files/${LONG}`);
+      await expandAbove(page);
+      await plus(page, 4).click();
+      await plus(page, 6).click({ modifiers: ["Shift"] });
+      assert.equal(await range(page), "lines 4–6");
+      const box = page.locator("tr[data-composer] textarea");
+      await page.locator("tr[data-composer] [data-suggest]").click();
+      assert.equal(
+        await box.inputValue(),
+        "```suggestion\nline 4\nline 5\nline 6\n```",
+      );
+      const body =
+        "Spell it out:\n```suggestion\nline 4\nline five\nline 6\n```";
+      await thenAnswered(page, "review.saveDraft", () => box.fill(body));
+      const ops = (view: Page) =>
+        view
+          .locator("tr[data-composer] [data-suggestion] tr[data-op]")
+          .evaluateAll((rows) =>
+            rows.map((row) => [
+              row.getAttribute("data-op"),
+              // The line's text follows its marker.
+              row.querySelector("td:last-child")?.lastChild?.textContent ?? "",
+            ]),
+          );
+      const diff = [
+        [" ", "line 4"],
+        ["-", "line 5"],
+        ["+", "line five"],
+        [" ", "line 6"],
+      ];
+      assert.deepEqual(await ops(page), diff);
+
+      // The gap's lines open again because the restored composer is on them.
+      await page.reload();
+      await page.waitForFunction(
+        (value) =>
+          document.querySelector<HTMLTextAreaElement>(
+            "tr[data-composer] textarea",
+          )?.value === value,
+        body,
+      );
+      assert.equal(await range(page), "lines 4–6");
+      assert.equal(
+        await fileOf(page)
+          .locator("button[data-expand='0']")
+          .getAttribute("aria-expanded"),
+        "true",
+      );
+      assert.equal(
+        await fileOf(page)
+          .locator("tr[data-new='6'] + tr[data-composer]")
+          .count(),
+        1,
+      );
+      assert.deepEqual(await ops(page), diff);
+
+      await box.focus();
+      await page.keyboard.press("Control+Enter");
+      await threadUnder(page, 6).locator("[data-suggestion]").waitFor();
+      await finishRound(page);
+      const status = await agent.status();
+      const [comment] = status.feedback.comments;
+      assert.deepEqual(status.suggestions, [
+        {
+          comment: comment.id,
+          state: "ready",
+          path: LONG,
+          side: "new",
+          round: 1,
+          start_line: 4,
+          end_line: 6,
+          current: ["line 4", "line 5", "line 6"],
+          replacement: ["line 4", "line five", "line 6"],
+        },
+      ]);
       await page.close();
     });
 

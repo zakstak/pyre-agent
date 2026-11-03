@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as Schema from "effect/Schema";
 import { parseRows } from "../../review/patch.ts";
 import { parseSuggestion } from "../../review/suggestion.ts";
+import {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+} from "../../schema/primitives.ts";
+import type { TextSelection } from "../../schema/selection.ts";
 import {
   canSuggest,
   insertSuggestion,
   replacedRows,
+  replacedSelection,
   suggestionRows,
 } from "./suggest.ts";
 
@@ -70,6 +78,42 @@ test("a suggestion replaces the lines on the anchor's side, and is offered on ne
   // A hunk header alone is no line.
   assert.equal(replacedRows(rows, 0, 0), undefined);
   assert.equal(canSuggest(undefined), false);
+});
+
+test("a composer's selection replaces its rows' lines, or lines of the file's new text", () => {
+  const rows = parseRows("@@ -10,3 +10,3 @@\n keep\n-old\n+new\n tail\n");
+  const path = Schema.decodeSync(RepoPath)("a.ts");
+  assert.deepEqual(
+    replacedSelection(
+      {
+        kind: "rows",
+        path,
+        patch_sha256: Schema.decodeSync(PatchDigest)("a".repeat(64)),
+        start_row: 1,
+        end_row: 4,
+      },
+      rows,
+      undefined,
+    ),
+    replacedRows(rows, 1, 4),
+  );
+  // Expanded context: the lines come from the text, outside the patch's rows.
+  const lines: TextSelection = {
+    kind: "text",
+    path,
+    content_sha256: Schema.decodeSync(ContentDigest)("c".repeat(64)),
+    start_line: 2,
+    end_line: 3,
+  };
+  const replaced = replacedSelection(lines, rows, "one\ntwo\nthree\nfour\n");
+  assert.deepEqual(replaced, {
+    side: "new",
+    first: 2,
+    lines: ["two", "three"],
+  });
+  assert.equal(canSuggest(replaced), true);
+  // A page without the file's text cannot offer one.
+  assert.equal(replacedSelection(lines, rows, undefined), undefined);
 });
 
 test("a suggestion's diff numbers each line before and after the change", () => {

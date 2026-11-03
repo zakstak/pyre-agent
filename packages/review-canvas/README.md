@@ -72,6 +72,44 @@ secret patterns. A match omits that file's content and reports its path;
 `--include-secret PATH` explicitly allows it, while `--no-content` collects only
 patches. The detector does not recognize every possible secret format.
 
+## Review page
+
+The server saves the reviewer's unsent text half a second after they stop
+typing: line comments, replies, edits, the comment on the whole change, and the
+finish summary. A reload, a server restart, or another browser puts the text
+back. Sending or cancelling a box clears its saved text. When a new round
+changes the lines under a comment, its text fills the next comment instead.
+
+**Comment** leaves a comment pending until **Finish review**, which sends it
+with the verdict; agents do not see it before. After the round is finished, a
+comment is sent at once. The next strip shows the count, such as **3 pending**;
+choose it to list them and go to one. **Ask now** sends a question at once. The
+comment menu edits a comment, or deletes one with no replies. Agents see an
+edited sent comment as edited. **Withdraw** retracts a sent comment. Comments
+imported from the git host have no menu.
+
+With lines selected, **Suggest change** inserts a `suggestion` block with the
+lines' current text. The composer and the sent comment show the suggestion as a
+diff, and agents receive it structured.
+
+The unchanged lines that a gap reveals take comments as patch lines do. These
+comments anchor to the new text, and follow their lines in later rounds.
+
+The server also keeps which tour stops the reviewer read. The guide and the
+contents show **n of m stops read**. When a later round changes a file that a
+read stop owns or excerpts, the stop shows as changed and names the file; **Mark
+read** reads it again. **Only changes since your last review** shows each file's
+changes since the round of the reviewer's last finished review, or since the
+previous round before any finish, and folds the unchanged files away. The
+browser remembers the setting. The rounds line opens an earlier round's whole
+diff read-only.
+
+The whole review works from the keyboard. Press ? or the keyboard button for the
+keys: J and K for stops, F for files, T for threads, the arrow keys for a line
+cursor that Shift extends, C to comment, V to mark a file viewed, and E for the
+finish. Keys never fire in a text field, a dialog, or a menu, and the help turns
+single-letter keys off.
+
 ## Private Git hosts
 
 `collect --pr URL` supports HTTPS review URLs on public and private hosts:

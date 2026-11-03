@@ -847,9 +847,13 @@ export const useCancelReattach = (review: ReviewId) => {
   }, [review, registry]);
 };
 
+/** Where a key is the focused element's own: text fields, dialogs and confirmations, and menus, which type ahead. */
+const KEYS_OWN =
+  "textarea, input, select, [role='dialog'], [role='alertdialog'], [role='menu']";
+
 /**
  * The page keys of keys.ts: J and K between stops, N for the next thing to do, F and T between files and threads, V,
- * E, and ? for the key help. None fires from a text field or a dialog, or when the reviewer turned them off. An arrow
+ * E, and ? for the key help. None fires from a text field, a dialog, or a menu, or when the reviewer turned them off. An arrow
  * on a file's heading goes to its lines, whatever the setting: it acts only where focus is. Esc stops moving a comment.
  */
 export const useKeys = (review: ReviewId, navigate: Navigation) => {
@@ -861,8 +865,7 @@ export const useKeys = (review: ReviewId, navigate: Navigation) => {
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.closest("textarea, input, select, [role='dialog']") !== null)
+        (target.isContentEditable || target.closest(KEYS_OWN) !== null)
       )
         return;
       if (

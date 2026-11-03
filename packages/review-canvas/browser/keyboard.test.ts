@@ -399,6 +399,63 @@ describe("the keyboard", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("in a menu or a confirmation, letters stay theirs and fire no page key", async () => {
+    const input = fixtureInput();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page
+      .locator(
+        `table[data-path='${STORE}'][data-patch] tr[data-new='11'] button`,
+      )
+      .focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Pending until the finish.");
+    await page.keyboard.press("Control+Enter");
+    await sent(page);
+    const article = page.locator("article[data-comment]", {
+      hasText: "Pending until the finish.",
+    });
+    const viewed = page.locator(
+      `article[data-path='${STORE}'] button[data-viewed]`,
+    );
+    /** Focus is still in the open popup, and the page did not move, mark, or open anything. */
+    const stays = async (popup: string) => {
+      for (const key of ["j", "f", "t", "v", "e", "n", "?"]) {
+        await page.keyboard.press(key);
+        await settle(page);
+        assert.equal(
+          await page.evaluate(
+            (popup) => document.activeElement?.closest(popup) !== null,
+            popup,
+          ),
+          true,
+          `${key} left ${popup}`,
+        );
+      }
+      assert.equal(await viewed.getAttribute("aria-pressed"), "false");
+      assert.equal(await page.locator("[data-key-help]").count(), 0);
+    };
+    // The pending list and the comment's own menu are menus.
+    await page.locator("[data-pending-count]").click();
+    await page.locator("[data-pending-comment]").waitFor();
+    await page.keyboard.press("ArrowDown");
+    await stays("[role='menu']");
+    await page.keyboard.press("Escape");
+    await article.locator("[data-comment-menu]").click();
+    await page.locator("[data-delete-comment]").waitFor();
+    await page.keyboard.press("ArrowDown");
+    await stays("[role='menu']");
+    // Delete asks first, in an alert dialog.
+    await page.locator("[data-delete-comment]").click();
+    await page.locator("[role='alertdialog']").waitFor();
+    await stays("[role='alertdialog']");
+    await page.keyboard.press("Escape");
+    await page.locator("[role='alertdialog']").waitFor({ state: "detached" });
+    assert.equal(await article.count(), 1);
+    await page.close();
+  });
+
   test("typing in a text field never fires a key", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);

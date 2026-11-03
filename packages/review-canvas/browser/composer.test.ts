@@ -17,8 +17,10 @@ import {
   built,
   changedStore,
   fixtureInput,
+  record,
   type Server,
   startServer,
+  thenAnswered,
 } from "./harness.ts";
 
 let server: Server;
@@ -26,57 +28,6 @@ let browser: Browser;
 
 const STORE = "src/notes/store.py";
 const FORMAT = "src/notes/format.py";
-
-/** The RPC calls each page had answered, by method. */
-const answered = new WeakMap<Page, Map<string, number>>();
-
-/** The messages of one socket frame: the page sends and receives JSON, one message or an array. */
-const messages = (payload: string | Buffer): ReadonlyArray<any> => {
-  try {
-    const parsed = JSON.parse(String(payload));
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return [];
-  }
-};
-
-/** Counts the page's answered RPC calls by method, on every socket it opens. */
-const record = (page: Page) => {
-  const counts = new Map<string, number>();
-  answered.set(page, counts);
-  page.on("websocket", (socket) => {
-    const methods = new Map<string, string>();
-    socket.on("framesent", ({ payload }) => {
-      for (const message of messages(payload))
-        if (message?._tag === "Request")
-          methods.set(String(message.id), message.tag);
-    });
-    socket.on("framereceived", ({ payload }) => {
-      for (const message of messages(payload)) {
-        if (message?._tag !== "Exit") continue;
-        const method = methods.get(String(message.requestId));
-        if (method !== undefined)
-          counts.set(method, (counts.get(method) ?? 0) + 1);
-      }
-    });
-  });
-};
-
-/** Runs `act`, then waits until the page has one more `method` call answered than before it. */
-const thenAnswered = async (
-  page: Page,
-  method: "review.saveDraft" | "review.discardDraft",
-  act: () => Promise<unknown>,
-) => {
-  const counts = answered.get(page);
-  assert.ok(counts !== undefined, "the page is recorded");
-  const before = counts.get(method) ?? 0;
-  await act();
-  for (let wait = 0; (counts.get(method) ?? 0) <= before; wait++) {
-    assert.ok(wait < 200, `no ${method} was answered`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-};
 
 /** Types into a box, and waits until the server saved it. */
 const typeSaved = (page: Page, box: Locator, text: string) =>

@@ -148,7 +148,7 @@ export interface ShortcutGroup {
 export const SHORTCUTS: ReadonlyArray<ShortcutGroup> = [
   {
     title: "Move around",
-    when: "Anywhere but a text field. Single-letter keys can be turned off.",
+    when: "Anywhere but a text field, a dialog, or a menu. Single-letter keys can be turned off.",
     shortcuts: [
       { keys: [["J"], ["K"]], does: "Next or previous stop" },
       { keys: [["N"]], does: "The next thing to do" },

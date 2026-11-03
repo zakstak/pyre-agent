@@ -1,6 +1,6 @@
 /**
  * A real server for browser tests: the TypeScript entry with the built page assets, its data and socket in a
- * temporary folder, and helpers that act as an agent over the socket.
+ * temporary folder, helpers that act as an agent over the socket, and a count of a page's answered RPC calls.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Page } from "playwright";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -246,3 +247,57 @@ export const changedStore = (input: any): any => ({
       : file,
   ),
 });
+
+/** The RPC calls each page had answered, by method. */
+const answered = new WeakMap<Page, Map<string, number>>();
+
+/** The messages of one socket frame: the page sends and receives JSON, one message or an array. */
+const messages = (payload: string | Buffer): ReadonlyArray<any> => {
+  try {
+    const parsed = JSON.parse(String(payload));
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Counts the page's answered RPC calls by method, on every socket it opens. Calls that change nothing the page shows,
+ * such as saving a draft, are waited for this way instead of for a time. Call it before the page opens its socket.
+ */
+export const record = (page: Page) => {
+  const counts = new Map<string, number>();
+  answered.set(page, counts);
+  page.on("websocket", (socket) => {
+    const methods = new Map<string, string>();
+    socket.on("framesent", ({ payload }) => {
+      for (const message of messages(payload))
+        if (message?._tag === "Request")
+          methods.set(String(message.id), message.tag);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      for (const message of messages(payload)) {
+        if (message?._tag !== "Exit") continue;
+        const method = methods.get(String(message.requestId));
+        if (method !== undefined)
+          counts.set(method, (counts.get(method) ?? 0) + 1);
+      }
+    });
+  });
+};
+
+/** Runs `act`, then waits until the recorded page has one more `method` call answered than before it. */
+export const thenAnswered = async (
+  page: Page,
+  method: "review.saveDraft" | "review.discardDraft",
+  act: () => Promise<unknown>,
+) => {
+  const counts = answered.get(page);
+  if (counts === undefined) throw new Error("the page is not recorded");
+  const before = counts.get(method) ?? 0;
+  await act();
+  for (let wait = 0; (counts.get(method) ?? 0) <= before; wait++) {
+    if (wait >= 200) throw new Error(`no ${method} was answered`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+};

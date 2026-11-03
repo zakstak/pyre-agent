@@ -109,7 +109,14 @@ removed.
 ## Later rounds
 
 Tour what changed since the last round. The page marks each file new or changed
-in this round and shows its changes since the round before.
+in this round and shows its changes since the round before. The reviewer can
+also show only the changes since their last finished review.
+
+The server keeps which stops the reviewer read. A stop of a later round is the
+same stop when it has the same title; the closing stop is always the same. A
+read stop shows as changed, naming the files, when the new round changes a file
+it owns or excerpts. Keep a stop's title while its subject is the same, so its
+reading carries over, and give a stop a new title when its subject changes.
 
 Before you write the tour, read `"$RC" status --session "$SESSION"`. Its `turns`
 give each comment's state. A comment whose turn is `resolved` is settled: the
