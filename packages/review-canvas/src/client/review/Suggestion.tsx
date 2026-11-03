@@ -11,7 +11,7 @@ import {
   suggestionParts,
 } from "../../review/suggestion.ts";
 import { Button } from "../ui/button.tsx";
-import { cn } from "../ui/cn.ts";
+import { MarkdownBody } from "../ui/markdown-body.tsx";
 import { Marker } from "./Diff.tsx";
 import type { InlineComment } from "./diff-model.ts";
 import {
@@ -176,20 +176,14 @@ export const replacedBy = (comment: InlineComment): Replaced => {
       };
 };
 
+/** Text of a comment around its suggestion, as Markdown. */
 const Text = ({
   text,
   className,
 }: {
   readonly text: string;
   readonly className?: string;
-}) =>
-  text.trim() === "" ? null : (
-    <p
-      className={cn("mt-1 whitespace-pre-wrap break-words text-ink", className)}
-    >
-      {text}
-    </p>
-  );
+}) => <MarkdownBody text={text} className={className} />;
 
 /**
  * A comment's body: its text, with a suggestion of an inline comment shown as its diff between the text around it. A

@@ -9,6 +9,7 @@ import {
   PatchDigest,
   RepoPath,
 } from "../../schema/primitives.ts";
+import type { StopView } from "../../review/tour.ts";
 import { restoring } from "./restore.ts";
 
 const at = "2026-11-03T12:00:00.000Z";
@@ -54,6 +55,32 @@ const files = new Map([
   ],
 ]);
 
+/** The round's tour: one stop of the agent's, and the closing stop. */
+const stops: ReadonlyArray<StopView> = [
+  {
+    index: 0,
+    title: "Atomic save",
+    summary: "",
+    attention: null,
+    excerpts: [],
+    files: [],
+    questions: [],
+    closing: false,
+    owns: [],
+  },
+  {
+    index: 1,
+    title: "Other files",
+    summary: "",
+    attention: null,
+    excerpts: [],
+    files: [],
+    questions: [],
+    closing: true,
+    owns: [],
+  },
+];
+
 /** A line comment's draft on lines of a file's new text. */
 const onLines = (body: string, content = text) =>
   saved({
@@ -95,6 +122,7 @@ test("each box's saved text goes back into its box, and an empty box restores no
       ],
       comments,
       files,
+      stops,
     ),
     [
       { kind: "general", body: "A question" },
@@ -138,6 +166,7 @@ test("each box's saved text goes back into its box, and an empty box restores no
       ],
       comments,
       files,
+      stops,
     ),
     [],
   );
@@ -155,6 +184,7 @@ test("a reply or an edit needs a comment that can take it", () => {
       ],
       comments,
       files,
+      stops,
     ),
     [],
   );
@@ -170,11 +200,43 @@ test("a comment whose patch or text changed is offered for the next comment", ()
       ],
       comments,
       files,
+      stops,
     ),
     [
       { kind: "stash", body: "Changed patch" },
       { kind: "stash", body: "File gone" },
       { kind: "stash", body: "Changed text" },
+    ],
+  );
+});
+
+test("a comment on a stop goes back to its stop, and one whose stop the round dropped is offered for the next comment", () => {
+  const onStop = (title: string, body: string) =>
+    saved({
+      kind: "stop",
+      stop: { kind: "stop", title, occurrence: 0 },
+      body,
+    });
+  assert.deepEqual(
+    restoring(
+      [
+        onStop("Atomic save", "Why a rename?"),
+        saved({ kind: "stop", stop: { kind: "closing" }, body: "And these?" }),
+        onStop("Gone stop", "Still relevant?"),
+        onStop("Atomic save", " "),
+      ],
+      comments,
+      files,
+      stops,
+    ),
+    [
+      {
+        kind: "stop",
+        stop: { kind: "stop", title: "Atomic save", occurrence: 0 },
+        body: "Why a rename?",
+      },
+      { kind: "stop", stop: { kind: "closing" }, body: "And these?" },
+      { kind: "stash", body: "Still relevant?" },
     ],
   );
 });

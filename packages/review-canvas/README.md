@@ -88,6 +88,25 @@ comment menu edits a comment, or deletes one with no replies. Agents see an
 edited sent comment as edited. **Withdraw** retracts a sent comment. Comments
 imported from the git host have no menu.
 
+A stop's suggested questions and its **Ask about this stop** open a box inside
+the stop. The comment stays on the stop, with its answer, in every later round
+whose tour keeps a stop of the same title; when a round drops the stop, the
+comment moves to the comments on the whole change with a note naming the stop.
+
+Comment and reply bodies render as Markdown, as GitHub shows them, through
+markdown-it's tokens drawn as React elements, so no markup from a body is ever
+injected. Of raw HTML, a few formatting tags such as `<details>`, `<summary>`,
+and `<sub>` become those elements without their attributes. Other tags in an
+HTML block go and their text stays, as on GitHub; scripts, styles, and HTML
+comments are dropped; a tag in running text stays text. Images show as links and
+never load, and links go only to web and mail addresses. A GitHub bot's comments
+carry its `[bot]` login and show the bot mark.
+
+The top bar says whether an agent listens: while a thread's `wait` is open and
+for a minute after it ends, or else when a thread was last seen. A question
+asked now, or a finished round, says when no agent listens and none has checked
+in since, until one does.
+
 With lines selected, **Suggest change** inserts a `suggestion` block with the
 lines' current text. The composer and the sent comment show the suggestion as a
 diff, and agents receive it structured. A selection across a hunk header skips

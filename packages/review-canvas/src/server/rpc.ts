@@ -5,7 +5,13 @@
 import { Data, Effect, Layer, Queue, Result, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/rpc";
 import { contentDigest, patchDigest } from "../review/anchor.ts";
+import {
+  keptSightings,
+  presenceExpires,
+  presenceOf,
+} from "../review/presence.ts";
 import { ActionError } from "../review/state.ts";
+import type { Presence } from "../schema/presence.ts";
 import { decodeBytes, FeedbackDocument } from "../schema/document.ts";
 import type {
   ContentDigest,
@@ -25,7 +31,7 @@ import { browsePull } from "./browse.ts";
 import { repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
-import { Activity, ReviewStore } from "./services.ts";
+import { Activity, AgentPresence, ReviewStore } from "./services.ts";
 
 /** An exception a store call raised that is no refusal: a bug, which fails the call as a defect. */
 class Unexpected extends Data.TaggedError("Unexpected")<{
@@ -70,6 +76,7 @@ const handlers = (roots: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const store = yield* ReviewStore;
       const activity = yield* Activity;
+      const presence = yield* AgentPresence;
       // Every call a page makes counts as activity.
       const touched = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         Effect.sync(() => activity.touch()).pipe(Effect.andThen(effect));
@@ -173,6 +180,56 @@ const handlers = (roots: ReadonlyArray<string>) =>
               ),
             { bufferSize: 1, strategy: "sliding" },
           ).pipe(Stream.mapEffect(() => snapshotOf(store, id))),
+
+        /**
+         * Whether an agent listens, now and after every change: what the server saw of the review's threads, what the
+         * review keeps of them, and the moment a thread that waited a minute ago stops counting as listening.
+         */
+        "review.presence": ({ id }) =>
+          store.review(id) === undefined
+            ? Stream.fail(noSuchReview(id))
+            : Stream.callback<Presence>(
+                (queue) =>
+                  Effect.acquireRelease(
+                    Effect.sync(() => {
+                      let timer: ReturnType<typeof setTimeout> | undefined;
+                      let last = "";
+                      const emit = () => {
+                        clearTimeout(timer);
+                        const view = store.review(id);
+                        if (view === undefined) return;
+                        const now = Date.now();
+                        const live = presence.live(id);
+                        const value = presenceOf(
+                          live,
+                          keptSightings(view.state),
+                          now,
+                        );
+                        const expires = presenceExpires(live, now);
+                        if (expires !== undefined)
+                          timer = setTimeout(emit, expires - now + 1);
+                        const key = JSON.stringify(value);
+                        if (key === last) return;
+                        last = key;
+                        Queue.offerUnsafe(queue, value);
+                      };
+                      emit();
+                      const changed = (review: ReviewId) => {
+                        if (review === id) emit();
+                      };
+                      const stops = [
+                        presence.subscribe(changed),
+                        store.subscribe(changed),
+                      ];
+                      return () => {
+                        clearTimeout(timer);
+                        for (const stop of stops) stop();
+                      };
+                    }),
+                    (stop) => Effect.sync(stop),
+                  ),
+                { bufferSize: 1, strategy: "sliding" },
+              ),
 
         /** Like a review's watch: the newest snapshot after any change to the walkthrough or its layers' reviews. */
         "stack.watch": ({ id }) =>

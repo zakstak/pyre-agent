@@ -30,7 +30,12 @@ import { finishedSince, hasQuestions } from "./status.ts";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
 import { Assets } from "./assets.ts";
-import { activityLayer, PageAddress, storeLayer } from "./services.ts";
+import {
+  activityLayer,
+  PageAddress,
+  presenceLayer,
+  storeLayer,
+} from "./services.ts";
 
 interface Reply {
   readonly status: number;
@@ -223,6 +228,7 @@ const withServers = (
     Layer.provide(TestAssets),
     Layer.provide(storeLayer(":memory:")),
     Layer.provide(activityLayer),
+    Layer.provide(presenceLayer),
   );
   return Effect.runPromise(
     Effect.scoped(

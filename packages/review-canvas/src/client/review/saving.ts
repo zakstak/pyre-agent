@@ -15,6 +15,7 @@ import {
   slotOf,
 } from "../../schema/draft.ts";
 import type { ReviewId } from "../../schema/primitives.ts";
+import { refKey } from "../../review/stop-anchor.ts";
 import { toast } from "../ui/toast.tsx";
 import { type Outcome, usePage } from "./act.ts";
 import { workspaceAtom } from "./data.ts";
@@ -27,6 +28,7 @@ import {
   generalDraftAtom,
   replyAtom,
   stashAtom,
+  stopDraftAtom,
 } from "./ui.ts";
 import type { PageModel } from "./view.ts";
 
@@ -183,6 +185,7 @@ export const useRestoreDrafts = (
       saved,
       page.snapshot.state.comments,
       page.files,
+      page.stops,
     ))
       restore(registry, review, item, reveal);
     // Last, so the boxes the drafts went into find the server holding what they show.
@@ -211,6 +214,12 @@ const restore = (
       const now = registry.get(atom);
       if (now.body === "" && now.verdict === "comment")
         registry.set(atom, { verdict: item.verdict, body: item.body });
+      return;
+    }
+    case "stop": {
+      const atom = stopDraftAtom({ review, stop: refKey(item.stop) });
+      if (registry.get(atom).body === "")
+        registry.set(atom, { open: true, body: item.body });
       return;
     }
     case "reply":

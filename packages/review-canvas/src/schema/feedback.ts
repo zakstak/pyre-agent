@@ -24,6 +24,7 @@ import {
   ThreadId,
   Timestamp,
 } from "./primitives.ts";
+import { StopRef } from "./reading.ts";
 import { pullRequestKey, Target } from "./target.ts";
 import { Thread } from "./thread.ts";
 
@@ -205,6 +206,55 @@ export type Orphan = typeof Orphan.Type;
  */
 export const Attachment = Schema.Union([PatchAttached, TextAttached, Orphan]);
 export type Attachment = typeof Attachment.Type;
+
+const StopExcerptFields = Schema.Struct({
+  path: RepoPath,
+  side: Schema.Literals(["old", "new"]),
+  start_line: SourceLine,
+  end_line: SourceLine,
+});
+
+/** Lines a stop excerpted, on one side of a file, in the round its anchor names. */
+export const StopExcerpt = StopExcerptFields.check(
+  Schema.makeFilter(
+    (excerpt: typeof StopExcerptFields.Type) =>
+      excerpt.end_line >= excerpt.start_line || {
+        path: ["end_line"],
+        issue: "must not come before start_line",
+      },
+  ),
+);
+export type StopExcerpt = typeof StopExcerpt.Type;
+
+/**
+ * Where a question about a stop of the tour points: the stop, by its identity across rounds, and for context the
+ * lines it excerpted in the round the question was asked in. A later round that keeps the stop keeps the question on
+ * it.
+ */
+export const StopAnchor = Schema.Struct({
+  kind: Schema.Literal("stop"),
+  /** The round the question was asked in. */
+  snapshot: RoundSnapshot,
+  stop: StopRef,
+  excerpts: Schema.Array(StopExcerpt).check(
+    Schema.isMaxLength(Limits.MAX_EXCERPTS_PER_STOP),
+  ),
+});
+export type StopAnchor = typeof StopAnchor.Type;
+
+/** A stop anchor found in the current round's tour: the stop's place in it, from 0. */
+export const StopAttached = Schema.Struct({
+  state: Schema.Literal("attached"),
+  stop: integer(0, Limits.MAX_STOPS),
+});
+export type StopAttached = typeof StopAttached.Type;
+
+/**
+ * Where a stop comment lands in the current round: on its stop, or an orphan when the round's tour no longer has the
+ * stop, which the page then shows with the comments on the whole change. The server derives it.
+ */
+export const StopAttachment = Schema.Union([StopAttached, Orphan]);
+export type StopAttachment = typeof StopAttachment.Type;
 
 /**
  * A pull request comment's identity on GitHub, kept so a refresh imports each comment once. Every GitHub comment and
@@ -424,6 +474,13 @@ const CommentFields = Schema.Union([
   }),
   /** A comment on the whole review, such as a GitHub conversation comment or review summary. */
   Schema.Struct({ kind: Schema.Literal("general"), ...commentFields }),
+  /** The reviewer's comment on a stop of the tour, such as one of the questions the stop suggests. */
+  Schema.Struct({
+    kind: Schema.Literal("stop"),
+    ...commentFields,
+    anchor: StopAnchor,
+    attachment: StopAttachment,
+  }),
 ]);
 
 /** Why an attachment cannot be where its anchor landed: of another kind, or not spanning the quote. */
@@ -465,7 +522,7 @@ const isDiscussion = (url: GitHubCommentUrl) =>
   url.slice(url.indexOf("#")).startsWith("#discussion_r");
 
 /**
- * A comment the agents must answer: inline on a patch selection, or general. Of GitHub's comments, only review
+ * A comment the agents must answer: inline on a patch selection, on a stop of the tour, or general. Of GitHub's comments, only review
  * comments are inline, threaded, and resolvable; conversation comments and review summaries are general, and have no
  * GitHub replies and no resolved state.
  */
@@ -499,6 +556,12 @@ export const Comment = CommentFields.check(
         path: ["source", "url"],
         issue:
           "a general GitHub comment is a conversation comment or review summary, not a #discussion_r URL",
+      };
+    } else if (comment.kind === "stop") {
+      return {
+        path: ["source", "kind"],
+        issue:
+          "a comment on a stop is the reviewer's: the git host has no tour",
       };
     } else if (comment.kind === "general" && comment.source.resolved) {
       return {
@@ -699,6 +762,11 @@ export const feedbackTextUnits = (
       for (const anchor of [comment.anchor, ...comment.history])
         total += anchor.quote.length + anchor.path.length;
     }
+    if (comment.kind === "stop") {
+      const { stop, excerpts } = comment.anchor;
+      if (stop.kind === "stop") total += stop.title.length;
+      for (const excerpt of excerpts) total += excerpt.path.length;
+    }
     for (const reply of comment.replies) {
       total += reply.body.length;
       if (reply.actor === "agent" && reply.disposition === "deferred")
@@ -818,6 +886,19 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
     if (comment.source.kind === "github") {
       const problem = fromGitHub(comment.source, ["comments", index, "source"]);
       if (problem !== undefined) return problem;
+    }
+    if (comment.kind === "stop") {
+      const { snapshot } = comment.anchor;
+      if (snapshot.round > feedback.round)
+        return {
+          path: ["comments", index, "anchor", "snapshot", "round"],
+          issue: "is after the feedback's round",
+        };
+      if (!sameDigest(snapshot))
+        return {
+          path: ["comments", index, "anchor", "snapshot", "input_sha256"],
+          issue: OTHER_DIGEST,
+        };
     }
     if (comment.kind === "inline") {
       for (const [position, anchor] of [

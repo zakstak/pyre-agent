@@ -110,6 +110,14 @@ without a finish, so the agent can answer while the reviewer reads. A change to
 a pending comment raises the revision, so the agent's status shows a new
 revision with nothing new in it, and `wait` keeps waiting.
 
+The page shows beside its connection state whether an agent listens: a thread
+listens while its `wait` request is open, and for a minute after one ends, since
+`wait` asks again at once. Otherwise the page shows when a thread of the review
+last made a request, published, or answered, or that none has. A question asked
+now or a finished round that no agent listens for says so on the page, until a
+thread of the review makes any request. Keep `wait` running in a loop while the
+reviewer works, so questions reach you as they are asked.
+
 ## What agents tell the server
 
 Beside rounds and answers, an agent reports two things the page shows:

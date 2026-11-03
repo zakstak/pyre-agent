@@ -723,39 +723,37 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(agent.url);
-    await page.locator("button[data-question]").first().click();
+    // A stop's question opens a box in the stop it is about.
+    const stop = page.locator("section[data-stop='0']");
+    await stop.locator("button[data-question]").click();
     assert.equal(
-      await page.locator("#general-body").inputValue(),
+      await stop.locator("[data-stop-composer] textarea").inputValue(),
       "Should a failed write clean up?",
     );
     await page.waitForFunction(
-      () => document.activeElement?.id === "general-body",
+      () => document.activeElement?.id === "stop-1-ask",
     );
-    await page
-      .locator("#general form")
+    await stop
+      .locator("[data-stop-composer]")
       .getByRole("button", { name: "Ask now", exact: true })
       .click();
-    await page.locator("#general article[data-comment]").waitFor();
+    const thread = stop.locator("[data-stop-talk] article[data-comment]");
+    await thread.waitFor();
     // A question waits for the agent at once; its answer is the reviewer's turn. One chip says so each time.
-    assert.deepEqual(
-      await page
-        .locator("#general article[data-comment] [data-chip]")
-        .allTextContents(),
-      ["Waiting for Claude Code"],
-    );
+    assert.deepEqual(await thread.locator("[data-chip]").allTextContents(), [
+      "Waiting for Claude Code",
+    ]);
     const status = await agent.status();
     assert.equal(status.questions.length, 1);
     await agent.answer(status.questions[0], {
       disposition: "answered",
       body: "Yes; mkstemp leaves it otherwise.",
     });
-    await page.locator("#general li[data-reply='agent']").waitFor();
-    assert.deepEqual(
-      await page
-        .locator("#general article[data-comment] [data-chip]")
-        .allTextContents(),
-      ["Your turn", "Answered"],
-    );
+    await thread.locator("li[data-reply='agent']").waitFor();
+    assert.deepEqual(await thread.locator("[data-chip]").allTextContents(), [
+      "Your turn",
+      "Answered",
+    ]);
     await page.close();
   });
 

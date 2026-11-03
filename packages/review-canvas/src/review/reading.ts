@@ -12,11 +12,11 @@ import type {
   StopMark,
   StopProgress,
   StopRead,
-  StopRef,
 } from "../schema/reading.ts";
 import type { ReadFile } from "../schema/stack.ts";
 import { patchDigest } from "./anchor.ts";
 import { ActionError } from "./state.ts";
+import { refKey, stopRefs } from "./stop-anchor.ts";
 import { type StopView, tourView } from "./tour.ts";
 
 /** The version of a file a mark records: its fingerprint, or else its patch, so an unchanged file keeps its mark. */
@@ -30,28 +30,6 @@ export const fileVersion = (file: ReviewFile): string =>
 export const stopFiles = (stop: StopView): ReadonlyArray<RepoPath> => [
   ...new Set([...stop.owns, ...stop.excerpts.map((excerpt) => excerpt.path)]),
 ];
-
-/**
- * Each stop of a round as a stop across rounds: the closing stop, or the first, second, ... stop of its title. A
- * stop keeps its reading while the agent keeps its title.
- */
-export const stopRefs = (
-  stops: ReadonlyArray<StopView>,
-): ReadonlyArray<StopRef> => {
-  const seen = new Map<string, number>();
-  return stops.map((stop): StopRef => {
-    if (stop.closing) return { kind: "closing" };
-    const occurrence = seen.get(stop.title) ?? 0;
-    seen.set(stop.title, occurrence + 1);
-    return { kind: "stop", title: stop.title, occurrence };
-  });
-};
-
-/** One string per stop reference, to find a stop's mark by. */
-export const refKey = (ref: StopRef): string =>
-  ref.kind === "closing"
-    ? "closing"
-    : JSON.stringify([ref.title, ref.occurrence]);
 
 /** What a mark of a stop records now: the version of each file it covers in the round's input. */
 export const stopVersions = (

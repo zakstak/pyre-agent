@@ -29,6 +29,7 @@ import { Lifecycle, LifecycleApi, lifecycleLayer } from "./lifecycle.ts";
 import {
   Activity,
   activityLayer,
+  presenceLayer,
   PageAddress,
   storeLayer,
 } from "./services.ts";
@@ -240,6 +241,7 @@ export const Main = Layer.mergeAll(
   Layer.provide(Assets.layerFromBuild(clientDir)),
   Layer.provide(storeLayer(databasePath())),
   Layer.provideMerge(activityLayer),
+  Layer.provideMerge(presenceLayer),
   Layer.provideMerge(lifecycleLayer),
   Layer.provide(NodeServices.layer),
 );

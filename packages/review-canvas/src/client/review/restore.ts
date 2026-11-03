@@ -6,7 +6,10 @@
 import type { SavedDraft } from "../../schema/draft.ts";
 import type { Comment, Verdict } from "../../schema/feedback.ts";
 import type { CommentId, RepoPath } from "../../schema/primitives.ts";
+import type { StopRef } from "../../schema/reading.ts";
 import type { Selection } from "../../schema/selection.ts";
+import { findStop } from "../../review/stop-anchor.ts";
+import type { StopView } from "../../review/tour.ts";
 import { canEdit, isPending } from "../../review/queries.ts";
 import { type FileVersion, onVersion } from "./diff-model.ts";
 
@@ -23,6 +26,7 @@ export type Restored =
       readonly comment: CommentId;
       readonly body: string;
     }
+  | { readonly kind: "stop"; readonly stop: StopRef; readonly body: string }
   | {
       readonly kind: "comment";
       readonly selection: Selection;
@@ -35,7 +39,8 @@ export type Restored =
 /**
  * Where each saved draft goes back. A box with no text has nothing to restore. A reply or an edit needs its comment,
  * one that can still take it; a line comment needs the version of the file it was written on, the patch for rows and
- * the text for lines, and otherwise its text is offered for the next comment.
+ * the text for lines, and a stop's comment needs the stop in the round's tour; otherwise its text is offered for the
+ * next comment.
  */
 export const restoring = (
   saved: ReadonlyArray<SavedDraft>,
@@ -44,11 +49,17 @@ export const restoring = (
     RepoPath,
     Pick<FileVersion, "digest" | "text"> & { readonly index: number }
   >,
+  stops: ReadonlyArray<StopView>,
 ): ReadonlyArray<Restored> =>
   saved.flatMap(({ draft }): ReadonlyArray<Restored> => {
     switch (draft.kind) {
       case "general":
         return draft.body === "" ? [] : [draft];
+      case "stop":
+        if (draft.body.trim() === "") return [];
+        return findStop(stops, draft.stop) === undefined
+          ? [{ kind: "stash", body: draft.body }]
+          : [draft];
       case "finish":
         return draft.body === "" && draft.verdict === "comment" ? [] : [draft];
       case "reply":

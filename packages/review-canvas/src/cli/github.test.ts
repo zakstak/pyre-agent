@@ -104,9 +104,17 @@ test("a branch's home is read with hardened Git from its upstream", (t) => {
   });
 });
 
+/** GitHub's GraphQL actors: a Bot's login there has no `[bot]` suffix. */
+const actor = (n: number) =>
+  n === 9
+    ? null
+    : n === 2
+      ? { __typename: "Bot", login: "chatgpt-codex-connector" }
+      : { __typename: "User", login: "octocat" };
+
 const node = (n: number, kind: string, body: string) => ({
   id: `NODE_${n}`,
-  author: n === 9 ? null : { login: "octocat" },
+  author: actor(n),
   body,
   createdAt: `2026-10-12T00:0${n}:00Z`,
   url: `${URL}#${kind}${n}`,
@@ -234,6 +242,25 @@ test("a pull request's comments read page by page into the import format", () =>
   assert.equal(second.resolved, true);
   assert.equal(conversation?.author, null);
   assert.equal(read.head_sha, "a".repeat(40));
+});
+
+test("a bot's comment keeps its actor type: its login carries the [bot] suffix", () => {
+  const queries: Array<string> = [];
+  const gh = fakeGh();
+  const read = readComments(URL, (args) => {
+    queries.push(args.find((arg) => arg.startsWith("query=")) ?? "");
+    return gh(args);
+  });
+  // The query asks GitHub which kind of actor wrote each post.
+  for (const query of queries)
+    assert.match(query, /author \{ __typename login \}/);
+  const [first] = read.items;
+  assert.ok(first?.kind === "thread");
+  assert.equal(first.author, "octocat");
+  assert.deepEqual(
+    first.replies.map((reply) => reply.author),
+    ["chatgpt-codex-connector[bot]"],
+  );
 });
 
 test("threads read across a push carry no head, so their lines place nothing", () => {

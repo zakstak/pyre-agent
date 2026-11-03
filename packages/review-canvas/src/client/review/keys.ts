@@ -6,6 +6,7 @@
  * mode, and none fires from a text field. Keys on a diff line act only while a line has focus.
  */
 import { pageOrder } from "../../review/next.ts";
+import { findStop } from "../../review/stop-anchor.ts";
 import type { StopView } from "../../review/tour.ts";
 import type { CommentId, RepoPath } from "../../schema/primitives.ts";
 import type { View } from "./ui.ts";
@@ -140,10 +141,15 @@ export const threadOrder = (
   );
   if (view === "guided") return sorted.map((comment) => comment.id);
   const files = new Map(fileOrder(page, view).map((path, at) => [path, at]));
+  // The source view shows a stop's comments in the guide beside the diff, before the files.
   const rank = (comment: (typeof sorted)[number]) =>
     comment.kind === "general"
       ? files.size + 1
-      : (files.get(comment.anchor.path) ?? files.size);
+      : comment.kind === "stop"
+        ? findStop(page.stops, comment.anchor.stop) === undefined
+          ? files.size + 1
+          : -1
+        : (files.get(comment.anchor.path) ?? files.size);
   return sorted
     .toSorted((a, b) => rank(a) - rank(b))
     .map((comment) => comment.id);

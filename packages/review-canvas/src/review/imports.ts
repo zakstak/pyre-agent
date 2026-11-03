@@ -12,15 +12,18 @@ import type {
   PatchAnchor,
   Reply,
   RoundSnapshot,
+  StopAnchor,
 } from "../schema/feedback.ts";
 import { compareReplies } from "../schema/feedback.ts";
 import type { GitHubItem, GitHubPost, GitHubThread } from "../schema/github.ts";
-import type { ReviewFile } from "../schema/input.ts";
+import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
 import type { ImportReport } from "../schema/rpc.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
 import { anchorAt, attach, isAnchorProblem, textAnchorAt } from "./anchor.ts";
+import { attachStop, findStop, stopAnchorFor } from "./stop-anchor.ts";
+import { tourView } from "./tour.ts";
 import { attachedRows, parseRows, type Row } from "./patch.ts";
 import {
   type ActionContext,
@@ -111,6 +114,27 @@ const reanchor = (
     if (moved !== undefined && !isAnchorProblem(moved)) return moved;
   }
   return { ...anchor, snapshot };
+};
+
+/**
+ * An imported stop anchor in the current round: on the stop of the same identity, with the lines it excerpts now, or,
+ * where the tour has no such stop, its earlier lines, named as of the current round, as an orphan.
+ */
+const reanchorStop = (
+  anchor: StopAnchor,
+  input: ReviewInput,
+  snapshot: RoundSnapshot,
+): Pick<Extract<Comment, { kind: "stop" }>, "anchor" | "attachment"> => {
+  const stops = tourView(input).stops;
+  const stop = findStop(stops, anchor.stop);
+  const moved =
+    stop === undefined
+      ? { ...anchor, snapshot }
+      : stopAnchorFor(snapshot, anchor.stop, stop, input);
+  return {
+    anchor: moved,
+    attachment: attachStop(moved, stops, snapshot.round),
+  };
 };
 
 export interface FeedbackImport {
@@ -219,20 +243,32 @@ export const importFeedback = (
     ids.add(id);
     const updated_at = (kept.at(-1)?.created_at ??
       imported.created_at) as Timestamp;
-    if (imported.kind === "inline") {
-      const file = files.get(imported.anchor.path);
-      const anchor = reanchor(imported.anchor, file, snapshot);
-      comments.push({
-        ...imported,
-        id,
-        updated_at,
-        replies: kept,
-        anchor,
-        history: [],
-        attachment: attach(anchor, file),
-      });
-    } else {
-      comments.push({ ...imported, id, updated_at, replies: kept });
+    switch (imported.kind) {
+      case "inline": {
+        const file = files.get(imported.anchor.path);
+        const anchor = reanchor(imported.anchor, file, snapshot);
+        comments.push({
+          ...imported,
+          id,
+          updated_at,
+          replies: kept,
+          anchor,
+          history: [],
+          attachment: attach(anchor, file),
+        });
+        break;
+      }
+      case "stop":
+        comments.push({
+          ...imported,
+          id,
+          updated_at,
+          replies: kept,
+          ...reanchorStop(imported.anchor, input, snapshot),
+        });
+        break;
+      case "general":
+        comments.push({ ...imported, id, updated_at, replies: kept });
     }
     commentCount++;
     replyCount += kept.length;
@@ -403,9 +439,43 @@ const gitHubReply = (post: GitHubPost, id: ReplyId): Reply => ({
 });
 
 /**
+ * A comment the review already holds, with the authors of its GitHub post and replies as the host names them now. An
+ * earlier import may have read a bot's login without its `[bot]` suffix; a refresh puts the actor's type back.
+ */
+const withAuthors = (
+  comment: Comment,
+  posts: ReadonlyArray<GitHubPost>,
+): Comment => {
+  const authors = new Map(posts.map((post) => [post.id, post.author]));
+  const source =
+    comment.source.kind === "github" &&
+    authors.has(comment.source.id) &&
+    authors.get(comment.source.id) !== comment.source.author
+      ? { ...comment.source, author: authors.get(comment.source.id) ?? null }
+      : comment.source;
+  const replies = comment.replies.map((reply) =>
+    reply.actor === "github" &&
+    authors.has(reply.github.id) &&
+    authors.get(reply.github.id) !== reply.github.author
+      ? {
+          ...reply,
+          github: {
+            ...reply.github,
+            author: authors.get(reply.github.id) ?? null,
+          },
+        }
+      : reply,
+  );
+  return source === comment.source &&
+    replies.every((reply, at) => reply === comment.replies[at])
+    ? comment
+    : { ...comment, source, replies };
+};
+
+/**
  * Imports a pull request's GitHub comments: review threads become inline comments found again by their quote, and
  * conversation comments and review summaries become general ones. A comment the review already holds gets only its
- * new replies and GitHub's current resolution. Each arrives as the agents' turn, except a thread GitHub shows
+ * new replies, GitHub's current resolution, and its authors as GitHub names them now. Each arrives as the agents' turn, except a thread GitHub shows
  * resolved. `head` is the commit GitHub numbered the threads' current lines on; a round of that pull request head can
  * place a thread by them.
  */
@@ -449,7 +519,7 @@ export const importGitHub = (
       const existing = comments[at];
       if (existing !== undefined) {
         already++;
-        let updated = existing;
+        let updated = withAuthors(existing, [item, ...item.replies]);
         if (
           updated.source.kind === "github" &&
           updated.source.resolved !== item.resolved
@@ -513,6 +583,12 @@ export const importGitHub = (
     }
     if (github.has(item.id)) {
       already++;
+      const at = comments.findIndex(
+        (comment) =>
+          comment.source.kind === "github" && comment.source.id === item.id,
+      );
+      const existing = comments[at];
+      if (existing !== undefined) comments[at] = withAuthors(existing, [item]);
       continue;
     }
     comments.push({

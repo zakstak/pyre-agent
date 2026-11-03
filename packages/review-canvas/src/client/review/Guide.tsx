@@ -3,9 +3,9 @@
  * tour order as prose with small excerpts that link into the code, or lists the files as the contents do. A wide page
  * keeps it beside the diff, scrolling on its own; a narrower one folds it into a disclosure above the diff.
  */
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Check } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
 import type { StopRead } from "../../schema/reading.ts";
 import { parseRows } from "../../review/patch.ts";
@@ -43,8 +43,9 @@ import {
   ReadToggle,
   StopChanged,
 } from "./Reading.tsx";
-import { Attention, FlagMark, Questions, StopProse } from "./Sections.tsx";
-import { WIDE_QUERY } from "./ui.ts";
+import { Attention, FlagMark, StopProse } from "./Sections.tsx";
+import { StopTalk } from "./StopTalk.tsx";
+import { guideAtom, WIDE_QUERY } from "./ui.ts";
 import { noteElementId } from "./view.ts";
 
 /** How many rows of an excerpt the guide shows; the diff has the rest. */
@@ -158,14 +159,12 @@ const GuideStop = ({
   read,
   onFile,
   onExcerpt,
-  onAsk,
 }: {
   readonly stop: StopView;
   readonly current: boolean;
   readonly read: StopRead;
   readonly onFile: (path: RepoPath) => void;
   readonly onExcerpt: (target: ExcerptTarget) => void;
-  readonly onAsk: (question: string) => void;
 }) => {
   const { page } = usePage();
   const owned = stop.owns.flatMap((path) => {
@@ -218,7 +217,7 @@ const GuideStop = ({
           onExcerpt={onExcerpt}
         />
       ))}
-      <Questions stop={stop} onAsk={onAsk} />
+      <StopTalk stop={stop} />
       {owned.length === 0 ? null : (
         <p data-guide-files className="mt-3 font-mono text-technical">
           {owned.map((model, at) => (
@@ -254,19 +253,20 @@ const GuideStop = ({
 export const Guide = ({
   onFile,
   onExcerpt,
-  onAsk,
   steering,
 }: {
   readonly onFile: (path: RepoPath) => void;
   readonly onExcerpt: (target: ExcerptTarget) => void;
-  readonly onAsk: (question: string) => void;
   /** Whether the page is scrolling itself, when the guide leaves its scroller where the page put it. */
   readonly steering: () => boolean;
 }) => {
-  const { page } = usePage();
+  const { id, page } = usePage();
   const wide = useMedia(WIDE_QUERY);
-  const [tab, setTab] = useState<Tab>("walkthrough");
-  const [open, setOpen] = useState(false);
+  // Atoms, not state: going to a comment on a stop opens the walkthrough it is in.
+  const [{ tab, open }, setGuide] = useAtom(guideAtom(id));
+  const setTab = (next: Tab) => setGuide((now) => ({ ...now, tab: next }));
+  const setOpen = (next: boolean) =>
+    setGuide((now) => ({ ...now, open: next }));
   const spied = useAtomValue(spiedAtom);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, spied);
   const scroller = useRef<HTMLDivElement>(null);
@@ -327,7 +327,6 @@ export const Guide = ({
               read={readOf(page, stop.index)}
               onFile={pick}
               onExcerpt={onExcerpt}
-              onAsk={onAsk}
             />
           ))}
         </ol>

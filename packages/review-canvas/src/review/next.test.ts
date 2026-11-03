@@ -202,6 +202,69 @@ test("answers to read come in page order: by file in walkthrough order, then row
   ]);
 });
 
+/** A comment on a stop of the tour, by its title, or the closing stop's. */
+const onStop = (
+  id: string,
+  minute: number,
+  title: string | undefined,
+  replies: Array<unknown>,
+): Comment =>
+  ({
+    kind: "stop",
+    id,
+    source: { kind: "reviewer", state: "sent", question: true },
+    body: "Why?",
+    created_at: at(minute),
+    updated_at: at(minute),
+    anchor: {
+      kind: "stop",
+      snapshot: { round: 2, input_sha256: "f".repeat(64) },
+      stop:
+        title === undefined
+          ? { kind: "closing" }
+          : { kind: "stop", title, occurrence: 0 },
+      excerpts: [],
+    },
+    attachment: { state: "attached", stop: 0 },
+    replies,
+  }) as unknown as Comment;
+
+test("a stop's comments come after the stop's files, and one on a stop the round dropped with the whole change", () => {
+  const comments = [
+    general("c-general", 0, [answer("t1", 1)]),
+    onStop("c-gone", 0, "Gone", [answer("t1", 2)]),
+    onStop("c-closing", 0, undefined, [answer("t1", 3)]),
+    inline("c-closing-file", 0, 2, [answer("t1", 4)], "a.ts"),
+    onStop("c-first", 0, "First", [answer("t1", 5)]),
+    inline("c-first-file", 0, 2, [answer("t1", 6)]),
+  ];
+  const first = next({ comments });
+  assert.ok(first.kind === "answer");
+  assert.equal(first.comment, "c-first-file");
+  const order: Array<string> = [];
+  const places: Array<unknown> = [];
+  let left = [...comments];
+  for (;;) {
+    const step = next({ comments: left });
+    if (step.kind !== "answer") break;
+    order.push(step.comment);
+    places.push(step.place);
+    left = left.filter((comment) => comment.id !== step.comment);
+  }
+  assert.deepEqual(order, [
+    "c-first-file",
+    "c-first",
+    "c-closing-file",
+    "c-closing",
+    "c-general",
+    "c-gone",
+  ]);
+  assert.deepEqual(places.slice(1, 2), [
+    { kind: "stop", stop: 1, title: "First" },
+  ]);
+  assert.deepEqual(places.at(-1), { kind: "general" });
+});
+
 test("an answer counts how many more follow it", () => {
   assert.equal(
     next({ comments: [general("c-1", 1, [answer("t1", 2)])] }).kind,

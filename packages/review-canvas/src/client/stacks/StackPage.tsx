@@ -5,20 +5,18 @@
  * keeps the position and the marks, so any tab resumes where the reviewer left off. A step is read at the version the
  * page drew, never at one the server announced while the page was still loading it.
  */
-import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
 import { Check, CircleDot, TriangleAlert } from "lucide-react";
 import {
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
 import { layerInput, neighbors, pullNumber } from "../../review/stack-steps.ts";
 import type { StackId, StepDigest } from "../../schema/primitives.ts";
 import { Refused } from "../../schema/rpc.ts";
@@ -42,7 +40,7 @@ import {
   StopProse,
   StopSection,
 } from "../review/Sections.tsx";
-import { generalDraftAtom, layoutAtom, NARROW_QUERY } from "../review/ui.ts";
+import { layoutAtom, NARROW_QUERY } from "../review/ui.ts";
 import { type PageModel, pageModel } from "../review/view.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -312,7 +310,6 @@ const CurrentStep = ({
   readonly onGo: Go;
   readonly onDrawn: OnDrawn;
 }) => {
-  const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
   const narrow = useMedia(NARROW_QUERY);
@@ -387,20 +384,6 @@ const CurrentStep = ({
     const target = snapshot.steps.find((item) => item.key === key);
     if (target !== undefined) void onGo(target, false);
   };
-  const ask = (question: string) => {
-    const area = general.current;
-    if (area === null) return;
-    const now = registry.get(generalDraftAtom(state.review));
-    const next = now.startsWith(question)
-      ? now
-      : now === ""
-        ? question
-        : `${question}\n\n${now}`;
-    flushSync(() => registry.set(generalDraftAtom(state.review), next));
-    area.scrollIntoView({ block: "center" });
-    area.focus();
-    area.setSelectionRange(next.length, next.length);
-  };
   return (
     <ReviewContext.Provider value={context}>
       <div data-stack-step={step.key}>
@@ -410,7 +393,6 @@ const CurrentStep = ({
           ruled={false}
           narration={`${pullNumber(layer.url)} · stop ${stop.index + 1} of ${context.page.stops.length}`}
           onFlash={toOwner}
-          onAsk={ask}
         />
       </div>
       <General textarea={general} />

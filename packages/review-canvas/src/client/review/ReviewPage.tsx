@@ -10,7 +10,6 @@ import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { ReviewInput } from "../../schema/input.ts";
 import {
   type RepoPath,
@@ -41,6 +40,7 @@ import { useDwellRead } from "./dwell.ts";
 import { Guide } from "./Guide.tsx";
 import { KeyHelp } from "./KeyHelp.tsx";
 import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
+import { AgentPresence } from "./Presence.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { hashOf } from "./places.ts";
 import { FileBlocks } from "./FileBlock.tsx";
@@ -50,7 +50,6 @@ import { useSince } from "./Since.tsx";
 import { NextStrip, useStickyBars } from "./Strip.tsx";
 import {
   foldsAtom,
-  generalDraftAtom,
   layoutAtom,
   NARROW_QUERY,
   type View,
@@ -166,6 +165,9 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
       <ReviewBar
         target={snapshot.state.target}
         updated={snapshot.state.created_at}
+        agents={
+          <AgentPresence id={snapshot.state.id} threads={snapshot.threads} />
+        }
       />
       <Frame>
         <header className="col-span-full pt-6">
@@ -243,7 +245,6 @@ const Review = ({
     () => ({ id, round: page.round.round }),
     [id, page.round.round],
   );
-  const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
   const [chosen] = useAtom(viewAtom);
@@ -266,23 +267,6 @@ const Review = ({
   useRestoreDrafts(id, page, navigate.reveal);
   useKeepComposer(id);
 
-  /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
-  const ask = (question: string) => {
-    const area = general.current;
-    if (area === null) return;
-    const now = registry.get(generalDraftAtom(id));
-    const next = now.startsWith(question)
-      ? now
-      : now === ""
-        ? question
-        : `${question}\n\n${now}`;
-    // Drawn at once, so the caret goes after the text the box now holds.
-    flushSync(() => registry.set(generalDraftAtom(id), next));
-    area.scrollIntoView({ block: "center" });
-    area.focus();
-    area.setSelectionRange(next.length, next.length);
-  };
-
   /** Goes to a file from the contents or the guide, and names it in the hash. */
   const showFile = (path: RepoPath) => {
     history.replaceState(null, "", hashOf(fileElementId(path)));
@@ -292,7 +276,11 @@ const Review = ({
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <ReviewBar target={page.snapshot.state.target} updated={page.updated}>
+      <ReviewBar
+        target={page.snapshot.state.target}
+        updated={page.updated}
+        agents={<AgentPresence id={id} threads={page.snapshot.threads} />}
+      >
         <ViewControl />
         <KeyHelp />
       </ReviewBar>
@@ -311,7 +299,6 @@ const Review = ({
           <Guide
             onFile={showFile}
             onExcerpt={(target) => void navigate.showExcerpt(target)}
-            onAsk={ask}
             steering={navigate.steering}
           />
         ) : (
@@ -351,7 +338,6 @@ const Review = ({
                   onFlash={(path, index, start, end) =>
                     void navigate.flash(path, index, start, end)
                   }
-                  onAsk={ask}
                 />
               ))}
             </>
