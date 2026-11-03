@@ -365,8 +365,19 @@ describe("the conversation", { skip: !built && "run pnpm build first" }, () => {
       await note.innerText(),
       "Claude Code isn’t listening; it will see this when it checks in.",
     );
+    // The strip says so too, where it would say the agents have the turn.
+    const strip = page.locator("[data-next] [data-strip-not-listening]");
+    assert.equal(
+      await strip.innerText(),
+      "Claude Code isn’t listening; it will see this when it checks in.",
+    );
     await agent.call("GET", "/wait?revision=-1&timeout=1000");
     await note.waitFor({ state: "detached" });
+    await strip.waitFor({ state: "detached" });
+    assert.match(
+      await text(page, "[data-next]"),
+      /^You finished round 1 · comment only · the agents have the turn/,
+    );
     await page.close();
   });
 });

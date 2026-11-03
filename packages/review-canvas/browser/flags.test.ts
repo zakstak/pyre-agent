@@ -174,6 +174,42 @@ describe("attention flags", { skip: !built && "run pnpm build first" }, () => {
     await page.close();
   });
 
+  test("going to a comment on an unflagged stop in the source view's guide lists that stop again", async () => {
+    const input = flagged();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator("button[data-view='source']").click();
+    const stop = page.locator("[data-guide-stop='1']");
+    await stop.locator("button[data-ask-stop]").click();
+    await stop
+      .locator("[data-stop-composer] textarea")
+      .fill("Why rename the module now?");
+    await stop
+      .locator("[data-stop-composer]")
+      .getByRole("button", { name: "Comment", exact: true })
+      .click();
+    const thread = stop.locator("article[data-comment]");
+    await thread.waitFor();
+    const id = await thread.getAttribute("data-comment");
+    // Flagged only hides the unflagged stop, and its comment with it.
+    const only = page.locator("[data-guide] input[data-flagged-only]");
+    await only.check();
+    await stop.waitFor({ state: "detached" });
+    // The pending list goes to the comment: the stop is listed again, and the comment has focus.
+    await page.locator("[data-pending-count]").click();
+    await page
+      .locator(`[data-pending-list] [data-pending-comment='${id}']`)
+      .click();
+    await page.waitForFunction(
+      (id) => document.activeElement?.id === `comment-${id}`,
+      id,
+    );
+    assert.equal(await only.isChecked(), false);
+    await page.locator("button[data-view='guided']").click();
+    await page.close();
+  });
+
   test("a tour with no flagged stop has no Flagged only", async () => {
     const input = fixtureInput();
     input.stops[0].attention = null;

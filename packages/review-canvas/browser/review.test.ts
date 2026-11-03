@@ -339,7 +339,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("#finish input[value='approve']").check();
     await page.locator("#finish textarea").fill("Ship it.");
     await page.locator("#finish button[type=submit]").click();
-    // The section shows the submission, and the strip says the agents have the turn. Focus stays in the section.
+    // The section shows the submission, and the strip says no agent has heard of it yet. Focus stays in the section.
     await page.locator("#finish [data-submission]").waitFor();
     await page.waitForFunction(
       () => document.activeElement?.id === "finish-title",
@@ -355,12 +355,20 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await page.locator("#finish form").count(), 0);
     assert.match(
       await text(page, "[data-next]"),
-      /You finished round 2 · approve · the agents have the turn/,
+      /You finished round 2 · approve · Claude Code isn’t listening; it will see this when it checks in\./,
     );
     const status = await agent.status();
     assert.deepEqual(
       [status.submission.round, status.submission.verdict],
       [2, "approve"],
+    );
+    // The agent checked in, so the strip says the agents have the turn.
+    await page.locator("[data-next] [data-strip-not-listening]").waitFor({
+      state: "detached",
+    });
+    assert.match(
+      await text(page, "[data-next]"),
+      /You finished round 2 · approve · the agents have the turn/,
     );
     await page.close();
   });

@@ -296,16 +296,23 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
      * In the source view a note shows only when opened, so it opens.
      */
     const revealState = (id: string) => {
-      // The source view shows a stop's comments in the guide's walkthrough, which a narrower page folds away.
-      if (
-        view === "source" &&
-        [...page.stopComments.values()].some((comments) =>
-          comments.some((comment) => commentElementId(comment.id) === id),
-        )
-      ) {
+      // The source view shows a stop's comments in the guide's walkthrough, which a narrower page folds away, and
+      // which lists an unflagged stop only while Flagged only is off.
+      const onStop =
+        view === "source"
+          ? [...page.stopComments].find(([, comments]) =>
+              comments.some((comment) => commentElementId(comment.id) === id),
+            )?.[0]
+          : undefined;
+      if (onStop !== undefined) {
         const guide = registry.get(guideAtom(key.id));
         if (guide.tab !== "walkthrough" || !guide.open)
           registry.set(guideAtom(key.id), { tab: "walkthrough", open: true });
+        if (
+          page.stops[onStop]?.attention === null &&
+          registry.get(flaggedOnlyAtom(key.id))
+        )
+          registry.set(flaggedOnlyAtom(key.id), false);
         return;
       }
       const place = placeOf(page, id);

@@ -373,6 +373,7 @@ test("after the finish, an answer to read is next; without one the agents have t
     kind: "finished",
     round: 2,
     verdict: "request_changes",
+    at: finished.submitted_at,
   });
 });
 

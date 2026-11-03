@@ -102,12 +102,12 @@ describe("the next strip", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("#finish button[type=submit]").click();
     await page.locator("#finish [data-submission]").waitFor();
 
-    // Right after the finish: the agents have the turn, and N has nowhere to go.
+    // Right after the finish: the agents have the turn, though none has checked in since, and N has nowhere to go.
     await page
       .locator("[data-next]", { hasText: "You finished round 1" })
       .waitFor();
     assert.deepEqual(await strip(page), {
-      says: "You finished round 1 · comment only · the agents have the turn",
+      says: "You finished round 1 · comment only · Claude Code isn’t listening; it will see this when it checks in.",
       target: undefined,
       n: undefined,
     });
@@ -132,7 +132,7 @@ describe("the next strip", { skip: !built && "run pnpm build first" }, () => {
       n: `comment-${first}`,
     });
 
-    // Both read: the agents have the turn again.
+    // Both read: the agents, which checked in to answer, have the turn again.
     for (const id of [first, second]) {
       await page.locator(`#comment-${id} [data-accept]`).click();
       await page

@@ -11,6 +11,7 @@ import type {
   RepoPath,
   RoundNumber,
   ThreadId,
+  Timestamp,
 } from "../schema/primitives.ts";
 import { attachedRows, parseRows, type Row } from "./patch.ts";
 import { progress, standingOf } from "./progress.ts";
@@ -79,6 +80,8 @@ export type Next =
       readonly kind: "finished";
       readonly round: RoundNumber;
       readonly verdict: Verdict;
+      /** When the reviewer finished it, which tells whether an agent has heard from the finish since. */
+      readonly at: Timestamp;
     }
   | { readonly kind: "closed" };
 
@@ -285,6 +288,7 @@ export const roundSteps = (
         kind: "finished",
         round: round.round,
         verdict: submission.verdict,
+        at: submission.submitted_at,
       };
     return (
       file ?? {

@@ -5,8 +5,16 @@ import * as Schema from "effect/Schema";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decodeValue, FeedbackDocument } from "./document.ts";
-import { draftIn, slotKey, slotOf, Draft, DraftSlot } from "./draft.ts";
+import {
+  draftIn,
+  slotKey,
+  slotOf,
+  Draft,
+  DraftSlot,
+  DraftWrites,
+} from "./draft.ts";
 import { Comment } from "./feedback.ts";
+import * as Limits from "./limits.ts";
 import type { CommentId } from "./primitives.ts";
 import { Selection } from "./selection.ts";
 import {
@@ -226,5 +234,33 @@ test("each draft fills one slot, which a key names, and a slot holds the latest 
   );
   assert.ok(
     Result.isFailure(Schema.decodeUnknownResult(DraftSlot)({ kind: "reply" })),
+  );
+});
+
+test("a page's last request can empty every slot a review has, a stop's included, and no more", () => {
+  const slots = [
+    { kind: "comment" },
+    { kind: "general" },
+    { kind: "finish" },
+    ...Array.from({ length: Limits.MAX_COMMENTS }, (_, at) => [
+      { kind: "reply", comment: `c-${at}` },
+      { kind: "edit", comment: `c-${at}` },
+    ]).flat(),
+    ...Array.from({ length: Limits.MAX_STOPS }, (_, at) => ({
+      kind: "stop",
+      stop: { kind: "stop", title: `Stop ${at}`, occurrence: 0 },
+    })),
+    { kind: "stop", stop: { kind: "closing" } },
+  ];
+  const writes = slots.map((slot) => ({ kind: "discard", slot }));
+  assert.ok(
+    Result.isSuccess(Schema.decodeUnknownResult(DraftWrites)({ writes })),
+  );
+  assert.ok(
+    Result.isFailure(
+      Schema.decodeUnknownResult(DraftWrites)({
+        writes: [...writes, { kind: "discard", slot: { kind: "general" } }],
+      }),
+    ),
   );
 });

@@ -14,6 +14,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { HostRead } from "../src/schema/pull-requests.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 assert.ok(
@@ -54,7 +55,11 @@ const installed = join(app, "node_modules/@pyre-agent/review-canvas");
 assert.ok(!existsSync(join(installed, "src")), "the tarball ships src");
 const discovered = await new Promise<unknown>((resolve, reject) => {
   const worker = new Worker(join(installed, "dist/node/pulls.js"), {
-    workerData: { address: "unknown.invalid/team/project", scope: "all" },
+    workerData: {
+      kind: "pulls",
+      address: "unknown.invalid/team/project",
+      scope: "all",
+    } satisfies HostRead,
     env: { ...process.env, REVIEW_CANVAS_FORGE_HOSTS: "{}" },
   });
   worker.once("message", (result: unknown) => {

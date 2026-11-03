@@ -9,6 +9,7 @@ import type {
   PatchDigest,
   RepoPath,
   RoundNumber,
+  Timestamp,
 } from "../../schema/primitives.ts";
 import type { StopProgress, StopRead } from "../../schema/reading.ts";
 import type { ReviewSnapshot, RoundView } from "../../schema/rpc.ts";
@@ -322,6 +323,8 @@ export type Strip =
       readonly kind: "finished";
       readonly round: RoundNumber;
       readonly verdict: Verdict;
+      /** When the reviewer finished the round. */
+      readonly at: Timestamp;
     }
   | { readonly kind: "closed" };
 
@@ -364,7 +367,12 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
         next,
       };
     case "finished":
-      return { kind: "finished", round: next.round, verdict: next.verdict };
+      return {
+        kind: "finished",
+        round: next.round,
+        verdict: next.verdict,
+        at: next.at,
+      };
     case "closed":
       return { kind: "closed" };
   }

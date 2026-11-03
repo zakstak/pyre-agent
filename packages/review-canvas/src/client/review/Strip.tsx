@@ -8,7 +8,8 @@ import { useAtomValue } from "@effect/atom-react";
 import { ArrowRight, Check, MessageSquareDashed } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 import type { Comment } from "../../schema/feedback.ts";
-import type { CommentId } from "../../schema/primitives.ts";
+import type { CommentId, Timestamp } from "../../schema/primitives.ts";
+import { unheard } from "../../review/presence.ts";
 import { findStop, stopTitle } from "../../review/stop-anchor.ts";
 import type { StopView } from "../../review/tour.ts";
 import { count, lineRange, VERDICT_TEXT } from "../names.ts";
@@ -18,6 +19,7 @@ import { Kbd } from "../ui/kbd.tsx";
 import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
 import { hashOf } from "./places.ts";
+import { agentsName, notListeningText, usePresence } from "./Presence.tsx";
 import { shortcutsAtom } from "./ui.ts";
 
 /** A step of the round in the strip, as a link: underlined on hover only. */
@@ -221,6 +223,22 @@ const Steps = ({
   );
 };
 
+/**
+ * Who has the turn after the reviewer finished at `finished`: the agents, or while none listens and none checked in
+ * since, the note that they will see the finish when one does. It changes as soon as an agent checks in.
+ */
+const Turn = ({ finished }: { readonly finished: Timestamp }) => {
+  const { id, page } = usePage();
+  const presence = usePresence(id);
+  return presence !== undefined && unheard(presence, finished) ? (
+    <span data-strip-not-listening className="text-warning">
+      {notListeningText(agentsName(page.snapshot.threads))}
+    </span>
+  ) : (
+    <span className="text-muted">the agents have the turn</span>
+  );
+};
+
 export const NextStrip = ({
   onGo,
   onStep,
@@ -279,8 +297,9 @@ export const NextStrip = ({
           <p className="py-2.5">
             <strong>You finished round {strip.round}</strong>{" "}
             <span className="text-muted">
-              · {VERDICT_TEXT[strip.verdict]} · the agents have the turn
+              · {VERDICT_TEXT[strip.verdict]} ·{" "}
             </span>
+            <Turn finished={strip.at} />
           </p>
         ) : (
           <p className="py-2.5">
