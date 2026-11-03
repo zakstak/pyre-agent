@@ -491,7 +491,7 @@ export const readingSummary = (
 };
 
 /**
- * The stops among `indexes` that moving to or scrolling past marks read: those not read yet. A stop a later round
+ * The stops among `indexes` that keeping them on screen marks read: those not read yet. A stop a later round
  * changed stays changed until the reviewer marks it read, so the page keeps saying what changed.
  */
 export const autoRead = (

@@ -6,6 +6,7 @@
  * mode, and none fires from a text field. Keys on a diff line act only while a line has focus.
  */
 import { pageOrder } from "../../review/next.ts";
+import type { StopView } from "../../review/tour.ts";
 import type { CommentId, RepoPath } from "../../schema/primitives.ts";
 import type { View } from "./ui.ts";
 import { type PageModel, pathOrder } from "./view.ts";
@@ -100,6 +101,23 @@ export const stepFrom = <A>(
   return items[at + step];
 };
 
+/**
+ * The flagged stop a step moves to from stop `current`, which is -1 before the first: the next or previous stop with an
+ * attention flag, or none past either end.
+ */
+export const flaggedStep = (
+  stops: ReadonlyArray<Pick<StopView, "index" | "attention">>,
+  current: number,
+  step: Step,
+): number | undefined => {
+  const flagged = stops
+    .filter((stop) => stop.attention !== null)
+    .map((stop) => stop.index);
+  return step === 1
+    ? flagged.find((index) => index > current)
+    : flagged.findLast((index) => index < current);
+};
+
 /** The files in the order the page shows them: by stop in the guided view, by path in the source view. */
 export const fileOrder = (
   page: PageModel,
@@ -150,7 +168,10 @@ export const SHORTCUTS: ReadonlyArray<ShortcutGroup> = [
     title: "Move around",
     when: "Anywhere but a text field, a dialog, or a menu. Single-letter keys can be turned off.",
     shortcuts: [
-      { keys: [["J"], ["K"]], does: "Next or previous stop" },
+      {
+        keys: [["J"], ["K"]],
+        does: "Next or previous stop, or flagged stop with Flagged only on",
+      },
       { keys: [["N"]], does: "The next thing to do" },
       { keys: [["F"], ["Shift", "F"]], does: "Next or previous file" },
       { keys: [["T"], ["Shift", "T"]], does: "Next or previous thread" },

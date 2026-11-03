@@ -1,7 +1,7 @@
 /**
- * A file's patch as the page lays it out: its rows, which of them show, the runs that fold behind a "Show N more
- * lines" control, and the unchanged lines between hunks that the file's text supplies. Pure, so the layout can be
- * tested without a browser.
+ * A file's patch as the page lays it out: its rows, which of them show, the unchanged runs that fold behind a "Show N
+ * more lines" control, the changed rows that fold behind a control of their own, and the unchanged lines between hunks
+ * that the file's text supplies. Pure, so the layout can be tested without a browser.
  */
 import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
@@ -160,18 +160,25 @@ export const pairRows = (rows: ReadonlyArray<Row>): ReadonlyArray<Pair> => {
 export const changeable = (row: Row): boolean =>
   row.kind === "add" || row.kind === "del" || row.kind === "context";
 
+/** Whether a row changes the file: an addition or a deletion. */
+export const isChange = (row: Row): boolean =>
+  row.kind === "add" || row.kind === "del";
+
 /** A run of hidden rows shorter than this shows instead: a fold for two lines costs more than it saves. */
 const MIN_FOLD = 4;
 
-/** Hidden lines of one kind: rows of the patch outside the shown ranges, or unchanged lines between hunks. */
+/** Hidden lines of one kind: unchanged rows of the patch outside the shown ranges, or unchanged lines between hunks. */
 export type GapPart =
   | { readonly kind: "folded"; readonly rows: ReadonlyArray<Row> }
   | { readonly kind: "context"; readonly lines: ReadonlyArray<GapLine> };
 
 /**
- * The patch in document order: runs of rows that show, and gaps. Hidden lines next to each other are one gap with one
- * control, whatever hides them. Its first activation shows the folded rows of the patch, its second the unchanged
- * lines around them; the control sits where the lines still hidden after the first are, at `toggleAt`.
+ * The patch in document order: runs of rows that show, gaps of unchanged lines, and folds of changes. Unchanged lines
+ * next to each other are one gap with one control, whatever hides them. Its first activation shows the folded rows of
+ * the patch, its second the unchanged lines around them; the control sits where the lines still hidden after the
+ * first are, at `toggleAt`. A gap never holds a changed row: changed rows outside the shown ranges fold behind a
+ * control of their own, with the few unchanged rows around and between them, and the control counts what they add and
+ * delete.
  */
 export type Segment =
   | { readonly kind: "rows"; readonly rows: ReadonlyArray<Row> }
@@ -182,7 +189,74 @@ export type Segment =
       readonly folded: number;
       readonly context: number;
       readonly toggleAt: number;
+    }
+  | {
+      readonly kind: "changes";
+      readonly key: string;
+      readonly rows: ReadonlyArray<Row>;
+      readonly additions: number;
+      readonly deletions: number;
     };
+
+/** Where a row of the patch goes: it shows, or it folds with changes or with unchanged lines. */
+type RowFold = "shown" | "changes" | "unchanged";
+
+/**
+ * How a run of hidden rows folds. A long run of unchanged rows folds behind the control for unchanged lines; changed
+ * rows fold behind their own, together with the short unchanged runs around and between them, so the unchanged rows
+ * that read with a change open with it. A fold too short to save anything shows.
+ */
+const foldRun = (
+  run: ReadonlyArray<Row>,
+): ReadonlyArray<{
+  readonly fold: RowFold;
+  readonly rows: ReadonlyArray<Row>;
+}> => {
+  // The run as alternating stretches of changed and unchanged rows.
+  const stretches: Array<{ changed: boolean; rows: Array<Row> }> = [];
+  for (const row of run) {
+    const last = stretches.at(-1);
+    if (last?.changed === isChange(row)) last.rows.push(row);
+    else stretches.push({ changed: isChange(row), rows: [row] });
+  }
+  // Changed stretches and the short unchanged ones beside them join; a long unchanged stretch stands alone. Stretches
+  // alternate, so a fold that holds no change is one short unchanged stretch: the whole run, too short to fold.
+  const folds: Array<{ changes: boolean; rows: Array<Row> }> = [];
+  for (const stretch of stretches) {
+    const joins = stretch.changed || stretch.rows.length < MIN_FOLD;
+    const last = folds.at(-1);
+    if (joins && last?.changes === true) last.rows.push(...stretch.rows);
+    else folds.push({ changes: joins, rows: [...stretch.rows] });
+  }
+  return folds.map(({ changes, rows }) => ({
+    fold: rows.length < MIN_FOLD ? "shown" : changes ? "changes" : "unchanged",
+    rows,
+  }));
+};
+
+/** Where each row of a patch goes, given the rows that show. */
+const foldRows = (
+  rows: ReadonlyArray<Row>,
+  visible: ReadonlySet<number>,
+): ReadonlyMap<number, RowFold> => {
+  const folds = new Map<number, RowFold>();
+  let run: Array<Row> = [];
+  const flush = () => {
+    for (const { fold, rows: part } of foldRun(run))
+      for (const row of part) folds.set(row.index, fold);
+    run = [];
+  };
+  for (const row of rows) {
+    if (!visible.has(row.index)) {
+      run.push(row);
+      continue;
+    }
+    flush();
+    folds.set(row.index, "shown");
+  }
+  flush();
+  return folds;
+};
 
 export interface DiffLayout {
   readonly rows: ReadonlyArray<Row>;
@@ -191,8 +265,8 @@ export interface DiffLayout {
 
 /**
  * Lays out a patch. `shown` are the row ranges to show, such as a stop's excerpts and the rows comments sit on; the
- * other rows fold. Every row shows when it is absent. `content` is the file's text, which fills the gaps between
- * hunks; a read-only patch, such as the changes between rounds, has none.
+ * other rows fold, changed rows apart from unchanged ones. Every row shows when it is absent. `content` is the file's
+ * text, which fills the gaps between hunks; a read-only patch, such as the changes between rounds, has none.
  */
 export const layoutDiff = (
   patch: string,
@@ -207,20 +281,10 @@ export const layoutDiff = (
   const visible = new Set<number>();
   if (options.shown === undefined)
     for (const row of rows) visible.add(row.index);
-  else {
+  else
     for (const range of options.shown)
       for (let at = range.start; at <= range.end; at++) visible.add(at);
-    let run: Array<number> = [];
-    const flush = () => {
-      if (run.length < MIN_FOLD) for (const at of run) visible.add(at);
-      run = [];
-    };
-    for (const row of rows) {
-      if (visible.has(row.index)) flush();
-      else run.push(row.index);
-    }
-    flush();
-  }
+  const folds = foldRows(rows, visible);
 
   type Piece =
     | { readonly kind: "shown"; readonly rows: ReadonlyArray<Row> }
@@ -229,25 +293,33 @@ export const layoutDiff = (
         readonly key: string;
         readonly rows: ReadonlyArray<Row>;
       }
+    | {
+        readonly kind: "changes";
+        readonly key: string;
+        readonly rows: ReadonlyArray<Row>;
+      }
     | { readonly kind: "context"; readonly key: string; readonly gap: Gap };
   const pieces: Array<Piece> = [];
   const cut = (piece: ReadonlyArray<Row>) => {
     let run: Array<Row> = [];
-    let shown = true;
+    let fold: RowFold = "shown";
     const flush = () => {
       const first = run[0];
       if (first !== undefined)
         pieces.push(
-          shown
+          fold === "shown"
             ? { kind: "shown", rows: run }
-            : { kind: "folded", key: `r${first.index}`, rows: run },
+            : fold === "changes"
+              ? { kind: "changes", key: `c${first.index}`, rows: run }
+              : { kind: "folded", key: `r${first.index}`, rows: run },
         );
       run = [];
     };
     for (const row of piece) {
-      if (visible.has(row.index) !== shown) {
+      const now = folds.get(row.index) ?? "shown";
+      if (now !== fold) {
         flush();
-        shown = visible.has(row.index);
+        fold = now;
       }
       run.push(row);
     }
@@ -276,7 +348,7 @@ export const layoutDiff = (
   }
 
   const segments: Array<Segment> = [];
-  let hidden: Array<Exclude<Piece, { kind: "shown" }>> = [];
+  let hidden: Array<Extract<Piece, { kind: "folded" | "context" }>> = [];
   const closeGap = () => {
     const first = hidden[0];
     if (first !== undefined)
@@ -306,15 +378,126 @@ export const layoutDiff = (
     hidden = [];
   };
   for (const piece of pieces) {
-    if (piece.kind !== "shown") {
-      hidden.push(piece);
-      continue;
+    switch (piece.kind) {
+      case "folded":
+      case "context":
+        hidden.push(piece);
+        continue;
+      case "changes":
+        closeGap();
+        segments.push({
+          kind: "changes",
+          key: piece.key,
+          rows: piece.rows,
+          additions: piece.rows.filter((row) => row.kind === "add").length,
+          deletions: piece.rows.filter((row) => row.kind === "del").length,
+        });
+        continue;
+      case "shown":
+        closeGap();
+        segments.push({ kind: "rows", rows: piece.rows });
+        continue;
     }
-    closeGap();
-    segments.push({ kind: "rows", rows: piece.rows });
   }
   closeGap();
   return { rows, segments };
+};
+
+/** The words on a fold of changes: how many lines it hides and what they add and delete, or that it hides them. */
+export const changesLabel = (
+  open: boolean,
+  fold: { readonly additions: number; readonly deletions: number },
+): string => {
+  const total = fold.additions + fold.deletions;
+  const lines = `changed line${total === 1 ? "" : "s"}`;
+  return open
+    ? `Hide ${total} ${lines}`
+    : `${total} more ${lines} (+${fold.additions} −${fold.deletions})`;
+};
+
+/**
+ * How the reviewer opened a file's folds: each gap's stage, and whether each fold of changes is open, by key. A fold
+ * the reviewer has not touched is not there: a gap then shows as `gapStage` decides, and a fold of changes is closed.
+ */
+export interface DiffFolds {
+  readonly gaps: Readonly<Record<string, GapStage>>;
+  readonly changes: Readonly<Record<string, boolean>>;
+}
+
+export const NO_FOLDS: DiffFolds = { gaps: {}, changes: {} };
+
+/** Every fold of a layout open: its gaps at their last stage, its folds of changes shown. */
+export const allOpen = (layout: DiffLayout): DiffFolds => ({
+  gaps: Object.fromEntries(
+    layout.segments.flatMap((segment) =>
+      segment.kind === "gap" ? [[segment.key, 2]] : [],
+    ),
+  ),
+  changes: Object.fromEntries(
+    layout.segments.flatMap((segment) =>
+      segment.kind === "changes" ? [[segment.key, true]] : [],
+    ),
+  ),
+});
+
+/** Whether a layout folds anything, so that opening all of it shows more. */
+export const hasFolds = (layout: DiffLayout): boolean =>
+  layout.segments.some((segment) => segment.kind !== "rows");
+
+/** Whether the reviewer opened every fold of a layout. */
+export const allFoldsOpen = (layout: DiffLayout, folds: DiffFolds): boolean =>
+  layout.segments.every((segment) => {
+    switch (segment.kind) {
+      case "rows":
+        return true;
+      case "gap":
+        return folds.gaps[segment.key] === 2;
+      case "changes":
+        return folds.changes[segment.key] === true;
+    }
+  });
+
+/** The changed rows a layout shows at the reviewer's folds: all but those in closed folds of changes. */
+export const shownChanges = (
+  layout: DiffLayout,
+  folds: DiffFolds,
+): ReadonlyArray<number> =>
+  layout.segments.flatMap((segment) => {
+    switch (segment.kind) {
+      case "rows":
+        return segment.rows.filter(isChange).map((row) => row.index);
+      case "changes":
+        return folds.changes[segment.key] === true
+          ? segment.rows.filter(isChange).map((row) => row.index)
+          : [];
+      case "gap":
+        return [];
+    }
+  });
+
+/**
+ * The changed rows of a patch the page never showed: how many lines they add and delete, and the first of them,
+ * where showing them goes. Undefined when the page showed every change.
+ */
+export const unseenChanges = (
+  rows: ReadonlyArray<Row>,
+  seen: ReadonlySet<number>,
+):
+  | {
+      readonly additions: number;
+      readonly deletions: number;
+      readonly first: number;
+    }
+  | undefined => {
+  const unseen = rows.filter((row) => isChange(row) && !seen.has(row.index));
+  const first = unseen[0];
+  return first === undefined
+    ? undefined
+    : {
+        additions: unseen.filter((row) => row.kind === "add").length,
+        deletions: unseen.filter((row) => row.kind === "del").length,
+        first: first.index,
+      };
 };
 
 /**

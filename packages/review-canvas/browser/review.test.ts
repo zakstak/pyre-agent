@@ -75,13 +75,16 @@ const text = async (page: Page, selector: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Marks every file viewed through its Viewed button, one at a time. */
 /** Finishes the round from the page, which sends the pending comments to the agents. */
 const finishRound = async (page: Page) => {
   await page.locator("#finish button[type=submit]").click();
   await page.locator("#finish [data-submission]").waitFor();
 };
 
+/**
+ * Marks every file viewed through its Viewed button, one at a time. A file with changes the page never showed asks
+ * first; Mark viewed anyway goes ahead.
+ */
 const viewAll = async (page: Page) => {
   for (;;) {
     const button = page
@@ -91,7 +94,10 @@ const viewAll = async (page: Page) => {
     const path = await button.evaluate(
       (element) => element.closest("article")?.dataset.path ?? "",
     );
+    const asks = (await button.getAttribute("data-unseen")) !== null;
     await button.click();
+    if (asks)
+      await page.locator("[data-unseen-dialog] [data-view-anyway]").click();
     await page
       .locator(
         `article[data-path='${path}'] button[data-viewed][aria-pressed='true']`,
@@ -110,7 +116,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await server?.stop();
   });
 
-  test("J and K move between stops and mark them read, and a note link reveals its own row", async () => {
+  test("J and K move between stops, and a note link reveals its own row", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
     await agent.publish(input);
@@ -125,17 +131,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.press("j");
     assert.equal(await focusedStop(page), "The rename");
     assert.match(page.url(), /#tour\/2$/);
-    // The stop moved to, and the one scrolled past on the way.
-    await page.locator("[data-stop-link='0'][data-read='read']").waitFor();
-    await page.locator("[data-stop-link='1'][data-read='read']").waitFor();
-    assert.deepEqual(
-      await page
-        .locator("[data-stop-link][data-read='read']")
-        .evaluateAll((links) =>
-          links.map((link) => (link as HTMLElement).dataset.stopLink),
-        ),
-      ["0", "1"],
-    );
+    // Moving reads no stop: reading.test.ts covers how a stop is read.
     await page.keyboard.press("k");
     assert.equal(await focusedStop(page), "save() becomes atomic");
     assert.match(page.url(), /#tour\/1$/);
@@ -980,14 +976,22 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(`${agent.url}#files/src/notes/store.py`);
-    // Lines 3 to 5 are outside the stop's excerpt: they fold, and get their + buttons when shown.
+    // Lines 3 to 5 are outside the stop's excerpt: they fold, the added line 3 with the changes and lines 4 and 5 with
+    // the unchanged lines, and get their + buttons when shown.
     const plus = (line: number) =>
       page.locator(
         `${table("src/notes/store.py")} tr[data-new='${line}'] button[data-add-comment]`,
       );
     assert.equal(await plus(3).count(), 0);
     await page
-      .locator(`${table("src/notes/store.py")} button[data-expand='r0']`)
+      .locator(
+        `${table("src/notes/store.py")} button[data-expand-changes='c0']`,
+      )
+      .click();
+    assert.equal(await plus(3).count(), 1);
+    assert.equal(await plus(4).count(), 0);
+    await page
+      .locator(`${table("src/notes/store.py")} button[data-expand='r4']`)
       .click();
     await plus(3).focus();
     await page.keyboard.press("Enter");

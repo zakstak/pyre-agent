@@ -23,7 +23,7 @@ import { roundAtom, sinceAtom } from "./data.ts";
 import type { ContextComment, PlacedComment } from "./diff-model.ts";
 import { DiffTable, Marker } from "./Diff.tsx";
 import { ThreadView } from "./Thread.tsx";
-import { sinceLastReviewAtom } from "./ui.ts";
+import { type BodyDiff, sinceLastReviewAtom } from "./ui.ts";
 import {
   type FileModel,
   fileStatus,
@@ -158,14 +158,17 @@ const threadPlace = (
 export const SinceChanges = ({
   model,
   patch,
+  body,
 }: {
   readonly model: FileModel;
   readonly patch: string;
+  /** The diff the table records the changes it shows of. */
+  readonly body: BodyDiff;
 }) => {
   const threads = [...model.placed, ...model.context];
   return (
     <>
-      <DiffTable model={model} split={false} patch={patch} />
+      <DiffTable model={model} split={false} patch={patch} body={body} />
       {threads.length === 0 ? null : (
         <div data-since-threads className="border-t border-separator">
           {threads.map((thread) => (

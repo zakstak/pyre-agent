@@ -1,4 +1,5 @@
-// How the page lays out a patch: unchanged lines between hunks, split pairs, folded rows, and their one control.
+// How the page lays out a patch: unchanged lines between hunks, split pairs, folded rows and changes, and their
+// controls.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Comment } from "../../schema/feedback.ts";
@@ -10,14 +11,19 @@ import type {
   RepoPath,
 } from "../../schema/primitives.ts";
 import {
+  allFoldsOpen,
+  allOpen,
+  changesLabel,
   gapLabel,
   gapStage,
   gaps,
+  hasFolds,
   heldLines,
   holdsLines,
   inSpan,
   lastUnit,
   layoutDiff,
+  NO_FOLDS,
   nextStage,
   onVersion,
   pairRows,
@@ -26,11 +32,13 @@ import {
   readingOrder,
   type Segment,
   selectionOf,
+  shownChanges,
   spanEnds,
   spanOf,
   spanOfSelection,
   type Unit,
   unitKey,
+  unseenChanges,
 } from "./diff-model.ts";
 
 // Lines 1-10 of a file; the patch changes line 3 and line 8.
@@ -39,18 +47,29 @@ const patch =
   "@@ -2,3 +2,3 @@\n line 2\n-line 3\n+three!\n line 4\n@@ -7,3 +7,3 @@\n line 7\n-line 8\n+eight!\n line 9\n";
 
 const shape = (segments: ReadonlyArray<Segment>) =>
-  segments.map((segment) =>
-    segment.kind === "rows"
-      ? ["rows", segment.rows.map((row) => row.index)]
-      : [
+  segments.map((segment) => {
+    switch (segment.kind) {
+      case "rows":
+        return ["rows", segment.rows.map((row) => row.index)];
+      case "gap":
+        return [
           "gap",
           segment.key,
           segment.folded,
           segment.context,
           segment.toggleAt,
           segment.parts.map((part) => part.kind),
-        ],
-  );
+        ];
+      case "changes":
+        return [
+          "changes",
+          segment.key,
+          segment.rows.map((row) => row.index),
+          segment.additions,
+          segment.deletions,
+        ];
+    }
+  });
 
 test("the unchanged lines around the hunks come from the file's text, with both line numbers", () => {
   assert.deepEqual(
@@ -113,6 +132,115 @@ test("rows outside the shown ranges fold behind one control; runs too short to f
       ["rows", [5, 6, 7, 8, 9]],
     ],
   );
+});
+
+// A file like build.ts in a large pull request: six lines added at its top, the tour's excerpt on its last change.
+const build =
+  "@@ -1,7 +1,14 @@\n import a\n+import b\n+import c\n+import d\n+import e\n+import f\n+import g\n u1\n u2\n u3\n u4\n u5\n-old\n+new\n+newer\n u6\n";
+
+test("changed rows outside the shown ranges fold behind a control of their own, never with unchanged lines", () => {
+  const layout = layoutDiff(build, { shown: [{ start: 13, end: 15 }] });
+  // The header, `import a`, and the six additions fold as changes; u1-u5 fold as unchanged lines; the excerpt shows.
+  assert.deepEqual(shape(layout.segments), [
+    ["changes", "c0", [0, 1, 2, 3, 4, 5, 6, 7], 6, 0],
+    ["gap", "r8", 5, 0, 0, ["folded"]],
+    ["rows", [13, 14, 15, 16]],
+  ]);
+  // No gap of unchanged lines hides a changed row.
+  for (const segment of layout.segments)
+    if (segment.kind === "gap")
+      for (const part of segment.parts)
+        if (part.kind === "folded")
+          assert.ok(
+            part.rows.every((row) => row.kind !== "add" && row.kind !== "del"),
+          );
+  assert.equal(
+    changesLabel(false, { additions: 6, deletions: 0 }),
+    "6 more changed lines (+6 −0)",
+  );
+  assert.equal(
+    changesLabel(true, { additions: 6, deletions: 0 }),
+    "Hide 6 changed lines",
+  );
+  assert.equal(
+    changesLabel(false, { additions: 0, deletions: 1 }),
+    "1 more changed line (+0 −1)",
+  );
+});
+
+test("short unchanged runs between changes fold with them; long ones fold apart; too little to fold shows", () => {
+  const patch =
+    "@@ -1,12 +1,12 @@\n-a\n+A\n b\n-c\n+C\n d\n e\n f\n g\n h\n-i\n+I\n j\n";
+  // Everything is hidden but the last row: the first two changes join across `b`; d-h stand alone.
+  assert.deepEqual(
+    shape(layoutDiff(patch, { shown: [{ start: 13, end: 13 }] }).segments),
+    [
+      ["changes", "c0", [0, 1, 2, 3, 4, 5], 2, 2],
+      ["gap", "r6", 5, 0, 0, ["folded"]],
+      ["rows", [11, 12, 13]],
+    ],
+  );
+  // A lone hidden change too short to fold shows, as a short unchanged run does.
+  assert.deepEqual(
+    shape(
+      layoutDiff("@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n d\n e\n f\n", {
+        shown: [
+          { start: 0, end: 1 },
+          { start: 4, end: 7 },
+        ],
+      }).segments,
+    ),
+    [["rows", [0, 1, 2, 3, 4, 5, 6, 7]]],
+  );
+});
+
+test("with the file's text, a fold of changes parts the unchanged lines around it", () => {
+  const text = Array.from({ length: 14 }, (_, at) => `l${at + 1}`);
+  // Lines 5-10 are new; the excerpt is line 13.
+  const hunk =
+    "@@ -4,4 +4,10 @@\n l4\n+l5\n+l6\n+l7\n+l8\n+l9\n+l10\n l11\n l12\n l13\n";
+  const layout = layoutDiff(hunk, {
+    shown: [{ start: 10, end: 10 }],
+    content: `${text.join("\n")}\n`,
+  });
+  assert.deepEqual(shape(layout.segments), [
+    ["gap", "0", 0, 3, 0, ["context"]],
+    ["changes", "c0", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 6, 0],
+    ["rows", [10]],
+    ["gap", "1", 0, 1, 0, ["context"]],
+  ]);
+});
+
+test("the reviewer's folds: which changes show, whether every fold is open, and what was never shown", () => {
+  const layout = layoutDiff(build, { shown: [{ start: 13, end: 15 }] });
+  const rows = layout.rows;
+  assert.equal(hasFolds(layout), true);
+  assert.equal(hasFolds(layoutDiff(build)), false);
+  // At the page's folds only the excerpt's changes show.
+  assert.deepEqual(shownChanges(layout, NO_FOLDS), [13, 14, 15]);
+  assert.deepEqual(
+    unseenChanges(rows, new Set(shownChanges(layout, NO_FOLDS))),
+    {
+      additions: 6,
+      deletions: 0,
+      first: 2,
+    },
+  );
+  assert.equal(allFoldsOpen(layout, NO_FOLDS), false);
+  const open = allOpen(layout);
+  assert.deepEqual(open, { gaps: { r8: 2 }, changes: { c0: true } });
+  assert.equal(allFoldsOpen(layout, open), true);
+  assert.deepEqual(shownChanges(layout, open), [2, 3, 4, 5, 6, 7, 13, 14, 15]);
+  assert.equal(
+    unseenChanges(rows, new Set(shownChanges(layout, open))),
+    undefined,
+  );
+  // A file never opened showed none of its changes.
+  assert.deepEqual(unseenChanges(rows, new Set()), {
+    additions: 8,
+    deletions: 1,
+    first: 2,
+  });
 });
 
 test("folded rows next to unchanged lines are one gap, whose control sits above the unchanged lines", () => {

@@ -79,6 +79,19 @@ const announced = (page: Page, words: string) =>
     .filter({ hasText: words })
     .waitFor({ state: "attached" });
 
+/**
+ * Waits for the question Viewed asks while some of a file's changes were never shown, with focus on Show them, and
+ * returns its title.
+ */
+const asked = async (page: Page) => {
+  const dialog = page.locator("[data-unseen-dialog]");
+  await dialog.waitFor();
+  await page.waitForFunction(
+    () => document.activeElement?.matches("[data-show-unseen]") === true,
+  );
+  return ((await dialog.locator("h2").textContent()) ?? "").trim();
+};
+
 /** Waits for a composer to close after sending, so the next key is not raced by its focus moving back. */
 const sent = async (page: Page) => {
   await page.locator("tr[data-composer]").waitFor({ state: "detached" });
@@ -115,7 +128,16 @@ describe("the keyboard", { skip: !built && "run pnpm build first" }, () => {
     await keys.type("Lock before the rename.");
     await keys.press("Control+Enter");
     await sent(page);
-    // V marks the file viewed, which folds it; focus goes to its heading.
+    // V first says that the two imports the tour folded were never shown; Enter shows them, back on the heading.
+    await keys.press("v");
+    assert.equal(await asked(page), "2 changed lines not shown yet");
+    await keys.press("Enter");
+    await page.locator("[data-unseen-dialog]").waitFor({ state: "detached" });
+    await page
+      .locator(`table[data-path='${STORE}'] tr[data-new='2'][data-kind='add']`)
+      .waitFor();
+    await onHeading(page, STORE);
+    // Now V marks the file viewed, which folds it; focus stays on its heading.
     await keys.press("v");
     await page
       .locator(`article[data-path='${STORE}'][data-viewed='true']`)
@@ -247,7 +269,11 @@ describe("the keyboard", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.type("First.");
     await page.keyboard.press("Control+Enter");
     await sent(page);
+    // Viewed asks first: two changed lines were never shown. Mark viewed anyway, before Show them, goes ahead.
     await page.keyboard.press("v");
+    await asked(page);
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Enter");
     await page
       .locator(`article[data-path='${STORE}'][data-folded='true']`)
       .waitFor();
@@ -304,10 +330,21 @@ describe("the keyboard", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.press("f");
     await page.keyboard.press("ArrowDown");
     await onLine(page, STORE, 11);
+    // The tour folded two added imports: V asks first, and Esc leaves the file as it was.
     await page.keyboard.press("v");
     const viewed = page.locator(
       `article[data-path='${STORE}'] button[data-viewed]`,
     );
+    assert.equal(await asked(page), "2 changed lines not shown yet");
+    await page.keyboard.press("Escape");
+    await page.locator("[data-unseen-dialog]").waitFor({ state: "detached" });
+    assert.equal(await viewed.getAttribute("aria-pressed"), "false");
+    assert.deepEqual((await agent.status()).approved, []);
+    await onHeading(page, STORE);
+    await page.keyboard.press("v");
+    await asked(page);
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Enter");
     await page
       .locator(
         `article[data-path='${STORE}'] button[data-viewed][aria-pressed='true']`,

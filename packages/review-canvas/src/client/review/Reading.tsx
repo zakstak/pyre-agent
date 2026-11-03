@@ -1,9 +1,10 @@
 /**
  * How the reviewer read the walkthrough's stops, as the contents, the guide, and each stop show it: a mark for each
- * stop, how many are read, and for a stop a later round changed, which of its files changed and a way to read it
- * again. The server keeps the reading, so every tab and browser shows the same marks.
+ * stop, how many are read, a way to mark a stop read or unread, and for a stop a later round changed, which of its
+ * files changed and a way to read it again. The server keeps the reading, so every tab and browser shows the same
+ * marks. The page reads a stop the reviewer keeps on screen; dwell.ts says when.
  */
-import { Check, TriangleAlert } from "lucide-react";
+import { BookCheck, Check, EyeOff, TriangleAlert } from "lucide-react";
 import type { StopRead } from "../../schema/reading.ts";
 import { fileElementId } from "../../review/next.ts";
 import { count, splitPath } from "../names.ts";
@@ -62,6 +63,47 @@ export const ReadCount = ({ className }: { readonly className?: string }) => {
     <span data-read-count className={cn("tabular-nums", className)}>
       {read} of {count(total, "stop")} read
     </span>
+  );
+};
+
+/**
+ * Mark read for a stop not read yet, and Mark unread for a read one, which the page then reads again only once the
+ * reviewer comes back to it. A changed stop has Mark read in its notice instead. A closed review changes nothing.
+ */
+export const ReadToggle = ({
+  stop,
+  className,
+}: {
+  readonly stop: number;
+  readonly className?: string;
+}) => {
+  const { page } = usePage();
+  const readStop = useReadStop();
+  const { busy, run } = useSending();
+  const read = readOf(page, stop);
+  if (!page.writable || read.state === "changed") return null;
+  const marking = read.state === "unread";
+  const toggle = async () => {
+    const outcome = await run(() => readStop(stop, marking));
+    if (outcome !== undefined && !outcome.ok)
+      toast(
+        `Not marked ${marking ? "read" : "unread"}: ${outcome.message}`,
+        "danger",
+      );
+  };
+  const Icon = marking ? BookCheck : EyeOff;
+  return (
+    <Button
+      size="sm"
+      variant="quiet"
+      {...(marking ? { "data-mark-read": stop } : { "data-mark-unread": stop })}
+      disabled={busy}
+      onClick={() => void toggle()}
+      className={cn("text-muted hover:text-ink", className)}
+    >
+      <Icon aria-hidden="true" className="size-3.5" />
+      {marking ? "Mark read" : "Mark unread"}
+    </Button>
   );
 };
 

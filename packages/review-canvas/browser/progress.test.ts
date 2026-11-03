@@ -1,6 +1,7 @@
 // The review page's guide progress and "since my last review" in Chromium against a real server: stops read on the
 // server and marked changed by a later round, and a review of only what changed since the reviewer last finished,
-// with an earlier round's whole diff from the rounds line. Run after `pnpm build`: pnpm test:browser.
+// with an earlier round's whole diff from the rounds line. Run after `pnpm build`: pnpm test:browser. reading.test.ts
+// covers when the page reads a stop.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { type Browser, chromium, type Page } from "playwright";
@@ -57,6 +58,17 @@ const readings = (page: Page) =>
       links.map((link) => (link as HTMLElement).dataset.read),
     );
 
+/** Longer than the page waits before a stop kept on screen is read. */
+const DWELL = 2600;
+
+/** Marks a stop read through its own Mark read, and waits until the contents show it read. */
+const markRead = async (page: Page, stop: number) => {
+  await page
+    .locator(`section[data-stop='${stop}'] [data-mark-read='${stop}']`)
+    .click();
+  await page.locator(`[data-stop-link='${stop}'][data-read='read']`).waitFor();
+};
+
 /** The paths of the file blocks the page shows, in order. */
 const shownFiles = (page: Page) =>
   page
@@ -97,10 +109,10 @@ describe(
         await text(page, "[data-contents] [data-read-count]"),
         "0 of 3 stops read",
       );
-      // J goes to the second stop; the first, scrolled past on the way, is read too.
-      await page.keyboard.press("j");
-      await page.locator("[data-stop-link='1'][data-read='read']").waitFor();
-      await page.locator("[data-stop-link='0'][data-read='read']").waitFor();
+      // The reviewer marks the first two stops read, and goes back to the top, where the third is out of view.
+      await markRead(page, 0);
+      await markRead(page, 1);
+      await page.evaluate(() => scrollTo(0, 0));
       assert.deepEqual(await readings(page), ["read", "read", "unread"]);
       assert.equal(
         await text(page, "[data-contents] [data-read-count]"),
@@ -145,12 +157,12 @@ describe(
           .count(),
         0,
       );
-      // Moving past the changed stop and back to it does not read it again: the page keeps saying what changed until
-      // Mark read.
+      // Moving past the changed stop and back to it, and keeping it on screen, does not read it again: the page keeps
+      // saying what changed until Mark read.
       await second.keyboard.press("j");
       await second.keyboard.press("k");
       await settle(second);
-      await second.waitForTimeout(300);
+      await second.waitForTimeout(DWELL);
       assert.deepEqual(await readings(second), ["changed", "read", "unread"]);
       // The source view's guide shows the same. From the top of the page, where its diff has not reached a file yet,
       // so the view's own scroll-spy reads no other stop.
@@ -189,8 +201,7 @@ describe(
       const agent = await server.register(input);
       await agent.publish(input);
       const page = await open(agent.url);
-      await page.keyboard.press("j");
-      await page.locator("[data-stop-link='0'][data-read='read']").waitFor();
+      await markRead(page, 0);
       await agent.publish(changedStore(input));
       await onRound(page, 2);
       const mark = page.locator("section[data-stop='0'] [data-mark-read='0']");
