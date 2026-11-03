@@ -179,6 +179,14 @@ files, branches, and indexes in monitored checkouts stay unchanged. Host
 authentication failures appear separately from saved reviews, which remain
 usable offline.
 
+When the list shows a head other than the one an open review's round shows, the
+server has the host compare the two heads once and keeps the result as the
+review's drift, as `review-canvas check` would. The review page then says that
+commits were pushed since the round, with their count, the new head, and the
+files that changed, which each stop covering them names too. After a force-push,
+GitHub and Gitea/Forgejo cannot list those files; GitLab compares the two trees
+directly.
+
 PRs whose base branches match other open PRs' source branches appear as stacks,
 ordered from base to tip. Each layer shows its dependency. The same navigation
 appears while reviewing a layer. Fork branches and ambiguous source branches are

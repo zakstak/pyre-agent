@@ -51,7 +51,22 @@ how to tour one layer.
 ## Later rounds
 
 `review-canvas check --session "$SESSION"` compares the pull request's head with
-the current round and lists `changed` paths and `head_moved`; pass `--head SHA`
-when the host cannot read the head. Collect the next round from the clone after
+the current round; pass `--head SHA` when the host cannot read the head. When
+the head moved, the host compares the round's head with it, and the output
+holds:
+
+- `head_moved`: true.
+- `compared`: what the host's comparison found. `listed` gives the `commits` the
+  new head adds, and `changed` names every file that differs. `unlisted` gives
+  the `commits` and a `reason`: after a force-push, GitHub and Gitea/Forgejo
+  cannot list the files, and GitHub lists at most 300, so `changed` can leave
+  files out. `failed` gives the `reason` the host could not compare.
+  Gitea/Forgejo lists the files the new commits touch.
+- `changed`: the files known to differ from the round's head.
+
+For a monitored repository, the server notices a new head on its own in the
+host's list of open pull requests, compares it the same way, and shows the
+reviewer what was pushed. `status` holds that comparison as `drift`, with the
+`head_sha` it found and `compared`. Collect the next round from the clone after
 fetching the new head. `fixed` answers name the fixing commit with
 `--fixed-in-commit`.

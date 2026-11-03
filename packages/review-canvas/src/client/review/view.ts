@@ -12,6 +12,7 @@ import type {
 } from "../../schema/primitives.ts";
 import type { StopProgress, StopRead } from "../../schema/reading.ts";
 import type { ReviewSnapshot, RoundView } from "../../schema/rpc.ts";
+import type { Drift } from "../../schema/state.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
 import { parseRows, rowsForLines } from "../../review/patch.ts";
@@ -33,6 +34,7 @@ import type {
   SinceComparison,
   SinceFile,
 } from "../../review/since.ts";
+import { stopFiles } from "../../review/reading.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
 import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
 import {
@@ -384,6 +386,8 @@ export interface PageModel {
    * since then; undefined when it shows the whole change.
    */
   readonly since: SinceComparison | undefined;
+  /** What was found changed since this round, until the next round replaces it; undefined when nothing was. */
+  readonly drift: DriftModel | undefined;
   /** How the reviewer read each stop of this round, by the stop's index, and how many of the stops are read. */
   readonly reading: {
     readonly stops: ReadonlyMap<number, StopRead>;
@@ -446,6 +450,7 @@ export const pageModel = (
     pending: state.comments
       .filter((comment) => standing(comment) === "pending")
       .toSorted(pageOrder(input, stops)),
+    drift: driftModel(state.drift, round, stops),
     reading: readingSummary(snapshot.stops, stops.length),
     standing,
     writable: state.closed_at === undefined,
@@ -462,6 +467,32 @@ export const pageModel = (
       ...state.submissions.map((item) => item.submitted_at),
       state.drift?.checked_at ?? "",
     ].reduce((a, b) => (b > a ? b : a)),
+  };
+};
+
+/** What was found changed since the round the page shows, and the changed files each stop owns or excerpts. */
+export interface DriftModel {
+  readonly found: Drift;
+  /** By the stop's index, the changed files of each stop that covers any, in the stop's order. */
+  readonly stops: ReadonlyMap<number, ReadonlyArray<RepoPath>>;
+}
+
+/** The drift of the round the page shows, with the stops it changed; a drift of another round is not this one's. */
+export const driftModel = (
+  drift: Drift | undefined,
+  round: Round,
+  stops: ReadonlyArray<StopView>,
+): DriftModel | undefined => {
+  if (drift === undefined || drift.round !== round.round) return undefined;
+  const changed = new Set(drift.paths);
+  return {
+    found: drift,
+    stops: new Map(
+      stops.flatMap((stop) => {
+        const files = stopFiles(stop).filter((path) => changed.has(path));
+        return files.length === 0 ? [] : [[stop.index, files] as const];
+      }),
+    ),
   };
 };
 

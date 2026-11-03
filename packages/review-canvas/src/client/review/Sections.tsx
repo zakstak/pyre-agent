@@ -12,6 +12,7 @@ import { Textarea } from "../ui/textarea.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
+import { StopDrift } from "./Drift.tsx";
 import { StopChanged } from "./Reading.tsx";
 import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
@@ -226,6 +227,7 @@ export const StopSection = ({
         </Stat>
       </div>
       {reading ? <StopChanged stop={stop.index} className="mt-2" /> : null}
+      <StopDrift stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />

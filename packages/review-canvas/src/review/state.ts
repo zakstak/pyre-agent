@@ -16,6 +16,7 @@ import type {
 import { compareReplies } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
 import type { Selection } from "../schema/selection.ts";
+import type { HeadComparison } from "../schema/state.ts";
 import type {
   CommentId,
   CommitSha,
@@ -600,16 +601,23 @@ export const reattach = (
   );
 };
 
-/** Records what an agent found when it compared the code with the current round. No changed path clears it. */
+/**
+ * Records what was found changed since the current round: the files, and for a pull request the head found and what
+ * the host's comparison of it with the round's head found. No changed path and no moved head clears it.
+ */
 export const reportDrift = (
   state: ReviewState,
   context: ActionContext,
-  paths: ReadonlyArray<RepoPath>,
-  head_sha: CommitSha | undefined,
+  found: {
+    readonly paths: ReadonlyArray<RepoPath>;
+    readonly head_sha: CommitSha | undefined;
+    readonly compared: HeadComparison | undefined;
+  },
 ): Outcome => {
   const current = withRound(state, context);
   if (Result.isFailure(current)) return Result.fail(current.failure);
   const { round } = current.success;
+  const { paths, head_sha, compared } = found;
   const target = state.target;
   const headMoved =
     head_sha !== undefined && target.kind !== "worktree"
@@ -624,7 +632,9 @@ export const reportDrift = (
             round: round.round,
             checked_at: context.now,
             paths: [...new Set(paths)].sort(),
-            ...(headMoved ? { head_sha } : {}),
+            ...(headMoved
+              ? { head_sha, ...(compared === undefined ? {} : { compared }) }
+              : {}),
           },
   });
 };

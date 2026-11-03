@@ -8,6 +8,7 @@ import {
   nonEmptyText,
   RepoPath,
 } from "../schema/primitives.ts";
+import { HeadComparison } from "../schema/state.ts";
 import { Target } from "../schema/target.ts";
 import { ThreadHost } from "../schema/thread.ts";
 
@@ -29,9 +30,13 @@ export type AnswerRequest = typeof AnswerRequest.Type;
 /** The largest JSON body a page or an agent may send, other than a round's input. */
 export const MAX_REQUEST_BYTES = 1024 * 1024;
 
-/** What an agent found when it compared the code with the current round. */
+/**
+ * What an agent found when it compared the code with the current round: the files, and for a pull request the head
+ * and what the host's comparison of it with the round's head found.
+ */
 export const DriftRequest = Schema.Struct({
   paths: Schema.Array(RepoPath).check(Schema.isMaxLength(Limits.MAX_FILES)),
   head_sha: Schema.optionalKey(CommitSha),
+  compared: Schema.optionalKey(HeadComparison),
 });
 export type DriftRequest = typeof DriftRequest.Type;

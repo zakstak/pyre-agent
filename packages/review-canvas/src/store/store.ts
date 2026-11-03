@@ -96,8 +96,9 @@ import type {
   ReviewSummary,
 } from "../schema/rpc.ts";
 import { importFeedback, importGitHub } from "../review/imports.ts";
+import type { HeadComparison } from "../schema/state.ts";
 import type { GitHubItem } from "../schema/github.ts";
-import { pullRequestKey } from "../schema/target.ts";
+import { pullRequestKey, pullRequestTargetKey } from "../schema/target.ts";
 import type { StackId } from "../schema/primitives.ts";
 import {
   type StackAction,
@@ -279,6 +280,7 @@ export type Action =
       readonly kind: "drift";
       readonly paths: ReadonlyArray<RepoPath>;
       readonly head_sha?: CommitSha | undefined;
+      readonly compared?: HeadComparison | undefined;
     };
 
 export type ChangeListener = (reviewId: ReviewId, revision: Revision) => void;
@@ -943,11 +945,20 @@ export class Store {
 
   /** The open review of a target, if any. */
   openReview(target: Target): ReviewView | undefined {
+    return this.#openReview(targetKey(target));
+  }
+
+  /** The open review of a pull request, by its URL, if any. */
+  openPullRequestReview(url: PullRequestUrl): ReviewView | undefined {
+    return this.#openReview(pullRequestTargetKey(url));
+  }
+
+  #openReview(key: string): ReviewView | undefined {
     const row = this.#db
       .prepare(
         "SELECT * FROM reviews WHERE target_key = ? AND closed_at IS NULL ORDER BY created_at DESC LIMIT 1",
       )
-      .get(targetKey(target)) as ReviewRow | undefined;
+      .get(key) as ReviewRow | undefined;
     return row === undefined ? undefined : this.#view(row);
   }
 
@@ -1152,7 +1163,11 @@ export class Store {
               action.question === true,
             );
           case "drift":
-            return reportDrift(state, context, action.paths, action.head_sha);
+            return reportDrift(state, context, {
+              paths: action.paths,
+              head_sha: action.head_sha,
+              compared: action.compared,
+            });
           case "reply":
             return reviewerReply(
               state,
