@@ -3,6 +3,9 @@
  * the unchanged lines between hunks behind a control, and the composer under the rows the reviewer selects. In the
  * source view a note shows only when the reviewer presses its letter on the row.
  *
+ * Changed rows outside the tour's excerpts fold behind a control of their own, which counts what they add and delete;
+ * unchanged rows and lines fold behind the gaps' controls. A fold of unchanged lines never hides a change.
+ *
  * Every line a reviewer can select is a unit: a row of the patch or an unchanged line between hunks, drawn as a table
  * row in the unified layout and as one half of a row in the split layout. Dragging the line numbers selects units; the
  * + button selects one, and with Shift extends the open composer's range. A selection of rows only is rows of the
@@ -14,7 +17,7 @@
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Equal } from "effect";
 import { Atom } from "effect/reactivity";
-import { FoldVertical, UnfoldVertical } from "lucide-react";
+import { FileDiff, FoldVertical, UnfoldVertical } from "lucide-react";
 import { Fragment, useContext, useEffect, useMemo, useState } from "react";
 import { type Row, whitespaceOnly } from "../../review/patch.ts";
 import type { ReviewId } from "../../schema/primitives.ts";
@@ -22,12 +25,14 @@ import { lineRange } from "../names.ts";
 import { announce } from "../ui/announce.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { Inline, Lead } from "../ui/text.tsx";
+import { Inline, Lead, LineCounts } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage } from "./act.ts";
 import { Composer, openDraft } from "./Composer.tsx";
 import {
   changeable,
+  changesLabel,
+  type DiffFolds,
   type GapPart,
   gapLabel,
   type GapLine,
@@ -45,6 +50,7 @@ import {
   readingOrder,
   type Segment,
   selectionOf,
+  shownChanges,
   type Span,
   spanEnds,
   spanOf,
@@ -56,12 +62,14 @@ import { lineCommand, stepFrom } from "./keys.ts";
 import { replacedSelection } from "./suggest.ts";
 import { ThreadView } from "./Thread.tsx";
 import {
+  type BodyDiff,
+  diffFoldsAtom,
   type Draft,
   draftsAtom,
   flashAtom,
-  gapAtom,
   openNotesAtom,
   reattachAtom,
+  shownChangesAtom,
   whitespaceAtom,
 } from "./ui.ts";
 import type { FileModel, InlineNote } from "./view.ts";
@@ -306,6 +314,9 @@ interface TableContext {
   readonly quiet: ReadonlySet<number>;
   /** Hunk headers a gap's control shows instead of a row of their own. */
   readonly absorbed: ReadonlySet<number>;
+  /** How the reviewer opened the table's gaps and folds of changes, and a change to that. */
+  readonly folds: DiffFolds;
+  readonly setFolds: (change: (folds: DiffFolds) => DiffFolds) => void;
   readonly notesAt: ReadonlyMap<number, ReadonlyArray<InlineNote>>;
   /** Where notes show only on demand, the IDs of those the reviewer opened; undefined where every note shows. */
   readonly openNotes: ReadonlySet<string> | undefined;
@@ -938,14 +949,7 @@ const GapGroup = ({
     readonly end: number;
   }>;
 }) => {
-  const [stage, setStage] = useAtom(
-    gapAtom({
-      path: table.model.file.path,
-      digest: table.model.digest,
-      gap: gap.key,
-    }),
-  );
-  const shown = gapStage(stage, gap, holdsLines(gap, held));
+  const shown = gapStage(table.folds.gaps[gap.key], gap, holdsLines(gap, held));
   const label = gapLabel(shown, gap);
   const Icon = shown === 2 ? FoldVertical : UnfoldVertical;
   const button = (
@@ -957,7 +961,12 @@ const GapGroup = ({
       aria-expanded={shown === 2}
       aria-label={label}
       title={label}
-      onClick={() => setStage(nextStage(shown, gap))}
+      onClick={() =>
+        table.setFolds((folds) => ({
+          ...folds,
+          gaps: { ...folds.gaps, [gap.key]: nextStage(shown, gap) },
+        }))
+      }
       className={cn(
         TOUCH_TARGET,
         "inline-grid h-6 w-full place-items-center align-top text-muted hover:text-ink",
@@ -1016,6 +1025,68 @@ const GapGroup = ({
       </Fragment>
     );
   });
+};
+
+/**
+ * Changed rows outside the tour's excerpts, behind a control of their own: it says how many lines they add and delete,
+ * in the warning tone, so a change never reads as more of the same. The rows show under it once it is open.
+ */
+const ChangeFold = ({
+  table,
+  fold,
+}: {
+  readonly table: TableContext;
+  readonly fold: Extract<Segment, { kind: "changes" }>;
+}) => {
+  const open = table.folds.changes[fold.key] === true;
+  const total = fold.additions + fold.deletions;
+  return (
+    <>
+      <tbody data-changes={fold.key}>
+        <tr className="scroll-my-(--scroll-top) bg-surface">
+          <td colSpan={table.columns} className="border-l-2 border-warning p-0">
+            <button
+              type="button"
+              data-expand-changes={fold.key}
+              data-additions={fold.additions}
+              data-deletions={fold.deletions}
+              aria-expanded={open}
+              onClick={() =>
+                table.setFolds((folds) => ({
+                  ...folds,
+                  changes: { ...folds.changes, [fold.key]: !open },
+                }))
+              }
+              className={cn(
+                TOUCH_TARGET,
+                "sticky left-0 inline-flex h-7 items-center gap-2 pr-3 pl-2.5 font-sans text-small font-semibold text-warning hover:underline",
+              )}
+            >
+              <FileDiff aria-hidden="true" className="size-3.5 shrink-0" />
+              {open ? (
+                changesLabel(true, fold)
+              ) : (
+                <span>
+                  {total} more changed line{total === 1 ? "" : "s"} (
+                  <LineCounts
+                    additions={fold.additions}
+                    deletions={fold.deletions}
+                    className="font-normal"
+                  />
+                  )
+                </span>
+              )}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+      {open ? (
+        <tbody data-gap-lines="changes">
+          <RowsOf table={table} rows={fold.rows} />
+        </tbody>
+      ) : null}
+    </>
+  );
 };
 
 /** A + button and the unit it selects, when the element is one. */
@@ -1231,20 +1302,42 @@ const useSelection = (
   };
 };
 
+/** A file's own patch as its table lays it out, with the tour's excerpts and the comments' rows shown. */
+export const useFileLayout = (model: FileModel) => {
+  const shownKey = model.shown
+    ?.map((range) => `${range.start}-${range.end}`)
+    .join(",");
+  return useMemo(
+    () =>
+      layoutDiff(model.file.patch ?? "", {
+        shown: model.shown,
+        content: model.file.new_content,
+      }),
+    [model.file.patch, shownKey, model.file.new_content],
+  );
+};
+
 /**
  * The diff table. `patch` overrides the file's patch for a read-only view, such as the changes between rounds: no
- * selection, no gaps, no threads or notes.
+ * selection, no gaps, no threads or notes. `body` names the diff when the table is its file's body, which records the
+ * changes it shows, so Viewed can say which the reviewer was never shown.
  */
 export const DiffTable = ({
   model,
   split: wantSplit,
   patch,
+  body,
 }: {
   readonly model: FileModel;
   readonly split: boolean;
   readonly patch?: string;
+  readonly body?: BodyDiff;
 }) => {
   const { id: review, page, view } = usePage();
+  const registry = useContext(RegistryContext);
+  const [folds, setFolds] = useAtom(
+    diffFoldsAtom({ path: model.file.path, digest: model.digest }),
+  );
   const [openNotes, setOpenNotes] = useAtom(openNotesAtom(review));
   const readOnly = patch !== undefined;
   const source = patch ?? model.file.patch ?? "";
@@ -1265,6 +1358,18 @@ export const DiffTable = ({
   ).filter((draft) => !readOnly && onVersion(draft.selection, model));
   const reattaching = useAtomValue(reattachAtom(review));
   const flash = useAtomValue(flashOf({ review, path: model.file.path }));
+  // The changes the table shows join those the page has shown of the file's body.
+  useEffect(() => {
+    if (body === undefined) return;
+    const shownAtom = shownChangesAtom({
+      review,
+      path: model.file.path,
+      diff: body,
+    });
+    const seen = registry.get(shownAtom);
+    const fresh = shownChanges(layout, folds).filter((row) => !seen.has(row));
+    if (fresh.length > 0) registry.set(shownAtom, new Set([...seen, ...fresh]));
+  });
   const { reaching, select, startDrag, hover, onKeyDown } = useSelection(
     model,
     id,
@@ -1350,6 +1455,8 @@ export const DiffTable = ({
     flash: readOnly ? undefined : flash,
     quiet,
     absorbed,
+    folds,
+    setFolds,
     // The threads' rows are rows of the file's own patch, not of a read-only one.
     commentedRows: new Set([
       ...(readOnly ? [] : model.placed).flatMap((item) =>
@@ -1427,21 +1534,28 @@ export const DiffTable = ({
             </tr>
           )}
         </thead>
-        {layout.segments.map((segment, at) =>
-          segment.kind === "rows" ? (
-            <tbody key={at}>
-              <RowsOf table={table} rows={segment.rows} />
-            </tbody>
-          ) : (
-            <GapGroup
-              key={at}
-              table={table}
-              gap={segment}
-              header={headers[at]}
-              held={held}
-            />
-          ),
-        )}
+        {layout.segments.map((segment, at) => {
+          switch (segment.kind) {
+            case "rows":
+              return (
+                <tbody key={at}>
+                  <RowsOf table={table} rows={segment.rows} />
+                </tbody>
+              );
+            case "gap":
+              return (
+                <GapGroup
+                  key={at}
+                  table={table}
+                  gap={segment}
+                  header={headers[at]}
+                  held={held}
+                />
+              );
+            case "changes":
+              return <ChangeFold key={at} table={table} fold={segment} />;
+          }
+        })}
       </table>
     </div>
   );

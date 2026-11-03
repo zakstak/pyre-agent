@@ -37,6 +37,7 @@ import { useStashChangedDrafts } from "./Composer.tsx";
 import { useKeepComposer, useRestoreDrafts } from "./saving.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
+import { useDwellRead } from "./dwell.ts";
 import { Guide } from "./Guide.tsx";
 import { KeyHelp } from "./KeyHelp.tsx";
 import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
@@ -258,6 +259,7 @@ const Review = ({
   }, [page.input.target.title]);
   useHash(navigate);
   useScrollSpy(navigate);
+  useDwellRead(key, page, view);
   useKeys(id, navigate);
   useRoundChange(key, page);
   // The reviewer's unsent text: back into its boxes when the review first shows, and kept as they type.

@@ -1,15 +1,21 @@
 /**
  * The contents: the walkthrough's stops, then every file of the round by folder, each list marking where the reviewer
- * is and what they read and viewed, with the diff layout and the whitespace choice under them. A wide page keeps them
- * beside the review; a narrower one folds them into a disclosure. The source view's guide shows the same file list and
- * choices.
+ * is, what they read and viewed, and which stops carry an attention flag, with the diff choices under them: the
+ * layout, whitespace, and opening or folding every file. A wide page keeps them beside the review; a narrower one
+ * folds them into a disclosure. The source view's guide shows the same file list and choices.
  */
-import { useAtom, useAtomValue } from "@effect/atom-react";
-import { Check, MessageSquare } from "lucide-react";
+import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
+import {
+  Check,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  MessageSquare,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
 import { fileElementId } from "../../review/next.ts";
 import { count, splitPath } from "../names.ts";
+import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { useMedia } from "../ui/media.ts";
 import { Segmented } from "../ui/segmented.tsx";
@@ -25,7 +31,14 @@ import {
   ReadMark,
   readOf,
 } from "./Reading.tsx";
-import { layoutAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
+import { FlagLine } from "./Sections.tsx";
+import {
+  flaggedOnlyAtom,
+  foldsAtom,
+  layoutAtom,
+  whitespaceAtom,
+  WIDE_QUERY,
+} from "./ui.ts";
 import { byDirectory } from "./view.ts";
 
 const KICKER =
@@ -103,7 +116,49 @@ export const FileList = ({
   );
 };
 
-/** The diff choices alone: the strip already counts what was viewed. A page too narrow for split hides the switch. */
+/**
+ * Opens every file of the round, or folds every one, as the reviewer's choice for each, which holds until they change
+ * it or mark the file viewed.
+ */
+const AllFiles = () => {
+  const { id, page } = usePage();
+  const setFolds = useAtomSet(foldsAtom({ id, round: page.round.round }));
+  const every = (fold: "open" | "closed") =>
+    setFolds(
+      Object.fromEntries(
+        [...page.files.values()]
+          .filter((model) => model.hasBody)
+          .map((model) => [model.file.path, fold]),
+      ),
+    );
+  return (
+    <div className="mt-2 -ml-2.5 flex flex-col items-start">
+      <Button
+        size="sm"
+        variant="quiet"
+        data-all-files="open"
+        onClick={() => every("open")}
+      >
+        <ChevronsUpDown aria-hidden="true" className="size-3.5" />
+        Expand all files
+      </Button>
+      <Button
+        size="sm"
+        variant="quiet"
+        data-all-files="closed"
+        onClick={() => every("closed")}
+      >
+        <ChevronsDownUp aria-hidden="true" className="size-3.5" />
+        Collapse all files
+      </Button>
+    </div>
+  );
+};
+
+/**
+ * The diff choices: the strip already counts what was viewed. A page too narrow for split hides the switch. Opening
+ * and folding every file sit with them.
+ */
 export const DiffChoices = ({ wide }: { readonly wide: boolean }) => {
   const [layout, setLayout] = useAtom(layoutAtom);
   const [whitespace, setWhitespace] = useAtom(whitespaceAtom);
@@ -132,8 +187,49 @@ export const DiffChoices = ({ wide }: { readonly wide: boolean }) => {
         />
         Hide whitespace
       </label>
+      <AllFiles />
     </div>
   );
+};
+
+/**
+ * The switch that lists only the stops with an attention flag, which J and K then move between. A tour with no flagged
+ * stop has none.
+ */
+export const FlaggedOnly = ({ className }: { readonly className?: string }) => {
+  const { id, page } = usePage();
+  const [on, setOn] = useAtom(flaggedOnlyAtom(id));
+  const flagged = page.stops.filter((stop) => stop.attention !== null).length;
+  if (flagged === 0) return null;
+  return (
+    <label
+      className={cn(
+        "flex w-fit items-center gap-2 text-small font-normal tracking-normal normal-case",
+        className,
+      )}
+    >
+      <input
+        type="checkbox"
+        data-flagged-only
+        checked={on}
+        onChange={(event) => setOn(event.currentTarget.checked)}
+        className="size-4 accent-accent"
+      />
+      Flagged only{" "}
+      <span className="text-muted tabular-nums">
+        {flagged} of {page.stops.length}
+      </span>
+    </label>
+  );
+};
+
+/** The stops a stop list shows: every one, or with Flagged only on, those with an attention flag. */
+export const useListedStops = () => {
+  const { id, page } = usePage();
+  const flaggedOnly = useAtomValue(flaggedOnlyAtom(id));
+  return flaggedOnly
+    ? page.stops.filter((stop) => stop.attention !== null)
+    : page.stops;
 };
 
 export const Contents = ({
@@ -162,14 +258,16 @@ export const Contents = ({
     if (last !== undefined) keepInRail(last);
   }, [current, wide, moved]);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, current);
+  const stops = useListedStops();
   const list = (
     <nav ref={nav} aria-label="Stops and files" className="text-small">
       <p className={cn(KICKER, "flex items-baseline justify-between gap-2")}>
         Walkthrough
         <ReadCount className="font-normal tracking-normal normal-case" />
       </p>
+      <FlaggedOnly className="mt-1.5" />
       <ol className="m-0 mt-1.5 flex list-none flex-col p-0">
-        {page.stops.map((stop) => {
+        {stops.map((stop) => {
           const read = readOf(page, stop.index);
           return (
             <li key={stop.index} className="m-0">
@@ -195,6 +293,9 @@ export const Contents = ({
                 </span>
                 <span className="min-w-0">
                   {stop.title}
+                  {stop.attention === null ? null : (
+                    <FlagLine flag={stop.attention} className="mt-0.5" />
+                  )}
                   {read.state === "changed" ? (
                     <span
                       data-changed-files

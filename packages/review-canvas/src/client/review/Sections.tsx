@@ -1,8 +1,9 @@
 /** The sections of the review page's one scroll: the stops with their files, then what left and the whole change. */
 import { useAtom } from "@effect/atom-react";
-import { ArrowUp, Check } from "lucide-react";
+import { ArrowUp, Check, Flag } from "lucide-react";
 import { parseRows } from "../../review/patch.ts";
 import type { StopView } from "../../review/tour.ts";
+import type { Attention as AttentionFlag } from "../../schema/tour.ts";
 import { count, lineRange } from "../names.ts";
 import { Button, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -12,7 +13,7 @@ import { Textarea } from "../ui/textarea.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
-import { StopChanged } from "./Reading.tsx";
+import { ReadToggle, StopChanged } from "./Reading.tsx";
 import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
   ACTIONS_CLASS,
@@ -29,7 +30,56 @@ const ATTENTION_LEAD = {
   product: "Product call",
   risk: "Risk",
   accessibility: "Accessibility",
-} as const;
+} as const satisfies Record<AttentionFlag["kind"], string>;
+
+/** A flagged stop's mark in a stop list: a flag and the attention's kind. */
+export const FlagMark = ({
+  flag,
+  className,
+}: {
+  readonly flag: AttentionFlag;
+  readonly className?: string;
+}) => (
+  <span
+    data-flag={flag.kind}
+    className={cn(
+      "inline-flex shrink-0 items-center gap-1 text-technical font-semibold text-warning",
+      className,
+    )}
+  >
+    <Flag aria-hidden="true" className="size-3 shrink-0" />
+    {ATTENTION_LEAD[flag.kind]}
+  </span>
+);
+
+/**
+ * A flagged stop's subtitle in a stop list: its kind, then the decision the attention names, cut to the line. The
+ * whole text is the title.
+ */
+export const FlagLine = ({
+  flag,
+  className,
+}: {
+  readonly flag: AttentionFlag;
+  readonly className?: string;
+}) => (
+  <span
+    data-flag-line
+    title={`${ATTENTION_LEAD[flag.kind]}: ${flag.note}`}
+    className={cn(
+      "flex min-w-0 items-baseline gap-1.5 text-technical font-normal",
+      className,
+    )}
+  >
+    <FlagMark flag={flag} className="self-center" />
+    <span aria-hidden="true" className="text-muted">
+      ·
+    </span>
+    <span data-flag-note className="min-w-0 truncate text-muted">
+      <Inline text={flag.note} />
+    </span>
+  </span>
+);
 
 /** For an excerpt of a file an earlier stop owns: one line that points at those rows instead of a second diff. */
 const Also = ({
@@ -218,12 +268,15 @@ export const StopSection = ({
           </span>{" "}
           <span>{stop.title}</span>
         </h2>
-        <Stat
-          icon={Check}
-          title={`${viewed} of ${count(owned.length, "file")} viewed`}
-        >
-          {viewed}/{owned.length}
-        </Stat>
+        <span className="flex items-center gap-3">
+          {reading ? <ReadToggle stop={stop.index} /> : null}
+          <Stat
+            icon={Check}
+            title={`${viewed} of ${count(owned.length, "file")} viewed`}
+          >
+            {viewed}/{owned.length}
+          </Stat>
+        </span>
       </div>
       {reading ? <StopChanged stop={stop.index} className="mt-2" /> : null}
       <StopProse stop={stop} />

@@ -96,14 +96,30 @@ the hidden lines between the hunks, so it offers no suggestion.
 The unchanged lines that a gap reveals take comments as patch lines do. These
 comments anchor to the new text, and follow their lines in later rounds.
 
-The server also keeps which tour stops the reviewer read. The guide and the
-contents show **n of m stops read**. When a later round changes a file that a
-read stop owns or excerpts, the stop shows as changed and names the file; **Mark
-read** reads it again. **Only changes since your last review** shows each file's
-changes since the round of the reviewer's last finished review, or since the
-previous round before any finish, and folds the unchanged files away. The
-browser remembers the setting. The rounds line opens an earlier round's whole
-diff read-only.
+A stop shows its files with the tour's excerpts open. Changed lines outside the
+excerpts fold behind their own control, such as **6 more changed lines (+6
+−0)**, never behind **Show N more lines**, which folds only unchanged lines.
+**Expand all** on a file opens all of its folds, and **Expand all files** and
+**Collapse all files** sit with the diff layout choices. When a file has changed
+lines the page never showed, **Viewed** says how many and offers to show them
+first.
+
+The server also keeps which tour stops the reviewer read. A stop is read once
+most of it stays on screen for two seconds, or when the reviewer chooses **Mark
+read**. Jumps, links, and fast scrolling read no stop that they pass. **Mark
+unread** keeps a stop unread until the reviewer leaves it and comes back. The
+guide and the contents show **n of m stops read**. When a later round changes a
+file that a read stop owns or excerpts, the stop shows as changed and names the
+file; **Mark read** reads it again.
+
+The stop lists show each flagged stop's attention kind. The contents also show
+the attention note as a one-line subtitle. **Flagged only** lists only the
+flagged stops, and J and K move between them while it is on.
+
+**Only changes since your last review** shows each file's changes since the
+round of the reviewer's last finished review, or since the previous round before
+any finish, and folds the unchanged files away. The browser remembers the
+setting. The rounds line opens an earlier round's whole diff read-only.
 
 The whole review works from the keyboard. Press ? or the keyboard button for the
 keys: J and K for stops, F for files, T for threads, the arrow keys for a line

@@ -22,7 +22,9 @@ reads.
   reviewer's to make: a `tradeoff`, a `contract` that other code depends on, a
   `product` decision, a `risk` to judge, or an `accessibility` call. Not a bug,
   not a missing test, not a style preference. Do not invent concerns. A stop
-  holds one; when two calls belong to one stop, split it.
+  holds one; when two calls belong to one stop, split it. The page's stop list
+  shows the kind, and the note cut to one line as the stop's subtitle. Begin the
+  note with the decision.
 - **Excerpts.** 3 to 25 rows each as the page shows them, deleted lines
   included, usually 1 to 3 per stop, each with a short caption. Name lines on
   the `new` side, which for an added file are its own line numbers, or on the

@@ -188,7 +188,7 @@ test("the guide counts read stops; a changed stop and one the snapshot does not 
   assert.equal(summary.stops.get(3), undefined);
 });
 
-test("moving to or past a stop marks it read only when it is not read: a changed stop waits for Mark read", () => {
+test("keeping a stop on screen marks it read only when it is not read: a changed stop waits for Mark read", () => {
   const at = "2026-10-10T00:00:00.000Z" as never;
   const reading = readingSummary(
     [

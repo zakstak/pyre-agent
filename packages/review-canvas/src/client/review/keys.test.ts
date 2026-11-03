@@ -7,6 +7,7 @@ import type { ReviewSnapshot } from "../../schema/rpc.ts";
 import type { ReviewState, Round } from "../../review/queries.ts";
 import {
   fileOrder,
+  flaggedStep,
   type KeyPress,
   lineCommand,
   pageCommand,
@@ -94,6 +95,34 @@ test("a step from nothing goes to the first forward and nowhere back, and stops 
   assert.equal(stepFrom(items, "a", -1), undefined);
   assert.equal(stepFrom(items, "gone", 1), "a");
   assert.equal(stepFrom([], undefined, 1), undefined);
+});
+
+test("with Flagged only on, J and K step between the flagged stops, from wherever the reviewer is", () => {
+  const flag = { kind: "risk", note: "Same filesystem only." } as const;
+  const stops = [
+    { index: 0, attention: null },
+    { index: 1, attention: flag },
+    { index: 2, attention: null },
+    { index: 3, attention: null },
+    { index: 4, attention: flag },
+  ];
+  // From before the first stop, and from an unflagged stop between them.
+  assert.equal(flaggedStep(stops, -1, 1), 1);
+  assert.equal(flaggedStep(stops, 1, 1), 4);
+  assert.equal(flaggedStep(stops, 2, 1), 4);
+  assert.equal(flaggedStep(stops, 3, -1), 1);
+  // Past either end, nowhere.
+  assert.equal(flaggedStep(stops, 4, 1), undefined);
+  assert.equal(flaggedStep(stops, 1, -1), undefined);
+  assert.equal(flaggedStep(stops, -1, -1), undefined);
+  assert.equal(
+    flaggedStep(
+      stops.map((stop) => ({ ...stop, attention: null })),
+      -1,
+      1,
+    ),
+    undefined,
+  );
 });
 
 test("the key help lists every page key and line key", () => {

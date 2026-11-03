@@ -17,7 +17,12 @@ import { Segmented } from "../ui/segmented.tsx";
 import { Stat } from "../ui/stat.tsx";
 import { Inline, Lead, Prose, Time } from "../ui/text.tsx";
 import { usePage } from "./act.ts";
-import { DiffChoices, FileList } from "./Contents.tsx";
+import {
+  DiffChoices,
+  FileList,
+  FlaggedOnly,
+  useListedStops,
+} from "./Contents.tsx";
 import { Marker } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
 import { fileElementId } from "../../review/next.ts";
@@ -35,9 +40,10 @@ import {
   ReadCount,
   ReadMark,
   readOf,
+  ReadToggle,
   StopChanged,
 } from "./Reading.tsx";
-import { Attention, Questions, StopProse } from "./Sections.tsx";
+import { Attention, FlagMark, Questions, StopProse } from "./Sections.tsx";
 import { WIDE_QUERY } from "./ui.ts";
 import { noteElementId } from "./view.ts";
 
@@ -187,6 +193,9 @@ const GuideStop = ({
         <h2 tabIndex={-1} className="min-w-0 flex-1 font-semibold text-ink">
           {stop.title}
         </h2>
+        {stop.attention === null ? null : (
+          <FlagMark flag={stop.attention} className="self-center" />
+        )}
         <span className="sr-only">{READ_TEXT[read.state]}</span>
         <ReadMark read={read} className="self-center" />
         <Stat
@@ -199,6 +208,7 @@ const GuideStop = ({
       <StopChanged stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
+      <ReadToggle stop={stop.index} className="mt-2 -ml-2.5" />
       {stop.excerpts.map((excerpt, at) => (
         <Excerpt
           key={at}
@@ -261,6 +271,7 @@ export const Guide = ({
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, spied);
   const scroller = useRef<HTMLDivElement>(null);
   const moved = useMoved();
+  const stops = useListedStops();
   // Once the reviewer has moved, a wide page keeps the marked stop, or in the files the marked file, in the guide's
   // view, unless the page put it somewhere itself.
   useEffect(() => {
@@ -306,8 +317,9 @@ export const Guide = ({
         <p className="px-2 pb-2 text-muted">
           <ReadCount />
         </p>
+        <FlaggedOnly className="mx-2 mb-2" />
         <ol aria-label="Walkthrough" className="m-0 list-none p-0">
-          {page.stops.map((stop) => (
+          {stops.map((stop) => (
             <GuideStop
               key={stop.index}
               stop={stop}

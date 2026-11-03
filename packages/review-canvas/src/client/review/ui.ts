@@ -1,9 +1,10 @@
 /**
  * What the reviewer chose on the page, as atoms: folds for this tab's session, the diff layout, whether whitespace
- * changes show, and whether only the changes since the last review show across visits, and in memory the gaps opened,
- * the drafts, and whether a comment is being moved. None of it is the review's state. The server keeps only the
- * drafts' text, which saving.ts sends as it is typed. What belongs to one review is keyed by it, so a page that shows
- * several reviews, such as a stack walkthrough, never carries a draft or a move from one to another.
+ * changes show, and whether only the changes since the last review show across visits, and in memory the folds opened
+ * in diffs, the changes shown, the drafts, and whether a comment is being moved. None of it is the review's state. The
+ * server keeps only the drafts' text, which saving.ts sends as it is typed. What belongs to one review is keyed by it,
+ * so a page that shows several reviews, such as a stack walkthrough, never carries a draft or a move from one to
+ * another.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -16,7 +17,7 @@ import type {
   ReviewId,
 } from "../../schema/primitives.ts";
 import type { Selection } from "../../schema/selection.ts";
-import type { GapStage } from "./diff-model.ts";
+import { type DiffFolds, NO_FOLDS } from "./diff-model.ts";
 import type { RoundKey } from "./data.ts";
 
 const session = Atom.runtime(KeyValueStore.layerStorage(() => sessionStorage));
@@ -105,15 +106,40 @@ export const NARROW_QUERY = "(width < 48rem)";
 export const WIDE_QUERY = "(min-width: 64rem)";
 
 /**
- * How far the reviewer opened each gap of a patch, by file, patch, and gap, so a new snapshot of the same patch keeps
- * it. Undefined until they open or close it: `gapStage` in diff-model.ts then decides.
+ * How the reviewer opened the folds of a file's patch, its gaps and its folds of changes, by file and patch, so a new
+ * snapshot of the same patch keeps them. A fold they have not touched is absent: `gapStage` in diff-model.ts then
+ * decides a gap, and a fold of changes is closed.
  */
-export const gapAtom = Atom.family(
+export const diffFoldsAtom = Atom.family(
   (_key: {
     readonly path: RepoPath;
     readonly digest: PatchDigest | undefined;
-    readonly gap: string;
-  }) => Atom.make<GapStage | undefined>(undefined).pipe(Atom.keepAlive),
+  }) => Atom.make<DiffFolds>(NO_FOLDS).pipe(Atom.keepAlive),
+);
+
+/**
+ * A diff a file block shows as its body: the file's patch in the round, or its changes since an earlier round while
+ * the page shows only those.
+ */
+export type BodyDiff =
+  | { readonly kind: "patch"; readonly digest: PatchDigest | undefined }
+  | { readonly kind: "since"; readonly since: number; readonly round: number };
+
+/**
+ * The changed rows of a file's body the page has shown, by review, file, and diff. Viewed asks first while some were
+ * never shown. In memory, for the page's life.
+ */
+export const shownChangesAtom = Atom.family(
+  (_key: {
+    readonly review: ReviewId;
+    readonly path: RepoPath;
+    readonly diff: BodyDiff;
+  }) => Atom.make<ReadonlySet<number>>(new Set<number>()).pipe(Atom.keepAlive),
+);
+
+/** Whether the stop lists show only the stops with an attention flag, and J and K move only between those. */
+export const flaggedOnlyAtom = Atom.family((_review: ReviewId) =>
+  Atom.make(false).pipe(Atom.keepAlive),
 );
 
 /** A file's About or "changed since" block, opened above its diff. */
