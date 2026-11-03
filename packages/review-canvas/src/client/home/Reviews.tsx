@@ -93,11 +93,17 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
         {progress.viewed}/{progress.viewable}
       </Stat>
     );
-  // As on the review page: a finished round is the agents' turn, whatever waits after it.
+  const forYou = progress?.forYou ?? 0;
+  const answers =
+    forYou === 0 ? null : (
+      <AnswerStat count={forYou} title={`${count(forYou, "answer")} to read`} />
+    );
+  // As on the review page: a finished round is the agents' turn, but for the answers they sent since.
   if (item.verdict !== undefined) {
     const verdict = VERDICT_STAT[item.verdict];
     return (
       <>
+        {answers}
         <Stat
           icon={verdict.icon}
           tone={verdict.tone}
@@ -107,17 +113,11 @@ const Stats = ({ item }: { readonly item: ReviewSummary }) => {
       </>
     );
   }
-  const forYou = progress?.forYou ?? 0;
   const left = progress === undefined ? 0 : progress.viewable - progress.viewed;
   const drift = item.drift ?? 0;
   return (
     <>
-      {forYou === 0 ? null : (
-        <AnswerStat
-          count={forYou}
-          title={`${count(forYou, "answer")} to read`}
-        />
-      )}
+      {answers}
       {viewed(forYou === 0 && left > 0 ? "action" : "muted")}
       {drift === 0 ? null : (
         <Stat

@@ -16,11 +16,10 @@ import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
 import { parseRows, rowsForLines } from "../../review/patch.ts";
 import {
-  answerStep,
-  fileStep,
   type Next,
-  nextStep,
   pageOrder,
+  roundSteps,
+  type Steps,
 } from "../../review/next.ts";
 import {
   type Progress,
@@ -373,13 +372,10 @@ export interface PageModel {
   readonly round: Round;
   readonly stops: ReadonlyArray<StopView>;
   readonly files: ReadonlyMap<RepoPath, FileModel>;
-  readonly next: Next;
+  /** The round's steps and the one the strip names, from one call so the strip and N agree. */
+  readonly steps: Steps;
+  /** What the strip says about `steps.next`. */
   readonly strip: Strip;
-  /** Where the strip's steps go: the first answer for the reviewer and the first file not viewed, when there is one. */
-  readonly steps: {
-    readonly answer: Extract<Next, { kind: "answer" }> | undefined;
-    readonly file: Extract<Next, { kind: "file" }> | undefined;
-  };
   readonly progress: Progress;
   /** The reviewer's pending comments, which Finish review sends, in the order the page shows them. */
   readonly pending: ReadonlyArray<Comment>;
@@ -422,7 +418,7 @@ export const pageModel = (
 ): PageModel => {
   const { state } = snapshot;
   const { stops } = tourView(input);
-  const next = nextStep(state, input, stops, round);
+  const steps = roundSteps(state, input, stops, round);
   const counts = progress(state, input);
   const standing = standingOf;
   const files = fileModels(
@@ -430,7 +426,7 @@ export const pageModel = (
     input,
     digests,
     stops,
-    next,
+    steps.next,
     previous,
     round.round,
     counts,
@@ -443,12 +439,8 @@ export const pageModel = (
     round,
     stops,
     files,
-    next,
-    strip: stripOf(next, snapshot.threads),
-    steps: {
-      answer: answerStep(state, input, stops),
-      file: fileStep(state, input, stops),
-    },
+    steps,
+    strip: stripOf(steps.next, snapshot.threads),
     progress: counts,
     since,
     pending: state.comments

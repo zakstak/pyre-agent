@@ -1,7 +1,8 @@
 /**
  * The one thing the reviewer should do next on a review page, as a pure function of the review's state, the current
  * round's input, and its tour. The page's next strip renders it, and its target is the ID of the element the strip
- * points at, so the markup and the strip agree; the page script only scrolls and focuses.
+ * points at, so the markup and the strip agree; the page script only scrolls and focuses. The strip's steps and the
+ * one step it names come from one call, {@link roundSteps}, so what it says and where N goes cannot part.
  */
 import type { Comment, Verdict } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
@@ -155,12 +156,15 @@ export const pageOrder = (
   };
 };
 
+export type AnswerStep = Extract<Next, { kind: "answer" }>;
+export type FileStep = Extract<Next, { kind: "file" }>;
+
 /** The first answer that waits for the reviewer, in the order the page shows them. */
-export const answerStep = (
+const answerStep = (
   state: ReviewState,
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
-): Extract<Next, { kind: "answer" }> | undefined => {
+): AnswerStep | undefined => {
   const standing = standingOf;
   const toRead = state.comments
     .filter((comment) => standing(comment) === "reviewer")
@@ -183,11 +187,11 @@ export const answerStep = (
  * The first file in walkthrough order whose approval does not hold. Files without a fingerprint cannot be viewed, so
  * they are skipped.
  */
-export const fileStep = (
+const fileStep = (
   state: ReviewState,
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
-): Extract<Next, { kind: "file" }> | undefined => {
+): FileStep | undefined => {
   const counts = progress(state, input);
   const viewable = new Set(
     input.files
@@ -209,32 +213,46 @@ export const fileStep = (
 };
 
 /**
- * What the reviewer should do next, in priority order: read the answers that wait for them, in the order the page
- * shows them; view the first file in walkthrough order whose approval does not hold; otherwise finish the round. A
- * closed review, and a round the reviewer already finished, have nothing next. Drift is not a step: nothing on the
- * page acts on it, so the page says it in a line of its own.
+ * The round's steps as the strip shows them, and the one it names. `answer` and `file` are where the strip's steps go:
+ * the first answer to read and the first file not viewed, when there is one. `next` is what the strip names and N
+ * takes, in priority order: read the answers that wait for the reviewer, in the order the page shows them, also after
+ * the finish, while the agents' answers arrive; once the reviewer finished the round, nothing else, since the agents
+ * have the turn; view the first file in walkthrough order whose approval does not hold; otherwise finish the round. A
+ * closed review has nothing next. Drift is not a step: nothing on the page acts on it, so the page says it in a line
+ * of its own.
  */
-export const nextStep = (
+export interface Steps {
+  readonly answer: AnswerStep | undefined;
+  readonly file: FileStep | undefined;
+  readonly next: Next;
+}
+
+export const roundSteps = (
   state: ReviewState,
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
   round: Round,
-): Next => {
-  if (state.closed_at !== undefined) return { kind: "closed" };
-  const submission = currentSubmission(state);
-  if (submission !== undefined)
-    return {
-      kind: "finished",
-      round: round.round,
-      verdict: submission.verdict,
-    };
-  return (
-    answerStep(state, input, stops) ??
-    fileStep(state, input, stops) ?? {
-      kind: "finish",
-      round: round.round,
-      waiting: progress(state, input).waiting,
-      target: FINISH_ELEMENT_ID,
-    }
-  );
+): Steps => {
+  const answer = answerStep(state, input, stops);
+  const file = fileStep(state, input, stops);
+  const next = (): Next => {
+    if (state.closed_at !== undefined) return { kind: "closed" };
+    if (answer !== undefined) return answer;
+    const submission = currentSubmission(state);
+    if (submission !== undefined)
+      return {
+        kind: "finished",
+        round: round.round,
+        verdict: submission.verdict,
+      };
+    return (
+      file ?? {
+        kind: "finish",
+        round: round.round,
+        waiting: progress(state, input).waiting,
+        target: FINISH_ELEMENT_ID,
+      }
+    );
+  };
+  return { answer, file, next: next() };
 };
