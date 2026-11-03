@@ -16,7 +16,7 @@ import {
   fileElementId,
   type Next,
 } from "../../review/next.ts";
-import type { ReviewId } from "../../schema/primitives.ts";
+import type { CommentId, ReviewId } from "../../schema/primitives.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
 import { layoutDiff, nextStage } from "./diff-model.ts";
@@ -355,6 +355,18 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (next.kind === "answer") land(target);
     };
 
+    /** Brings a comment into view and focuses it, as a row of the pending list does, and shows where it landed. */
+    const goComment = async (comment: CommentId) => {
+      const target = await reveal(commentElementId(comment));
+      if (target === null) return;
+      const section = target.closest<HTMLElement>("section[data-stop]");
+      if (section !== null) tour.current.stop = Number(section.dataset.stop);
+      steer();
+      target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+      land(target);
+    };
+
     /** Brings the next strip's target into view and focuses what acts on it. */
     const goNext = async () => {
       if (page.strip.kind !== "go") return;
@@ -551,6 +563,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       showFile,
       goNext,
       goStep,
+      goComment,
       goFinish,
       applyHash,
       flash,

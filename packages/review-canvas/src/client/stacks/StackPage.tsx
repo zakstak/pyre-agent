@@ -33,6 +33,7 @@ import type {
 import { failureText, NO_ANSWER } from "../rpc.ts";
 import { ReviewContext, useSending } from "../review/act.ts";
 import { useStashChangedDrafts } from "../review/Composer.tsx";
+import { useKeepComposer, useRestoreDrafts } from "../review/saving.ts";
 import { reviewAtom, roundAtom } from "../review/data.ts";
 import { useCancelReattach } from "../review/navigate.ts";
 import {
@@ -347,6 +348,8 @@ const CurrentStep = ({
   );
   // The same recovery as the review page's, for this layer's review: a draft on a patch its round changed is stashed,
   // also when the page comes back to the layer after other layers or after it was stale or missing.
+  useRestoreDrafts(state.review, page);
+  useKeepComposer(state.review);
   useStashChangedDrafts(state.review, page?.files);
   useCancelReattach(state.review);
   // Drawn before the browser paints, so Next never marks a version the reviewer did not see.

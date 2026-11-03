@@ -8,6 +8,7 @@ import {
   rowsLines,
   suggestionBlock,
   suggestionDiff,
+  suggestionParts,
   textRange,
 } from "./suggestion.ts";
 
@@ -155,4 +156,40 @@ test("Suggest change fills its block with the selected lines' current text, on t
   assert.deepEqual(rowsLines(rows, 2, 2), ["old"]);
   assert.deepEqual(rowsLines(rows, 0, 4), ["keep", "new", "tail"]);
   assert.deepEqual(textRange("a\nb\nc\n", 2, 3), ["b", "c"]);
+});
+
+test("a page shows a suggestion between the text around it, and a malformed body as text with its problem", () => {
+  assert.deepEqual(
+    suggestionParts(
+      "Use a constant:\n```suggestion\nconst A = 1;\n```\nThanks.",
+    ),
+    {
+      kind: "suggestion",
+      before: "Use a constant:",
+      lines: ["const A = 1;"],
+      after: "Thanks.",
+    },
+  );
+  // A block alone has no text around it; CRLF bodies part on the same lines.
+  assert.deepEqual(suggestionParts("```suggestion\r\na\r\n```\r\n"), {
+    kind: "suggestion",
+    before: "",
+    lines: ["a"],
+    after: "",
+  });
+  assert.deepEqual(suggestionParts("Rename this."), {
+    kind: "text",
+    text: "Rename this.",
+  });
+  assert.deepEqual(suggestionParts("```suggestion\na"), {
+    kind: "malformed",
+    text: "```suggestion\na",
+    problem: "unclosed",
+  });
+  const several = "```suggestion\na\n```\n```suggestion\nb\n```";
+  assert.deepEqual(suggestionParts(several), {
+    kind: "malformed",
+    text: several,
+    problem: "several",
+  });
 });

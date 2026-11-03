@@ -34,6 +34,7 @@ import { Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { useStashChangedDrafts } from "./Composer.tsx";
+import { useKeepComposer, useRestoreDrafts } from "./saving.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
 import { Guide } from "./Guide.tsx";
@@ -257,6 +258,9 @@ const Review = ({
   useScrollSpy(navigate);
   useKeys(id, navigate);
   useRoundChange(key, page);
+  // The reviewer's unsent text: back into its boxes when the review first shows, and kept as they type.
+  useRestoreDrafts(id, page, navigate.reveal);
+  useKeepComposer(id);
 
   /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
   const ask = (question: string) => {
@@ -296,6 +300,7 @@ const Review = ({
           onGo={() => void navigate.goNext()}
           onStep={(step) => void navigate.goStep(step)}
           onFinish={() => void navigate.goFinish()}
+          onComment={(comment) => void navigate.goComment(comment)}
         />
         {view === "source" ? (
           <Guide

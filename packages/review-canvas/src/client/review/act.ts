@@ -12,13 +12,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { SavedDraft } from "../../schema/draft.ts";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { StopProgress } from "../../schema/reading.ts";
 import type { PageAction } from "../../schema/rpc.ts";
 import { type CallError, failureText, NO_ANSWER } from "../rpc.ts";
 import { toast } from "../ui/toast.tsx";
-import type { DraftQueue, DraftStatus } from "./drafts.ts";
+import type { DraftStatus } from "./drafts.ts";
 import { actionsAtom, draftStatusAtom, workspaceAtom } from "./data.ts";
 import type { View } from "./ui.ts";
 import type { PageModel } from "./view.ts";
@@ -101,28 +100,10 @@ const useWorkspace = () => {
   );
 };
 
-/**
- * Saves the reviewer's unsent text as they type. Call `schedule` with a box's draft on every change, `forget` with its
- * slot just before sending it (the action empties the slot on the server), and `discard` when the reviewer cancels.
- * Undefined until the RPC client is ready.
- */
-export const useDraftQueue = (): DraftQueue | undefined =>
-  useWorkspace()?.drafts;
-
 /** Where saving the drafts is: idle, saving, saved at a time, or failed with the server's words. */
 export const useDraftStatus = (): DraftStatus => {
   const { id } = usePage();
   return useAtomValue(draftStatusAtom(id));
-};
-
-/**
- * The drafts the server held when this component first rendered: what a box restores when the review opens. Later
- * snapshots carry drafts too, but the text a page is typing is newer than any of them, so read these once.
- */
-export const useOpeningDrafts = (): ReadonlyArray<SavedDraft> => {
-  const { page } = usePage();
-  const [drafts] = useState(() => page.snapshot.drafts);
-  return drafts;
 };
 
 /**

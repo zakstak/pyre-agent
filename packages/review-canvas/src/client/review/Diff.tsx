@@ -381,6 +381,7 @@ const Extras = ({
               <Composer
                 draft={draft}
                 table={table.id}
+                rows={table.rows}
                 range={lineLabel(table.rows, draft.start, draft.end)}
               />
             </div>
