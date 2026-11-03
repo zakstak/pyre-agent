@@ -28,11 +28,13 @@ const shownPending = (state: ReviewState, comment: Comment): boolean => {
 
 /**
  * A state as an earlier store saved it, in today's shape. Decoding fills what earlier states lack: a patch anchor's
- * kind and a reviewer comment's state, sent. A comment the earlier page showed as pending becomes pending, so it keeps
- * waiting for Finish review as the reviewer was told it would.
+ * kind and a reviewer comment's state, sent. On an open review, a comment the earlier page showed as pending becomes
+ * pending, so it keeps waiting for Finish review as the reviewer was told it would. A closed review cannot be
+ * finished, so its comments stay sent, as closing a review sends its pending comments today.
  */
 export const upgradeState = (stored: unknown): ReviewState => {
   const state = Schema.decodeUnknownSync(ReviewState)(stored);
+  if (state.closed_at !== undefined) return state;
   return {
     ...state,
     comments: state.comments.map((comment) =>

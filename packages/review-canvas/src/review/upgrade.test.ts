@@ -113,6 +113,19 @@ test("after a finish of the current round, an earlier comment was sent", () => {
   });
 });
 
+test("a closed review's comments stay sent, since it can no longer be finished", () => {
+  const upgraded = upgradeState(
+    saved({
+      closed_at: at(9),
+      comments: [comment("late", 6, { kind: "reviewer" })],
+    }),
+  );
+  assert.deepEqual(upgraded.comments[0]?.source, {
+    kind: "reviewer",
+    state: "sent",
+  });
+});
+
 test("a state that does not read refuses the upgrade", () => {
   assert.throws(() => upgradeState({ id: "review-x" }));
 });
