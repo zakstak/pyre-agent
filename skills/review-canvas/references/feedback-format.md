@@ -110,7 +110,7 @@ deleting them. Fences follow CommonMark: three or more backticks or tildes, the
 info string `suggestion`, and a closing fence of the same character at least as
 long. A suggestion fence inside another fenced block is code, not a suggestion.
 
-`status.suggestions` lists one entry for each comment you can see whose body
+`status.suggestions` lists one entry for each inline comment you can see that
 holds a suggestion block. A ready entry holds `comment`, `"state": "ready"`,
 `path`, `side`, `round` (the round its anchor names), `start_line`, `end_line`,
 `current`, the lines the reviewer saw, and `replacement`, the proposed lines.
@@ -130,10 +130,11 @@ The reviewer can import a feedback file of the same target from the page, such
 as an export of an earlier review. Approvals carry where the file's fingerprint
 still matches. Each comment the review lacks is added with its replies, up to
 the first reply that was not its author's turn. An inline comment is anchored
-again on the current patch where its quote is found, and stays an orphan where
-it is not. Threads its answers name join the review without a token, so no agent
-can act as them. Notes and finishes are not imported. The page reports what it
-added, what was already there, and what it left out.
+again on the current patch, or for a text anchor the current text, where its
+quote is found, and stays an orphan where it is not. A file holding a pending
+comment is refused. Threads its answers name join the review without a token, so
+no agent can act as them. Notes and finishes are not imported. The page reports
+what it added, what was already there, and what it left out.
 
 ## Replies and turns
 
