@@ -104,8 +104,8 @@ export interface DraftQueue {
   /**
    * Sends every write not sent yet, scheduled or in line behind other calls, in one request that outlives the page:
    * for a page being hidden or closed, whose socket calls may never go out. Writes it could not send wait to be sent
-   * again, unless the reviewer wrote in their slots since. Writes past what such a request may carry go on the socket
-   * at once instead, which delivers them while the page lives on, as when it was only hidden.
+   * again, unless the reviewer wrote in, sent, or cancelled their slots since. Writes past what such a request may
+   * carry go on the socket at once instead, which delivers them while the page lives on, as when it was only hidden.
    */
   readonly leave: () => Promise<void>;
   /**
@@ -141,6 +141,11 @@ export const draftQueue = <H>(
   // The newest unsent write of each slot, by slot key. A write in line goes out when its turn comes only while it is
   // still its slot's entry here, so a newer text, a forgotten slot, or a write that `leave` sent drops it.
   const unsent = new Map<string, Unsent<H>>();
+  // How many times the reviewer changed each slot, by slot key: wrote in it, sent its box, or cancelled it. A write
+  // `leave` could not send waits again only while its slot is unchanged since, which `unsent` cannot tell once a newer
+  // write has gone out.
+  const changes = new Map<string, number>();
+  const changesOf = (key: string) => changes.get(key) ?? 0;
   let chain: Promise<void> = Promise.resolve();
   let inFlight = 0;
   // What the last call that went out came to, which the status shows once nothing is under way.
@@ -198,6 +203,7 @@ export const draftQueue = <H>(
     const entry = unsent.get(key);
     if (entry?.state === "scheduled") clock.clearTimeout(entry.timer);
     unsent.delete(key);
+    changes.set(key, changesOf(key) + 1);
   };
   return {
     schedule: (draft) => {
@@ -218,13 +224,15 @@ export const draftQueue = <H>(
       const { kept, rest } = keepable(writes);
       for (const write of rest) void line(slotKey(slotOfWrite(write)), write);
       if (kept.length === 0) return;
+      const left = kept.map((write) => {
+        const key = slotKey(slotOfWrite(write));
+        return { key, write, count: changesOf(key) };
+      });
       started();
       const outcome = await answer(() => calls.keep(kept));
       if (!outcome.ok)
-        for (const write of kept) {
-          const key = slotKey(slotOfWrite(write));
-          if (!unsent.has(key)) wait(key, write);
-        }
+        for (const { key, write, count } of left)
+          if (changesOf(key) === count) wait(key, write);
       ended(outcome);
     },
     forget,

@@ -266,6 +266,43 @@ test("writes a refused request could not keep wait to be sent again, unless the 
   ]);
 });
 
+test("writes a refused request could not keep are not sent again over a slot the reviewer saved, sent, or cancelled since", async () => {
+  const time = fakeClock();
+  const record = recordingCalls();
+  const queue = draftQueue(record.calls, () => undefined, time.clock);
+  const comment = "c-2" as CommentId;
+  queue.schedule(general("Old"));
+  queue.schedule({ kind: "reply", comment, body: "Why?" });
+  queue.schedule({ kind: "finish", verdict: "approve", body: "Ship" });
+  const left = queue.leave();
+  // The page stayed open, and before the request was answered the reviewer saved newer general text, sent the reply,
+  // and cancelled the finish box: each of those calls is done.
+  queue.schedule(general("New"));
+  const flushed = queue.flush();
+  queue.forget({ kind: "reply", comment });
+  const discarded = queue.discard({ kind: "finish" });
+  await settle();
+  record.answers[1]?.({ ok: true, at: "t" });
+  await settle();
+  record.answers[2]?.({ ok: true, at: "t" });
+  await Promise.all([flushed, discarded]);
+  record.answers[0]?.({ ok: false, message: "The server did not answer." });
+  await left;
+  void queue.flush();
+  time.advance(DRAFT_DELAY_MS);
+  await settle();
+  // Each call that goes out from here is answered, so every write sent again shows.
+  for (let next = 3; next < record.answers.length; next++) {
+    record.answers[next]?.({ ok: true, at: "t" });
+    await settle();
+  }
+  assert.deepEqual(record.made, [
+    "keep save general Old, save reply Why?, save finish Ship",
+    "save general New",
+    "discard finish",
+  ]);
+});
+
 test("leaving keeps as many slots as one request may carry, and sends a text past it on the socket", async () => {
   const time = fakeClock();
   const record = recordingCalls();
