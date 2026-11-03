@@ -9,6 +9,7 @@
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
+import type { StopView } from "../../review/tour.ts";
 import type { Verdict } from "../../schema/feedback.ts";
 import type {
   CommentId,
@@ -137,10 +138,20 @@ export const shownChangesAtom = Atom.family(
   }) => Atom.make<ReadonlySet<number>>(new Set<number>()).pipe(Atom.keepAlive),
 );
 
-/** Whether the stop lists show only the stops with an attention flag, and J and K move only between those. */
+/** Whether the reviewer turned Flagged only on, for every round of the review: {@link filtersFlagged} applies it. */
 export const flaggedOnlyAtom = Atom.family((_review: ReviewId) =>
   Atom.make(false).pipe(Atom.keepAlive),
 );
+
+/**
+ * Whether the stop lists show only the stops with an attention flag, and J and K move only between those: while
+ * Flagged only is on and the round has a flagged stop. A round with none shows no switch to turn it off, so it lists
+ * every stop, and the reviewer's choice holds again in a later round with flags, whose switch shows it.
+ */
+export const filtersFlagged = (
+  flaggedOnly: boolean,
+  stops: ReadonlyArray<Pick<StopView, "attention">>,
+): boolean => flaggedOnly && stops.some((stop) => stop.attention !== null);
 
 /** A file's About or "changed since" block, opened above its diff. */
 export const extraAtom = Atom.family(

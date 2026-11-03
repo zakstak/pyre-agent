@@ -44,6 +44,7 @@ import { hashOf, parseHash } from "./places.ts";
 import {
   diffFoldsAtom,
   draftsAtom,
+  filtersFlagged,
   flaggedOnlyAtom,
   flashAtom,
   foldsAtom,
@@ -310,7 +311,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
           registry.set(guideAtom(key.id), { tab: "walkthrough", open: true });
         if (
           page.stops[onStop]?.attention === null &&
-          registry.get(flaggedOnlyAtom(key.id))
+          filtersFlagged(registry.get(flaggedOnlyAtom(key.id)), page.stops)
         )
           registry.set(flaggedOnlyAtom(key.id), false);
         return;
@@ -777,16 +778,14 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
      * those.
      */
     const stepStop = async (step: Step) => {
-      if (!registry.get(flaggedOnlyAtom(key.id)))
+      if (!filtersFlagged(registry.get(flaggedOnlyAtom(key.id)), page.stops))
         return showStop(tour.current.stop + step);
       const target = flaggedStep(page.stops, tour.current.stop, step);
       if (target === undefined)
         return toast(
-          page.stops.every((stop) => stop.attention === null)
-            ? "No stop is flagged."
-            : step === 1
-              ? "This is the last flagged stop."
-              : "This is the first flagged stop.",
+          step === 1
+            ? "This is the last flagged stop."
+            : "This is the first flagged stop.",
         );
       return showStop(target);
     };

@@ -70,8 +70,22 @@ const listed = (page: Page) =>
       links.map((link) => Number((link as HTMLElement).dataset.stopLink)),
     );
 
+/** The stops the source view's guide lists, by stop. */
+const guideListed = (page: Page) =>
+  page
+    .locator("li[data-guide-stop]")
+    .evaluateAll((items) =>
+      items.map((item) => Number((item as HTMLElement).dataset.guideStop)),
+    );
+
 const hashIs = (page: Page, hash: string) =>
   page.waitForFunction((hash) => location.hash === hash, hash);
+
+const onRound = (page: Page, round: number) =>
+  page
+    .locator("[data-round-current]")
+    .filter({ hasText: new RegExp(`^Round ${round} · `) })
+    .waitFor();
 
 describe("attention flags", { skip: !built && "run pnpm build first" }, () => {
   before(async () => {
@@ -154,14 +168,7 @@ describe("attention flags", { skip: !built && "run pnpm build first" }, () => {
     await page.evaluate(() => scrollTo(0, 0));
     await page.locator("button[data-view='source']").click();
     await page.locator("#guide-stop-1").waitFor();
-    assert.deepEqual(
-      await page
-        .locator("li[data-guide-stop]")
-        .evaluateAll((items) =>
-          items.map((item) => Number((item as HTMLElement).dataset.guideStop)),
-        ),
-      [0, 2],
-    );
+    assert.deepEqual(await guideListed(page), [0, 2]);
     await page.locator("button[data-view='guided']").click();
     await page.locator("section[data-stop]").first().waitFor();
     // Off again, every stop is listed and J goes to the next stop.
@@ -207,6 +214,56 @@ describe("attention flags", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await only.isChecked(), false);
     await page.locator("button[data-view='guided']").click();
+    await page.close();
+  });
+
+  test("a round with no flagged stop lists every stop while Flagged only is on, and a later flagged round lists only its flags", async () => {
+    const input = flagged();
+    const agent = await server.register(input);
+    await agent.publish(input);
+    const page = await open(agent.url);
+    await page.locator("[data-contents] input[data-flagged-only]").check();
+    assert.deepEqual(await listed(page), [0, 2]);
+    // Round 2 drops every flag: the switch goes, and with it the filter.
+    const unflagged = {
+      ...input,
+      stops: input.stops.map((stop: object) => ({ ...stop, attention: null })),
+    };
+    const second = await agent.publish(unflagged);
+    assert.equal(second.ok, true, JSON.stringify(second));
+    await onRound(page, 2);
+    assert.equal(await page.locator("input[data-flagged-only]").count(), 0);
+    assert.deepEqual(await listed(page), [0, 1, 2, 3]);
+    // J goes to the next stop, not to a toast that no stop is flagged.
+    await page.locator("[data-stop-link='0']").click();
+    await hashIs(page, "#tour/1");
+    await page.keyboard.press("j");
+    await hashIs(page, "#tour/2");
+    // The source view's guide lists every stop too.
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.locator("button[data-view='source']").click();
+    await page.locator("#guide-stop-1").waitFor();
+    assert.deepEqual(await guideListed(page), [0, 1, 2, 3]);
+    await page.locator("button[data-view='guided']").click();
+    await page.locator("section[data-stop]").first().waitFor();
+    // Round 3 flags the third stop again: the switch is back, still on as the reviewer left it.
+    const third = await agent.publish({
+      ...unflagged,
+      stops: unflagged.stops.map((stop: object, index: number) =>
+        index === 2
+          ? { ...stop, attention: { kind: "product", note: "The greeting" } }
+          : stop,
+      ),
+    });
+    assert.equal(third.ok, true, JSON.stringify(third));
+    await onRound(page, 3);
+    assert.equal(
+      await page
+        .locator("[data-contents] input[data-flagged-only]")
+        .isChecked(),
+      true,
+    );
+    assert.deepEqual(await listed(page), [2]);
     await page.close();
   });
 

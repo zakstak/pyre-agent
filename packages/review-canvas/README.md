@@ -139,7 +139,9 @@ file; **Mark read** reads it again.
 
 The stop lists show each flagged stop's attention kind. The contents also show
 the attention note as a one-line subtitle. **Flagged only** lists only the
-flagged stops, and J and K move between them while it is on.
+flagged stops, and J and K move between them while it is on. A round with no
+flagged stop has no switch and lists every stop; the setting holds again in a
+later round with flags.
 
 **Only changes since your last review** shows each file's changes since the
 round of the reviewer's last finished review, or since the previous round before

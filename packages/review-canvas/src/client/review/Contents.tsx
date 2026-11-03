@@ -34,6 +34,7 @@ import {
 } from "./Reading.tsx";
 import { FlagLine } from "./Sections.tsx";
 import {
+  filtersFlagged,
   flaggedOnlyAtom,
   foldsAtom,
   layoutAtom,
@@ -195,7 +196,7 @@ export const DiffChoices = ({ wide }: { readonly wide: boolean }) => {
 
 /**
  * The switch that lists only the stops with an attention flag, which J and K then move between. A tour with no flagged
- * stop has none.
+ * stop has none, and {@link filtersFlagged} lists all its stops whatever the switch was.
  */
 export const FlaggedOnly = ({ className }: { readonly className?: string }) => {
   const { id, page } = usePage();
@@ -224,11 +225,11 @@ export const FlaggedOnly = ({ className }: { readonly className?: string }) => {
   );
 };
 
-/** The stops a stop list shows: every one, or with Flagged only on, those with an attention flag. */
+/** The stops a stop list shows: every one, or while Flagged only filters the round, those with an attention flag. */
 export const useListedStops = () => {
   const { id, page } = usePage();
   const flaggedOnly = useAtomValue(flaggedOnlyAtom(id));
-  return flaggedOnly
+  return filtersFlagged(flaggedOnly, page.stops)
     ? page.stops.filter((stop) => stop.attention !== null)
     : page.stops;
 };
