@@ -1,9 +1,9 @@
 /**
  * What the reviewer chose on the page, as atoms: folds for this tab's session, the diff layout, whether whitespace
  * changes show, and whether only the changes since the last review show across visits, and in memory the gaps opened,
- * the drafts, and whether a comment is being moved. None of it is the review's state; the server never sees it. What
- * belongs to one review is keyed by it, so a page that shows several reviews, such as a stack walkthrough, never
- * carries a draft or a move from one to another.
+ * the drafts, and whether a comment is being moved. None of it is the review's state. The server keeps only the
+ * drafts' text, which saving.ts sends as it is typed. What belongs to one review is keyed by it, so a page that shows
+ * several reviews, such as a stack walkthrough, never carries a draft or a move from one to another.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -170,6 +170,12 @@ export const stashAtom = Atom.family((_review: ReviewId) =>
 
 /** A reply being written under a comment: whether its editor is open, and its text. */
 export const replyAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly comment: CommentId }) =>
+    Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
+);
+
+/** A comment of the reviewer's being changed in place: whether its editor is open, and its text. */
+export const editAtom = Atom.family(
   (_key: { readonly review: ReviewId; readonly comment: CommentId }) =>
     Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
 );

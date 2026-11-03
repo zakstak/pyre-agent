@@ -1,13 +1,17 @@
 /**
  * The strip under the title that names the one thing to do next, with the round's steps at its right: the answers to
- * read, the files to view, and the finish. It sticks under the top bar on a wide page; the bars' heights are measured
- * here for what sticks under them and what the page scrolls to.
+ * read, the files to view, the comments pending until the finish, and the finish. It sticks under the top bar on a
+ * wide page; the bars' heights are measured here for what sticks under them and what the page scrolls to.
  */
+import { Menu } from "@base-ui/react/menu";
 import { useAtomValue } from "@effect/atom-react";
-import { ArrowRight, Check } from "lucide-react";
-import { useLayoutEffect } from "react";
-import { count, VERDICT_TEXT } from "../names.ts";
-import { buttonVariants } from "../ui/button.tsx";
+import { ArrowRight, Check, MessageSquareDashed } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
+import type { Comment } from "../../schema/feedback.ts";
+import type { CommentId } from "../../schema/primitives.ts";
+import { count, lineRange, VERDICT_TEXT } from "../names.ts";
+import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
+import { cn } from "../ui/cn.ts";
 import { Kbd } from "../ui/kbd.tsx";
 import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
@@ -40,16 +44,98 @@ const StepLink = ({
   </a>
 );
 
+/** Where a pending comment is, as its row in the pending list names it. */
+const placeOf = (comment: Comment): string =>
+  comment.kind === "general"
+    ? "On the whole change"
+    : `${comment.anchor.path}:${lineRange(comment.anchor.start_line, comment.anchor.end_line)}`;
+
+/** The first line of a comment, as a row of a list shows it. */
+const firstLine = (body: string): string => body.trim().split("\n", 1)[0] ?? "";
+
 /**
- * The round's steps, in order: the answers to read while any wait, the files to view, and the finish. The step the
- * strip names is in ink; the others still work.
+ * The comments Finish review sends, as a count that opens their list. Choosing one goes to it and focuses it, so the
+ * reviewer can read, edit, or delete it before finishing.
+ */
+const PendingStep = ({
+  onComment,
+}: {
+  readonly onComment: (comment: CommentId) => void;
+}) => {
+  const { page } = usePage();
+  // A chosen comment takes focus itself; Esc or a click outside gives it back to the count.
+  const chosen = useRef(false);
+  const pending = page.pending.length;
+  return (
+    <Menu.Root
+      modal={false}
+      onOpenChange={(open) => {
+        if (open) chosen.current = false;
+      }}
+    >
+      <Menu.Trigger
+        data-pending-count={pending}
+        title={`${count(pending, "comment")} pending: Finish review sends ${pending === 1 ? "it" : "them"}`}
+        className={cn(
+          TOUCH_TARGET,
+          "inline-flex min-h-11 items-center gap-1 font-semibold text-warning tabular-nums hover:underline",
+        )}
+      >
+        <MessageSquareDashed aria-hidden="true" className="size-3.5" />
+        {pending} pending
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner sideOffset={4} align="end" className="z-40">
+          <Menu.Popup
+            data-pending-list
+            finalFocus={() => !chosen.current}
+            className="max-h-80 w-[min(24rem,calc(100vw-2rem))] overflow-y-auto rounded-control border border-line bg-raised py-1 text-small shadow-md outline-none"
+          >
+            <Menu.Group>
+              <Menu.GroupLabel className="px-3 py-1.5 text-muted">
+                Sent with your review
+              </Menu.GroupLabel>
+              {page.pending.map((comment) => (
+                <Menu.Item
+                  key={comment.id}
+                  data-pending-comment={comment.id}
+                  onClick={() => {
+                    chosen.current = true;
+                    onComment(comment.id);
+                  }}
+                  className={cn(
+                    TOUCH_TARGET,
+                    "flex cursor-pointer flex-col px-3 py-1.5 outline-none select-none data-highlighted:bg-subtle",
+                  )}
+                >
+                  <code className="truncate text-muted">
+                    {placeOf(comment)}
+                  </code>
+                  <span className="truncate text-ink">
+                    {firstLine(comment.body)}
+                  </span>
+                </Menu.Item>
+              ))}
+            </Menu.Group>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+};
+
+/**
+ * The round's steps, in order: the answers to read while any wait, the files to view, the comments pending until the
+ * finish, and the finish. The step the strip names is in ink; the others still work.
  */
 const Steps = ({
   onGo,
   onFinish,
+  onComment,
 }: {
   readonly onGo: (step: "answer" | "file") => void;
   readonly onFinish: () => void;
+  readonly onComment: (comment: CommentId) => void;
 }) => {
   const { page } = usePage();
   const { viewable: total, forYou } = page.progress;
@@ -96,6 +182,11 @@ const Steps = ({
           </StepLink>
         )}
       </li>
+      {page.pending.length === 0 ? null : (
+        <li>
+          <PendingStep onComment={onComment} />
+        </li>
+      )}
       {!page.writable || page.finished ? null : (
         <li>
           <a
@@ -122,10 +213,13 @@ export const NextStrip = ({
   onGo,
   onStep,
   onFinish,
+  onComment,
 }: {
   readonly onGo: () => void;
   readonly onStep: (step: "answer" | "file") => void;
   readonly onFinish: () => void;
+  /** Goes to a comment and focuses it, as a row of the pending list does. */
+  readonly onComment: (comment: CommentId) => void;
 }) => {
   const { page } = usePage();
   const { strip } = page;
@@ -203,7 +297,7 @@ export const NextStrip = ({
             keys
           </span>
         ) : null}
-        <Steps onGo={onStep} onFinish={onFinish} />
+        <Steps onGo={onStep} onFinish={onFinish} onComment={onComment} />
       </div>
     </section>
   );

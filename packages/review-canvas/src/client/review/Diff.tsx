@@ -53,6 +53,7 @@ import {
   unitKey,
 } from "./diff-model.ts";
 import { lineCommand, stepFrom } from "./keys.ts";
+import { replacedSelection } from "./suggest.ts";
 import { ThreadView } from "./Thread.tsx";
 import {
   type Draft,
@@ -505,6 +506,11 @@ const Extras = ({
                 draft={draft}
                 table={table.id}
                 range={spanLabel(table.rows, span)}
+                replaced={replacedSelection(
+                  draft.selection,
+                  table.rows,
+                  table.model.file.new_content,
+                )}
               />
             </div>
           </td>

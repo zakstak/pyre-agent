@@ -3,14 +3,15 @@ import { useAtom } from "@effect/atom-react";
 import { useEffect, useRef, useState } from "react";
 import type { Verdict } from "../../schema/feedback.ts";
 import type { RoundNumber } from "../../schema/primitives.ts";
-import { VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
+import { count, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Time } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
-import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
+import { useKeepDraft, useSendDraft } from "./saving.ts";
+import { ACTIONS_CLASS, DraftNote, submitOnModEnter } from "./Thread.tsx";
 import { finishDraftAtom } from "./ui.ts";
 import { finishState } from "./view.ts";
 
@@ -36,6 +37,13 @@ export const Finish = () => {
   const { id, page } = usePage();
   const act = useAct();
   const [draft, setDraft] = useAtom(finishDraftAtom(id));
+  // A verdict alone is a choice worth keeping too; the page's first verdict with no summary is no draft.
+  const unsent = draft.body !== "" || draft.verdict !== "comment";
+  useKeepDraft(
+    { kind: "finish" },
+    unsent ? { kind: "finish", ...draft } : undefined,
+  );
+  const sendDraft = useSendDraft({ kind: "finish" });
   const { busy, run } = useSending();
   const section = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -125,18 +133,26 @@ export const Finish = () => {
         Finish round {shownRound}
       </h2>
       <p className="mt-1 text-small text-muted">{finishState(page.progress)}</p>
+      {page.pending.length === 0 ? null : (
+        <p data-finish-pending className="mt-1 text-small">
+          Finishing sends your {count(page.pending.length, "pending comment")}{" "}
+          to the agents.
+        </p>
+      )}
       <form
         data-round={shownRound}
         className="mt-4"
         onSubmit={async (event) => {
           event.preventDefault();
           const outcome = await run(() =>
-            act({
-              kind: "submit",
-              round: shownRound,
-              verdict: draft.verdict,
-              body: draft.body,
-            }),
+            sendDraft(() =>
+              act({
+                kind: "submit",
+                round: shownRound,
+                verdict: draft.verdict,
+                body: draft.body,
+              }),
+            ),
           );
           if (outcome === undefined) return;
           if (!outcome.ok) return catchUp();
@@ -196,6 +212,7 @@ export const Finish = () => {
           <Button type="submit" variant="primary" disabled={busy}>
             Finish review
           </Button>
+          <DraftNote shown={unsent} />
         </div>
       </form>
     </section>

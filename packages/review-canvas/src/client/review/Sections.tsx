@@ -13,8 +13,10 @@ import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
 import { StopChanged } from "./Reading.tsx";
+import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
   ACTIONS_CLASS,
+  DraftNote,
   Orphan,
   submitOnModEnter,
   ThreadView,
@@ -262,6 +264,11 @@ export const General = ({
   const { id, page } = usePage();
   const act = useAct();
   const [body, setBody] = useAtom(generalDraftAtom(id));
+  useKeepDraft(
+    { kind: "general" },
+    body.trim() === "" ? undefined : { kind: "general", body },
+  );
+  const sendDraft = useSendDraft({ kind: "general" });
   const { busy, run } = useSending();
   // A closed review has nothing to add: the section shows only what was said.
   if (!page.writable && page.general.length === 0) return null;
@@ -269,11 +276,13 @@ export const General = ({
     const text = body.trim();
     if (text === "") return textarea.current?.focus();
     const outcome = await run(() =>
-      act({
-        kind: "general_comment",
-        body: text,
-        ...(question ? { question: true } : {}),
-      }),
+      sendDraft(() =>
+        act({
+          kind: "general_comment",
+          body: text,
+          ...(question ? { question: true } : {}),
+        }),
+      ),
     );
     if (outcome?.ok === true) setBody((now) => (now === body ? "" : now));
   };
@@ -326,6 +335,7 @@ export const General = ({
                 once.
               </span>
             )}
+            <DraftNote shown={body.trim() !== ""} />
           </div>
         </form>
       )}

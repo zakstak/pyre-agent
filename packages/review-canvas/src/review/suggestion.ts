@@ -27,23 +27,36 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const isSuggestionInfo = (info: string) =>
   /^suggestion(?:\s|$)/.test(info.trim());
 
+/** A suggestion block in a body: the lines of its opening and closing fences, and the lines between them. */
+interface Block {
+  readonly open: number;
+  readonly close: number;
+  readonly lines: ReadonlyArray<string>;
+}
+
 /**
- * The suggestion in a body, read as CommonMark reads fences: a block opens on a fence line and closes on a line of
+ * A body's suggestion blocks, read as CommonMark reads fences: a block opens on a fence line and closes on a line of
  * the same character, at least as long, with nothing after it but spaces. A suggestion fence inside another fenced
- * block is code, not a suggestion. A body with one closed suggestion block proposes its lines; two or more, or one that
- * never closes, are malformed, and the body stays as written.
+ * block is code, not a suggestion. `unclosed` says a suggestion block runs to the end of the body.
  */
-export const parseSuggestion = (body: string): SuggestionParse => {
+const scan = (
+  body: string,
+): {
+  readonly lines: ReadonlyArray<string>;
+  readonly blocks: ReadonlyArray<Block>;
+  readonly unclosed: boolean;
+} => {
   const lines = body.split("\n").map((line) => line.replace(/\r$/, ""));
-  const found: Array<ReadonlyArray<string>> = [];
+  const blocks: Array<Block> = [];
   let open:
     | {
+        readonly at: number;
         readonly fence: string;
         readonly suggestion: boolean;
         readonly lines: Array<string>;
       }
     | undefined;
-  for (const line of lines) {
+  for (const [at, line] of lines.entries()) {
     if (open === undefined) {
       const match = FENCE.exec(line);
       const fence = match?.[1];
@@ -51,7 +64,7 @@ export const parseSuggestion = (body: string): SuggestionParse => {
       // A backtick fence's info string cannot hold a backtick; such a line is text.
       if (fence === undefined || (fence.startsWith("`") && info.includes("`")))
         continue;
-      open = { fence, suggestion: isSuggestionInfo(info), lines: [] };
+      open = { at, fence, suggestion: isSuggestionInfo(info), lines: [] };
       continue;
     }
     const match = FENCE.exec(line);
@@ -62,18 +75,65 @@ export const parseSuggestion = (body: string): SuggestionParse => {
       fence.length >= open.fence.length &&
       (match?.[2] ?? "").trim() === ""
     ) {
-      if (open.suggestion) found.push(open.lines);
+      if (open.suggestion)
+        blocks.push({ open: open.at, close: at, lines: open.lines });
       open = undefined;
       continue;
     }
     open.lines.push(line);
   }
-  if (open?.suggestion === true)
-    return { kind: "malformed", problem: "unclosed" };
-  const [only, ...more] = found;
-  if (only === undefined) return { kind: "none" };
-  if (more.length > 0) return { kind: "malformed", problem: "several" };
-  return { kind: "suggestion", lines: only };
+  return { lines, blocks, unclosed: open?.suggestion === true };
+};
+
+/**
+ * A body as a page shows it: the text, or, for a body that proposes a change, the text before the suggestion block,
+ * the proposed lines, and the text after it, each without the line end that parts it from the block. A malformed body
+ * is text, with what is wrong with it.
+ */
+export type SuggestionParts =
+  | { readonly kind: "text"; readonly text: string }
+  | {
+      readonly kind: "malformed";
+      readonly text: string;
+      readonly problem: "unclosed" | "several";
+    }
+  | {
+      readonly kind: "suggestion";
+      readonly before: string;
+      readonly lines: ReadonlyArray<string>;
+      readonly after: string;
+    };
+
+/**
+ * A body's parts. A body with one closed suggestion block proposes its lines; two or more, or one that never closes,
+ * are malformed, and the body stays as written.
+ */
+export const suggestionParts = (body: string): SuggestionParts => {
+  const { lines, blocks, unclosed } = scan(body);
+  if (unclosed) return { kind: "malformed", text: body, problem: "unclosed" };
+  const [only, ...more] = blocks;
+  if (only === undefined) return { kind: "text", text: body };
+  if (more.length > 0)
+    return { kind: "malformed", text: body, problem: "several" };
+  return {
+    kind: "suggestion",
+    before: lines.slice(0, only.open).join("\n"),
+    lines: only.lines,
+    after: lines.slice(only.close + 1).join("\n"),
+  };
+};
+
+/** The suggestion in a body, as the agents get it. */
+export const parseSuggestion = (body: string): SuggestionParse => {
+  const parts = suggestionParts(body);
+  switch (parts.kind) {
+    case "text":
+      return { kind: "none" };
+    case "malformed":
+      return { kind: "malformed", problem: parts.problem };
+    case "suggestion":
+      return { kind: "suggestion", lines: parts.lines };
+  }
 };
 
 /**
@@ -113,15 +173,24 @@ export const rowsLines = (
   start_row: number,
   end_row: number,
 ): ReadonlyArray<string> => {
-  const selected = rows.slice(start_row, end_row + 1);
-  const side =
-    selected.some((row) => row.kind === "del") &&
-    !selected.some((row) => row.kind === "add")
-      ? "old"
-      : "new";
-  return selected
+  const side = rowsSide(rows, start_row, end_row);
+  return rows
+    .slice(start_row, end_row + 1)
     .filter((row) => row[side] !== undefined)
     .map((row) => row.content);
+};
+
+/** The side a selection of patch rows is on: old for deleted lines with no added line among them, else new. */
+export const rowsSide = (
+  rows: ReadonlyArray<Row>,
+  start_row: number,
+  end_row: number,
+): "old" | "new" => {
+  const selected = rows.slice(start_row, end_row + 1);
+  return selected.some((row) => row.kind === "del") &&
+    !selected.some((row) => row.kind === "add")
+    ? "old"
+    : "new";
 };
 
 /** Lines `start_line` through `end_line` of a file's new text, as a selection of them fills a suggestion block. */
