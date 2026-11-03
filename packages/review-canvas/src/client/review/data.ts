@@ -38,6 +38,23 @@ export const reviewAtom = Atom.family((id: ReviewId) =>
   ),
 );
 
+/**
+ * Whether an agent listens to a review, as the server sees it, while the page shows the review. A dropped socket ends
+ * it, like the review's watch, and the next connection starts it again.
+ */
+export const presenceAtom = Atom.family((id: ReviewId) =>
+  PageClient.runtime.atom((get) =>
+    get(epochAtom) === 0
+      ? Stream.never
+      : Stream.unwrap(
+          Effect.gen(function* () {
+            const client = yield* PageClient;
+            return client("review.presence", { id });
+          }),
+        ),
+  ),
+);
+
 /** A review and one of its rounds. Families compare plain objects by value, so equal keys share one atom. */
 export interface RoundKey {
   readonly id: ReviewId;

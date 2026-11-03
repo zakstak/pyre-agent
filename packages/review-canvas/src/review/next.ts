@@ -14,6 +14,7 @@ import type {
 import { attachedRows, parseRows, type Row } from "./patch.ts";
 import { progress, standingOf } from "./progress.ts";
 import { currentSubmission, type ReviewState, type Round } from "./queries.ts";
+import { findStop, stopTitle } from "./stop-anchor.ts";
 import type { StopView } from "./tour.ts";
 
 /** A file's block on the review page. A path is a valid ID, and `#files/PATH` then works without the page script. */
@@ -25,7 +26,7 @@ export const commentElementId = (id: string): string => `comment-${id}`;
 /** The finish section at the end of the page. */
 export const FINISH_ELEMENT_ID = "finish";
 
-/** Where a comment points, as the strip names it. */
+/** Where a comment points, as the strip names it. A comment on a stop the round dropped is on the whole change. */
 export type CommentPlace =
   | { readonly kind: "general" }
   | {
@@ -33,6 +34,12 @@ export type CommentPlace =
       readonly path: RepoPath;
       readonly start: number;
       readonly end: number;
+    }
+  | {
+      readonly kind: "stop";
+      /** The stop's number in the tour, from 1. */
+      readonly stop: number;
+      readonly title: string;
     };
 
 export type Next =
@@ -74,15 +81,32 @@ export type Next =
     }
   | { readonly kind: "closed" };
 
-const placeOf = (comment: Comment): CommentPlace =>
-  comment.kind === "general"
-    ? { kind: "general" }
-    : {
+const placeOf = (
+  comment: Comment,
+  stops: ReadonlyArray<StopView>,
+): CommentPlace => {
+  switch (comment.kind) {
+    case "general":
+      return { kind: "general" };
+    case "inline":
+      return {
         kind: "inline",
         path: comment.anchor.path,
         start: comment.anchor.start_line,
         end: comment.anchor.end_line,
       };
+    case "stop": {
+      const stop = findStop(stops, comment.anchor.stop);
+      return stop === undefined
+        ? { kind: "general" }
+        : {
+            kind: "stop",
+            stop: stop.index + 1,
+            title: stopTitle(comment.anchor.stop),
+          };
+    }
+  }
+};
 
 /** Files in walkthrough order: the stops in order, each stop's owned files in its order, with the stop's number. */
 export const walkthroughOrder = (
@@ -94,8 +118,9 @@ export const walkthroughOrder = (
 
 /**
  * The comments in the order the page shows them: by file in walkthrough order, within a file by the row the thread
- * sits under, with comments whose lines left the round at the end of their file; then comments on files that left
- * the round; then the comments on the whole change. Ties go to the older comment.
+ * sits under, with comments whose lines left the round at the end of their file, and a stop's comments after its
+ * files; then comments on files that left the round; then the comments on the whole change, with those on stops the
+ * round dropped. Ties go to the older comment.
  */
 export const pageOrder = (
   input: ReviewInput,
@@ -105,6 +130,13 @@ export const pageOrder = (
     walkthroughOrder(stops).map((item, at) => [item.path, at]),
   );
   const departed = files.size;
+  // A stop's comments come after the files it owns, before the next stop's.
+  const afterStop = new Map<number, number>();
+  let owned = 0;
+  for (const stop of stops) {
+    owned += stop.owns.length;
+    afterStop.set(stop.index, owned - 0.5);
+  }
   const rowsOf = new Map<string, ReadonlyArray<Row>>();
   const rows = (path: RepoPath) => {
     let parsed = rowsOf.get(path);
@@ -134,6 +166,15 @@ export const pageOrder = (
   };
   const place = (comment: Comment): readonly [number, number] => {
     if (comment.kind === "general") return [departed + 1, 0];
+    if (comment.kind === "stop") {
+      const stop = findStop(stops, comment.anchor.stop);
+      return [
+        stop === undefined
+          ? departed + 1
+          : (afterStop.get(stop.index) ?? departed + 1),
+        0,
+      ];
+    }
     const file = files.get(comment.anchor.path);
     if (
       file === undefined ||
@@ -173,7 +214,7 @@ export const answerStep = (
     comment: first.id,
     thread: last?.actor === "agent" ? last.thread : undefined,
     github: first.source.kind === "github",
-    place: placeOf(first),
+    place: placeOf(first, stops),
     more: toRead.length - 1,
     target: commentElementId(first.id),
   };

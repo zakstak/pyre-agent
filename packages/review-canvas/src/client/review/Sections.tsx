@@ -2,9 +2,10 @@
 import { useAtom } from "@effect/atom-react";
 import { ArrowUp, Check } from "lucide-react";
 import { parseRows } from "../../review/patch.ts";
+import { stopTitle } from "../../review/stop-anchor.ts";
 import type { StopView } from "../../review/tour.ts";
 import { count, lineRange } from "../names.ts";
-import { Button, TOUCH_TARGET } from "../ui/button.tsx";
+import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Stat } from "../ui/stat.tsx";
 import { Inline, Joined, Prose } from "../ui/text.tsx";
@@ -13,6 +14,7 @@ import { useAct, usePage, useSending } from "./act.ts";
 import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
 import { StopChanged } from "./Reading.tsx";
+import { StopTalk } from "./StopTalk.tsx";
 import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
   ACTIONS_CLASS,
@@ -120,42 +122,6 @@ export const Attention = ({
     </p>
   );
 
-/** The questions a stop suggests, each of which starts the comment on the whole change. A closed review asks none. */
-export const Questions = ({
-  stop,
-  onAsk,
-}: {
-  readonly stop: StopView;
-  readonly onAsk: (question: string) => void;
-}) => {
-  const { page } = usePage();
-  return stop.questions.length === 0 || !page.writable ? null : (
-    <div
-      role="group"
-      aria-label="Questions to ask"
-      className="mt-3 flex flex-wrap gap-2"
-    >
-      {stop.questions.map((question) => (
-        <button
-          key={question}
-          type="button"
-          data-question={question}
-          onClick={() => onAsk(question)}
-          className={cn(
-            TOUCH_TARGET,
-            "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle",
-          )}
-        >
-          <span aria-hidden="true" className="font-bold text-accent">
-            ?
-          </span>
-          <Inline text={question} />
-        </button>
-      ))}
-    </div>
-  );
-};
-
 /** A rule over a section of the page's one scroll, after the one before it. */
 const RULED = "mt-10 border-t border-separator pt-8";
 
@@ -164,7 +130,6 @@ export const StopSection = ({
   split,
   ruled,
   onFlash,
-  onAsk,
   narration,
   reading = false,
 }: {
@@ -182,7 +147,6 @@ export const StopSection = ({
     start: number,
     end: number,
   ) => void;
-  readonly onAsk: (question: string) => void;
 }) => {
   const { page } = usePage();
   const owned = stop.owns.flatMap((path) => {
@@ -230,7 +194,7 @@ export const StopSection = ({
       <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />
       <FileBlocks models={owned} split={split} list={stop.index} />
-      <Questions stop={stop} onAsk={onAsk} />
+      <StopTalk stop={stop} />
     </section>
   );
 };
@@ -296,6 +260,13 @@ export const General = ({
               key={comment.id}
               className="rounded-panel bg-surface px-4 py-3"
             >
+              {comment.kind === "stop" ? (
+                <p data-dropped-stop className="mb-2 text-small text-muted">
+                  On the stop “{stopTitle(comment.anchor.stop)}” of round{" "}
+                  {comment.anchor.snapshot.round}, which round{" "}
+                  {page.round.round}’s tour no longer has.
+                </p>
+              ) : null}
               <ThreadView comment={comment} />
             </div>
           ))}

@@ -59,6 +59,7 @@ export const TopBar = ({
   place,
   updated,
   controls,
+  status,
   children,
 }: {
   readonly width: NonNullable<VariantProps<typeof frame>["width"]>;
@@ -67,6 +68,8 @@ export const TopBar = ({
   readonly updated?: string | undefined;
   /** The page's own choices, before the connection state. */
   readonly controls?: React.ReactNode;
+  /** More of the page's state, said beside the connection state, such as whether an agent listens. */
+  readonly status?: React.ReactNode;
   readonly children?: React.ReactNode;
 }) => (
   <header
@@ -96,6 +99,7 @@ export const TopBar = ({
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         {controls}
+        {status}
         <Connection updated={updated} />
         {children}
       </div>

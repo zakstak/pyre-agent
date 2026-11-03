@@ -34,6 +34,7 @@ import type {
   SinceComparison,
   SinceFile,
 } from "../../review/since.ts";
+import { findStop } from "../../review/stop-anchor.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
 import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
 import {
@@ -330,7 +331,9 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
       const place =
         next.place.kind === "general"
           ? "on the whole change"
-          : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
+          : next.place.kind === "stop"
+            ? `on stop ${next.place.stop} · ${next.place.title}`
+            : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
       return {
         kind: "go",
         what: next.github
@@ -400,6 +403,9 @@ export interface PageModel {
   readonly finished: boolean;
   /** Inline comments whose file left the round. */
   readonly departed: ReadonlyArray<InlineComment>;
+  /** The comments on each stop of the round's tour, by the stop's index. */
+  readonly stopComments: ReadonlyMap<number, ReadonlyArray<StopComment>>;
+  /** Comments on the whole change, and comments on stops the round's tour no longer has. */
   readonly general: ReadonlyArray<Comment>;
   /** The newest time anything in the review changed, for the top bar. */
   readonly updated: string;
@@ -462,7 +468,7 @@ export const pageModel = (
       (comment): comment is InlineComment =>
         comment.kind === "inline" && !files.has(comment.anchor.path),
     ),
-    general: state.comments.filter((comment) => comment.kind === "general"),
+    ...stopTalk(state.comments, stops),
     updated: [
       round.published_at,
       ...state.comments.map((comment) => comment.updated_at),
@@ -471,6 +477,40 @@ export const pageModel = (
       state.drift?.checked_at ?? "",
     ].reduce((a, b) => (b > a ? b : a)),
   };
+};
+
+/** A comment on a stop of the tour. */
+export type StopComment = Extract<Comment, { readonly kind: "stop" }>;
+
+/**
+ * Where comments that are not on lines show: a stop's under the stop of the same identity in the round's tour, and
+ * one whose stop the round dropped with the comments on the whole change.
+ */
+export const stopTalk = (
+  comments: ReadonlyArray<Comment>,
+  stops: ReadonlyArray<StopView>,
+): Pick<PageModel, "stopComments" | "general"> => {
+  const onStops = new Map<number, Array<StopComment>>();
+  const general: Array<Comment> = [];
+  for (const comment of comments) {
+    switch (comment.kind) {
+      case "inline":
+        break;
+      case "general":
+        general.push(comment);
+        break;
+      case "stop": {
+        const stop = findStop(stops, comment.anchor.stop);
+        if (stop === undefined) general.push(comment);
+        else
+          onStops.set(stop.index, [
+            ...(onStops.get(stop.index) ?? []),
+            comment,
+          ]);
+      }
+    }
+  }
+  return { stopComments: onStops, general };
 };
 
 /**

@@ -16,6 +16,7 @@ import {
   canDelete,
   canEdit,
   isPending,
+  isQuestion,
   type OwnComment,
   type Turn,
   turnOf,
@@ -23,11 +24,13 @@ import {
 import { threadName, threadNameOf } from "../names.ts";
 import { Button, buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
+import { MarkdownBody } from "../ui/markdown-body.tsx";
 import { Time, timeTitle } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { AgentVoice, Voice, voiceOf } from "../ui/voice.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, useDraftStatus, usePage, useSending } from "./act.ts";
+import { NotListening } from "./Presence.tsx";
 import type { InlineComment } from "./diff-model.ts";
 import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
@@ -139,10 +142,6 @@ const BAR: Readonly<Record<"you" | "github" | "bot", string>> = {
   bot: "border-separator",
 };
 
-const Body = ({ text }: { readonly text: string }) => (
-  <p className="mt-1 whitespace-pre-wrap break-words text-ink">{text}</p>
-);
-
 const ReplyItem = ({ item }: { readonly item: Reply }) => {
   const { page } = usePage();
   switch (item.actor) {
@@ -162,7 +161,7 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
             <Chip tone={disposition.tone}>{disposition.label}</Chip>
             <Time at={item.created_at} />
           </By>
-          <Body text={item.body} />
+          <MarkdownBody text={item.body} />
           {item.disposition === "deferred" ? (
             <p className="mt-1 text-small">
               <strong>Blocked by:</strong> {item.blocker}
@@ -198,7 +197,7 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
             ) : null}
             <Time at={item.created_at} />
           </By>
-          {item.body.trim() === "" ? null : <Body text={item.body} />}
+          <MarkdownBody text={item.body} />
         </li>
       );
     case "github":
@@ -209,7 +208,7 @@ const ReplyItem = ({ item }: { readonly item: Reply }) => {
             <span>on {new URL(item.github.url).host}</span>
             <Time at={item.created_at} />
           </By>
-          <Body text={item.body} />
+          <MarkdownBody text={item.body} />
         </li>
       );
   }
@@ -798,6 +797,15 @@ export const ThreadView = ({
           ))}
         </ol>
       )}
+      {/* A question waits for an agent to read it now: say when none will until it checks in. */}
+      {isQuestion(comment) && standing === "agent" ? (
+        <NotListening
+          id={id}
+          who={waitingFor(comment, page.snapshot.threads)}
+          sent={comment.updated_at}
+          className="mt-2"
+        />
+      ) : null}
       {page.writable && !editing ? (
         <Moves
           comment={comment}

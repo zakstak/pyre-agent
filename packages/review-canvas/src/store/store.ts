@@ -57,6 +57,7 @@ import {
   Reading,
   type ReadingAction,
   type StopProgress,
+  type StopRef,
 } from "../schema/reading.ts";
 import type { Selection } from "../schema/selection.ts";
 import {
@@ -64,6 +65,7 @@ import {
   ActionError,
   addGeneralComment,
   addInlineComment,
+  addStopComment,
   agentAnswer,
   approve,
   carriedApprovals,
@@ -240,6 +242,14 @@ export type Action =
       readonly question?: boolean | undefined;
     }
   | {
+      readonly kind: "stop_comment";
+      /** The round whose tour the page showed. */
+      readonly round: RoundNumber;
+      readonly stop: StopRef;
+      readonly body: string;
+      readonly question?: boolean | undefined;
+    }
+  | {
       readonly kind: "reply";
       readonly comment: CommentId;
       readonly action: ReviewerReply["action"];
@@ -325,6 +335,8 @@ const sentSlots = (action: Action): ReadonlyArray<DraftSlot> => {
       return [{ kind: "comment" }];
     case "general_comment":
       return [{ kind: "general" }];
+    case "stop_comment":
+      return [{ kind: "stop", stop: action.stop }];
     case "reply":
       return [{ kind: "reply", comment: action.comment }];
     case "edit_comment":
@@ -1148,6 +1160,15 @@ export class Store {
             return addGeneralComment(
               state,
               context,
+              action.body,
+              action.question === true,
+            );
+          case "stop_comment":
+            return addStopComment(
+              state,
+              context,
+              action.round,
+              action.stop,
               action.body,
               action.question === true,
             );

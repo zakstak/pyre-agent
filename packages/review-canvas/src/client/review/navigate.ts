@@ -52,6 +52,7 @@ import {
   flashAtom,
   foldsAtom,
   gapAtom,
+  guideAtom,
   keyHelpAtom,
   openNotesAtom,
   reattachAtom,
@@ -331,6 +332,18 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
      * note shows only when opened, so it opens.
      */
     const revealState = (id: string) => {
+      // The source view shows a stop's comments in the guide's walkthrough, which a narrower page folds away.
+      if (
+        view === "source" &&
+        [...page.stopComments.values()].some((comments) =>
+          comments.some((comment) => commentElementId(comment.id) === id),
+        )
+      ) {
+        const guide = registry.get(guideAtom(key.id));
+        if (guide.tab !== "walkthrough" || !guide.open)
+          registry.set(guideAtom(key.id), { tab: "walkthrough", open: true });
+        return;
+      }
       const place = placeOf(page, id);
       if (place === undefined) return;
       if (

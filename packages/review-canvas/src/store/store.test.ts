@@ -1005,6 +1005,80 @@ test("GitHub comments import once, inline ones found by their quote, and a refre
   store.close();
 });
 
+test("a refresh gives a bot back its [bot] login, which an earlier import left off, and the agents read it", () => {
+  const store = Store.open(":memory:");
+  const { id } = opened(store);
+  const pr = "https://github.com/example/notes/pull/7" as never;
+  const items = (bot: string) => [
+    {
+      kind: "thread" as const,
+      id: "PRRC_1",
+      author: "octocat",
+      url: "https://github.com/example/notes/pull/7#discussion_r1",
+      body: "Why mkstemp here?",
+      created_at: "2026-10-12T00:01:00.000Z",
+      resolved: false,
+      path: "src/notes/store.py" as RepoPath,
+      side: "RIGHT" as const,
+      diff_hunk:
+        "@@ -1,13 +1,19 @@\n import json\n+import os\n+import tempfile\n from pathlib import Path",
+      replies: [
+        {
+          id: "PRRC_2",
+          author: bot,
+          url: "https://github.com/example/notes/pull/7#discussion_r2",
+          body: "Same filesystem.",
+          created_at: "2026-10-12T00:02:00.000Z",
+        },
+      ],
+    },
+    {
+      kind: "review" as const,
+      id: "PRR_3",
+      author: bot,
+      url: "https://github.com/example/notes/pull/7#pullrequestreview-3",
+      body: "### Codex Review",
+      created_at: "2026-10-12T00:03:00.000Z",
+    },
+  ];
+  store.importGitHub(id, pr, items("chatgpt-codex-connector") as never);
+  const refreshed = store.importGitHub(
+    id,
+    pr,
+    items("chatgpt-codex-connector[bot]") as never,
+  );
+  assert.deepEqual(
+    [
+      refreshed.report.comments,
+      refreshed.report.replies,
+      refreshed.report.already,
+    ],
+    [0, 0, 2],
+  );
+  const current = store.review(id);
+  assert.ok(current !== undefined);
+  const authors = current.state.comments.flatMap((comment) => [
+    comment.source.kind === "github" ? comment.source.author : "reviewer",
+    ...comment.replies.map((reply) =>
+      reply.actor === "github" ? reply.github.author : reply.actor,
+    ),
+  ]);
+  assert.deepEqual(authors, [
+    "octocat",
+    "chatgpt-codex-connector[bot]",
+    "chatgpt-codex-connector[bot]",
+  ]);
+  const feedback = feedbackOf(current, "2026-10-12T00:00:00.000Z" as never);
+  assert.ok(feedback !== undefined);
+  assert.equal(
+    feedback.comments[1]?.source.kind === "github"
+      ? feedback.comments[1].source.author
+      : undefined,
+    "chatgpt-codex-connector[bot]",
+  );
+  store.close();
+});
+
 test("a refresh follows GitHub's resolution, unless an answer or the reviewer's own reply came after GitHub's last word", () => {
   const pr = "https://github.com/example/notes/pull/7" as never;
   const thread = (resolved: boolean) => ({

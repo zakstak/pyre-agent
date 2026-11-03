@@ -9,6 +9,8 @@ import { ArrowRight, Check, MessageSquareDashed } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 import type { Comment } from "../../schema/feedback.ts";
 import type { CommentId } from "../../schema/primitives.ts";
+import { findStop, stopTitle } from "../../review/stop-anchor.ts";
+import type { StopView } from "../../review/tour.ts";
 import { count, lineRange, VERDICT_TEXT } from "../names.ts";
 import { buttonVariants, TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -45,10 +47,20 @@ const StepLink = ({
 );
 
 /** Where a pending comment is, as its row in the pending list names it. */
-const placeOf = (comment: Comment): string =>
-  comment.kind === "general"
-    ? "On the whole change"
-    : `${comment.anchor.path}:${lineRange(comment.anchor.start_line, comment.anchor.end_line)}`;
+const placeOf = (comment: Comment, stops: ReadonlyArray<StopView>): string => {
+  switch (comment.kind) {
+    case "general":
+      return "On the whole change";
+    case "inline":
+      return `${comment.anchor.path}:${lineRange(comment.anchor.start_line, comment.anchor.end_line)}`;
+    case "stop": {
+      const stop = findStop(stops, comment.anchor.stop);
+      return stop === undefined
+        ? "On the whole change"
+        : `Stop ${stop.index + 1} · ${stopTitle(comment.anchor.stop)}`;
+    }
+  }
+};
 
 /** The first line of a comment, as a row of a list shows it. */
 const firstLine = (body: string): string => body.trim().split("\n", 1)[0] ?? "";
@@ -109,7 +121,7 @@ const PendingStep = ({
                   )}
                 >
                   <code className="truncate text-muted">
-                    {placeOf(comment)}
+                    {placeOf(comment, page.stops)}
                   </code>
                   <span className="truncate text-ink">
                     {firstLine(comment.body)}

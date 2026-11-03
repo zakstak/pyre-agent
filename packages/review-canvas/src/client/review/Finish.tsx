@@ -10,6 +10,7 @@ import { Time } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
+import { agentsName, NotListening } from "./Presence.tsx";
 import { useKeepDraft, useSendDraft } from "./saving.ts";
 import { ACTIONS_CLASS, DraftNote, submitOnModEnter } from "./Thread.tsx";
 import { finishDraftAtom } from "./ui.ts";
@@ -106,6 +107,12 @@ export const Finish = () => {
           <Time at={submission.submitted_at} />
           {submission.body.trim() === "" ? "." : `: ${submission.body}`}
         </p>
+        <NotListening
+          id={id}
+          who={agentsName(page.snapshot.threads)}
+          sent={submission.submitted_at}
+          className="mt-2"
+        />
       </section>
     );
   return (

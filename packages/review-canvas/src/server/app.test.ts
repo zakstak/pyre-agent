@@ -19,7 +19,7 @@ import {
 import { Socket } from "effect/socket";
 import { App, loopbackHosts } from "./app.ts";
 import { Assets, layerFromBuild } from "./assets.ts";
-import { activityLayer, storeLayer } from "./services.ts";
+import { activityLayer, presenceLayer, storeLayer } from "./services.ts";
 import { gitEnvironment } from "../collector/git.ts";
 import { identifyRepository } from "./repositories.ts";
 import { repositoryId } from "../schema/repositories.ts";
@@ -115,6 +115,7 @@ const withServer = (
     Layer.provide(TestAssets),
     Layer.provide(storeLayer(":memory:")),
     Layer.provide(activityLayer),
+    Layer.provide(presenceLayer),
     Layer.provideMerge(Server),
   );
   return Effect.runPromise(

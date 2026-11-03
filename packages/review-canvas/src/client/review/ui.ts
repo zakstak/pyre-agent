@@ -185,6 +185,26 @@ export const generalDraftAtom = Atom.family((_review: ReviewId) =>
   Atom.make("").pipe(Atom.keepAlive),
 );
 
+/**
+ * A comment being written on a stop of the tour, by the stop's identity across rounds (`refKey` in
+ * review/stop-anchor.ts): whether its box is open, and its text.
+ */
+export const stopDraftAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly stop: string }) =>
+    Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
+);
+
+/**
+ * The source view's guide: which tab it shows, and whether its disclosure is open on a page too narrow to keep it
+ * beside the diff. Going to a comment on a stop shows the walkthrough, where the comment is.
+ */
+export const guideAtom = Atom.family((_review: ReviewId) =>
+  Atom.make<{
+    readonly tab: "walkthrough" | "files";
+    readonly open: boolean;
+  }>({ tab: "walkthrough", open: false }).pipe(Atom.keepAlive),
+);
+
 /** The verdict and summary of a finish being written, which carry over when a new round replaces the section. */
 export const finishDraftAtom = Atom.family((_review: ReviewId) =>
   Atom.make<{ readonly verdict: Verdict; readonly body: string }>({

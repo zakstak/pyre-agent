@@ -4,7 +4,8 @@ import { test } from "node:test";
 import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import type { RepoPath, RoundNumber, Timestamp } from "../schema/primitives.ts";
 import type { Reading, StopMark } from "../schema/reading.ts";
-import { markStop, readingOf, refKey, stopRead, stopRefs } from "./reading.ts";
+import { markStop, readingOf, stopRead } from "./reading.ts";
+import { refKey, stopRefs } from "./stop-anchor.ts";
 import { tourView } from "./tour.ts";
 
 const PATCH = "@@ -1,2 +1,2 @@\n-a\n+b\n c\n";

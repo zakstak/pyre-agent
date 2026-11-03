@@ -41,15 +41,18 @@ export const ViewControl = () => {
 
 /**
  * The top bar of a review: the target as the page's place and a link to the pull request, and the page's choices,
- * such as the view, before the connection state.
+ * such as the view, before whether an agent listens and the connection state.
  */
 export const ReviewBar = ({
   target,
   updated,
+  agents,
   children,
 }: {
   readonly target: Target;
   readonly updated: string | undefined;
+  /** Whether an agent listens, said beside the connection state. */
+  readonly agents?: React.ReactNode;
   readonly children?: React.ReactNode;
 }) => {
   const name = targetName(target);
@@ -58,6 +61,7 @@ export const ReviewBar = ({
       width="review"
       updated={updated}
       controls={children}
+      status={agents}
       place={
         <>
           <TargetText target={target} />

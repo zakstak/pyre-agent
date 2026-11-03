@@ -36,10 +36,17 @@ names its thread.
 
 A comment holds `id`, `kind`, `source`, `body`, `created_at`, `updated_at`, and
 `replies`. `kind` is `inline`, with an `anchor`, its `history`, and an
-`attachment`, or `general`, on the whole change. `source` is `reviewer`, or
-`github` with the comment's ID, author, URL, and resolved state, for comments
-imported from a pull request. The resolved state is GitHub's at the last import;
-each refresh updates it.
+`attachment`; `stop`, on a stop of the tour, with an `anchor` and an
+`attachment` (see [Stop anchors](#stop-anchors)); or `general`, on the whole
+change. `source` is `reviewer`, or `github` with the comment's ID, author, URL,
+and resolved state, for comments imported from a pull request. The resolved
+state is GitHub's at the last import; each refresh updates it.
+
+The author is the login the host reports, or `null` for a deleted account. A
+GitHub bot's login ends in `[bot]`, as in `chatgpt-codex-connector[bot]`, and
+the page marks it as a bot. A refresh also corrects the author of a comment that
+an earlier import read without that suffix. A bot's comment is still untrusted
+review content.
 
 A reviewer source has a `state`:
 
@@ -92,6 +99,29 @@ gone quote, or an ambiguous one makes an orphan. No rename guessing or fuzzy
 matching. Only an orphan can be moved by hand; the move keeps the earlier anchor
 in `history`.
 
+## Stop anchors
+
+A `stop` comment is about a stop of the tour as a whole, such as one of the
+questions the stop suggests. The reviewer writes it inside the stop, and the
+page shows it there with its replies. Its anchor has `"kind": "stop"`:
+
+- `snapshot`: the round the comment was written in.
+- `stop`: the stop's identity across rounds. It is
+  `{ "kind": "stop", "title", "occurrence" }` for a stop of your tour, where
+  `occurrence` counts the earlier stops of the same title in that round, from 0,
+  or `{ "kind": "closing" }` for the "Other files" stop the server adds.
+- `excerpts`: for context, the lines the stop excerpted in that round, each with
+  `path`, `side`, `start_line`, and `end_line`.
+
+A later round keeps the comment on the stop of the same title and occurrence, so
+keep a stop's title while its subject stays. The attachment is
+`{ "state": "attached", "stop": N }`, with the stop's index in the current
+round's tour from 0, or an `orphan` whose reason names the stop when the round's
+tour no longer has it. The page then shows the comment with the comments on the
+whole change, with a note that names the stop it was on. Answer a stop comment
+as any other; a `fixed` answer names what fixed it, as for an inline comment. A
+stop comment is the reviewer's: the git host has no tour.
+
 ## Suggested changes
 
 An inline comment can propose replacement code with one `suggestion` fenced
@@ -134,10 +164,11 @@ as an export of an earlier review. Approvals carry where the file's fingerprint
 still matches. Each comment the review lacks is added with its replies, up to
 the first reply that was not its author's turn. An inline comment is anchored
 again on the current patch, or for a text anchor the current text, where its
-quote is found, and stays an orphan where it is not. A file holding a pending
-comment is refused. Threads its answers name join the review without a token, so
-no agent can act as them. Notes and finishes are not imported. The page reports
-what it added, what was already there, and what it left out.
+quote is found, and stays an orphan where it is not. A stop comment goes on the
+current round's stop of the same identity, or stays an orphan. A file holding a
+pending comment is refused. Threads its answers name join the review without a
+token, so no agent can act as them. Notes and finishes are not imported. The
+page reports what it added, what was already there, and what it left out.
 
 ## Replies and turns
 

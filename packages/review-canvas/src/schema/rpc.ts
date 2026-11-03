@@ -8,7 +8,8 @@ import { Rpc, RpcGroup } from "effect/rpc";
 import { Draft, DraftSlot, SavedDraft } from "./draft.ts";
 import { REVIEWER_ACTIONS, VERDICTS } from "./feedback.ts";
 import { ReviewInput } from "./input.ts";
-import { ReadingAction, StopProgress } from "./reading.ts";
+import { Presence } from "./presence.ts";
+import { ReadingAction, StopProgress, StopRef } from "./reading.ts";
 import { Selection } from "./selection.ts";
 import * as Limits from "./limits.ts";
 import {
@@ -69,6 +70,14 @@ export const PageAction = Schema.Union([
     body: RequiredBody,
     question: Schema.optionalKey(Schema.Boolean),
   }),
+  /** A comment on a stop of the tour of the round the page shows, which stays on the stop across rounds. */
+  Schema.Struct({
+    kind: Schema.Literal("stop_comment"),
+    round: RoundNumber,
+    stop: StopRef,
+    body: RequiredBody,
+    question: Schema.optionalKey(Schema.Boolean),
+  }),
   Schema.Struct({
     kind: Schema.Literal("reply"),
     comment: CommentId,
@@ -108,7 +117,7 @@ export const PageAction = Schema.Union([
   }),
 ]).annotate({
   expected:
-    "an action whose kind is comment, general_comment, reply, approve, unapprove, submit, reattach, edit_comment, or delete_comment",
+    "an action whose kind is comment, general_comment, stop_comment, reply, approve, unapprove, submit, reattach, edit_comment, or delete_comment",
 });
 export type PageAction = typeof PageAction.Type;
 
@@ -282,6 +291,16 @@ export class PageRpcs extends RpcGroup.make(
   Rpc.make("review.watch", {
     payload: reviewId,
     success: ReviewSnapshot,
+    error: Refused,
+    stream: true,
+  }),
+  /**
+   * Whether an agent listens to the review now, then again whenever that changes: a thread waits or stops waiting,
+   * makes a request, publishes, or answers, or a minute passes since its last wait.
+   */
+  Rpc.make("review.presence", {
+    payload: reviewId,
+    success: Presence,
     error: Refused,
     stream: true,
   }),

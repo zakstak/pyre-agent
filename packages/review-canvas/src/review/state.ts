@@ -15,6 +15,7 @@ import type {
 } from "../schema/feedback.ts";
 import { compareReplies } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
+import type { StopRef } from "../schema/reading.ts";
 import type { Selection } from "../schema/selection.ts";
 import type {
   CommentId,
@@ -33,6 +34,13 @@ import {
   attach,
   isAnchorProblem,
 } from "./anchor.ts";
+import {
+  attachStop,
+  findStop,
+  stopAnchorFor,
+  stopTitle,
+} from "./stop-anchor.ts";
+import { tourView } from "./tour.ts";
 import {
   approvalHolds,
   canDelete,
@@ -239,6 +247,53 @@ export const addGeneralComment = (
     created_at: context.now,
     updated_at: context.now,
     replies: [],
+  };
+  return Result.succeed({ ...state, comments: [...state.comments, comment] });
+};
+
+/**
+ * A comment on a stop of the current round's tour, such as one of the questions the stop suggests. The page names the
+ * round it showed, so a question never lands on a stop the reviewer has not seen.
+ */
+export const addStopComment = (
+  state: ReviewState,
+  context: ActionContext,
+  seen: RoundNumber,
+  ref: StopRef,
+  body: string,
+  question = false,
+): Outcome => {
+  const current = withRound(state, context);
+  if (Result.isFailure(current)) return Result.fail(current.failure);
+  const { round, input } = current.success;
+  if (round.round !== seen)
+    return fail(
+      "changed",
+      `Round ${round.round} was published after the page showed round ${seen}. Ask about the stop as it is now.`,
+    );
+  const stops = tourView(input).stops;
+  const stop = findStop(stops, ref);
+  if (stop === undefined)
+    return fail(
+      "not_found",
+      `Round ${round.round}'s tour has no stop “${stopTitle(ref)}”.`,
+    );
+  const anchor = stopAnchorFor(
+    { round: round.round, input_sha256: round.input_sha256 },
+    ref,
+    stop,
+    input,
+  );
+  const comment: Comment = {
+    kind: "stop",
+    id: context.commentId(),
+    source: reviewerSource(state, question),
+    body,
+    created_at: context.now,
+    updated_at: context.now,
+    replies: [],
+    anchor,
+    attachment: attachStop(anchor, stops, round.round),
   };
   return Result.succeed({ ...state, comments: [...state.comments, comment] });
 };
@@ -507,8 +562,9 @@ export const deleteComment = (state: ReviewState, id: CommentId): Outcome => {
 };
 
 /**
- * A new round from a thread: every inline comment reattaches to the new patches, and approvals stay as they are,
- * holding only where the fingerprint still matches.
+ * A new round from a thread: every inline comment reattaches to the new patches, every comment on a stop to the stop
+ * of the same identity in the new tour, and approvals stay as they are, holding only where the fingerprint still
+ * matches.
  */
 export const publishRound = (
   state: ReviewState,
@@ -518,18 +574,27 @@ export const publishRound = (
   const closed = open(state);
   if (closed !== undefined) return Result.fail(closed);
   const files = new Map(input.files.map((file) => [file.path, file]));
+  const stops = tourView(input).stops;
   return Result.succeed({
     ...state,
     rounds: [...state.rounds, round],
     drift: undefined,
-    comments: state.comments.map((comment) =>
-      comment.kind === "inline"
-        ? {
+    comments: state.comments.map((comment): Comment => {
+      switch (comment.kind) {
+        case "inline":
+          return {
             ...comment,
             attachment: attach(comment.anchor, files.get(comment.anchor.path)),
-          }
-        : comment,
-    ),
+          };
+        case "stop":
+          return {
+            ...comment,
+            attachment: attachStop(comment.anchor, stops, round.round),
+          };
+        case "general":
+          return comment;
+      }
+    }),
   });
 };
 
