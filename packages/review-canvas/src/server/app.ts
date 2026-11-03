@@ -8,11 +8,14 @@ import {
   HttpStaticServer,
 } from "effect/http";
 import { encodeDocument, FeedbackDocument } from "../schema/document.ts";
+import { DraftWrites } from "../schema/draft.ts";
 import type { Timestamp } from "../schema/primitives.ts";
 import { feedbackOf } from "../store/store.ts";
 import { Assets } from "./assets.ts";
+import { attempt, ok, readJson, refused, type RequestRefused } from "./json.ts";
+import { MAX_REQUEST_BYTES } from "./requests.ts";
 import { PageRpcServer } from "./rpc.ts";
-import { ReviewStore } from "./services.ts";
+import { Activity, ReviewStore } from "./services.ts";
 
 const securityHeaders = {
   "content-security-policy":
@@ -54,15 +57,15 @@ export const loopbackHosts = (port: number): ReadonlySet<string> => {
   return new Set(port === 80 ? [...names, ...withPort] : withPort);
 };
 
-/** The Origin values a page served here sends when it opens the RPC socket. */
+/** The Origin values a page served here sends when it opens the RPC socket or posts its drafts. */
 export const loopbackOrigins = (port: number): ReadonlySet<string> =>
   new Set([...loopbackHosts(port)].map((host) => `http://${host}`));
 
 /**
  * Answers only requests addressed to this server by its loopback name and port, so a page on another site that
- * rebinds its DNS name to 127.0.0.1 gets nothing. A WebSocket, which is how pages read and change reviews, also needs
- * this server's own Origin: browsers send any site's WebSocket to localhost, and only the Origin says whose page opened
- * it.
+ * rebinds its DNS name to 127.0.0.1 gets nothing. A WebSocket, which is how pages read and change reviews, and any
+ * request but a read, such as a page posting its drafts, also need this server's own Origin: browsers send any site's
+ * WebSocket and form posts to localhost, and only the Origin says whose page sent them.
  * Every response carries the security headers, including the 404 or 500 for a failed route.
  */
 const Guard = HttpRouter.middleware(
@@ -85,10 +88,10 @@ const Guard = HttpRouter.middleware(
           );
         }
         // Every WebSocket upgrade, whatever its path: the router also matches `/rpc/`, `/RPC`, and `/%72pc`.
-        if (
-          (request.headers.upgrade ?? "").toLowerCase() === "websocket" &&
-          !origins.has(request.headers.origin ?? "")
-        ) {
+        const changes =
+          (request.headers.upgrade ?? "").toLowerCase() === "websocket" ||
+          (request.method !== "GET" && request.method !== "HEAD");
+        if (changes && !origins.has(request.headers.origin ?? "")) {
           return secure(
             HttpServerResponse.text(
               "The request did not come from this page.",
@@ -147,6 +150,38 @@ const Export = HttpRouter.add(
   }),
 );
 
+/**
+ * A page's unsent drafts in one request, which the browser finishes even when the page closes: a page sends them so
+ * when it is hidden or closed, where its socket's calls may never go out. Each write is kept as `review.saveDraft` or
+ * `review.discardDraft` keeps it; a refused one does not stop the others, and the first refusal is the answer.
+ */
+const KeepDrafts = HttpRouter.add(
+  "POST",
+  "/reviews/:id/drafts",
+  Effect.gen(function* () {
+    const store = yield* ReviewStore;
+    (yield* Activity).touch();
+    const { id } = yield* HttpRouter.params;
+    if (id === undefined) return notFound;
+    const { writes } = yield* readJson(DraftWrites, MAX_REQUEST_BYTES);
+    const refusals: Array<RequestRefused> = [];
+    for (const write of writes) {
+      const kept = yield* Effect.result(
+        attempt(() =>
+          write.kind === "save"
+            ? store.saveDraft(id, write.draft)
+            : store.discardDraft(id, write.slot),
+        ),
+      );
+      if (Result.isFailure(kept)) refusals.push(kept.failure);
+    }
+    const [first] = refusals;
+    return first === undefined
+      ? ok({ ok: true, saved_at: new Date().toISOString() })
+      : refused(first);
+  }).pipe(Effect.catch((error) => Effect.succeed(refused(error)))),
+);
+
 /** The page shell, the RPCs, the feedback download, the built browser assets under /assets, and the guard. */
 export const App = (options: {
   readonly clientDir: string;
@@ -161,6 +196,7 @@ export const App = (options: {
     shellAt("/reviews/:id"),
     shellAt("/stacks/:id"),
     Export,
+    KeepDrafts,
     PageRpcServer(options.repositoryRoots ?? []),
     HttpStaticServer.layer({
       root: `${options.clientDir}/assets`,
