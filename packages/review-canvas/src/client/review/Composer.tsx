@@ -9,12 +9,10 @@ import { flushSync } from "react-dom";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import type {
-  PatchDigest,
-  RepoPath,
-  ReviewId,
-} from "../../schema/primitives.ts";
+import type { RepoPath, ReviewId } from "../../schema/primitives.ts";
+import type { Selection } from "../../schema/selection.ts";
 import { useAct, usePage } from "./act.ts";
+import { type FileVersion, onVersion } from "./diff-model.ts";
 import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
 import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
 
@@ -42,14 +40,15 @@ export const openDraft = (
 };
 
 /**
- * Takes a review's drafts off patches its round no longer has. A draft whose code changed cannot stay on its rows: its
- * text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the review shows a
- * round, so a draft left on a review the page moved away from is recovered when the page shows that review again.
+ * Takes a review's drafts off versions of files its round no longer has. A draft whose code changed cannot stay on its
+ * lines: its text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the
+ * review shows a round, so a draft left on a review the page moved away from is recovered when the page shows that
+ * review again.
  */
 export const useStashChangedDrafts = (
   review: ReviewId,
   files:
-    | ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }>
+    | ReadonlyMap<RepoPath, Pick<FileVersion, "digest" | "text">>
     | undefined,
 ) => {
   const registry = useContext(RegistryContext);
@@ -58,7 +57,8 @@ export const useStashChangedDrafts = (
     const drafts = registry.get(draftsAtom(review));
     const lost = drafts.filter(
       (draft) =>
-        !draft.submitting && files.get(draft.path)?.digest !== draft.digest,
+        !draft.submitting &&
+        !onVersion(draft.selection, files.get(draft.selection.path)),
     );
     if (lost.length === 0) return;
     registry.set(
@@ -77,6 +77,12 @@ export const useStashChangedDrafts = (
     }
   }, [review, files, registry]);
 };
+
+/** The line a selection ends on, as a selector of the table's units in any layout. */
+const lastLine = (selection: Selection): string =>
+  selection.kind === "rows"
+    ? `[data-row="${selection.end_row}"]`
+    : `[data-new="${selection.end_line}"]`;
 
 /** `table` is the ID of the diff table the composer is in, and `range` names the lines it comments on. */
 export const Composer = ({
@@ -128,7 +134,7 @@ export const Composer = ({
       (
         document.getElementById(draft.opener) ??
         document.querySelector<HTMLElement>(
-          `table[data-table="${table}"] [data-row="${draft.end}"] [data-add-comment]`,
+          `table[data-table="${table}"] ${lastLine(draft.selection)} [data-add-comment]`,
         )
       )?.focus();
   };
@@ -145,13 +151,7 @@ export const Composer = ({
     const outcome = await act(
       {
         kind: "comment",
-        selection: {
-          kind: "rows",
-          path: draft.path,
-          patch_sha256: draft.digest,
-          start_row: draft.start,
-          end_row: draft.end,
-        },
+        selection: draft.selection,
         body,
         ...(question ? { question: true } : {}),
       },

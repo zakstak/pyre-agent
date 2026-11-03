@@ -1,8 +1,8 @@
 /**
  * Moving through the one-scroll review page: the hash contract (`#tour/N`, `#files`, `#files/PATH`, `#ELEMENT-ID`),
- * J and K between stops, N for the next strip's target, and the scroll-spy that marks where the reviewer is. In the
- * source view a stop is a place in the guide beside the diff: moving to it scrolls the guide there and the diff to the
- * stop's first file.
+ * J and K between stops, N for the next strip's target, the other page keys in keys.ts, and the scroll-spy that marks
+ * where the reviewer is. In the source view a stop is a place in the guide beside the diff: moving to it scrolls the
+ * guide there and the diff to the stop's first file.
  *
  * A folded file or gap renders nothing, so revealing an element is a change of state first: the file unfolds and the
  * gap opens, and the element is there to scroll to on the next frame.
@@ -16,18 +16,39 @@ import {
   fileElementId,
   type Next,
 } from "../../review/next.ts";
-import type { ReviewId } from "../../schema/primitives.ts";
+import type { CommentId, ReviewId } from "../../schema/primitives.ts";
+import { announce } from "../ui/announce.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
-import { layoutDiff, nextStage } from "./diff-model.ts";
-import { parseHash } from "./places.ts";
 import {
+  gapStage,
+  heldLines,
+  holdsLines,
+  lastUnit,
+  layoutDiff,
+  nextStage,
+  onVersion,
+  parseUnit,
+  type Unit,
+} from "./diff-model.ts";
+import {
+  fileOrder,
+  pageCommand,
+  type Step,
+  stepFrom,
+  threadOrder,
+} from "./keys.ts";
+import { hashOf, parseHash } from "./places.ts";
+import {
+  draftsAtom,
   flashAtom,
   foldsAtom,
   gapAtom,
+  keyHelpAtom,
   openNotesAtom,
   reattachAtom,
   seenAtom,
+  shortcutsAtom,
   type View,
 } from "./ui.ts";
 import type { FileModel, PageModel } from "./view.ts";
@@ -38,29 +59,55 @@ const fileAt = (page: PageModel, path: string): FileModel | undefined => {
   return files.get(path);
 };
 
-/** The file and row an element ID names, when the element is in a file's body. */
+/**
+ * The file and unit an element ID names, when the element is in a file's body: a row of the patch, or an unchanged
+ * line between hunks.
+ */
 const placeOf = (
   page: PageModel,
   id: string,
-): { readonly path: string; readonly row?: number } | undefined => {
+): { readonly path: string; readonly unit?: Unit } | undefined => {
   if (id.startsWith("files/"))
     return fileAt(page, id.slice(6)) === undefined
       ? undefined
       : { path: id.slice(6) };
   for (const model of page.files.values()) {
+    const path = model.file.path;
     const note = model.notes.find((item) => item.id === id);
-    if (note !== undefined) return { path: model.file.path, row: note.row };
+    if (note !== undefined)
+      return { path, unit: { kind: "row", index: note.row } };
     const placed = model.placed.find(
       (item) => commentElementId(item.comment.id) === id,
     );
-    if (placed !== undefined) return { path: model.file.path, row: placed.end };
+    if (placed !== undefined)
+      return { path, unit: { kind: "row", index: placed.end } };
+    const context = model.context.find(
+      (item) => commentElementId(item.comment.id) === id,
+    );
+    if (context !== undefined)
+      return {
+        path,
+        unit: lastUnit(layoutOf(model).rows, {
+          kind: "lines",
+          start: context.start_line,
+          end: context.end_line,
+        }),
+      };
     if (model.orphans.some((comment) => commentElementId(comment.id) === id))
-      return { path: model.file.path };
-    const row = new RegExp(`^f${model.index}-r([0-9]+)$`).exec(id);
-    if (row !== null) return { path: model.file.path, row: Number(row[1]) };
+      return { path };
+    const unit = new RegExp(`^f${model.index}-([rl][0-9]+)$`).exec(id);
+    const parsed = unit?.[1] === undefined ? undefined : parseUnit(unit[1]);
+    if (parsed !== undefined) return { path, unit: parsed };
   }
   return undefined;
 };
+
+/** A file's diff as its table lays it out. */
+const layoutOf = (model: FileModel) =>
+  layoutDiff(model.file.patch ?? "", {
+    shown: model.shown,
+    content: model.file.new_content,
+  });
 
 /** The stop a file belongs to, as the contents count it. */
 const stopOfPath = (page: PageModel, path: string) =>
@@ -156,6 +203,18 @@ export const showGuideStop = (index: number): boolean => {
   return true;
 };
 
+/** Puts focus on a file's line cursor, or its first line: where an arrow from the file's heading goes. */
+const focusLines = (article: Element): boolean => {
+  const table = article.querySelector("table[data-patch]");
+  const button =
+    table?.querySelector<HTMLElement>("[data-add-comment][tabindex='0']") ??
+    table?.querySelector<HTMLElement>("[data-unit] [data-add-comment]");
+  if (button === null || button === undefined) return false;
+  button.closest("[data-unit]")?.scrollIntoView({ block: "nearest" });
+  button.focus({ preventScroll: true });
+  return true;
+};
+
 /** Keeps an element of the rail in its scroller's view, moving it as little as it can. */
 export const keepInRail = (element: HTMLElement) => {
   scrollRail(element, "nearest");
@@ -219,6 +278,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
   const registry = useContext(RegistryContext);
   /** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
   const tour = useRef({ stop: -1, steeringUntil: 0 });
+  /** The thread T last went to, which it moves from when focus is in no thread. */
+  const thread = useRef<CommentId | undefined>(undefined);
   return useMemo(() => {
     const steer = () => {
       tour.current.steeringUntil = Date.now() + 900;
@@ -252,26 +313,41 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       const folds = registry.get(foldsAtom(key));
       if (folds[place.path] !== "open")
         registry.set(foldsAtom(key), { ...folds, [place.path]: "open" });
-      if (place.row === undefined || model.file.patch === undefined) return;
-      const row = place.row;
-      const layout = layoutDiff(model.file.patch, {
-        shown: model.shown,
-        content: model.file.new_content,
-      });
-      for (const segment of layout.segments) {
+      const unit = place.unit;
+      if (unit === undefined || model.file.patch === undefined) return;
+      const held = heldLines(
+        model.context,
+        registry
+          .get(draftsAtom(key.id))
+          .map((draft) => draft.selection)
+          .filter(
+            (selection) =>
+              selection.path === model.file.path && onVersion(selection, model),
+          ),
+      );
+      for (const segment of layoutOf(model).segments) {
         if (segment.kind !== "gap") continue;
-        const holds = segment.parts.some(
-          (part) =>
-            part.kind === "folded" &&
-            part.rows.some((item) => item.index === row),
-        );
-        if (!holds) continue;
         const gap = gapAtom({
           path: model.file.path,
           digest: model.digest,
           gap: segment.key,
         });
-        if (registry.get(gap) === 0) registry.set(gap, nextStage(0, segment));
+        const stage = gapStage(
+          registry.get(gap),
+          segment,
+          holdsLines(segment, held),
+        );
+        // A folded row shows from the gap's first stage, an unchanged line only from its last.
+        const holds = segment.parts.some((part) =>
+          unit.kind === "row"
+            ? part.kind === "folded" &&
+              part.rows.some((item) => item.index === unit.index)
+            : part.kind === "context" &&
+              part.lines.some((line) => line.new === unit.line),
+        );
+        if (!holds) continue;
+        if (unit.kind === "line" && stage !== 2) registry.set(gap, 2);
+        else if (stage === 0) registry.set(gap, nextStage(0, segment));
       }
     };
 
@@ -366,6 +442,96 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     const goStep = async (step: "answer" | "file") => {
       const next = page.steps[step];
       if (next !== undefined) await go(next);
+    };
+
+    /**
+     * The file focus is in, or else the last whose top passed the line under the sticky bars. Above the first file,
+     * none: F then goes to the first.
+     */
+    const currentFile = () => {
+      const line =
+        (document.querySelector("[data-next]")?.getBoundingClientRect()
+          .bottom ?? 0) + 12;
+      const path =
+        document.activeElement?.closest<HTMLElement>("main article[data-path]")
+          ?.dataset.path ??
+        [...document.querySelectorAll<HTMLElement>("main article[data-path]")]
+          .filter((article) => article.getBoundingClientRect().top <= line)
+          .at(-1)?.dataset.path;
+      return [...page.files.keys()].find((item) => item === path);
+    };
+
+    /** F and Shift+F: the next or previous file in the page's order, from the current one. */
+    const stepFile = async (step: Step) => {
+      const path = stepFrom(fileOrder(page, view), currentFile(), step);
+      if (path === undefined)
+        return toast(
+          step === 1 ? "This is the last file." : "This is the first file.",
+        );
+      history.replaceState(null, "", hashOf(fileElementId(path)));
+      await showFile(path);
+    };
+
+    /**
+     * T and Shift+T: the next or previous thread in the page's order, from the one focus is in or else the one T last
+     * went to. The thread's file unfolds and its gap opens.
+     */
+    const stepThread = async (step: Step) => {
+      const order = threadOrder(page, view);
+      const focused = document.activeElement?.closest<HTMLElement>(
+        "article[data-comment]",
+      )?.dataset.comment;
+      const current =
+        order.find((id) => id === focused) ??
+        order.find((id) => id === thread.current);
+      const next = stepFrom(order, current, step);
+      if (next === undefined)
+        return toast(
+          order.length === 0
+            ? "There are no threads yet."
+            : step === 1
+              ? "This is the last thread."
+              : "This is the first thread.",
+        );
+      thread.current = next;
+      const target = await reveal(commentElementId(next));
+      if (target === null) return;
+      steer();
+      target.scrollIntoView({ block: "center" });
+      target.focus({ preventScroll: true });
+      land(target);
+      announce(`Thread ${order.indexOf(next) + 1} of ${order.length}.`);
+    };
+
+    /**
+     * V: marks the current file viewed, or not viewed, through its Viewed control. Focus on the file's lines goes to its
+     * heading first, since viewing folds the file.
+     */
+    const toggleViewed = () => {
+      const path = currentFile();
+      const article =
+        path === undefined
+          ? null
+          : document.getElementById(fileElementId(path));
+      const button = article?.querySelector<HTMLElement>("button[data-viewed]");
+      if (
+        path === undefined ||
+        article === null ||
+        button === null ||
+        button === undefined
+      )
+        return toast(
+          path === undefined
+            ? "Move to a file first."
+            : "This file cannot be marked viewed.",
+        );
+      const viewed = button.getAttribute("aria-pressed") !== "true";
+      if (article.contains(document.activeElement))
+        article
+          .querySelector<HTMLElement>("h3")
+          ?.focus({ preventScroll: true });
+      button.click();
+      announce(`${path} ${viewed ? "viewed" : "not viewed"}.`);
     };
 
     /** Where the hash says the page is. */
@@ -549,6 +715,9 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       steering,
       showStop,
       showFile,
+      stepFile,
+      stepThread,
+      toggleViewed,
       goNext,
       goStep,
       goFinish,
@@ -619,27 +788,69 @@ export const useCancelReattach = (review: ReviewId) => {
   }, [review, registry]);
 };
 
-/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
+/**
+ * The page keys of keys.ts: J and K between stops, N for the next thing to do, F and T between files and threads, V,
+ * E, and ? for the key help. None fires from a text field or a dialog, or when the reviewer turned them off. An arrow
+ * on a file's heading goes to its lines, whatever the setting: it acts only where focus is. Esc stops moving a comment.
+ */
 export const useKeys = (review: ReviewId, navigate: Navigation) => {
+  const registry = useContext(RegistryContext);
   useCancelReattach(review);
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.defaultPrevented) return;
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        target.closest("textarea, input, select, [contenteditable='true']") !==
-          null
+        (target.isContentEditable ||
+          target.closest("textarea, input, select, [role='dialog']") !== null)
       )
         return;
-      const key = event.key.toLowerCase();
-      if (key === "j") void navigate.next();
-      else if (key === "k") void navigate.previous();
-      else if (key === "n") void navigate.goNext();
-      else return;
+      if (
+        event.key === "ArrowDown" &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        target instanceof HTMLElement
+      ) {
+        const article = target
+          .closest("[data-file-head]")
+          ?.closest("article[data-path]");
+        if (article !== null && article !== undefined && focusLines(article))
+          event.preventDefault();
+        return;
+      }
+      if (!registry.get(shortcutsAtom)) return;
+      const command = pageCommand(event);
+      if (command === undefined) return;
       event.preventDefault();
+      switch (command.kind) {
+        case "stop":
+          return void (command.step === 1
+            ? navigate.next()
+            : navigate.previous());
+        case "next":
+          return void navigate.goNext();
+        case "file":
+          return void navigate.stepFile(command.step);
+        case "thread":
+          return void navigate.stepThread(command.step);
+        case "viewed":
+          return navigate.toggleViewed();
+        case "finish":
+          return void navigate.goFinish();
+        case "help":
+          return registry.set(keyHelpAtom, {
+            open: true,
+            returnTo:
+              target instanceof HTMLElement && target !== document.body
+                ? target
+                : undefined,
+          });
+      }
     };
     document.addEventListener("keydown", keys);
     return () => document.removeEventListener("keydown", keys);
-  }, [navigate]);
+  }, [navigate, registry]);
 };

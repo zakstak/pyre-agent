@@ -14,6 +14,7 @@ import type { StopProgress, StopRead } from "../../schema/reading.ts";
 import type { ReviewSnapshot, RoundView } from "../../schema/rpc.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
+import { parseRows, rowsForLines } from "../../review/patch.ts";
 import {
   answerStep,
   fileStep,
@@ -137,6 +138,22 @@ export const fileStatus = (
   return undefined;
 };
 
+/**
+ * The rows of the patch that comments outside it also cover, as one that starts on unchanged lines and ends in a
+ * hunk: they show, so the thread under its last line shows once its gap opens.
+ */
+const contextRows = (
+  file: ReviewFile,
+  context: ReadonlyArray<ContextComment>,
+): ReadonlyArray<{ readonly start: number; readonly end: number }> => {
+  if (context.length === 0) return [];
+  const rows = parseRows(file.patch ?? "");
+  return context.flatMap((item) => {
+    const span = rowsForLines(rows, "new", item.start_line, item.end_line);
+    return span === undefined ? [] : [span];
+  });
+};
+
 /** Each file's block as the page shows it: its approval, comments, the tour's excerpts and notes, and its fold. */
 const fileModels = (
   snapshot: ReviewSnapshot,
@@ -253,6 +270,7 @@ const fileModels = (
                     start: item.start,
                     end: item.end,
                   })),
+                  ...contextRows(file, context),
                 ],
           notes,
           folded: foldable && !held,

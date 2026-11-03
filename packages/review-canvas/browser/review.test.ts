@@ -911,10 +911,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await unchanged.locator("tr[data-unchanged]").count(), 8);
     assert.equal(await unchanged.isVisible(), true);
-    // Unchanged lines take no comment.
+    // Unchanged lines take comments, as rows of the patch do.
     assert.equal(
       await unchanged.locator("button[data-add-comment]").count(),
-      0,
+      8,
     );
     await file.locator("button[data-viewed]").click();
     await file.locator("button[data-viewed][aria-pressed='true']").waitFor();
@@ -1391,7 +1391,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await label(), "Show 3 more lines");
     assert.equal(await control.getAttribute("aria-expanded"), "false");
-    // The folded rows take comments once shown; the unchanged lines never do.
+    // The folded rows take comments once shown, and so do the unchanged lines.
     assert.ok(
       (await gapTable
         .locator("tbody[data-gap-lines='folded'] button[data-add-comment]")
@@ -1412,7 +1412,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       await gapTable
         .locator("tbody[data-gap-lines='unchanged'] button[data-add-comment]")
         .count(),
-      0,
+      3,
     );
     assert.equal(await label(), `Hide ${folded + context} lines`);
     assert.equal(await control.getAttribute("aria-expanded"), "true");
