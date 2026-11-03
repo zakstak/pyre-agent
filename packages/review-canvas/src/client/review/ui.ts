@@ -14,6 +14,7 @@ import type {
   RepoPath,
   ReviewId,
 } from "../../schema/primitives.ts";
+import type { Selection } from "../../schema/selection.ts";
 import type { GapStage } from "./diff-model.ts";
 import type { RoundKey } from "./data.ts";
 
@@ -103,13 +104,16 @@ export const NARROW_QUERY = "(width < 48rem)";
 /** The widths at which the contents stand beside the page; below, they fold into a disclosure. */
 export const WIDE_QUERY = "(min-width: 64rem)";
 
-/** How far each gap of a patch is open, by file, patch, and gap, so a new snapshot of the same patch keeps it. */
+/**
+ * How far the reviewer opened each gap of a patch, by file, patch, and gap, so a new snapshot of the same patch keeps
+ * it. Undefined until they open or close it: `gapStage` in diff-model.ts then decides.
+ */
 export const gapAtom = Atom.family(
   (_key: {
     readonly path: RepoPath;
     readonly digest: PatchDigest | undefined;
     readonly gap: string;
-  }) => Atom.make<GapStage>(0).pipe(Atom.keepAlive),
+  }) => Atom.make<GapStage | undefined>(undefined).pipe(Atom.keepAlive),
 );
 
 /** A file's About or "changed since" block, opened above its diff. */
@@ -140,15 +144,13 @@ export const reattachAtom = Atom.family((_review: ReviewId) =>
 );
 
 /**
- * A comment being written on lines of a patch. It belongs to the patch it was opened on: when a new round changes
- * that patch, the draft cannot stay on its rows, and its text goes to the stash.
+ * A comment being written on lines of a file: rows of its patch, or lines of its text such as unchanged lines around
+ * a hunk. It belongs to the version its selection names: when a new round changes that version, the draft cannot
+ * stay on its lines, and its text goes to the stash.
  */
 export interface Draft {
   readonly id: number;
-  readonly path: RepoPath;
-  readonly digest: PatchDigest;
-  readonly start: number;
-  readonly end: number;
+  readonly selection: Selection;
   readonly body: string;
   readonly submitting: boolean;
   /** The ID of the + button that opened it, where focus returns when it closes. */
@@ -183,4 +185,27 @@ export const finishDraftAtom = Atom.family((_review: ReviewId) =>
     verdict: "comment",
     body: "",
   }).pipe(Atom.keepAlive),
+);
+
+/**
+ * Whether the page's single-letter shortcuts, such as J and ?, work, as the reviewer chose for every review. A reader
+ * whose speech or screen reader software types letters can turn them off; keys on a focused line of a diff still work.
+ */
+export const shortcutsAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-shortcuts",
+  schema: Schema.Boolean,
+  defaultValue: (): boolean => true,
+});
+
+/**
+ * Whether the key help is open, and where focus goes back to when it closes: the element that had focus when ? opened
+ * it. Opened from its button, focus goes back to the button.
+ */
+export type KeyHelpState =
+  | { readonly open: false }
+  | { readonly open: true; readonly returnTo: HTMLElement | undefined };
+
+export const keyHelpAtom = Atom.make<KeyHelpState>({ open: false }).pipe(
+  Atom.keepAlive,
 );

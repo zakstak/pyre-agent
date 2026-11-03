@@ -410,7 +410,8 @@ export const ThreadView = ({
   const reason =
     comment.kind === "inline" &&
     comment.attachment.state === "attached" &&
-    comment.attachment.reason !== "Same patch."
+    comment.attachment.reason !== "Same patch." &&
+    comment.attachment.reason !== "Same text."
       ? comment.attachment.reason
       : undefined;
   return (

@@ -3,19 +3,16 @@
  * read, the files to view, and the finish. It sticks under the top bar on a wide page; the bars' heights are measured
  * here for what sticks under them and what the page scrolls to.
  */
+import { useAtomValue } from "@effect/atom-react";
 import { ArrowRight, Check } from "lucide-react";
 import { useLayoutEffect } from "react";
 import { count, VERDICT_TEXT } from "../names.ts";
 import { buttonVariants } from "../ui/button.tsx";
+import { Kbd } from "../ui/kbd.tsx";
 import { AnswerStat, Stat } from "../ui/stat.tsx";
 import { usePage } from "./act.ts";
 import { hashOf } from "./places.ts";
-
-const Kbd = ({ children }: { readonly children: string }) => (
-  <kbd className="inline-block rounded-sm border border-line px-[0.3em] leading-[1.3] font-semibold text-muted">
-    {children}
-  </kbd>
-);
+import { shortcutsAtom } from "./ui.ts";
 
 /** A step of the round in the strip, as a link: underlined on hover only. */
 const STEP_LINK =
@@ -132,6 +129,7 @@ export const NextStrip = ({
 }) => {
   const { page } = usePage();
   const { strip } = page;
+  const shortcuts = useAtomValue(shortcutsAtom);
   return (
     <section
       data-next
@@ -196,12 +194,13 @@ export const NextStrip = ({
             )}
           </p>
         )}
-        {strip.kind === "go" ? (
+        {strip.kind === "go" && shortcuts ? (
           <span
             aria-hidden="true"
             className="text-muted max-md:hidden pointer-coarse:hidden"
           >
-            <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops
+            <Kbd>n</Kbd> next · <Kbd>j</Kbd> <Kbd>k</Kbd> stops · <Kbd>?</Kbd>{" "}
+            keys
           </span>
         ) : null}
         <Steps onGo={onStep} onFinish={onFinish} />

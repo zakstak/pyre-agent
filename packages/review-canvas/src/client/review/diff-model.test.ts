@@ -4,14 +4,33 @@ import { test } from "node:test";
 import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
 import { parseRows } from "../../review/patch.ts";
+import type {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+} from "../../schema/primitives.ts";
 import {
   gapLabel,
+  gapStage,
   gaps,
+  heldLines,
+  holdsLines,
+  inSpan,
+  lastUnit,
   layoutDiff,
   nextStage,
+  onVersion,
   pairRows,
+  parseUnit,
   placeComments,
+  readingOrder,
   type Segment,
+  selectionOf,
+  spanEnds,
+  spanOf,
+  spanOfSelection,
+  type Unit,
+  unitKey,
 } from "./diff-model.ts";
 
 // Lines 1-10 of a file; the patch changes line 3 and line 8.
@@ -160,5 +179,210 @@ test("a comment on lines of the text sits on the patch rows that show them, or u
   assert.deepEqual(
     orphans.map((item) => item.id),
     ["gone"],
+  );
+});
+
+// The units of `patch` above: row 0 is the first header, rows 1-4 are lines 2-4 with "line 3" deleted and "three!"
+// added, row 5 the second header, rows 6-9 lines 7-9 with "line 8" deleted and "eight!" added. Lines 1, 5, 6, and 10
+// are unchanged lines outside the patch.
+const rows = parseRows(patch);
+const row = (index: number): Unit => ({ kind: "row", index });
+const line = (number: number): Unit => ({ kind: "line", line: number });
+
+test("a unit's name in the page reads back as the unit, and nothing else does", () => {
+  for (const unit of [row(0), row(12), line(1), line(40)])
+    assert.deepEqual(parseUnit(unitKey(unit)), unit);
+  assert.equal(unitKey(row(3)), "r3");
+  assert.equal(unitKey(line(6)), "l6");
+  for (const text of ["", "r", "x3", "r-1", "l1.5", "r03", "r3 ", "lines"])
+    assert.equal(parseUnit(text), undefined, text);
+});
+
+test("rows alone span rows of the patch; with an unchanged line, the span is new-side lines", () => {
+  assert.deepEqual(spanOf(rows, [row(4), row(2)]), {
+    kind: "rows",
+    start: 2,
+    end: 4,
+  });
+  assert.deepEqual(spanOf(rows, [line(5), line(6)]), {
+    kind: "lines",
+    start: 5,
+    end: 6,
+  });
+  // From line 1, above the first hunk, to "three!" (row 3, line 3).
+  assert.deepEqual(spanOf(rows, [line(1), row(3)]), {
+    kind: "lines",
+    start: 1,
+    end: 3,
+  });
+  // A deletion adds no new line at either end: "line 8" (row 7) sits after line 7.
+  assert.deepEqual(spanOf(rows, [line(5), row(7)]), {
+    kind: "lines",
+    start: 5,
+    end: 7,
+  });
+  assert.deepEqual(spanOf(rows, [row(7), line(10)]), {
+    kind: "lines",
+    start: 8,
+    end: 10,
+  });
+  // A single unit spans itself.
+  assert.deepEqual(spanOf(rows, [line(6)]), {
+    kind: "lines",
+    start: 6,
+    end: 6,
+  });
+  assert.deepEqual(spanEnds({ kind: "lines", start: 5, end: 7 }), [
+    line(5),
+    line(7),
+  ]);
+  assert.deepEqual(spanEnds({ kind: "rows", start: 2, end: 4 }), [
+    row(2),
+    row(4),
+  ]);
+});
+
+test("a lines span covers the rows that show its lines but no deletion, and ends under its last line", () => {
+  const lines = { kind: "lines", start: 1, end: 3 } as const;
+  assert.deepEqual(
+    [line(1), row(1), row(2), row(3), row(4), line(5)].map((unit) =>
+      inSpan(rows, lines, unit),
+    ),
+    [true, true, false, true, false, false],
+  );
+  const rowSpan = { kind: "rows", start: 2, end: 3 } as const;
+  assert.deepEqual(
+    [row(1), row(2), row(3), line(3)].map((unit) =>
+      inSpan(rows, rowSpan, unit),
+    ),
+    [false, true, true, false],
+  );
+  // The thread goes under the row that shows the last line, or under the unchanged line itself.
+  assert.deepEqual(lastUnit(rows, lines), row(3));
+  assert.deepEqual(
+    lastUnit(rows, { kind: "lines", start: 5, end: 6 }),
+    line(6),
+  );
+  assert.deepEqual(lastUnit(rows, rowSpan), row(3));
+});
+
+test("a span is sent with the digest of what it spans, and a selection holds while that digest is the file's", () => {
+  const file = {
+    path: "a.txt" as RepoPath,
+    digest: "p".repeat(64) as PatchDigest,
+    text: "t".repeat(64) as ContentDigest,
+  };
+  const rowsSelection = selectionOf(file, { kind: "rows", start: 2, end: 4 });
+  assert.deepEqual(rowsSelection, {
+    kind: "rows",
+    path: "a.txt",
+    patch_sha256: file.digest,
+    start_row: 2,
+    end_row: 4,
+  });
+  const textSelection = selectionOf(file, { kind: "lines", start: 5, end: 6 });
+  assert.deepEqual(textSelection, {
+    kind: "text",
+    path: "a.txt",
+    content_sha256: file.text,
+    start_line: 5,
+    end_line: 6,
+  });
+  // Without the digest, nothing can be sent.
+  assert.equal(
+    selectionOf(
+      { ...file, text: undefined },
+      { kind: "lines", start: 5, end: 6 },
+    ),
+    undefined,
+  );
+  assert.equal(
+    selectionOf(
+      { ...file, digest: undefined },
+      { kind: "rows", start: 2, end: 4 },
+    ),
+    undefined,
+  );
+  if (rowsSelection === undefined || textSelection === undefined)
+    return assert.fail("both selections exist");
+  assert.deepEqual(spanOfSelection(textSelection), {
+    kind: "lines",
+    start: 5,
+    end: 6,
+  });
+  assert.equal(onVersion(rowsSelection, file), true);
+  assert.equal(onVersion(textSelection, file), true);
+  // A new round's patch leaves a text selection where it was, and the other way round.
+  const newPatch = { ...file, digest: "q".repeat(64) as PatchDigest };
+  assert.equal(onVersion(rowsSelection, newPatch), false);
+  assert.equal(onVersion(textSelection, newPatch), true);
+  assert.equal(
+    onVersion(textSelection, {
+      ...file,
+      text: "u".repeat(64) as ContentDigest,
+    }),
+    false,
+  );
+  assert.equal(onVersion(textSelection, undefined), false);
+});
+
+test("a gap holding a thread's lines shows open until the reviewer chooses", () => {
+  const layout = layoutDiff(patch, { content });
+  const middle = layout.segments[2];
+  if (middle?.kind !== "gap") return assert.fail("the gap between the hunks");
+  const held = heldLines(
+    [{ start_line: 6, end_line: 6 }],
+    [
+      {
+        kind: "rows",
+        path: "a.txt" as RepoPath,
+        patch_sha256: "p".repeat(64) as PatchDigest,
+        start_row: 1,
+        end_row: 1,
+      },
+      {
+        kind: "text",
+        path: "a.txt" as RepoPath,
+        content_sha256: "t".repeat(64) as ContentDigest,
+        start_line: 10,
+        end_line: 10,
+      },
+    ],
+  );
+  assert.deepEqual(held, [
+    { start: 6, end: 6 },
+    { start: 10, end: 10 },
+  ]);
+  assert.equal(holdsLines(middle, held), true);
+  assert.equal(holdsLines(middle, [{ start: 1, end: 1 }]), false);
+  assert.equal(gapStage(undefined, middle, true), 2);
+  assert.equal(gapStage(undefined, middle, false), 0);
+  // The reviewer's choice wins, held or not.
+  assert.equal(gapStage(0, middle, true), 0);
+  // A gap with only one kind of hidden line has no first stage.
+  assert.equal(gapStage(1, middle, false), 2);
+  assert.equal(gapStage(1, { folded: 3, context: 2 }, false), 1);
+});
+
+test("the line cursor reads units in patch order, even where the split layout lists a deletion after an addition", () => {
+  // Split pairs list their halves on one line: deletions 5-7 beside additions 8-9, so 6 comes after 8. Context rows
+  // and unchanged lines are listed twice, once per half.
+  assert.deepEqual(
+    readingOrder([
+      line(1),
+      line(1),
+      row(4),
+      row(4),
+      row(5),
+      row(8),
+      row(6),
+      row(9),
+      row(7),
+      row(10),
+      row(10),
+      line(20),
+      line(20),
+    ]).map(unitKey),
+    ["l1", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "l20"],
   );
 });

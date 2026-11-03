@@ -37,6 +37,7 @@ import { useStashChangedDrafts } from "./Composer.tsx";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
 import { Guide } from "./Guide.tsx";
+import { KeyHelp } from "./KeyHelp.tsx";
 import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { hashOf } from "./places.ts";
@@ -286,6 +287,7 @@ const Review = ({
       <SkipLink />
       <ReviewBar target={page.snapshot.state.target} updated={page.updated}>
         <ViewControl />
+        <KeyHelp />
       </ReviewBar>
       <Frame view={view}>
         <Title id={id} />

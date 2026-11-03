@@ -5,7 +5,18 @@
  */
 import type { Comment } from "../../schema/feedback.ts";
 import type { ReviewFile } from "../../schema/input.ts";
-import { attachedRows, parseRows, type Row } from "../../review/patch.ts";
+import type {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+} from "../../schema/primitives.ts";
+import type { Selection } from "../../schema/selection.ts";
+import {
+  attachedRows,
+  parseRows,
+  type Row,
+  rowForLine,
+} from "../../review/patch.ts";
 
 export type InlineComment = Extract<Comment, { kind: "inline" }>;
 
@@ -332,4 +343,226 @@ export const gapLabel = (
     : stage === 1
       ? `Show ${gap.context} more line${gap.context === 1 ? "" : "s"}`
       : `Hide ${lines(total)}`;
+};
+
+/**
+ * Whether a gap's unchanged lines hold any of `lines`, new-side ranges such as the lines comments outside the patch
+ * sit on. Such a gap shows open until the reviewer opens or closes it, so its threads show.
+ */
+export const holdsLines = (
+  gap: Extract<Segment, { kind: "gap" }>,
+  lines: ReadonlyArray<{ readonly start: number; readonly end: number }>,
+): boolean =>
+  gap.parts.some(
+    (part) =>
+      part.kind === "context" &&
+      part.lines.some((line) =>
+        lines.some((range) => line.new >= range.start && line.new <= range.end),
+      ),
+  );
+
+/**
+ * The new-side lines that hold a gap open until the reviewer chooses: those comments outside the patch sit on, and
+ * those of comments being written on lines of the text.
+ */
+export const heldLines = (
+  context: ReadonlyArray<Pick<ContextComment, "start_line" | "end_line">>,
+  writing: ReadonlyArray<Selection>,
+): ReadonlyArray<{ readonly start: number; readonly end: number }> => [
+  ...context.map((item) => ({ start: item.start_line, end: item.end_line })),
+  ...writing.flatMap((selection) =>
+    selection.kind === "text"
+      ? [{ start: selection.start_line, end: selection.end_line }]
+      : [],
+  ),
+];
+
+/**
+ * How far a gap shows open: the reviewer's choice, or until they make one, open when it holds a thread. A gap with
+ * only one kind of hidden line has no first stage.
+ */
+export const gapStage = (
+  chosen: GapStage | undefined,
+  gap: { readonly folded: number; readonly context: number },
+  held: boolean,
+): GapStage => {
+  const stage = chosen ?? (held ? 2 : 0);
+  return stage === 1 && (gap.folded === 0 || gap.context === 0) ? 2 : stage;
+};
+
+/**
+ * A line a reviewer can select in a table: a row of the patch, or an unchanged line between hunks, which only its
+ * new-side number names.
+ */
+export type Unit =
+  | { readonly kind: "row"; readonly index: number }
+  | { readonly kind: "line"; readonly line: number };
+
+/** A unit's name in the page: `r12` for row 12 of the patch, `l40` for unchanged line 40. */
+export const unitKey = (unit: Unit): string =>
+  unit.kind === "row" ? `r${unit.index}` : `l${unit.line}`;
+
+/** The unit a name in the page stands for; undefined for any other text. */
+export const parseUnit = (key: string): Unit | undefined => {
+  const match = /^([rl])(0|[1-9][0-9]*)$/.exec(key);
+  if (match === null) return undefined;
+  const number = Number(match[2]);
+  return match[1] === "r"
+    ? { kind: "row", index: number }
+    : { kind: "line", line: number };
+};
+
+/**
+ * What a table selects before it is sent: rows of its patch, or new-side lines of the file's text when the selection
+ * takes in unchanged lines outside the patch.
+ */
+export type Span =
+  | { readonly kind: "rows"; readonly start: number; readonly end: number }
+  | { readonly kind: "lines"; readonly start: number; readonly end: number };
+
+/** Where a unit is on the new side: its line, or for a deletion, half a line after the new line before it. */
+const newPosition = (rows: ReadonlyArray<Row>, unit: Unit): number => {
+  if (unit.kind === "line") return unit.line;
+  const row = rows[unit.index];
+  if (row?.new !== undefined) return row.new;
+  const before =
+    rows.slice(0, unit.index).findLast((item) => item.new !== undefined)?.new ??
+    0;
+  return before + 0.5;
+};
+
+/**
+ * The span from the first to the last of some units. Rows alone are rows; with an unchanged line among them, the
+ * span is the new-side lines they cover, so a deletion at either end adds no line.
+ */
+export const spanOf = (
+  rows: ReadonlyArray<Row>,
+  units: readonly [Unit, ...ReadonlyArray<Unit>],
+): Span => {
+  const indexes = units.flatMap((unit) =>
+    unit.kind === "row" ? [unit.index] : [],
+  );
+  if (indexes.length === units.length)
+    return {
+      kind: "rows",
+      start: Math.min(...indexes),
+      end: Math.max(...indexes),
+    };
+  const positions = units.map((unit) => newPosition(rows, unit));
+  return {
+    kind: "lines",
+    start: Math.ceil(Math.min(...positions)),
+    end: Math.floor(Math.max(...positions)),
+  };
+};
+
+/** A span's first and last unit, which a further unit extends it from. */
+export const spanEnds = (span: Span): readonly [Unit, Unit] =>
+  span.kind === "rows"
+    ? [
+        { kind: "row", index: span.start },
+        { kind: "row", index: span.end },
+      ]
+    : [
+        { kind: "line", line: span.start },
+        { kind: "line", line: span.end },
+      ];
+
+/** Whether a unit is in a span. A lines span takes in the rows that show its lines, and no deletion. */
+export const inSpan = (
+  rows: ReadonlyArray<Row>,
+  span: Span,
+  unit: Unit,
+): boolean => {
+  if (span.kind === "rows")
+    return (
+      unit.kind === "row" && unit.index >= span.start && unit.index <= span.end
+    );
+  const line = unit.kind === "line" ? unit.line : rows[unit.index]?.new;
+  return line !== undefined && line >= span.start && line <= span.end;
+};
+
+/** The unit a span ends on, which a thread or a composer goes under: a row of the patch when it shows the line. */
+export const lastUnit = (rows: ReadonlyArray<Row>, span: Span): Unit => {
+  if (span.kind === "rows") return { kind: "row", index: span.end };
+  const row = rowForLine(rows, "new", span.end);
+  return row === undefined
+    ? { kind: "line", line: span.end }
+    : { kind: "row", index: row.index };
+};
+
+/** The version of a file a page shows: the digests a selection of its rows or of its lines names. */
+export interface FileVersion {
+  readonly path: RepoPath;
+  readonly digest: PatchDigest | undefined;
+  readonly text: ContentDigest | undefined;
+}
+
+/** A span as the server takes it; undefined when the page has no digest for what it spans. */
+export const selectionOf = (
+  file: FileVersion,
+  span: Span,
+): Selection | undefined => {
+  if (span.kind === "rows")
+    return file.digest === undefined
+      ? undefined
+      : {
+          kind: "rows",
+          path: file.path,
+          patch_sha256: file.digest,
+          start_row: span.start,
+          end_row: span.end,
+        };
+  return file.text === undefined
+    ? undefined
+    : {
+        kind: "text",
+        path: file.path,
+        content_sha256: file.text,
+        start_line: span.start,
+        end_line: span.end,
+      };
+};
+
+/** What a selection spans in the table it was made in. */
+export const spanOfSelection = (selection: Selection): Span =>
+  selection.kind === "rows"
+    ? { kind: "rows", start: selection.start_row, end: selection.end_row }
+    : { kind: "lines", start: selection.start_line, end: selection.end_line };
+
+/** Whether a selection names the version of its file the page shows, so it can stay on its lines. */
+export const onVersion = (
+  selection: Selection,
+  file: Pick<FileVersion, "digest" | "text"> | undefined,
+): boolean =>
+  selection.kind === "rows"
+    ? file?.digest === selection.patch_sha256
+    : file?.text === selection.content_sha256;
+
+/**
+ * The units a table shows, as the page lists them, in reading order. The split layout lists a row's halves on one
+ * line, so a deletion comes after the addition beside it; within each run of rows, rows go in patch order instead.
+ */
+export const readingOrder = (
+  listed: ReadonlyArray<Unit>,
+): ReadonlyArray<Unit> => {
+  const seen = new Set<string>();
+  const ordered: Array<Unit> = [];
+  let run: Array<Extract<Unit, { kind: "row" }>> = [];
+  const flush = () => {
+    ordered.push(...run.toSorted((a, b) => a.index - b.index));
+    run = [];
+  };
+  for (const unit of listed) {
+    const key = unitKey(unit);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (unit.kind === "row") run.push(unit);
+    else {
+      flush();
+      ordered.push(unit);
+    }
+  }
+  flush();
+  return ordered;
 };
