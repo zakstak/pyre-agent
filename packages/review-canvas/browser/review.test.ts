@@ -126,10 +126,11 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await focusedStop(page), "The rename");
     assert.match(page.url(), /#tour\/2$/);
     // The stop moved to, and the one scrolled past on the way.
-    await page.locator("[data-stop-link='0'][data-read]").waitFor();
+    await page.locator("[data-stop-link='0'][data-read='read']").waitFor();
+    await page.locator("[data-stop-link='1'][data-read='read']").waitFor();
     assert.deepEqual(
       await page
-        .locator("[data-stop-link][data-read]")
+        .locator("[data-stop-link][data-read='read']")
         .evaluateAll((links) =>
           links.map((link) => (link as HTMLElement).dataset.stopLink),
         ),
@@ -1516,9 +1517,12 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     }
     const long = rows.find((row) => row.path.endsWith("contents-sidebar.ts"));
     assert.equal(long?.cut, true);
+    // Each list's kicker; the walkthrough's also counts the stops read.
     const kickers = await page
       .locator("nav[aria-label='Stops and files'] > p")
-      .allTextContents();
+      .evaluateAll((items) =>
+        items.map((item) => item.firstChild?.textContent ?? ""),
+      );
     assert.deepEqual(kickers, ["Walkthrough", "Files"]);
     assert.equal(
       await page

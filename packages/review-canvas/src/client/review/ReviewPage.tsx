@@ -40,9 +40,10 @@ import { Guide } from "./Guide.tsx";
 import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { hashOf } from "./places.ts";
-import { FileBlock } from "./FileBlock.tsx";
+import { FileBlocks } from "./FileBlock.tsx";
 import { Finish } from "./Finish.tsx";
 import { Departed, General, StopSection } from "./Sections.tsx";
+import { useSince } from "./Since.tsx";
 import { NextStrip, useStickyBars } from "./Strip.tsx";
 import {
   foldsAtom,
@@ -312,12 +313,14 @@ const Review = ({
         )}
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {view === "source" ? (
-            pathOrder(page.files.keys()).map((path) => {
-              const model = page.files.get(path);
-              return model === undefined ? null : (
-                <FileBlock key={path} model={model} split={split} />
-              );
-            })
+            <FileBlocks
+              models={pathOrder(page.files.keys()).flatMap((path) => {
+                const model = page.files.get(path);
+                return model === undefined ? [] : [model];
+              })}
+              split={split}
+              list="source"
+            />
           ) : (
             <>
               {page.input.summary === undefined ? null : (
@@ -335,6 +338,7 @@ const Review = ({
                   stop={stop}
                   split={split}
                   ruled={stop.index > 0 || page.input.summary !== undefined}
+                  reading
                   onFlash={(path, index, start, end) =>
                     void navigate.flash(path, index, start, end)
                   }
@@ -400,12 +404,20 @@ const Loaded = ({
 }) => {
   const round = snapshot.state.rounds.at(-1);
   const { view, previous, ready, failure } = useRound(id, round);
+  const compared = useSince(id, snapshot.state, round);
   const fresh = useMemo(
     () =>
-      round === undefined || view === undefined || !ready
+      round === undefined || view === undefined || !ready || !compared.ready
         ? undefined
-        : pageModel(snapshot, round, view.input, view, previous),
-    [snapshot, round, view, previous, ready],
+        : pageModel(
+            snapshot,
+            round,
+            view.input,
+            view,
+            previous,
+            compared.since,
+          ),
+    [snapshot, round, view, previous, ready, compared.ready, compared.since],
   );
   // A new round's input arrives a moment after the snapshot that announces it. Until then the page keeps showing the
   // round it has, so the review stays mounted: the finish keeps the round it names, open files stay open, and the
