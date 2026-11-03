@@ -28,7 +28,6 @@ const reviewed = (
   answers: { readonly head: string; readonly compare: unknown },
 ) => {
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-check-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const calls = join(dir, "gh.log");
@@ -61,7 +60,8 @@ esac
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
   };
-  t.after(() =>
+  // The server the commands started stops through its socket, which goes with the folder: first the one, then the other.
+  t.after(() => {
     spawnSync(
       process.execPath,
       [
@@ -70,8 +70,9 @@ esac
         'import { stopServer, withServerOperation } from "./src/cli/socket.ts"; await withServerOperation(stopServer);',
       ],
       { cwd: root, env },
-    ),
-  );
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
   const session = join(dir, "session");
   const round = join(dir, "round-1.json");
   writeFileSync(round, JSON.stringify(input));
