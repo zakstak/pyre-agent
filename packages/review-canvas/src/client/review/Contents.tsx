@@ -18,7 +18,14 @@ import { usePage } from "./act.ts";
 import { keepInRail, spiedAtom, spiedPlace, useMoved } from "./navigate.ts";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
-import { layoutAtom, seenAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
+import {
+  changedNames,
+  READ_TEXT,
+  ReadCount,
+  ReadMark,
+  readOf,
+} from "./Reading.tsx";
+import { layoutAtom, whitespaceAtom, WIDE_QUERY } from "./ui.ts";
 import { byDirectory } from "./view.ts";
 
 const KICKER =
@@ -136,9 +143,8 @@ export const Contents = ({
   readonly onStop: (index: number) => void;
   readonly onFile: (path: RepoPath) => void;
 }) => {
-  const { id, page } = usePage();
+  const { page } = usePage();
   const current = useAtomValue(spiedAtom);
-  const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
   const wide = useMedia(WIDE_QUERY);
   const [open, setOpen] = useState(false);
   const viewed = page.progress.viewed.size;
@@ -158,34 +164,53 @@ export const Contents = ({
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, current);
   const list = (
     <nav ref={nav} aria-label="Stops and files" className="text-small">
-      <p className={KICKER}>Walkthrough</p>
+      <p className={cn(KICKER, "flex items-baseline justify-between gap-2")}>
+        Walkthrough
+        <ReadCount className="font-normal tracking-normal normal-case" />
+      </p>
       <ol className="m-0 mt-1.5 flex list-none flex-col p-0">
-        {page.stops.map((stop) => (
-          <li key={stop.index} className="m-0">
-            <a
-              href={`#stop-${stop.index + 1}`}
-              data-stop-link={stop.index}
-              data-read={read.has(stop.index) ? "" : undefined}
-              aria-current={spiedStop === stop.index ? "location" : undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                setOpen(false);
-                onStop(stop.index);
-              }}
-              className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
-            >
-              <span
-                className={cn(
-                  "font-mono text-technical font-normal",
-                  read.has(stop.index) ? "text-accent" : "text-muted",
-                )}
+        {page.stops.map((stop) => {
+          const read = readOf(page, stop.index);
+          return (
+            <li key={stop.index} className="m-0">
+              <a
+                href={`#stop-${stop.index + 1}`}
+                data-stop-link={stop.index}
+                data-read={read.state}
+                aria-current={spiedStop === stop.index ? "location" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setOpen(false);
+                  onStop(stop.index);
+                }}
+                className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-1.5 rounded-control px-1 py-1 font-semibold text-ink no-underline hover:bg-subtle aria-[current]:bg-selected"
               >
-                {stop.index + 1}
-              </span>
-              <span className="min-w-0">{stop.title}</span>
-            </a>
-          </li>
-        ))}
+                <span
+                  className={cn(
+                    "font-mono text-technical font-normal",
+                    read.state === "read" ? "text-accent" : "text-muted",
+                  )}
+                >
+                  {stop.index + 1}
+                </span>
+                <span className="min-w-0">
+                  {stop.title}
+                  {read.state === "changed" ? (
+                    <span
+                      data-changed-files
+                      className="block truncate font-mono text-technical font-normal text-warning"
+                    >
+                      changed: {changedNames(read)}
+                    </span>
+                  ) : (
+                    <span className="sr-only">, {READ_TEXT[read.state]}</span>
+                  )}
+                </span>
+                <ReadMark read={read} className="self-center" />
+              </a>
+            </li>
+          );
+        })}
       </ol>
       <p className={cn(KICKER, "mt-6")}>Files</p>
       <FileList

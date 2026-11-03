@@ -1,8 +1,9 @@
 /**
- * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout and
- * whether whitespace changes show across visits, and in memory the gaps opened, the drafts, and whether a comment is
- * being moved. None of it is the review's state; the server never sees it. What belongs to one review is keyed by it,
- * so a page that shows several reviews, such as a stack walkthrough, never carries a draft or a move from one to another.
+ * What the reviewer chose on the page, as atoms: folds for this tab's session, the diff layout, whether whitespace
+ * changes show, and whether only the changes since the last review show across visits, and in memory the gaps opened,
+ * the drafts, and whether a comment is being moved. None of it is the review's state; the server never sees it. What
+ * belongs to one review is keyed by it, so a page that shows several reviews, such as a stack walkthrough, never
+ * carries a draft or a move from one to another.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
@@ -34,16 +35,6 @@ export const foldsAtom = Atom.family(({ id, round }: RoundKey) =>
     key: `review-canvas:${id}:${round}:folds`,
     schema: Schema.Record(Schema.String, Fold),
     defaultValue: (): Readonly<Record<string, Fold>> => ({}),
-  }),
-);
-
-/** The stops of a round the reviewer moved to or scrolled past, which the contents mark read. */
-export const seenAtom = Atom.family(({ id, round }: RoundKey) =>
-  Atom.kvs({
-    runtime: session,
-    key: `review-canvas:${id}:${round}:seen`,
-    schema: Schema.Array(Schema.Int),
-    defaultValue: (): ReadonlyArray<number> => [],
   }),
 );
 
@@ -97,6 +88,15 @@ export const sinceLastReviewAtom = Atom.kvs({
   schema: Schema.Boolean,
   defaultValue: (): boolean => false,
 });
+
+/**
+ * Whether a list's files unchanged since the last review show, by the list: a stop's files by its index, or the
+ * source view's one list. Navigating to such a file opens its list.
+ */
+export const unchangedOpenAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly list: number | "source" }) =>
+    Atom.make(false).pipe(Atom.keepAlive),
+);
 
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
 export const NARROW_QUERY = "(width < 48rem)";

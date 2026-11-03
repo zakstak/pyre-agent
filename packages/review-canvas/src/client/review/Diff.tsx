@@ -1344,8 +1344,9 @@ export const DiffTable = ({
     flash: readOnly ? undefined : flash,
     quiet,
     absorbed,
+    // The threads' rows are rows of the file's own patch, not of a read-only one.
     commentedRows: new Set([
-      ...model.placed.flatMap((item) =>
+      ...(readOnly ? [] : model.placed).flatMap((item) =>
         Array.from(
           { length: item.end - item.start + 1 },
           (_, at) => item.start + at,

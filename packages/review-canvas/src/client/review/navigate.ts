@@ -1,15 +1,23 @@
 /**
  * Moving through the one-scroll review page: the hash contract (`#tour/N`, `#files`, `#files/PATH`, `#ELEMENT-ID`),
  * J and K between stops, N for the next strip's target, the other page keys in keys.ts, and the scroll-spy that marks
- * where the reviewer is. In the source view a stop is a place in the guide beside the diff: moving to it scrolls the
- * guide there and the diff to the stop's first file.
+ * where the reviewer is and the stops they read. In the source view a stop is a place in the guide beside the diff:
+ * moving to it scrolls the guide there and the diff to the stop's first file.
  *
  * A folded file or gap renders nothing, so revealing an element is a change of state first: the file unfolds and the
  * gap opens, and the element is there to scroll to on the next frame.
  */
-import { RegistryContext } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { Exit, Option } from "effect";
+import { AsyncResult, Atom } from "effect/reactivity";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   commentElementId,
   FINISH_ELEMENT_ID,
@@ -19,7 +27,7 @@ import {
 import type { CommentId, ReviewId } from "../../schema/primitives.ts";
 import { announce } from "../ui/announce.ts";
 import { toast } from "../ui/toast.tsx";
-import type { RoundKey } from "./data.ts";
+import { type RoundKey, workspaceAtom } from "./data.ts";
 import {
   gapStage,
   heldLines,
@@ -47,11 +55,11 @@ import {
   keyHelpAtom,
   openNotesAtom,
   reattachAtom,
-  seenAtom,
   shortcutsAtom,
+  unchangedOpenAtom,
   type View,
 } from "./ui.ts";
-import type { FileModel, PageModel } from "./view.ts";
+import { autoRead, type FileModel, type PageModel } from "./view.ts";
 
 /** The block of the file at a path, if the round has the file. A path from the hash can be any text. */
 const fileAt = (page: PageModel, path: string): FileModel | undefined => {
@@ -274,8 +282,39 @@ export interface ExcerptTarget {
   readonly note?: string;
 }
 
+/**
+ * Marks on the server the stops the reviewer moves to or scrolls past that are not read yet. Each is asked once a
+ * round; a refused or lost mark is asked again on the next move. The server sends the reading to every open page. A
+ * closed review keeps none.
+ */
+const useMarkRead = (key: RoundKey, page: PageModel) => {
+  const workspace = Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(workspaceAtom(key.id))),
+  );
+  const asked = useRef(new Set<string>());
+  const { reading, writable } = page;
+  return useCallback(
+    (indexes: ReadonlyArray<number>) => {
+      if (workspace === undefined || !writable) return;
+      for (const stop of autoRead(reading, indexes)) {
+        const ask = `${key.round}:${stop}`;
+        if (asked.current.has(ask)) continue;
+        asked.current.add(ask);
+        void workspace
+          .read({ kind: "read", round: key.round, stop })
+          .then((exit) => {
+            // A refused or lost mark is asked again on the next move.
+            if (Exit.isFailure(exit)) asked.current.delete(ask);
+          });
+      }
+    },
+    [workspace, writable, reading, key.round],
+  );
+};
+
 export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
   const registry = useContext(RegistryContext);
+  const markRead = useMarkRead(key, page);
   /** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
   const tour = useRef({ stop: -1, steeringUntil: 0 });
   /** The thread T last went to, which it moves from when focus is in no thread. */
@@ -286,12 +325,6 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     };
     /** Whether the page scrolled itself a moment ago, so scrolling now is not the reviewer's. */
     const steering = () => Date.now() <= tour.current.steeringUntil;
-
-    const markRead = (indexes: ReadonlyArray<number>) => {
-      const seen = registry.get(seenAtom(key));
-      const next = [...new Set([...seen, ...indexes])].sort((a, b) => a - b);
-      if (next.length !== seen.length) registry.set(seenAtom(key), next);
-    };
 
     /**
      * Unfolds what holds an element and opens the gap its row is in, so the element renders. In the source view a
@@ -310,6 +343,12 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       }
       const model = fileAt(page, place.path);
       if (model === undefined) return;
+      // A file unchanged since the last review shows once its list's disclosure opens.
+      const list = view === "source" ? "source" : stopOfPath(page, place.path);
+      if (model.since?.kind === "unchanged" && list !== -1) {
+        const disclosure = unchangedOpenAtom({ review: key.id, list });
+        if (!registry.get(disclosure)) registry.set(disclosure, true);
+      }
       const folds = registry.get(foldsAtom(key));
       if (folds[place.path] !== "open")
         registry.set(foldsAtom(key), { ...folds, [place.path]: "open" });
@@ -601,7 +640,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       revealState(note ?? `f${index}-r${start}`);
       // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
       registry.set(flashAtom(key.id), { path, start, end });
-      const landing =
+      const found =
         note === undefined
           ? await new Promise<HTMLElement | null>((resolve) =>
               requestAnimationFrame(() =>
@@ -615,6 +654,13 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
               ),
             )
           : await shown(note);
+      // Showing only the changes since the last review, a changed file has no rows of the round's patch: the excerpt
+      // lands on the file.
+      const landing =
+        found ??
+        (note === undefined
+          ? document.getElementById(fileElementId(path))
+          : null);
       if (landing !== null) {
         steer();
         landing.scrollIntoView({ block: "start" });
@@ -727,7 +773,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       next: () => showStop(tour.current.stop + 1),
       previous: () => showStop(tour.current.stop - 1),
     };
-  }, [registry, key, page, view]);
+  }, [registry, key, page, view, markRead]);
 };
 
 export type Navigation = ReturnType<typeof useNavigate>;

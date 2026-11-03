@@ -18,6 +18,7 @@ import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
 import { hashOf } from "./places.ts";
+import { RoundDiffToggle, SinceControl } from "./Since.tsx";
 import { viewAtom } from "./ui.ts";
 
 /** Whether the review reads guided or as source. A narrow page reads guided, so it shows no choice. */
@@ -224,6 +225,7 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
                   )}
                 </p>
               )}
+              <RoundDiffToggle round={round.round} />
             </div>
           );
         })}
@@ -309,6 +311,7 @@ export const Title = ({ id }: { readonly id: ReviewId }) => {
         </p>
       )}
       <RoundsLine id={id} />
+      <SinceControl />
     </header>
   );
 };

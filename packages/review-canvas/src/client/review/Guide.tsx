@@ -7,6 +7,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
+import type { StopRead } from "../../schema/reading.ts";
 import { parseRows } from "../../review/patch.ts";
 import type { ExcerptView, StopView } from "../../review/tour.ts";
 import { count, lineRange, splitPath } from "../names.ts";
@@ -29,8 +30,15 @@ import {
 } from "./navigate.ts";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
+import {
+  READ_TEXT,
+  ReadCount,
+  ReadMark,
+  readOf,
+  StopChanged,
+} from "./Reading.tsx";
 import { Attention, Questions, StopProse } from "./Sections.tsx";
-import { seenAtom, WIDE_QUERY } from "./ui.ts";
+import { WIDE_QUERY } from "./ui.ts";
 import { noteElementId } from "./view.ts";
 
 /** How many rows of an excerpt the guide shows; the diff has the rest. */
@@ -148,7 +156,7 @@ const GuideStop = ({
 }: {
   readonly stop: StopView;
   readonly current: boolean;
-  readonly read: boolean;
+  readonly read: StopRead;
   readonly onFile: (path: RepoPath) => void;
   readonly onExcerpt: (target: ExcerptTarget) => void;
   readonly onAsk: (question: string) => void;
@@ -163,6 +171,7 @@ const GuideStop = ({
     <li
       id={`guide-stop-${stop.index + 1}`}
       data-guide-stop={stop.index}
+      data-read={read.state}
       aria-current={current ? "location" : undefined}
       className="m-0 border-t border-separator px-2 pt-3 pb-4 aria-[current]:bg-selected"
     >
@@ -170,7 +179,7 @@ const GuideStop = ({
         <span
           className={cn(
             "font-mono text-technical",
-            read ? "text-accent" : "text-muted",
+            read.state === "read" ? "text-accent" : "text-muted",
           )}
         >
           {stop.index + 1}
@@ -178,6 +187,8 @@ const GuideStop = ({
         <h2 tabIndex={-1} className="min-w-0 flex-1 font-semibold text-ink">
           {stop.title}
         </h2>
+        <span className="sr-only">{READ_TEXT[read.state]}</span>
+        <ReadMark read={read} className="self-center" />
         <Stat
           icon={Check}
           title={`${viewed} of ${count(owned.length, "file")} viewed`}
@@ -185,6 +196,7 @@ const GuideStop = ({
           {viewed}/{owned.length}
         </Stat>
       </div>
+      <StopChanged stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
       {stop.excerpts.map((excerpt, at) => (
@@ -241,11 +253,10 @@ export const Guide = ({
   /** Whether the page is scrolling itself, when the guide leaves its scroller where the page put it. */
   readonly steering: () => boolean;
 }) => {
-  const { id, page } = usePage();
+  const { page } = usePage();
   const wide = useMedia(WIDE_QUERY);
   const [tab, setTab] = useState<Tab>("walkthrough");
   const [open, setOpen] = useState(false);
-  const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
   const spied = useAtomValue(spiedAtom);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, spied);
   const scroller = useRef<HTMLDivElement>(null);
@@ -292,13 +303,16 @@ export const Guide = ({
             <Prose text={page.input.summary} />
           </div>
         )}
+        <p className="px-2 pb-2 text-muted">
+          <ReadCount />
+        </p>
         <ol aria-label="Walkthrough" className="m-0 list-none p-0">
           {page.stops.map((stop) => (
             <GuideStop
               key={stop.index}
               stop={stop}
               current={spiedStop === stop.index}
-              read={read.has(stop.index)}
+              read={readOf(page, stop.index)}
               onFile={pick}
               onExcerpt={onExcerpt}
               onAsk={onAsk}

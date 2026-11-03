@@ -2,11 +2,12 @@
  * A changed file as one block of the review page: a header with its fold toggle, path, counts, and Viewed control,
  * and a body with its whole diff, the tour's notes in it, and its comments, including those whose lines left.
  */
+import { Collapsible } from "@base-ui/react/collapsible";
 import { useAtom } from "@effect/atom-react";
-import { Check, ChevronDown, MessageSquare } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fileElementId } from "../../review/next.ts";
-import { splitPath } from "../names.ts";
+import { count, splitPath } from "../names.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Stat } from "../ui/stat.tsx";
@@ -15,9 +16,15 @@ import { useAct, usePage } from "./act.ts";
 import { DiffTable } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
 import { showGuideStop } from "./navigate.ts";
+import { SinceChanges } from "./Since.tsx";
 import { Orphan } from "./Thread.tsx";
-import { extraAtom, foldsAtom } from "./ui.ts";
-import { type FileModel, PATCH_NOTE_TEXT } from "./view.ts";
+import { extraAtom, foldsAtom, unchangedOpenAtom } from "./ui.ts";
+import {
+  type FileModel,
+  PATCH_NOTE_TEXT,
+  partSince,
+  sinceNote,
+} from "./view.ts";
 
 /** Whether a file shows folded: the reviewer's choice for this round, or else the page's. */
 const useFold = (model: FileModel) => {
@@ -220,6 +227,24 @@ const StopLink = ({ path }: { readonly path: string }) => {
   );
 };
 
+/** What a file's body says first while the page shows only what changed since the last review. */
+const SinceNote = ({ model }: { readonly model: FileModel }) => {
+  const { page } = usePage();
+  const since = model.since;
+  if (since === undefined || page.since === undefined) return null;
+  return (
+    <p
+      data-since-note={since.kind}
+      className={cn(
+        "px-4 py-2 text-small",
+        since.kind === "cannot_compare" ? "text-warning" : "text-muted",
+      )}
+    >
+      {sinceNote(since, page.since.round)}
+    </p>
+  );
+};
+
 export const FileBlock = ({
   model,
   split,
@@ -364,12 +389,15 @@ export const FileBlock = ({
       ) : null}
       {model.hasBody && !folded ? (
         <div id={body} className="overflow-hidden rounded-b-panel">
+          <SinceNote model={model} />
           {file.patch_note === undefined ? null : (
             <p className="px-4 py-2 text-small text-muted">
               {PATCH_NOTE_TEXT[file.patch_note]}
             </p>
           )}
-          {file.patch === undefined ? null : (
+          {model.since?.kind === "changed" ? (
+            <SinceChanges model={model} patch={model.since.patch} />
+          ) : file.patch === undefined ? null : (
             <DiffTable model={model} split={split} />
           )}
           {model.orphans.length === 0 ? null : (
@@ -382,5 +410,53 @@ export const FileBlock = ({
         </div>
       ) : null}
     </article>
+  );
+};
+
+/**
+ * Files one after another, as a stop or the source view lists them. While the page shows only what changed since the
+ * last review, the files unchanged since then fold into one disclosure after the others; `list` names it, so going to
+ * one of its files opens it.
+ */
+export const FileBlocks = ({
+  models,
+  split,
+  list,
+}: {
+  readonly models: ReadonlyArray<FileModel>;
+  readonly split: boolean;
+  readonly list: number | "source";
+}) => {
+  const { id, page } = usePage();
+  const [open, setOpen] = useAtom(unchangedOpenAtom({ review: id, list }));
+  const { shown, unchanged } = partSince(models);
+  return (
+    <>
+      {shown.map((model) => (
+        <FileBlock key={model.file.path} model={model} split={split} />
+      ))}
+      {unchanged.length === 0 || page.since === undefined ? null : (
+        <Collapsible.Root
+          open={open}
+          onOpenChange={setOpen}
+          data-unchanged={list}
+          className="mt-3"
+        >
+          <Collapsible.Trigger className="group flex min-h-11 items-center gap-1 text-small text-muted hover:text-ink">
+            <ChevronRight
+              aria-hidden="true"
+              className="size-4 shrink-0 transition-transform group-data-panel-open:rotate-90"
+            />
+            {count(unchanged.length, "unchanged file")} since round{" "}
+            {page.since.round}
+          </Collapsible.Trigger>
+          <Collapsible.Panel>
+            {unchanged.map((model) => (
+              <FileBlock key={model.file.path} model={model} split={split} />
+            ))}
+          </Collapsible.Panel>
+        </Collapsible.Root>
+      )}
+    </>
   );
 };

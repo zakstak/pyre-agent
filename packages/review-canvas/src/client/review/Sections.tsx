@@ -10,8 +10,9 @@ import { Stat } from "../ui/stat.tsx";
 import { Inline, Joined, Prose } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
-import { FileBlock } from "./FileBlock.tsx";
+import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
+import { StopChanged } from "./Reading.tsx";
 import {
   ACTIONS_CLASS,
   Orphan,
@@ -163,9 +164,12 @@ export const StopSection = ({
   onFlash,
   onAsk,
   narration,
+  reading = false,
 }: {
   readonly stop: StopView;
   readonly split: boolean;
+  /** Whether the stop says when a later round changed it since the reviewer read it, as the review's own page does. */
+  readonly reading?: boolean;
   /** What the line over the heading says, when the stop is shown outside its review's own walkthrough. */
   readonly narration?: string | undefined;
   /** A rule parts the stop from what comes before it: every stop but a first with no round summary over it. */
@@ -219,12 +223,11 @@ export const StopSection = ({
           {viewed}/{owned.length}
         </Stat>
       </div>
+      {reading ? <StopChanged stop={stop.index} className="mt-2" /> : null}
       <StopProse stop={stop} />
       <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />
-      {owned.map((model) => (
-        <FileBlock key={model.file.path} model={model} split={split} />
-      ))}
+      <FileBlocks models={owned} split={split} list={stop.index} />
       <Questions stop={stop} onAsk={onAsk} />
     </section>
   );
