@@ -95,12 +95,19 @@ const general = (
   ({
     kind: "general",
     id,
-    source: { kind: "reviewer" },
+    source: { kind: "reviewer", state: "sent" },
     body: "Why?",
     created_at: at(minute),
     updated_at: at(minute),
     replies,
   }) as unknown as Comment;
+
+/** A plain comment the reviewer has not sent: Finish review sends it. */
+const held = (id: string, minute: number): Comment =>
+  ({
+    ...general(id, minute, []),
+    source: { kind: "reviewer", state: "pending" },
+  }) as Comment;
 
 const answer = (thread: string, minute: number) => ({
   id: `reply-${minute}`,
@@ -134,7 +141,7 @@ const inline = (
   ({
     kind: "inline",
     id,
-    source: { kind: "reviewer" },
+    source: { kind: "reviewer", state: "sent" },
     body: "Floor?",
     created_at: at(minute),
     updated_at: at(minute),
@@ -257,10 +264,10 @@ test("a file without a fingerprint is skipped, and with every file viewed the ro
   // A question waits for an agent; a plain comment is pending until the finish, so it waits for no one yet.
   const question = {
     ...general("c-question", 1, []),
-    source: { kind: "reviewer", question: true },
+    source: { kind: "reviewer", state: "sent", question: true },
   } as unknown as Comment;
   assert.deepEqual(
-    next({ approvals: viewed, comments: [question, general("c-held", 2, [])] }),
+    next({ approvals: viewed, comments: [question, held("c-held", 2)] }),
     { kind: "finish", round: 2, waiting: 1, target: "finish" },
   );
 });
@@ -288,7 +295,7 @@ test("a finished round and a closed review have nothing next, even with answers 
 test("progress counts viewable and viewed files, answers for the reviewer, comments waiting, and pending ones", () => {
   const question = {
     ...general("c-question", 1, []),
-    source: { kind: "reviewer", question: true },
+    source: { kind: "reviewer", state: "sent", question: true },
   } as unknown as Comment;
   const counts = progress(
     state({
@@ -299,7 +306,7 @@ test("progress counts viewable and viewed files, answers for the reviewer, comme
       comments: [
         general("c-answered", 1, [answer("t1", 2)]),
         question,
-        general("c-held", 3, []),
+        held("c-held", 3),
         general("c-replied", 3, [
           answer("t1", 4),
           {
@@ -330,46 +337,25 @@ test("progress counts viewable and viewed files, answers for the reviewer, comme
   );
 });
 
-test("a comment is pending until a finish carries it; one made after the round is finished waits for the agents", () => {
+test("a comment is pending while its source says so, whatever the times around it", () => {
   const sent = general("c-sent", 1, []);
-  const later = general("c-later", 9, []);
-  const finishedEarlier = {
-    round: 1,
-    verdict: "comment",
-    body: "",
-    submitted_at: at(5),
-    revision: 2,
-  };
-  const standing = standingOf(
-    state({ comments: [sent, later], submissions: [finishedEarlier] }),
-  );
-  assert.equal(standing(sent), "agent");
-  assert.equal(standing(later), "pending");
-  const finishedNow = { ...finishedEarlier, round: 2 };
-  assert.equal(
-    standingOf(state({ comments: [later], submissions: [finishedNow] }))(later),
-    "agent",
-  );
-});
-
-test("a comment sent after finishing stays waiting when the next round is published", () => {
-  const sent = general("c-sent", 6, []);
-  const pending = general("c-pending", 9, []);
+  const pending = held("c-pending", 9);
+  assert.equal(standingOf(sent), "agent");
+  assert.equal(standingOf(pending), "pending");
+  // A finish of the round, or a later round, does not send it: only the finish action does.
   const current = state({
     rounds: [{ ...round, published_at: at(7) }],
     submissions: [
       {
-        round: 1,
+        round: 2,
         verdict: "comment",
         body: "",
-        submitted_at: at(5),
+        submitted_at: at(10),
         revision: 2,
       },
     ],
     comments: [sent, pending],
   });
-  assert.equal(standingOf(current)(sent), "agent");
-  assert.equal(standingOf(current)(pending), "pending");
   const counts = progress(current, input);
   assert.equal(counts.waiting, 1);
   assert.equal(counts.pending, 1);

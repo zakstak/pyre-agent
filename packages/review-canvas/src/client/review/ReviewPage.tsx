@@ -404,7 +404,7 @@ const Loaded = ({
     () =>
       round === undefined || view === undefined || !ready
         ? undefined
-        : pageModel(snapshot, round, view.input, view.digests, previous),
+        : pageModel(snapshot, round, view.input, view, previous),
     [snapshot, round, view, previous, ready],
   );
   // A new round's input arrives a moment after the snapshot that announces it. Until then the page keeps showing the

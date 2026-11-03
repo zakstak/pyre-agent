@@ -784,6 +784,7 @@ const useSelection = (
         kind: "reattach",
         comment: moving,
         selection: {
+          kind: "rows",
           path: model.file.path,
           patch_sha256: digest,
           start_row: start,

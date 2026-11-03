@@ -46,7 +46,19 @@ import type {
 } from "../schema/primitives.ts";
 import { type Target, targetKey } from "../schema/target.ts";
 import type { Thread, ThreadHost } from "../schema/thread.ts";
-import type { RowSelection } from "../review/anchor.ts";
+import {
+  type Draft,
+  type DraftSlot,
+  SavedDraft,
+  slotKey,
+  slotOf,
+} from "../schema/draft.ts";
+import {
+  Reading,
+  type ReadingAction,
+  type StopProgress,
+} from "../schema/reading.ts";
+import type { Selection } from "../schema/selection.ts";
 import {
   type ActionContext,
   ActionError,
@@ -55,6 +67,8 @@ import {
   agentAnswer,
   approve,
   carriedApprovals,
+  deleteComment,
+  editComment,
   publishRound,
   reattach,
   reportDrift,
@@ -63,11 +77,16 @@ import {
   unapprove,
 } from "../review/state.ts";
 import {
+  agentComments,
+  canEdit,
   currentRound,
   currentSubmission,
+  isPending,
   type ReviewState,
   type Round,
 } from "../review/queries.ts";
+import { markStop, readingOf } from "../review/reading.ts";
+import { upgradeState } from "../review/upgrade.ts";
 import { tourView } from "../review/tour.ts";
 import { progress } from "../review/progress.ts";
 import type {
@@ -99,10 +118,28 @@ import {
 } from "../review/stack-walk.ts";
 
 /**
- * Version 4 monitors repository identities rather than checkout paths. Versions 2 and 3 upgrade in place; version 1
- * was never released, so it is refused with other unknown versions.
+ * Version 5 keeps each reviewer comment's lifecycle, the reviewer's drafts, and their reading of each review's tour.
+ * Version 4 monitors repository identities rather than checkout paths. Versions 2, 3, and 4 upgrade in place; version
+ * 1 was never released, so it is refused with other unknown versions.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
+
+/**
+ * The reviewer's own work on a review, beside its state: unsent text, one row per slot, and which stops they read.
+ * Neither is part of the review's state, so saving them raises no revision and wakes no agent.
+ */
+const WORKSPACE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS review_drafts (
+  review_id TEXT NOT NULL REFERENCES reviews (id),
+  slot TEXT NOT NULL,
+  draft TEXT NOT NULL,
+  PRIMARY KEY (review_id, slot)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS review_reading (
+  review_id TEXT PRIMARY KEY REFERENCES reviews (id),
+  reading TEXT NOT NULL
+) WITHOUT ROWID;
+`;
 
 const REPOSITORIES_SCHEMA = `
 CREATE TABLE monitored_repositories (
@@ -191,7 +228,7 @@ export interface Published {
 export type Action =
   | {
       readonly kind: "comment";
-      readonly selection: RowSelection;
+      readonly selection: Selection;
       readonly body: string;
       /** Asked now: the agents answer without waiting for the round to finish. */
       readonly question?: boolean | undefined;
@@ -223,8 +260,14 @@ export type Action =
   | {
       readonly kind: "reattach";
       readonly comment: CommentId;
-      readonly selection: RowSelection;
+      readonly selection: Selection;
     }
+  | {
+      readonly kind: "edit_comment";
+      readonly comment: CommentId;
+      readonly body: string;
+    }
+  | { readonly kind: "delete_comment"; readonly comment: CommentId }
   | {
       readonly kind: "answer";
       readonly thread: ThreadId;
@@ -269,6 +312,47 @@ const decodeStackRecord = Schema.decodeUnknownSync(
 const decodeStackProgress = Schema.decodeUnknownSync(
   Schema.fromJsonString(StackProgress),
 );
+const decodeSavedDraft = Schema.decodeUnknownSync(
+  Schema.fromJsonString(SavedDraft),
+);
+const decodeReading = Schema.decodeUnknownSync(Schema.fromJsonString(Reading));
+
+/** The draft slot each action sends the text of, which the action empties. */
+const sentSlots = (action: Action): ReadonlyArray<DraftSlot> => {
+  switch (action.kind) {
+    case "comment":
+      return [{ kind: "comment" }];
+    case "general_comment":
+      return [{ kind: "general" }];
+    case "reply":
+      return [{ kind: "reply", comment: action.comment }];
+    case "edit_comment":
+      return [{ kind: "edit", comment: action.comment }];
+    case "delete_comment":
+      return [
+        { kind: "reply", comment: action.comment },
+        { kind: "edit", comment: action.comment },
+      ];
+    case "submit":
+      return [{ kind: "finish" }];
+    case "approve":
+    case "unapprove":
+    case "reattach":
+    case "answer":
+    case "drift":
+      return [];
+  }
+};
+
+/** A state as Finish review would leave its comments: every pending one sent. The limits must hold for it too. */
+const allSent = (state: ReviewState): ReviewState => ({
+  ...state,
+  comments: state.comments.map((comment) =>
+    isPending(comment)
+      ? { ...comment, source: { kind: "reviewer", state: "sent" } }
+      : comment,
+  ),
+});
 
 export class StaleRevision extends Error {
   readonly revision: Revision;
@@ -317,7 +401,10 @@ interface ThreadRow {
   readonly registered_at: string;
 }
 
-/** The feedback document a review's state and current round make. The store refuses a state this cannot encode. */
+/**
+ * The feedback document a review's state and current round make, as agents and exports see it: without pending
+ * comments. The store refuses a state this cannot encode, with its pending comments sent.
+ */
 export const feedbackOf = (
   view: ReviewView,
   exported_at: Timestamp,
@@ -338,7 +425,8 @@ export const feedbackOf = (
     })),
     approvals: view.state.approvals,
     threads: view.threads,
-    comments: view.state.comments,
+    // A pending comment is the reviewer's until Finish review sends it: feedback never holds one.
+    comments: agentComments(view.state.comments),
     earlier_rounds: [],
     // The revision a submission made is the store's bookkeeping, not part of the document.
     submissions: view.state.submissions.map(
@@ -347,9 +435,41 @@ export const feedbackOf = (
   };
 };
 
+/**
+ * Rewrites every saved review's state in today's shape, inside the upgrade's transaction: a state that no longer
+ * reads stops the upgrade, and the database stays as it was.
+ */
+const upgradeReviews = (db: DatabaseSync): void => {
+  const rows = db.prepare("SELECT id, state FROM reviews").all();
+  const write = db.prepare("UPDATE reviews SET state = ? WHERE id = ?");
+  for (const row of rows) {
+    const { id, state } = row;
+    if (typeof id !== "string" || typeof state !== "string")
+      throw new Error("A stored review has no ID or state.");
+    let upgraded: ReviewState;
+    try {
+      upgraded = upgradeState(JSON.parse(state));
+    } catch (error) {
+      throw new Error(
+        `Stored review ${id} cannot be upgraded: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    write.run(JSON.stringify(upgraded), id);
+  }
+};
+
 export class Store {
   readonly #db: DatabaseSync;
   readonly #listeners = new Set<ChangeListener>();
+  /** Listeners for the reviewer's own changes, such as their reading, which pages follow and agents do not. */
+  readonly #workspaceListeners = new Set<(reviewId: ReviewId) => void>();
+  #pendingWorkspace: Array<ReviewId> = [];
+  /** Each review's last stop reading, by the round input and reading it was computed from. */
+  readonly #stopsCache = new Map<
+    string,
+    { readonly key: string; readonly stops: ReadonlyArray<StopProgress> }
+  >();
   readonly #stackListeners = new Set<(id: StackId) => void>();
   /** Changes made by the open transaction, announced only once it commits. */
   #pending: Array<readonly [ReviewId, Revision]> = [];
@@ -389,30 +509,38 @@ export class Store {
     const row = db.prepare("PRAGMA user_version").get() as {
       user_version: number;
     };
-    if (row.user_version === 0) {
+    const version = row.user_version;
+    if (version === 0) {
       db.exec(SCHEMA);
       db.exec(REPOSITORIES_SCHEMA);
       db.exec(STACKS_SCHEMA);
+      db.exec(WORKSPACE_SCHEMA);
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
-    } else if (row.user_version === 2) {
-      db.exec(REPOSITORIES_SCHEMA);
-      db.exec(STACKS_SCHEMA);
-      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      db.exec("COMMIT");
-    } else if (row.user_version === 3) {
-      db.exec(
-        "ALTER TABLE monitored_repositories RENAME TO pending_repository_migrations",
-      );
-      db.exec(
-        "CREATE TABLE monitored_repositories (id TEXT PRIMARY KEY, repository TEXT NOT NULL) WITHOUT ROWID",
-      );
-      db.exec(STACKS_SCHEMA);
-      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      db.exec("COMMIT");
-    } else if (row.user_version === SCHEMA_VERSION) {
-      db.exec(STACKS_SCHEMA);
-      db.exec("COMMIT");
+    } else if (version >= 2 && version <= SCHEMA_VERSION) {
+      try {
+        if (version === 2) db.exec(REPOSITORIES_SCHEMA);
+        if (version === 3) {
+          db.exec(
+            "ALTER TABLE monitored_repositories RENAME TO pending_repository_migrations",
+          );
+          db.exec(
+            "CREATE TABLE monitored_repositories (id TEXT PRIMARY KEY, repository TEXT NOT NULL) WITHOUT ROWID",
+          );
+        }
+        db.exec(STACKS_SCHEMA);
+        if (version < 5) {
+          db.exec(WORKSPACE_SCHEMA);
+          upgradeReviews(db);
+        }
+        if (version !== SCHEMA_VERSION)
+          db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        db.close();
+        throw error;
+      }
     } else {
       db.exec("ROLLBACK");
       db.close();
@@ -484,15 +612,26 @@ export class Store {
     });
   }
 
+  /** Calls `listener` after each change to a review's state: what agents wait for and pages show. */
   subscribe(listener: ChangeListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * Calls `listener` after a change to the reviewer's own work on a review that open pages show, such as marking a
+   * stop read. Agents do not follow these, and the review's revision stays.
+   */
+  subscribeWorkspace(listener: (reviewId: ReviewId) => void): () => void {
+    this.#workspaceListeners.add(listener);
+    return () => this.#workspaceListeners.delete(listener);
   }
 
   #transaction<T>(work: () => T): T {
     this.#db.exec("BEGIN IMMEDIATE");
     this.#pending = [];
     this.#pendingStacks = [];
+    this.#pendingWorkspace = [];
     let value: T;
     try {
       value = work();
@@ -501,18 +640,23 @@ export class Store {
       this.#db.exec("ROLLBACK");
       this.#pending = [];
       this.#pendingStacks = [];
+      this.#pendingWorkspace = [];
       throw error;
     }
     const changes = this.#pending;
     const stacks = this.#pendingStacks;
+    const workspace = this.#pendingWorkspace;
     this.#pending = [];
     this.#pendingStacks = [];
+    this.#pendingWorkspace = [];
     // Listeners run after the caller's code, never inside the transaction.
     queueMicrotask(() => {
       for (const [reviewId, revision] of changes)
         for (const listener of this.#listeners) listener(reviewId, revision);
       for (const id of stacks)
         for (const listener of this.#stackListeners) listener(id);
+      for (const id of workspace)
+        for (const listener of this.#workspaceListeners) listener(id);
     });
     return value;
   }
@@ -594,7 +738,137 @@ export class Store {
       revision: row.revision as Revision,
       threads: this.#threads(row.id),
       ...(replaced === undefined ? {} : { replaced_by: replaced }),
+      drafts: this.drafts(row.id),
+      stops: this.#stops(row.id, state),
     };
+  }
+
+  /** The reviewer's unsent text on a review, one draft per slot. */
+  drafts(reviewId: string): ReadonlyArray<SavedDraft> {
+    return this.#db
+      .prepare(
+        "SELECT draft FROM review_drafts WHERE review_id = ? ORDER BY slot",
+      )
+      .all(reviewId)
+      .map((row) => decodeSavedDraft(row.draft));
+  }
+
+  #reading(reviewId: string): {
+    readonly text: string;
+    readonly reading: Reading;
+  } {
+    const row = this.#db
+      .prepare("SELECT reading FROM review_reading WHERE review_id = ?")
+      .get(reviewId);
+    if (row === undefined) return { text: "", reading: { marks: [] } };
+    return { text: String(row.reading), reading: decodeReading(row.reading) };
+  }
+
+  /** How the reviewer read each stop of the current round's tour. A round's input is decoded only once for it. */
+  #stops(reviewId: string, state: ReviewState): ReadonlyArray<StopProgress> {
+    const round = currentRound(state);
+    if (round === undefined) return [];
+    const { text, reading } = this.#reading(reviewId);
+    const key = `${round.input_sha256}:${text}`;
+    const known = this.#stopsCache.get(reviewId);
+    if (known?.key === key) return known.stops;
+    const input = this.#input(reviewId, round.round);
+    const stops = input === undefined ? [] : readingOf(reading, input);
+    this.#stopsCache.set(reviewId, { key, stops });
+    return stops;
+  }
+
+  /**
+   * Saves the reviewer's unsent text in its slot, replacing what it held. A reply or edit draft must be under a
+   * comment the review holds. Nothing is announced: the review keeps its revision, and the page that typed already
+   * shows the text.
+   */
+  saveDraft(reviewId: string, draft: Draft): SavedDraft {
+    return this.#transaction(() => {
+      const row = this.#row(reviewId);
+      if (row === undefined) throw new NoSuchReview(reviewId);
+      const state = JSON.parse(row.state) as ReviewState;
+      if (state.closed_at !== undefined)
+        throw new ActionError(
+          "closed",
+          "This review is closed. Open the newest review of its target.",
+        );
+      if (draft.kind === "reply" || draft.kind === "edit") {
+        const comment = state.comments.find(
+          (item) => item.id === draft.comment,
+        );
+        if (comment === undefined)
+          throw new ActionError(
+            "not_found",
+            `No comment ${draft.comment} in this review.`,
+          );
+        // A draft for a box the page cannot send would only come back to a reviewer who cannot use it.
+        if (draft.kind === "edit" && !canEdit(comment))
+          throw new ActionError(
+            "invalid",
+            "A comment imported from the git host cannot be edited here.",
+          );
+        if (draft.kind === "reply" && isPending(comment))
+          throw new ActionError(
+            "invalid",
+            "This comment is pending: edit it, or finish the review to send it.",
+          );
+      }
+      const saved: SavedDraft = { draft, saved_at: now() };
+      this.#db
+        .prepare(
+          "INSERT INTO review_drafts (review_id, slot, draft) VALUES (?, ?, ?) ON CONFLICT (review_id, slot) DO UPDATE SET draft = excluded.draft",
+        )
+        .run(reviewId, slotKey(slotOf(draft)), JSON.stringify(saved));
+      return saved;
+    });
+  }
+
+  /** Empties a draft slot. An empty slot stays empty. */
+  discardDraft(reviewId: string, slot: DraftSlot): void {
+    this.#transaction(() => {
+      if (this.#row(reviewId) === undefined) throw new NoSuchReview(reviewId);
+      this.#clearDraft(reviewId, slot);
+    });
+  }
+
+  #clearDraft(reviewId: string, slot: DraftSlot): void {
+    this.#db
+      .prepare("DELETE FROM review_drafts WHERE review_id = ? AND slot = ?")
+      .run(reviewId, slotKey(slot));
+  }
+
+  /**
+   * Marks a stop of the current round read or unread, for the round the page showed. Open pages of the review get a
+   * new snapshot; the review keeps its revision, and agents learn nothing of it.
+   */
+  read(reviewId: string, action: ReadingAction): ReadonlyArray<StopProgress> {
+    return this.#transaction(() => {
+      const row = this.#row(reviewId);
+      if (row === undefined) throw new NoSuchReview(reviewId);
+      const view = this.#view(row);
+      if (view.state.closed_at !== undefined)
+        throw new ActionError(
+          "closed",
+          "This review is closed. Open the newest review of its target.",
+        );
+      if (view.round === undefined || view.input === undefined)
+        throw new ActionError("no_round", "The review has no round yet.");
+      const marked = markStop(
+        this.#reading(reviewId).reading,
+        { round: view.round.round, input: view.input },
+        action,
+        now(),
+      );
+      if (Result.isFailure(marked)) throw marked.failure;
+      this.#db
+        .prepare(
+          "INSERT INTO review_reading (review_id, reading) VALUES (?, ?) ON CONFLICT (review_id) DO UPDATE SET reading = excluded.reading",
+        )
+        .run(reviewId, JSON.stringify(marked.success));
+      this.#pendingWorkspace.push(row.id as ReviewId);
+      return readingOf(marked.success, view.input);
+    });
   }
 
   /** A view of an earlier round of the review, for reading only. */
@@ -905,6 +1179,10 @@ export class Store {
             );
           case "reattach":
             return reattach(state, context, action.comment, action.selection);
+          case "edit_comment":
+            return editComment(state, context, action.comment, action.body);
+          case "delete_comment":
+            return deleteComment(state, action.comment);
           case "answer":
             return agentAnswer(
               state,
@@ -918,6 +1196,8 @@ export class Store {
       if (Result.isFailure(outcome)) throw outcome.failure;
       this.#check(reviewId, outcome.success, view.input);
       this.#write(reviewId, outcome.success);
+      // What the action sent leaves its box, in the same change.
+      for (const slot of sentSlots(action)) this.#clearDraft(reviewId, slot);
       const revision = this.#bump(reviewId);
       this.#notify(row.id as ReviewId, revision);
       return revision;
@@ -1292,7 +1572,7 @@ export class Store {
     if (round === undefined || input === undefined) return;
     const feedback = feedbackOf(
       {
-        state,
+        state: allSent(state),
         revision: 0 as Revision,
         threads: this.#threads(reviewId),
         round,

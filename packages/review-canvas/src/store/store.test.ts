@@ -26,7 +26,7 @@ import type {
   RoundNumber,
 } from "../schema/primitives.ts";
 import { fixtureBytes } from "../schema/testing.ts";
-import type { RowSelection } from "../review/anchor.ts";
+import type { RowsSelection } from "../schema/selection.ts";
 import { patchDigest } from "../review/anchor.ts";
 import { ActionError } from "../review/state.ts";
 import { turnOf } from "../review/queries.ts";
@@ -49,10 +49,11 @@ const rows = (
   path: string,
   start_row: number,
   end_row: number,
-): RowSelection => {
+): RowsSelection => {
   const file = round.files.find((item) => item.path === path);
   assert.ok(file?.patch !== undefined, `no patch for ${path}`);
   return {
+    kind: "rows",
     path: path as RepoPath,
     patch_sha256: patchDigest(file.patch),
     start_row,
@@ -638,8 +639,13 @@ test("a question goes to the agents at once, and they answer it", () => {
   const view = store.review(id);
   const [asked, review] = view?.state.comments ?? [];
   assert.ok(asked !== undefined && review !== undefined);
-  assert.deepEqual(asked.source, { kind: "reviewer", question: true });
-  assert.deepEqual(review.source, { kind: "reviewer" });
+  assert.deepEqual(asked.source, {
+    kind: "reviewer",
+    state: "sent",
+    question: true,
+  });
+  // A plain comment waits for Finish review, unseen by the agents.
+  assert.deepEqual(review.source, { kind: "reviewer", state: "pending" });
   store.act(id, {
     kind: "answer",
     thread: thread.id,
@@ -728,6 +734,13 @@ test("a feedback file imports into a fresh review once, with its answers and the
   });
   const comment = store.review(id)?.state.comments[0];
   assert.ok(comment !== undefined);
+  // The finish sends the comment; then the agents can answer it.
+  store.act(id, {
+    kind: "submit",
+    round: 1 as RoundNumber,
+    verdict: "comment",
+    body: "",
+  });
   store.act(id, {
     kind: "answer",
     thread: thread.id,
@@ -739,12 +752,6 @@ test("a feedback file imports into a fresh review once, with its answers and the
     path: "src/notes/cli.py" as RepoPath,
     fingerprint:
       "eb66c1c8de5a693b75c524a2b6ebe4763260bac93588a1bd120bafc9fd6a15b9" as Fingerprint,
-  });
-  store.act(id, {
-    kind: "submit",
-    round: 1 as RoundNumber,
-    verdict: "comment",
-    body: "",
   });
   const view = store.review(id);
   assert.ok(view !== undefined);

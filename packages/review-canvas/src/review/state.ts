@@ -15,6 +15,7 @@ import type {
 } from "../schema/feedback.ts";
 import { compareReplies } from "../schema/feedback.ts";
 import type { ReviewInput } from "../schema/input.ts";
+import type { Selection } from "../schema/selection.ts";
 import type {
   CommentId,
   CommitSha,
@@ -27,14 +28,19 @@ import type {
   Timestamp,
 } from "../schema/primitives.ts";
 import {
+  anchorFor,
   type AnchorProblem,
-  anchorForRows,
   attach,
-  type RowSelection,
+  isAnchorProblem,
 } from "./anchor.ts";
 import {
   approvalHolds,
+  canDelete,
+  canEdit,
   currentRound,
+  currentSubmission,
+  isPending,
+  type OwnComment,
   turnOf,
   type ReviewState,
   type Round,
@@ -113,18 +119,32 @@ const replaceComment = (state: ReviewState, updated: Comment): ReviewState => ({
   ),
 });
 
-/** Appends a reply, keeping the conversation in its one order. A reply never goes before an earlier one. */
+const after = (time: Timestamp): Timestamp =>
+  new Date(Date.parse(time) + 1).toISOString() as Timestamp;
+
+/** When the reviewer last edited a sent comment, if they did. */
+const editedAt = (comment: Comment): Timestamp | undefined =>
+  comment.source.kind === "reviewer" && comment.source.state === "edited"
+    ? comment.source.edited_at
+    : undefined;
+
+/**
+ * Appends a reply, keeping the conversation in its one order. A reply never goes before an earlier one, nor before
+ * the comment's last edit, so whether an edit came after an answer is a comparison of times.
+ */
 export const appendReply = (
   comment: Comment,
   reply: Reply,
   now: Timestamp,
 ): Comment => {
   const last = comment.replies.at(-1);
-  const created_at =
+  let created_at =
     last !== undefined &&
     compareReplies(last, { ...reply, created_at: now }) > 0
-      ? (new Date(Date.parse(last.created_at) + 1).toISOString() as Timestamp)
+      ? after(last.created_at)
       : now;
+  const edited = editedAt(comment);
+  if (edited !== undefined && created_at <= edited) created_at = after(edited);
   return {
     ...comment,
     updated_at: created_at,
@@ -132,8 +152,9 @@ export const appendReply = (
   };
 };
 
-const ANCHOR_PROBLEMS: Readonly<Record<AnchorProblem["kind"], string>> = {
+const ANCHOR_PROBLEMS: Readonly<Record<AnchorProblem["problem"], string>> = {
   no_patch: "the file has no patch",
+  no_text: "the round does not hold the file's text",
   changed:
     "the file changed since the page showed it. Select the lines again in the current round",
   out_of_range: "the selected rows are outside the patch",
@@ -144,18 +165,30 @@ const ANCHOR_PROBLEMS: Readonly<Record<AnchorProblem["kind"], string>> = {
 
 const anchorFailure = (problem: AnchorProblem, doing: string) =>
   fail(
-    problem.kind === "changed" ? "changed" : "bad_anchor",
-    `Cannot ${doing}: ${ANCHOR_PROBLEMS[problem.kind]}.`,
+    problem.problem === "changed" ? "changed" : "bad_anchor",
+    `Cannot ${doing}: ${ANCHOR_PROBLEMS[problem.problem]}.`,
   );
 
-const reviewerSource = (question: boolean): Comment["source"] =>
-  question ? { kind: "reviewer", question: true } : { kind: "reviewer" };
+/**
+ * How a new comment of the reviewer's starts. A question goes to the agents at once. A plain comment waits, pending,
+ * for Finish review, unless the reviewer already finished the round: then it goes at once, since no finish is left to
+ * send it.
+ */
+const reviewerSource = (
+  state: ReviewState,
+  question: boolean,
+): Comment["source"] => {
+  if (question) return { kind: "reviewer", state: "sent", question: true };
+  return currentSubmission(state) === undefined
+    ? { kind: "reviewer", state: "pending" }
+    : { kind: "reviewer", state: "sent" };
+};
 
-/** A comment on a row selection of a file in the current round. */
+/** A comment on a selection of rows of a file's patch, or of lines of its text, in the current round. */
 export const addInlineComment = (
   state: ReviewState,
   context: ActionContext,
-  selection: RowSelection,
+  selection: Selection,
   body: string,
   question = false,
 ): Outcome => {
@@ -168,16 +201,16 @@ export const addInlineComment = (
       "not_found",
       `No file ${selection.path} in round ${round.round}.`,
     );
-  const anchor = anchorForRows(
+  const anchor = anchorFor(
     file,
     { round: round.round, input_sha256: round.input_sha256 },
     selection,
   );
-  if ("kind" in anchor) return anchorFailure(anchor, "comment there");
+  if (isAnchorProblem(anchor)) return anchorFailure(anchor, "comment there");
   const comment: Comment = {
     kind: "inline",
     id: context.commentId(),
-    source: reviewerSource(question),
+    source: reviewerSource(state, question),
     body,
     created_at: context.now,
     updated_at: context.now,
@@ -201,7 +234,7 @@ export const addGeneralComment = (
   const comment: Comment = {
     kind: "general",
     id: context.commentId(),
-    source: reviewerSource(question),
+    source: reviewerSource(state, question),
     body,
     created_at: context.now,
     updated_at: context.now,
@@ -223,6 +256,11 @@ export const reviewerReply = (
   const found = findComment(state, id);
   if (Result.isFailure(found)) return Result.fail(found.failure);
   const comment = found.success;
+  if (isPending(comment))
+    return fail(
+      "invalid",
+      "This comment is pending: edit it, or finish the review to send it.",
+    );
   const turn = turnOf(comment);
   if (action === "reopen" && turn !== "resolved")
     return fail("not_your_turn", "Only a resolved comment can be reopened.");
@@ -255,6 +293,9 @@ export const agentAnswer = (
   const found = findComment(state, id);
   if (Result.isFailure(found)) return Result.fail(found.failure);
   const comment = found.success;
+  // A pending comment is not there for the agents: it is refused as a comment that does not exist.
+  if (isPending(comment))
+    return fail("not_found", `No comment ${id} in this review.`);
   const turn = turnOf(comment);
   if (turn !== "agent") {
     return fail(
@@ -368,7 +409,92 @@ export const submit = (
   };
   return Result.succeed({
     ...state,
+    // The finish sends every pending comment with the verdict, in the same change.
+    comments: state.comments.map((comment) =>
+      isPending(comment)
+        ? { ...comment, source: { kind: "reviewer", state: "sent" } }
+        : comment,
+    ),
     submissions: [...state.submissions, submission],
+  });
+};
+
+/** One of the reviewer's own comments, which the reviewer may change: not one imported from a git host. */
+const ownComment = (
+  state: ReviewState,
+  id: CommentId,
+  doing: string,
+): Result.Result<OwnComment, ActionError> => {
+  const closed = open(state);
+  if (closed !== undefined) return Result.fail(closed);
+  const found = findComment(state, id);
+  if (Result.isFailure(found)) return Result.fail(found.failure);
+  const comment = found.success;
+  if (!canEdit(comment))
+    return fail(
+      "invalid",
+      `A comment imported from the git host cannot be ${doing} here.`,
+    );
+  return Result.succeed(comment);
+};
+
+/**
+ * Changes the body of one of the reviewer's comments. A pending comment stays pending, as nobody has seen it. A sent
+ * one is marked edited at this time, so the agents see that the text they read changed; after an answer, the edit
+ * returns the comment to them. The same body changes nothing.
+ */
+export const editComment = (
+  state: ReviewState,
+  context: ActionContext,
+  id: CommentId,
+  body: string,
+): Outcome => {
+  const found = ownComment(state, id, "edited");
+  if (Result.isFailure(found)) return Result.fail(found.failure);
+  const comment = found.success;
+  if (body.trim() === "")
+    return fail("invalid", "Write the comment, or delete it.");
+  if (body === comment.body) return Result.succeed(state);
+  const { source } = comment;
+  // An edit comes after every reply, even one made in the same millisecond, so the turn it hands back is clear.
+  const last = comment.replies.at(-1)?.created_at;
+  const edited: Comment["source"] =
+    source.state === "pending"
+      ? source
+      : {
+          kind: "reviewer",
+          state: "edited",
+          ...(source.question === true ? { question: true } : {}),
+          edited_at:
+            last !== undefined && context.now <= last
+              ? after(last)
+              : context.now,
+        };
+  return Result.succeed(
+    replaceComment(state, {
+      ...comment,
+      source: edited,
+      body,
+      updated_at: edited.state === "edited" ? edited.edited_at : context.now,
+    }),
+  );
+};
+
+/**
+ * Deletes one of the reviewer's comments: a pending one, or a sent one nobody replied to. A comment with replies is
+ * part of a conversation, so it stays; withdrawing it takes it back.
+ */
+export const deleteComment = (state: ReviewState, id: CommentId): Outcome => {
+  const found = ownComment(state, id, "deleted");
+  if (Result.isFailure(found)) return Result.fail(found.failure);
+  if (!canDelete(found.success))
+    return fail(
+      "invalid",
+      "This comment has replies, so it cannot be deleted. Withdraw it instead.",
+    );
+  return Result.succeed({
+    ...state,
+    comments: state.comments.filter((comment) => comment.id !== id),
   });
 };
 
@@ -426,7 +552,7 @@ export const reattach = (
   state: ReviewState,
   context: ActionContext,
   id: CommentId,
-  selection: RowSelection,
+  selection: Selection,
 ): Outcome => {
   const current = withRound(state, context);
   if (Result.isFailure(current)) return Result.fail(current.failure);
@@ -448,13 +574,13 @@ export const reattach = (
       "not_found",
       `No file ${selection.path} in round ${round.round}.`,
     );
-  const anchor: Anchor | AnchorProblem = anchorForRows(
+  const anchor: Anchor | AnchorProblem = anchorFor(
     file,
     { round: round.round, input_sha256: round.input_sha256 },
     selection,
   );
-  if ("kind" in anchor)
-    return anchorFailure(anchor, "attach the comment to those rows");
+  if (isAnchorProblem(anchor))
+    return anchorFailure(anchor, "attach the comment to those lines");
   return Result.succeed(
     replaceComment(state, {
       ...comment,

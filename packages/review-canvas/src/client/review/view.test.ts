@@ -6,7 +6,7 @@ import type { RepoPath, Revision } from "../../schema/primitives.ts";
 import { splitPath, underRoot } from "../names.ts";
 import { afterOwnAction } from "./data.ts";
 import { parseHash } from "./places.ts";
-import { fileStatus, finishState, pathOrder } from "./view.ts";
+import { fileStatus, finishState, pathOrder, readingSummary } from "./view.ts";
 
 const file = (extra: Readonly<Record<string, unknown>> = {}) =>
   ({
@@ -144,4 +144,28 @@ test("the finish says what is left, omitting any zero, and what waits for the ag
     finishState(counts(15, 15, 0, 0)),
     "Everything viewed, nothing waiting.",
   );
+});
+
+test("the guide counts read stops; a changed stop and one the snapshot does not name yet are not read", () => {
+  const at = "2026-10-10T00:00:00.000Z" as never;
+  const summary = readingSummary(
+    [
+      { stop: 0, read: { state: "read", round: 1 as never, read_at: at } },
+      {
+        stop: 1,
+        read: {
+          state: "changed",
+          round: 1 as never,
+          read_at: at,
+          files: ["a.ts" as RepoPath],
+        },
+      },
+      { stop: 2, read: { state: "unread" } },
+    ],
+    4,
+  );
+  assert.equal(summary.read, 1);
+  assert.equal(summary.total, 4);
+  assert.equal(summary.stops.get(1)?.state, "changed");
+  assert.equal(summary.stops.get(3), undefined);
 });

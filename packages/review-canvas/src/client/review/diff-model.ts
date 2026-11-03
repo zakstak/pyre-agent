@@ -16,25 +16,44 @@ export interface PlacedComment {
   readonly end: number;
 }
 
-/** The inline comments of a file, placed on its rows. Orphans have no place. */
+/**
+ * An inline comment on lines of the file's text that the patch does not show, such as unchanged lines around a hunk:
+ * new-side line numbers, which a gap's lines carry. The thread goes under its last line once that gap is open.
+ */
+export interface ContextComment {
+  readonly comment: InlineComment;
+  readonly start_line: number;
+  readonly end_line: number;
+}
+
+/** The inline comments of a file, placed on its rows or on lines outside them. Orphans have no place. */
 export const placeComments = (
   file: ReviewFile,
   comments: ReadonlyArray<Comment>,
 ): {
   readonly placed: ReadonlyArray<PlacedComment>;
+  readonly context: ReadonlyArray<ContextComment>;
   readonly orphans: ReadonlyArray<InlineComment>;
 } => {
   const rows = parseRows(file.patch ?? "");
   const placed: Array<PlacedComment> = [];
+  const context: Array<ContextComment> = [];
   const orphans: Array<InlineComment> = [];
   for (const comment of comments) {
     if (comment.kind !== "inline" || comment.anchor.path !== file.path)
       continue;
-    const span = attachedRows(rows, comment.attachment);
-    if (span === undefined) orphans.push(comment);
-    else placed.push({ comment, ...span });
+    const { attachment } = comment;
+    const span = attachedRows(rows, attachment);
+    if (span !== undefined) placed.push({ comment, ...span });
+    else if (attachment.state === "attached" && "start_line" in attachment)
+      context.push({
+        comment,
+        start_line: attachment.start_line,
+        end_line: attachment.end_line,
+      });
+    else orphans.push(comment);
   }
-  return { placed, orphans };
+  return { placed, context, orphans };
 };
 
 /** One unchanged line between hunks: the same text on both sides, at its old and new line numbers. */

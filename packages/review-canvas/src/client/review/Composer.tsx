@@ -146,6 +146,7 @@ export const Composer = ({
       {
         kind: "comment",
         selection: {
+          kind: "rows",
           path: draft.path,
           patch_sha256: draft.digest,
           start_row: draft.start,

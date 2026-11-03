@@ -65,31 +65,39 @@ reviews while the server runs. This is accepted for one user on one machine.
 ## What the server owns
 
 The server is the one authority on a review. Each action is one transaction that
-raises the review's revision: a comment, a reply, an accept, a reopen, an
-approval, a submission, a published round, an agent's answer. A page sends the
-revision it saw with each action; when the review moved on, the server refuses
-the action and the page refreshes. No state is written that the feedback schema
-would refuse, so every review exports as a valid feedback document.
+raises the review's revision: a comment, an edit or a delete of one, a reply, an
+accept, a reopen, an approval, a submission, a published round, an agent's
+answer. A page sends the revision it saw with each action; when the review moved
+on, the server refuses the action and the page refreshes. No state is written
+that the feedback schema would refuse, so every review exports as a valid
+feedback document, and so would with every pending comment sent.
+
+The server also keeps the reviewer's own work beside the review: unsent text,
+saved as they type, one draft per box, and which tour stops they read, with the
+file versions they read them at. Neither raises the revision or reaches an
+agent. A reload, a restart, or another browser finds both again.
 
 A page acts on the revision it shows. A comment names the patch its rows belong
 to, and a finish names the round it covers, so neither can land on a round the
 reviewer has not seen even while the newer one is on its way.
 
 Pages are rendered in the browser and need JavaScript. An open page holds one
-WebSocket to the server and receives the review again whenever it changes,
-keeping the reviewer's place, open drafts, and scroll. A draft whose code
-changed is not moved; its text fills the next comment. When the server stops,
-the page says so and reconnects on its own when the server returns on the same
-port. Whole files show unified or side by side; the browser remembers the
-choice.
+WebSocket to the server and receives the review again whenever it or the
+reviewer's reading changes, keeping the reviewer's place, open drafts, and
+scroll. A draft whose code changed is not moved; its text fills the next
+comment. When the server stops, the page says so and reconnects on its own when
+the server returns on the same port. Whole files show unified or side by side;
+the browser remembers the choice.
 
 ## Whose turn
 
 Each comment waits for one side:
 
-- **The agent** when the comment has no answer, or the reviewer reopened it or
-  replied after the last answer.
-- **The reviewer** when the last entry is an agent's answer.
+- **The agent** when the comment has no answer, or the reviewer reopened it,
+  replied, or edited it after the last answer.
+- **The reviewer** when the last entry is an agent's answer, or while the
+  comment is pending: written, but not yet sent with **Finish review**. No agent
+  sees a pending comment.
 - **Nobody** once the reviewer accepted the last answer, or withdrew the
   comment. The reviewer can reopen it.
 

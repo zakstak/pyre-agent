@@ -5,11 +5,13 @@
 import type { Comment, Verdict } from "../../schema/feedback.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
 import type {
+  ContentDigest,
   PatchDigest,
   RepoPath,
   RoundNumber,
 } from "../../schema/primitives.ts";
-import type { ReviewSnapshot } from "../../schema/rpc.ts";
+import type { StopProgress, StopRead } from "../../schema/reading.ts";
+import type { ReviewSnapshot, RoundView } from "../../schema/rpc.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
 import {
@@ -17,6 +19,7 @@ import {
   fileStep,
   type Next,
   nextStep,
+  pageOrder,
 } from "../../review/next.ts";
 import {
   type Progress,
@@ -28,6 +31,7 @@ import { currentSubmission, type Round } from "../../review/queries.ts";
 import { type StopView, tourView } from "../../review/tour.ts";
 import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
 import {
+  type ContextComment,
   type InlineComment,
   type PlacedComment,
   placeComments,
@@ -68,13 +72,17 @@ export interface FileModel {
   /** The file's place in the round, which names its table. */
   readonly index: number;
   readonly file: ReviewFile;
-  /** The digest of the patch the page shows, which a comment's selection names. */
+  /** The digest of the patch the page shows, which a selection of its rows names. */
   readonly digest: PatchDigest | undefined;
+  /** The digest of the file's whole new text, which a selection of its lines names, as of unchanged lines. */
+  readonly text: ContentDigest | undefined;
   /** An approval of this version of the file holds. */
   readonly approved: boolean;
   /** The reviewer viewed an earlier version, which changed since. */
   readonly lapsed: boolean;
   readonly placed: ReadonlyArray<PlacedComment>;
+  /** Comments on lines outside the patch, which show under those lines once their gap is open. */
+  readonly context: ReadonlyArray<ContextComment>;
   readonly orphans: ReadonlyArray<InlineComment>;
   /** Comments not yet resolved, and those whose turn is the reviewer's. */
   readonly open: number;
@@ -133,7 +141,7 @@ export const fileStatus = (
 const fileModels = (
   snapshot: ReviewSnapshot,
   input: ReviewInput,
-  digests: Readonly<Record<RepoPath, PatchDigest>>,
+  { digests, texts }: Digests,
   stops: ReadonlyArray<StopView>,
   next: Next,
   previous: ReviewInput | undefined,
@@ -157,9 +165,10 @@ const fileModels = (
         : undefined;
   return new Map(
     input.files.map((file, index): [RepoPath, FileModel] => {
-      const { placed, orphans } = placeComments(file, state.comments);
+      const { placed, context, orphans } = placeComments(file, state.comments);
       const comments: ReadonlyArray<Comment> = [
         ...placed.map((item) => item.comment),
+        ...context.map((item) => item.comment),
         ...orphans,
       ];
       const approved = counts.viewed.has(file.path);
@@ -216,9 +225,11 @@ const fileModels = (
           index,
           file,
           digest: digests[file.path],
+          text: texts[file.path],
           approved,
           lapsed,
           placed,
+          context,
           orphans,
           open,
           forYou,
@@ -333,6 +344,14 @@ export interface PageModel {
     readonly file: Extract<Next, { kind: "file" }> | undefined;
   };
   readonly progress: Progress;
+  /** The reviewer's pending comments, which Finish review sends, in the order the page shows them. */
+  readonly pending: ReadonlyArray<Comment>;
+  /** How the reviewer read each stop of this round, by the stop's index, and how many of the stops are read. */
+  readonly reading: {
+    readonly stops: ReadonlyMap<number, StopRead>;
+    readonly read: number;
+    readonly total: number;
+  };
   readonly standing: (comment: Comment) => Standing;
   readonly writable: boolean;
   /** The reviewer finished this round. */
@@ -344,19 +363,22 @@ export interface PageModel {
   readonly updated: string;
 }
 
+/** The digests a round's view carries: each patch's and each new text's. */
+export type Digests = Pick<RoundView, "digests" | "texts">;
+
 /** The review page for a snapshot with a round, its input, and the round before's input when there is one. */
 export const pageModel = (
   snapshot: ReviewSnapshot,
   round: Round,
   input: ReviewInput,
-  digests: Readonly<Record<RepoPath, PatchDigest>>,
+  digests: Digests,
   previous: ReviewInput | undefined,
 ): PageModel => {
   const { state } = snapshot;
   const { stops } = tourView(input);
   const next = nextStep(state, input, stops, round);
   const counts = progress(state, input);
-  const standing = standingOf(state);
+  const standing = standingOf;
   const files = fileModels(
     snapshot,
     input,
@@ -381,6 +403,10 @@ export const pageModel = (
       file: fileStep(state, input, stops),
     },
     progress: counts,
+    pending: state.comments
+      .filter((comment) => standing(comment) === "pending")
+      .toSorted(pageOrder(input, stops)),
+    reading: readingSummary(snapshot.stops, stops.length),
     standing,
     writable: state.closed_at === undefined,
     finished: currentSubmission(state) !== undefined,
@@ -396,6 +422,23 @@ export const pageModel = (
       ...state.submissions.map((item) => item.submitted_at),
       state.drift?.checked_at ?? "",
     ].reduce((a, b) => (b > a ? b : a)),
+  };
+};
+
+/**
+ * The stops' reading as the guide counts it: "n of m read" counts read stops; a changed stop is not read until the
+ * reviewer reads it again. A stop the snapshot does not name yet, as while a new round's snapshot is on its way, is
+ * unread.
+ */
+export const readingSummary = (
+  progress: ReadonlyArray<StopProgress>,
+  total: number,
+): PageModel["reading"] => {
+  const stops = new Map(progress.map((item) => [item.stop, item.read]));
+  return {
+    stops,
+    read: [...stops.values()].filter((read) => read.state === "read").length,
+    total,
   };
 };
 

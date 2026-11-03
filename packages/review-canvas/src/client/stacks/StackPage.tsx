@@ -334,7 +334,7 @@ const CurrentStep = ({
           reviewSnapshot,
           published,
           layerInput(snapshot, layer.url, view.input),
-          view.digests,
+          view,
           undefined,
         );
   }, [reviewSnapshot, view, state.round, snapshot, layer.url]);

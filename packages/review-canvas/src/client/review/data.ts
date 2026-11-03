@@ -2,15 +2,24 @@
  * A review as the page holds it: the live snapshot the server pushes, the rounds' inputs, and the one way to change
  * it. Every value comes from the server over the RPC socket; the page renders whatever these atoms hold.
  */
-import { Effect, type Exit, Option, Ref, Semaphore, Stream } from "effect";
+import { Effect, Exit, Option, Ref, Semaphore, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type {
   ReviewId,
   Revision,
   RoundNumber,
 } from "../../schema/primitives.ts";
+import type { ReadingAction, StopProgress } from "../../schema/reading.ts";
 import type { ImportReport, PageAction } from "../../schema/rpc.ts";
-import { type CallError, epochAtom, PageClient } from "../rpc.ts";
+import { compareSince } from "../../review/since.ts";
+import { type CallError, epochAtom, failureText, PageClient } from "../rpc.ts";
+import {
+  type CallOutcome,
+  type DraftQueue,
+  draftQueue,
+  type DraftStatus,
+  pageClock,
+} from "./drafts.ts";
 
 /**
  * The review now, and again after every change, while the page shows it. A dropped socket ends the watch; the next
@@ -133,4 +142,95 @@ export const actionsAtom = Atom.family((id: ReviewId) =>
       }),
     )
     .pipe(Atom.keepAlive),
+);
+
+/** Where saving the reviewer's drafts is, for a "Saved" or "Not saved" line. */
+export const draftStatusAtom = Atom.family((_id: ReviewId) =>
+  Atom.make<DraftStatus>({ state: "idle" }).pipe(Atom.keepAlive),
+);
+
+/**
+ * The reviewer's own work on a review, beside its state: unsent text, saved as they type, and the stops they read.
+ * Neither raises the review's revision, so neither goes through {@link actionsAtom}'s queue.
+ */
+export interface Workspace {
+  /** Saves each box's text once the reviewer pauses, and every pending text when the page is hidden. */
+  readonly drafts: DraftQueue;
+  /** Marks a stop of the round the page shows read or unread, and answers with every stop's reading. */
+  readonly read: (
+    action: ReadingAction,
+  ) => Promise<Exit.Exit<ReadonlyArray<StopProgress>, CallError>>;
+}
+
+const callOutcome = <A>(
+  exit: Exit.Exit<A, CallError>,
+  at: (value: A) => string,
+): CallOutcome =>
+  Exit.isSuccess(exit)
+    ? { ok: true, at: at(exit.value) }
+    : { ok: false, message: failureText(exit.cause) };
+
+export const workspaceAtom = Atom.family((id: ReviewId) =>
+  PageClient.runtime
+    .atom((get) =>
+      Effect.gen(function* () {
+        const client = yield* PageClient;
+        const drafts = draftQueue(
+          {
+            save: async (draft) =>
+              callOutcome(
+                await Effect.runPromiseExit(
+                  client("review.saveDraft", { id, draft }),
+                ),
+                (saved) => saved.saved_at,
+              ),
+            discard: async (slot) =>
+              callOutcome(
+                await Effect.runPromiseExit(
+                  client("review.discardDraft", { id, slot }),
+                ),
+                () => new Date().toISOString(),
+              ),
+          },
+          (status) => get.set(draftStatusAtom(id), status),
+          pageClock,
+        );
+        // A page that is closed or put away saves what is still waiting.
+        const hidden = () => void drafts.flush();
+        addEventListener("pagehide", hidden);
+        get.addFinalizer(() => removeEventListener("pagehide", hidden));
+        return {
+          drafts,
+          read: (action) =>
+            Effect.runPromiseExit(client("review.read", { id, action })),
+        } satisfies Workspace;
+      }),
+    )
+    .pipe(Atom.keepAlive),
+);
+
+/** Two rounds of a review: the one the reviewer last reviewed, and the one the page shows. */
+export interface SinceKey {
+  readonly id: ReviewId;
+  /** The earlier round, from `sinceRound` in review/since.ts. */
+  readonly since: RoundNumber;
+  readonly round: RoundNumber;
+}
+
+/**
+ * Every file of `round` against the same file in `since`: unchanged, changed with a patch from the earlier text,
+ * added since, or why it cannot be compared. Both rounds' inputs are read once, as {@link roundAtom} reads them.
+ */
+export const sinceAtom = Atom.family((key: SinceKey) =>
+  Atom.make((get) =>
+    Effect.gen(function* () {
+      const then = yield* get.result(
+        roundAtom({ id: key.id, round: key.since }),
+      );
+      const now = yield* get.result(
+        roundAtom({ id: key.id, round: key.round }),
+      );
+      return compareSince(key.since, then.input, now.input);
+    }),
+  ).pipe(Atom.keepAlive),
 );

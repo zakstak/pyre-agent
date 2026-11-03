@@ -76,6 +76,12 @@ const text = async (page: Page, selector: string) =>
     .trim();
 
 /** Marks every file viewed through its Viewed button, one at a time. */
+/** Finishes the round from the page, which sends the pending comments to the agents. */
+const finishRound = async (page: Page) => {
+  await page.locator("#finish button[type=submit]").click();
+  await page.locator("#finish [data-submission]").waitFor();
+};
+
 const viewAll = async (page: Page) => {
   for (;;) {
     const button = page
@@ -172,6 +178,9 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       .locator("article[data-comment][data-turn='agent']")
       .first()
       .waitFor();
+    // The comment is pending until the finish sends it.
+    assert.deepEqual((await agent.status()).to_answer, []);
+    await finishRound(page);
     const [comment] = (await agent.status()).to_answer;
     await agent.answer(comment, {
       disposition: "rejected",
@@ -815,6 +824,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.type("Split view comment.");
     await page.keyboard.press("Control+Enter");
     await page.locator("article[data-comment]").first().waitFor();
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.deepEqual(
       [comment.anchor.side, comment.anchor.start_line],
@@ -861,6 +871,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.getByText("The comment moved to the lines you chose.").waitFor();
     assert.equal(await page.locator("#departed").count(), 0);
     assert.equal(await page.locator(composer).count(), 0);
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.equal(comment.anchor.path, "src/notes/cli.py");
     await page.close();
@@ -993,6 +1004,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.type("Group these imports.");
     await page.keyboard.press("Control+Enter");
     await page.locator("article[data-comment]").first().waitFor();
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.deepEqual(
       [comment.anchor.start_line, comment.anchor.end_line],

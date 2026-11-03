@@ -86,6 +86,17 @@ export const viewAtom = Atom.kvs({
   defaultValue: (): View => "guided",
 });
 
+/**
+ * Whether the page shows each file's changes since the reviewer's last review instead of its whole change, as the
+ * reviewer chose for every review. The rounds come from `sinceRound` in review/since.ts and `sinceAtom` in data.ts.
+ */
+export const sinceLastReviewAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-since-last-review",
+  schema: Schema.Boolean,
+  defaultValue: (): boolean => false,
+});
+
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
 export const NARROW_QUERY = "(width < 48rem)";
 

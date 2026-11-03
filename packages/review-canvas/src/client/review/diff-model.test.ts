@@ -1,6 +1,8 @@
 // How the page lays out a patch: unchanged lines between hunks, split pairs, folded rows, and their one control.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Comment } from "../../schema/feedback.ts";
+import type { ReviewFile } from "../../schema/input.ts";
 import { parseRows } from "../../review/patch.ts";
 import {
   gapLabel,
@@ -8,6 +10,7 @@ import {
   layoutDiff,
   nextStage,
   pairRows,
+  placeComments,
   type Segment,
 } from "./diff-model.ts";
 
@@ -122,4 +125,40 @@ test("a gap's control shows the folded rows, then the unchanged lines, then hide
   // With one kind of hidden line there is no middle step.
   assert.equal(nextStage(0, { folded: 0, context: 1 }), 2);
   assert.equal(gapLabel(0, { folded: 0, context: 1 }), "Show 1 more line");
+});
+
+test("a comment on lines of the text sits on the patch rows that show them, or under unchanged lines outside the patch", () => {
+  const file = { path: "a.txt", patch, new_content: content } as ReviewFile;
+  const comment = (id: string, attachment: object) =>
+    ({
+      kind: "inline",
+      id,
+      anchor: { kind: "text", path: "a.txt" },
+      attachment,
+    }) as unknown as Comment;
+  const lines = (start_line: number, end_line: number) => ({
+    state: "attached",
+    reason: "Same text.",
+    start_line,
+    end_line,
+  });
+  const { placed, context, orphans } = placeComments(file, [
+    // Lines 3 and 4 are the added "three!" and the context after it: rows 3 and 4.
+    comment("in-patch", lines(3, 4)),
+    // Line 6 is between the hunks, which only the file's text shows.
+    comment("outside", lines(6, 6)),
+    comment("gone", { state: "orphan", reason: "Gone." }),
+  ]);
+  assert.deepEqual(
+    placed.map((item) => [item.comment.id, item.start, item.end]),
+    [["in-patch", 3, 4]],
+  );
+  assert.deepEqual(
+    context.map((item) => [item.comment.id, item.start_line, item.end_line]),
+    [["outside", 6, 6]],
+  );
+  assert.deepEqual(
+    orphans.map((item) => item.id),
+    ["gone"],
+  );
 });

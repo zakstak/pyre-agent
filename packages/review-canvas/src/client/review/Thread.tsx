@@ -6,7 +6,7 @@ import type { Comment, Disposition, Reply } from "../../schema/feedback.ts";
 import type { Thread as AgentThread } from "../../schema/thread.ts";
 import { commentElementId } from "../../review/next.ts";
 import type { Standing } from "../../review/progress.ts";
-import { type Turn, turnOf } from "../../review/queries.ts";
+import { isPending, type Turn, turnOf } from "../../review/queries.ts";
 import { threadName, threadNameOf } from "../names.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
@@ -247,6 +247,24 @@ const Moves = ({
           : { ...now, open: false },
       );
   };
+  // Nobody has seen a pending comment, so there is nothing to reply to: taking it back deletes it.
+  if (isPending(comment))
+    return (
+      <div data-thread-actions className={ACTIONS_CLASS}>
+        <Button
+          size="sm"
+          variant="quiet"
+          disabled={busy}
+          title="Take the comment back"
+          onClick={() =>
+            void run(() => act({ kind: "delete_comment", comment: comment.id }))
+          }
+        >
+          Withdraw
+        </Button>
+        {extra}
+      </div>
+    );
   if (turn === "resolved")
     return (
       <div data-thread-actions className={ACTIONS_CLASS}>

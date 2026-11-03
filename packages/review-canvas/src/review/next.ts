@@ -11,6 +11,7 @@ import type {
   RoundNumber,
   ThreadId,
 } from "../schema/primitives.ts";
+import { attachedRows, parseRows, type Row } from "./patch.ts";
 import { progress, standingOf } from "./progress.ts";
 import { currentSubmission, type ReviewState, type Round } from "./queries.ts";
 import type { StopView } from "./tour.ts";
@@ -96,7 +97,7 @@ export const walkthroughOrder = (
  * sits under, with comments whose lines left the round at the end of their file; then comments on files that left
  * the round; then the comments on the whole change. Ties go to the older comment.
  */
-const pageOrder = (
+export const pageOrder = (
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
 ): ((a: Comment, b: Comment) => number) => {
@@ -104,6 +105,33 @@ const pageOrder = (
     walkthroughOrder(stops).map((item, at) => [item.path, at]),
   );
   const departed = files.size;
+  const rowsOf = new Map<string, ReadonlyArray<Row>>();
+  const rows = (path: RepoPath) => {
+    let parsed = rowsOf.get(path);
+    if (parsed === undefined) {
+      parsed = parseRows(
+        input.files.find((item) => item.path === path)?.patch ?? "",
+      );
+      rowsOf.set(path, parsed);
+    }
+    return parsed;
+  };
+  /**
+   * Where a thread sits in its file, as a row of the patch: the last row it spans, or for lines outside the patch,
+   * just before the first row after them.
+   */
+  const rowOf = (comment: Extract<Comment, { kind: "inline" }>): number => {
+    const { attachment } = comment;
+    if (attachment.state !== "attached") return Number.POSITIVE_INFINITY;
+    const patch = rows(comment.anchor.path);
+    const span = attachedRows(patch, attachment);
+    if (span !== undefined) return span.end;
+    if (!("start_line" in attachment)) return Number.POSITIVE_INFINITY;
+    const after = patch.find(
+      (row) => row.new !== undefined && row.new > attachment.end_line,
+    );
+    return (after?.index ?? patch.length) - 0.5;
+  };
   const place = (comment: Comment): readonly [number, number] => {
     if (comment.kind === "general") return [departed + 1, 0];
     const file = files.get(comment.anchor.path);
@@ -112,12 +140,7 @@ const pageOrder = (
       !input.files.some((item) => item.path === comment.anchor.path)
     )
       return [departed, 0];
-    return [
-      file,
-      comment.attachment.state === "attached"
-        ? comment.attachment.end
-        : Number.POSITIVE_INFINITY,
-    ];
+    return [file, rowOf(comment)];
   };
   return (a, b) => {
     const [fileA, rowA] = place(a);
@@ -138,7 +161,7 @@ export const answerStep = (
   input: ReviewInput,
   stops: ReadonlyArray<StopView>,
 ): Extract<Next, { kind: "answer" }> | undefined => {
-  const standing = standingOf(state);
+  const standing = standingOf;
   const toRead = state.comments
     .filter((comment) => standing(comment) === "reviewer")
     .toSorted(pageOrder(input, stops));

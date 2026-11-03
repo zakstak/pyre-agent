@@ -4,9 +4,10 @@ The server owns a review's state and exports it as one document with
 `"format": "review-canvas.feedback/1"`: `review-canvas export` writes it, and
 `GET /reviews/ID/feedback.json` on the page server serves it.
 `review-canvas status` embeds the same document under `feedback`, beside
-`to_answer`, the comments whose turn is the agent's, and `turns`, each comment's
-turn. The schema is `src/schema/feedback.ts` in
-[packages/review-canvas](../../../packages/review-canvas/README.md). Python
+`to_answer`, the comments whose turn is the agent's, `turns`, each comment's
+turn, and `suggestions`, each suggested change (below). Every output carries a
+`revision`, the review's change counter. The schema is `src/schema/feedback.ts`
+in [packages/review-canvas](../../../packages/review-canvas/README.md). Python
 review canvas feedback, with `feedback_schema_version`, is refused by name;
 there is no conversion.
 
@@ -40,25 +41,88 @@ A comment holds `id`, `kind`, `source`, `body`, `created_at`, `updated_at`, and
 imported from a pull request. The resolved state is GitHub's at the last import;
 each refresh updates it.
 
-An anchor holds the `snapshot` (round and input digest) the selection was made
-in, `path`, `patch_sha256`, `start` and `end` (zero-based UTF-16 offsets into
-the patch rows joined with LF, end exclusive), `quote`, `prefix` and `suffix`
-(up to 80 units each), `start_row` and `end_row` (zero-based rows, counting hunk
-headers), `side`, and `start_line` and `end_line` on that side. A selection of
-deleted lines, alone or with context, is old-side; any other is new-side. The
-anchor never changes when the diff moves.
+A reviewer source has a `state`:
 
-The attachment is where the anchor lands in the current round, derived by the
-server: `attached` with current offsets, or `orphan` with a reason. The same
-patch attaches at the anchor's offsets. Another patch attaches where the quote
-is found once, or where its context picks one of several places. A missing file,
-a missing patch, a gone quote, or an ambiguous one makes an orphan. No rename
-guessing or fuzzy matching. Only an orphan can be moved by hand; the move keeps
-the earlier anchor in `history`.
+- `sent`: the agents see it. Documents written before states have none; they
+  read as `sent`.
+- `edited`: sent, and the reviewer changed its `body` since, last at
+  `edited_at`. The body is the new text; the earlier text is not kept.
 
 A reviewer comment whose source has `"question": true` was asked now: the agents
 answer it, and the replies after it, without waiting for the round to finish.
-Any other reviewer comment waits for **Finish review**.
+Any other comment the reviewer writes is pending until **Finish review**, which
+sends every pending comment with the verdict, in the same change. A pending
+comment is the reviewer's alone: `status`, `wait`, exports, and every other
+agent output leave it out, and an answer to its ID is refused as an unknown
+comment. A comment written after the reviewer finished the current round is sent
+at once.
+
+The reviewer can edit their own comments, and delete one that has no replies. A
+deleted comment leaves the document. Comments imported from GitHub cannot be
+edited or deleted on the page.
+
+An anchor has a `kind`: `patch` for rows of the file's patch, `text` for lines
+of the file's whole new text. Documents written before text anchors have no
+kind; their anchors read as `patch`. Both kinds hold the `snapshot` (round and
+input digest) the selection was made in, `path`, `quote`, `prefix` and `suffix`
+(up to 80 units each), `side`, and `start_line` and `end_line` on that side. An
+anchor never changes when the diff moves.
+
+A patch anchor also holds `patch_sha256`, `start` and `end` (zero-based UTF-16
+offsets into the patch rows joined with LF, end exclusive), and `start_row` and
+`end_row` (zero-based rows, counting hunk headers). Its quote is patch rows,
+with their `+`, `-`, or space markers. A selection of deleted lines, alone or
+with context, is old-side; any other is new-side.
+
+A text anchor is on new-side lines the reviewer revealed by expanding unchanged
+context around a hunk, so its lines may lie outside the patch: read them in the
+file, not in the diff. It holds `content_sha256`, the digest of the new text it
+was made in. Its `side` is `new`, and its `quote` is the whole lines from
+`start_line` through `end_line`, joined with LF, without markers.
+
+The attachment is where the anchor lands in the current round, derived by the
+server: `attached` with where it lands, or `orphan` with a reason. A patch
+anchor attaches with current `start` and `end` offsets. The same patch attaches
+at the anchor's offsets. Another patch attaches where the quote is found once,
+or where its context picks one of several places. A text anchor attaches with
+current `start_line` and `end_line`: the same text at the anchor's lines,
+another text where the quoted lines are found once as whole lines, or where
+their context picks one of several places. A missing file, patch, or text, a
+gone quote, or an ambiguous one makes an orphan. No rename guessing or fuzzy
+matching. Only an orphan can be moved by hand; the move keeps the earlier anchor
+in `history`.
+
+## Suggested changes
+
+An inline comment can propose replacement code with one `suggestion` fenced
+block in its body, as on GitHub:
+
+````md
+Use the constant here:
+
+```suggestion
+const limit = LIMIT;
+```
+````
+
+The block replaces the lines the comment is on. A block with no lines proposes
+deleting them. Fences follow CommonMark: three or more backticks or tildes, the
+info string `suggestion`, and a closing fence of the same character at least as
+long. A suggestion fence inside another fenced block is code, not a suggestion.
+
+`status.suggestions` lists one entry for each comment you can see whose body
+holds a suggestion block. A ready entry holds `comment`, `"state": "ready"`,
+`path`, `side`, `round` (the round its anchor names), `start_line`, `end_line`,
+`current`, the lines the reviewer saw, and `replacement`, the proposed lines.
+Both are arrays of lines without line ends. A malformed entry holds `comment`,
+`"state": "malformed"`, and `problem`: `unclosed`, a block with no closing
+fence, or `several`, more than one block. Apply a ready suggestion only where
+the lines still read as `current`; for a malformed one, read the body and ask
+the reviewer what they meant. A general comment's block is part of its body
+only.
+
+After applying a suggestion, publish the round with the change and answer the
+comment `fixed`, as for any other fix.
 
 ## Import
 
@@ -85,13 +149,14 @@ ID. Each has `id`, `created_at`, `actor`, and `body`.
 - A `github` reply carries its GitHub ID, author, and URL.
 
 The last reply decides the turn. No reply, or a GitHub reply: the agent's, or
-resolved when GitHub shows the thread resolved. An agent reply: the reviewer's.
-A reviewer `accept`: resolved. A reviewer `reopen` or `reply`: the agent's, even
-on a thread GitHub shows resolved. The server refuses an agent answer off its
-turn and a reviewer reply on a resolved comment. An import replays the replies
-in order and refuses one off its turn. GitHub's resolution can change between
-replies, so after no reply or a GitHub reply, the import accepts what either
-state allows.
+resolved when GitHub shows the thread resolved. An agent reply: the reviewer's,
+unless the reviewer edited the comment after it, which makes it the agent's
+again. A reviewer `accept`: resolved. A reviewer `reopen` or `reply`: the
+agent's, even on a thread GitHub shows resolved. The server refuses an agent
+answer off its turn and a reviewer reply on a resolved comment. An import
+replays the replies in order and refuses one off its turn. GitHub's resolution
+can change between replies, so after no reply or a GitHub reply, the import
+accepts what either state allows.
 
 ## Submissions
 

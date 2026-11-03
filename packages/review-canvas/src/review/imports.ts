@@ -9,6 +9,7 @@ import type {
   Attachment,
   Comment,
   Feedback,
+  PatchAnchor,
   Reply,
   RoundSnapshot,
 } from "../schema/feedback.ts";
@@ -19,7 +20,7 @@ import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
 import type { ImportReport } from "../schema/rpc.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
-import { anchorAt, attach } from "./anchor.ts";
+import { anchorAt, attach, isAnchorProblem, textAnchorAt } from "./anchor.ts";
 import { attachedRows, parseRows, type Row } from "./patch.ts";
 import {
   type ActionContext,
@@ -82,13 +83,18 @@ const reanchor = (
   snapshot: RoundSnapshot,
 ): Anchor => {
   const found = attach(anchor, file);
-  if (found.state === "attached" && file?.patch !== undefined) {
-    const moved = anchorAt(file.patch, file.path, snapshot, {
-      start: found.start,
-      end: found.end,
-      side: anchor.side,
-    });
-    if (!("kind" in moved)) return moved;
+  if (found.state === "attached" && file !== undefined) {
+    const moved =
+      "start_line" in found
+        ? textAnchorAt(file, snapshot, found.start_line, found.end_line)
+        : file.patch === undefined
+          ? undefined
+          : anchorAt(file.patch, file.path, snapshot, {
+              start: found.start,
+              end: found.end,
+              side: anchor.side,
+            });
+    if (moved !== undefined && !isAnchorProblem(moved)) return moved;
   }
   return { ...anchor, snapshot };
 };
@@ -261,7 +267,7 @@ const spanAnchor = (
   side: "old" | "new",
   from: number,
   end: number,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   const last = rows[end];
   if (last === undefined) return undefined;
   for (let at = from; at >= 0; at--) {
@@ -273,8 +279,8 @@ const spanAnchor = (
       end: last.offset + last.text.length,
       side,
     });
-    if (!("kind" in anchor)) return anchor;
-    if (anchor.kind !== "blank") return undefined;
+    if (!isAnchorProblem(anchor)) return anchor;
+    if (anchor.problem !== "blank") return undefined;
   }
   return undefined;
 };
@@ -286,7 +292,7 @@ const spanAnchor = (
 export const gitHubAnchor = (
   thread: GitHubThread,
   snapshot: RoundSnapshot,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   const side = sideOf(thread.side);
   const rows = parseRows(thread.diff_hunk);
   const end = rows.findLastIndex((row) => row[side] !== undefined);
@@ -319,7 +325,7 @@ const placedAnchor = (
   file: ReviewFile,
   snapshot: RoundSnapshot,
   lines: number,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   if (thread.line === undefined || file.patch === undefined) return undefined;
   const side = sideOf(thread.side);
   const rows = parseRows(file.patch);
@@ -345,7 +351,9 @@ const gitHubPlacement = (
   file: ReviewFile | undefined,
   snapshot: RoundSnapshot,
   onHead: boolean,
-): { readonly anchor: Anchor; readonly attachment: Attachment } | undefined => {
+):
+  | { readonly anchor: PatchAnchor; readonly attachment: Attachment }
+  | undefined => {
   const quoted = gitHubAnchor(thread, snapshot);
   const found =
     quoted === undefined

@@ -4,10 +4,15 @@
  */
 import { Data, Effect, Layer, Queue, Result, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/rpc";
-import { patchDigest } from "../review/anchor.ts";
+import { contentDigest, patchDigest } from "../review/anchor.ts";
 import { ActionError } from "../review/state.ts";
 import { decodeBytes, FeedbackDocument } from "../schema/document.ts";
-import type { PatchDigest, RepoPath, ReviewId } from "../schema/primitives.ts";
+import type {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+  ReviewId,
+} from "../schema/primitives.ts";
 import { repositoryId } from "../schema/repositories.ts";
 import { PageRpcs, Refused, type ReviewSnapshot } from "../schema/rpc.ts";
 import {
@@ -148,9 +153,17 @@ const handlers = (roots: ReadonlyArray<string>) =>
                 Effect.sync(() => {
                   activity.streamOpened();
                   Queue.offerUnsafe(queue, undefined);
-                  return store.subscribe((review) => {
+                  const changed = (review: ReviewId) => {
                     if (review === id) Queue.offerUnsafe(queue, undefined);
-                  });
+                  };
+                  // The reviewer's reading shows on every open page; a saved draft shows only where it was typed.
+                  const stops = [
+                    store.subscribe(changed),
+                    store.subscribeWorkspace(changed),
+                  ];
+                  return () => {
+                    for (const stop of stops) stop();
+                  };
                 }),
                 (unsubscribe) =>
                   Effect.sync(() => {
@@ -207,10 +220,14 @@ const handlers = (roots: ReadonlyArray<string>) =>
                   message: `Review ${id} has no round ${round}.`,
                 });
               const digests: Record<RepoPath, PatchDigest> = {};
-              for (const file of input.files)
+              const texts: Record<RepoPath, ContentDigest> = {};
+              for (const file of input.files) {
                 if (file.patch !== undefined)
                   digests[file.path] = patchDigest(file.patch);
-              return { input, digests };
+                if (file.new_content !== undefined)
+                  texts[file.path] = contentDigest(file.new_content);
+              }
+              return { input, digests, texts };
             }),
           ),
 
@@ -231,6 +248,15 @@ const handlers = (roots: ReadonlyArray<string>) =>
           touched(
             attempt(() => ({ revision: store.act(id, action, revision) })),
           ),
+
+        "review.saveDraft": ({ id, draft }) =>
+          touched(attempt(() => store.saveDraft(id, draft))),
+
+        "review.discardDraft": ({ id, slot }) =>
+          touched(attempt(() => store.discardDraft(id, slot))),
+
+        "review.read": ({ id, action }) =>
+          touched(attempt(() => store.read(id, action))),
 
         "review.import": ({ id, text, revision }) =>
           touched(

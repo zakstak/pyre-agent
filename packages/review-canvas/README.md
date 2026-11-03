@@ -187,10 +187,12 @@ repositories in deeper directories. Each Git status read has a timeout and
 output limit; failures show **Unavailable**. Scans and status reads do not fetch
 from remotes or write to repository indexes.
 
-Existing version 2 and 3 databases upgrade in place, preserving reviews and
+Existing version 2, 3, and 4 databases upgrade in place, preserving reviews and
 rounds. Earlier checkout acceptances are converted to repository identities.
-Missing accepted paths remain visible until they can be identified again.
-Earlier server builds cannot read the upgraded database.
+Missing accepted paths remain visible until they can be identified again. A
+comment an earlier page showed as pending stays pending until **Finish review**;
+every other comment counts as sent. Earlier server builds cannot read the
+upgraded database.
 
 ## Layout
 
