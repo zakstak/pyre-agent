@@ -55,7 +55,7 @@ sends every pending comment with the verdict, in the same change. A pending
 comment is the reviewer's alone: `status`, `wait`, exports, and every other
 agent output leave it out, and an answer to its ID is refused as an unknown
 comment. A comment written after the reviewer finished the current round is sent
-at once.
+at once. A fresh start sends the pending comments of the review it closes.
 
 The reviewer can edit their own comments, and delete one that has no replies. A
 deleted comment leaves the document. Comments imported from GitHub cannot be
@@ -114,12 +114,15 @@ long. A suggestion fence inside another fenced block is code, not a suggestion.
 holds a suggestion block. A ready entry holds `comment`, `"state": "ready"`,
 `path`, `side`, `round` (the round its anchor names), `start_line`, `end_line`,
 `current`, the lines the reviewer saw, and `replacement`, the proposed lines.
-Both are arrays of lines without line ends. A malformed entry holds `comment`,
+Both are arrays of lines without line ends, and `current` holds every line from
+`start_line` through `end_line`. A malformed entry holds `comment`,
 `"state": "malformed"`, and `problem`: `unclosed`, a block with no closing
-fence, or `several`, more than one block. Apply a ready suggestion only where
-the lines still read as `current`; for a malformed one, read the body and ask
-the reviewer what they meant. A general comment's block is part of its body
-only.
+fence; `several`, more than one block; or `not_contiguous`, a comment whose
+lines skip lines of their range, such as a selection across a hunk header, which
+leaves out the unshown lines between the hunks. Apply a ready suggestion only
+where the lines still read as `current`; for a malformed one, read the body and
+ask the reviewer what they meant. A general comment's block is part of its body
+only. The page offers **Suggest change** only on one run of new-side lines.
 
 After applying a suggestion, publish the round with the change and answer the
 comment `fixed`, as for any other fix.
@@ -155,7 +158,10 @@ unless the reviewer edited the comment after it, which makes it the agent's
 again. A reviewer `accept`: resolved. A reviewer `reopen` or `reply`: the
 agent's, even on a thread GitHub shows resolved. The server refuses an agent
 answer off its turn and a reviewer reply on a resolved comment. An import
-replays the replies in order and refuses one off its turn. GitHub's resolution
+replays the replies in order, with the turn the replies before each one give
+under these rules, and refuses one off its turn. An edited comment keeps only
+its last `edited_at`, so an agent reply before that time can follow another
+agent reply: an earlier edit could have come between them. GitHub's resolution
 can change between replies, so after no reply or a GitHub reply, the import
 accepts what either state allows.
 

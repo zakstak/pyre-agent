@@ -19,14 +19,18 @@ import {
   type Turn,
   turnOf,
 } from "../review/queries.ts";
-import { anchoredLines, parseSuggestion } from "../review/suggestion.ts";
+import {
+  parseSuggestion,
+  replacedLines,
+  type SuggestionProblem,
+} from "../review/suggestion.ts";
 import { feedbackOf, type ReviewView } from "../store/store.ts";
 
 /**
  * A suggested change of an inline comment, as the agents apply it: replace the lines from `start_line` through
  * `end_line` on `side` of `path`, in the round the anchor names, which held `current`, with `replacement`. No
  * replacement lines means delete those lines. A malformed suggestion is reported, not applied: the body says what the
- * reviewer meant.
+ * reviewer meant. So is one on lines that are not one run, whose `current` would leave out lines of its range.
  */
 export type StatusSuggestion =
   | {
@@ -43,7 +47,7 @@ export type StatusSuggestion =
   | {
       readonly comment: CommentId;
       readonly state: "malformed";
-      readonly problem: "unclosed" | "several";
+      readonly problem: SuggestionProblem;
     };
 
 /** The suggestions of the comments an agent sees: one per inline comment whose body has a suggestion block. */
@@ -62,6 +66,15 @@ export const suggestionsOf = (
         ];
       case "suggestion": {
         const { anchor } = comment;
+        const current = replacedLines(anchor);
+        if (current === undefined)
+          return [
+            {
+              comment: comment.id,
+              state: "malformed",
+              problem: "not_contiguous",
+            },
+          ];
         return [
           {
             comment: comment.id,
@@ -71,7 +84,7 @@ export const suggestionsOf = (
             round: anchor.snapshot.round,
             start_line: anchor.start_line,
             end_line: anchor.end_line,
-            current: anchoredLines(anchor),
+            current,
             replacement: parsed.lines,
           },
         ];

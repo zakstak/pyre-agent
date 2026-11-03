@@ -106,6 +106,22 @@ export const textLines = (
 export const joinedRows = (rows: ReadonlyArray<Row>): string =>
   rows.map((row) => row.text).join("\n");
 
+/**
+ * The side a selection of patch rows is on: old for deleted lines with no added line among them, else new. The anchor
+ * the server makes and the lines "Suggest change" fills its block with both take this side.
+ */
+export const rowsSide = (
+  rows: ReadonlyArray<Row>,
+  start_row: number,
+  end_row: number,
+): "old" | "new" => {
+  const selected = rows.slice(start_row, end_row + 1);
+  return selected.some((row) => row.kind === "del") &&
+    !selected.some((row) => row.kind === "add")
+    ? "old"
+    : "new";
+};
+
 /** The row that shows a source line on one side, if the patch shows it. */
 export const rowForLine = (
   rows: ReadonlyArray<Row>,

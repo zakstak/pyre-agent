@@ -5,7 +5,17 @@
  */
 import type { Comment } from "../schema/feedback.ts";
 import { diffLines, type LineOp } from "./linediff.ts";
-import { type Row, textLines } from "./patch.ts";
+import { type Row, rowsSide, textLines } from "./patch.ts";
+
+/** What is wrong with a body's suggestion blocks: one has no closing fence, or the comment holds more than one. */
+export type BlockProblem = "unclosed" | "several";
+
+/**
+ * Why the agents cannot apply a suggestion as written: its block, or the lines it is on, when they are not one run of
+ * the file. A selection across a hunk header is not: the lines between the hunks lie between its lines, unshown, so a
+ * replacement of its range would drop them.
+ */
+export type SuggestionProblem = BlockProblem | "not_contiguous";
 
 /** What a body proposes: nothing, one replacement, or a block the agents cannot apply as it is written. */
 export type SuggestionParse =
@@ -15,11 +25,7 @@ export type SuggestionParse =
       /** The proposed lines, without line ends. No lines proposes deleting the commented lines. */
       readonly lines: ReadonlyArray<string>;
     }
-  | {
-      readonly kind: "malformed";
-      /** A suggestion block with no closing fence, or more than one suggestion block in one comment. */
-      readonly problem: "unclosed" | "several";
-    };
+  | { readonly kind: "malformed"; readonly problem: BlockProblem };
 
 /** A fence line: up to three spaces, then three or more backticks or tildes, then the info string. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
@@ -95,7 +101,7 @@ export type SuggestionParts =
   | {
       readonly kind: "malformed";
       readonly text: string;
-      readonly problem: "unclosed" | "several";
+      readonly problem: BlockProblem;
     }
   | {
       readonly kind: "suggestion";
@@ -165,6 +171,13 @@ export const suggestionDiff = (
   ];
 
 /**
+ * Whether line numbers are one run, each one after the one before. Lines on both sides of a hunk header are not: the
+ * lines between the hunks lie between them.
+ */
+export const isRun = (numbers: ReadonlyArray<number>): boolean =>
+  numbers.every((line, at) => at === 0 || numbers[at - 1] === line - 1);
+
+/**
  * The lines a selection of patch rows is on, as "Suggest change" fills its block with them: the new side's lines, or
  * the old side's for a selection of deleted lines alone, as the anchor the server makes picks its side.
  */
@@ -178,19 +191,6 @@ export const rowsLines = (
     .slice(start_row, end_row + 1)
     .filter((row) => row[side] !== undefined)
     .map((row) => row.content);
-};
-
-/** The side a selection of patch rows is on: old for deleted lines with no added line among them, else new. */
-export const rowsSide = (
-  rows: ReadonlyArray<Row>,
-  start_row: number,
-  end_row: number,
-): "old" | "new" => {
-  const selected = rows.slice(start_row, end_row + 1);
-  return selected.some((row) => row.kind === "del") &&
-    !selected.some((row) => row.kind === "add")
-    ? "old"
-    : "new";
 };
 
 /** Lines `start_line` through `end_line` of a file's new text, as a selection of them fills a suggestion block. */
@@ -218,4 +218,17 @@ export const anchoredLines = (
     // A hunk header or a "\ No newline" marker is no line of the file.
     return [];
   });
+};
+
+/**
+ * The lines an inline comment's suggestion replaces, `start_line` through `end_line` on its side, as the reviewer saw
+ * them. Undefined when the comment's lines do not fill that range: they are `not_contiguous`.
+ */
+export const replacedLines = (
+  anchor: Extract<Comment, { kind: "inline" }>["anchor"],
+): ReadonlyArray<string> | undefined => {
+  const lines = anchoredLines(anchor);
+  return lines.length === anchor.end_line - anchor.start_line + 1
+    ? lines
+    : undefined;
 };

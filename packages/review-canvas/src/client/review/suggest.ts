@@ -2,10 +2,10 @@
  * Suggested changes as the page writes and shows them: "Suggest change" puts a block where the caret is, and a
  * suggestion's diff gets line numbers. Pure, so tests need no browser; the block's format is review/suggestion.ts's.
  */
-import type { Row } from "../../review/patch.ts";
+import { type Row, rowsSide } from "../../review/patch.ts";
 import {
+  isRun,
   rowsLines,
-  rowsSide,
   suggestionBlock,
   suggestionDiff,
   textRange,
@@ -38,11 +38,18 @@ export const insertSuggestion = ({
 };
 
 /** The lines a suggestion replaces: on one side, from the line numbered `first`. */
-export interface Replaced {
+export interface ReplacedLines {
+  readonly kind: "lines";
   readonly side: "old" | "new";
   readonly first: number;
   readonly lines: ReadonlyArray<string>;
 }
+
+/**
+ * What a suggestion on some lines replaces: those lines, or none when they are `not_contiguous`, as on a selection
+ * across a hunk header, whose range holds the unshown lines between the hunks.
+ */
+export type Replaced = ReplacedLines | { readonly kind: "not_contiguous" };
 
 /**
  * What a suggestion on rows of a patch replaces: the lines on the side the anchor takes, and the first one's number.
@@ -54,12 +61,14 @@ export const replacedRows = (
   end: number,
 ): Replaced | undefined => {
   const side = rowsSide(rows, start, end);
-  const first = rows
-    .slice(start, end + 1)
-    .find((row) => row[side] !== undefined)?.[side];
-  return first === undefined
-    ? undefined
-    : { side, first, lines: rowsLines(rows, start, end) };
+  const numbers = rows.slice(start, end + 1).flatMap((row) => {
+    const line = row[side];
+    return line === undefined ? [] : [line];
+  });
+  const first = numbers[0];
+  if (first === undefined) return undefined;
+  if (!isRun(numbers)) return { kind: "not_contiguous" };
+  return { kind: "lines", side, first, lines: rowsLines(rows, start, end) };
 };
 
 /**
@@ -78,6 +87,7 @@ export const replacedSelection = (
       return content === undefined
         ? undefined
         : {
+            kind: "lines",
             side: "new",
             first: selection.start_line,
             lines: textRange(content, selection.start_line, selection.end_line),
@@ -86,12 +96,13 @@ export const replacedSelection = (
 };
 
 /**
- * Whether "Suggest change" is offered on the lines: on new-side lines only. No change can be proposed for lines the
- * change already removes.
+ * Whether "Suggest change" is offered on the lines: on one run of new-side lines only. No change can be proposed for
+ * lines the change already removes, nor in place of lines the page did not show.
  */
 export const canSuggest = (
   replaced: Replaced | undefined,
-): replaced is Replaced => replaced?.side === "new";
+): replaced is ReplacedLines =>
+  replaced?.kind === "lines" && replaced.side === "new";
 
 /** A row of a suggestion's diff, with its line's number before the change and after it, where it has one. */
 export interface SuggestionRow {

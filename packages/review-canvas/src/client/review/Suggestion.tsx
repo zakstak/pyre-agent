@@ -6,15 +6,20 @@ import { FileDiff } from "lucide-react";
 import { flushSync } from "react-dom";
 import type { Comment } from "../../schema/feedback.ts";
 import {
-  anchoredLines,
-  type SuggestionParts,
+  replacedLines,
+  type SuggestionProblem,
   suggestionParts,
 } from "../../review/suggestion.ts";
 import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Marker } from "./Diff.tsx";
 import type { InlineComment } from "./diff-model.ts";
-import { insertSuggestion, type Replaced, suggestionRows } from "./suggest.ts";
+import {
+  insertSuggestion,
+  type Replaced,
+  type ReplacedLines,
+  suggestionRows,
+} from "./suggest.ts";
 
 const OP_KIND = { " ": "context", "-": "del", "+": "add" } as const;
 
@@ -32,7 +37,7 @@ const SuggestionDiff = ({
   proposed,
   caption,
 }: {
-  readonly replaced: Replaced;
+  readonly replaced: ReplacedLines;
   readonly proposed: ReadonlyArray<string>;
   readonly caption: string;
 }) => {
@@ -72,16 +77,16 @@ const SuggestionDiff = ({
   );
 };
 
-const PROBLEM: Readonly<
-  Record<Extract<SuggestionParts, { kind: "malformed" }>["problem"], string>
-> = {
+const PROBLEM: Readonly<Record<SuggestionProblem, string>> = {
   unclosed:
     "The suggestion block has no closing fence, so the agents read it as text.",
   several:
     "A comment holds one suggestion block; with several, the agents read them as text.",
+  not_contiguous:
+    "These lines skip the hidden lines between two hunks, so the agents read the suggestion as text. Comment on one hunk's lines to suggest a change.",
 };
 
-const Problem = ({ problem }: { readonly problem: keyof typeof PROBLEM }) => (
+const Problem = ({ problem }: { readonly problem: SuggestionProblem }) => (
   <p data-suggestion-problem={problem} className="mt-2 text-small text-warning">
     {PROBLEM[problem]}
   </p>
@@ -102,13 +107,19 @@ export const SuggestionPreview = ({
     case "malformed":
       return <Problem problem={parts.problem} />;
     case "suggestion":
-      return replaced === undefined ? null : (
-        <SuggestionDiff
-          replaced={replaced}
-          proposed={parts.lines}
-          caption="Suggested change · preview"
-        />
-      );
+      if (replaced === undefined) return null;
+      switch (replaced.kind) {
+        case "not_contiguous":
+          return <Problem problem="not_contiguous" />;
+        case "lines":
+          return (
+            <SuggestionDiff
+              replaced={replaced}
+              proposed={parts.lines}
+              caption="Suggested change · preview"
+            />
+          );
+      }
   }
 };
 
@@ -123,7 +134,7 @@ export const SuggestButton = ({
   disabled,
 }: {
   readonly area: React.RefObject<HTMLTextAreaElement | null>;
-  readonly replaced: Replaced;
+  readonly replaced: ReplacedLines;
   readonly onBody: (body: string) => void;
   readonly disabled?: boolean;
 }) => (
@@ -153,11 +164,17 @@ export const SuggestButton = ({
 );
 
 /** The lines a sent inline comment's suggestion replaces: those it was written on, as the reviewer saw them. */
-export const replacedBy = (comment: InlineComment): Replaced => ({
-  side: comment.anchor.side,
-  first: comment.anchor.start_line,
-  lines: anchoredLines(comment.anchor),
-});
+export const replacedBy = (comment: InlineComment): Replaced => {
+  const lines = replacedLines(comment.anchor);
+  return lines === undefined
+    ? { kind: "not_contiguous" }
+    : {
+        kind: "lines",
+        side: comment.anchor.side,
+        first: comment.anchor.start_line,
+        lines,
+      };
+};
 
 const Text = ({
   text,
@@ -191,17 +208,29 @@ export const CommentBody = ({ comment }: { readonly comment: Comment }) => {
           <Problem problem={parts.problem} />
         </>
       );
-    case "suggestion":
-      return (
-        <>
-          <Text text={parts.before} />
-          <SuggestionDiff
-            replaced={replacedBy(comment)}
-            proposed={parts.lines}
-            caption="Suggested change"
-          />
-          <Text text={parts.after} className="mt-2" />
-        </>
-      );
+    case "suggestion": {
+      const replaced = replacedBy(comment);
+      switch (replaced.kind) {
+        case "not_contiguous":
+          return (
+            <>
+              <Text text={comment.body} />
+              <Problem problem="not_contiguous" />
+            </>
+          );
+        case "lines":
+          return (
+            <>
+              <Text text={parts.before} />
+              <SuggestionDiff
+                replaced={replaced}
+                proposed={parts.lines}
+                caption="Suggested change"
+              />
+              <Text text={parts.after} className="mt-2" />
+            </>
+          );
+      }
+    }
   }
 };

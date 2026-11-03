@@ -949,6 +949,21 @@ test("pending comments stay off the agent socket until Finish review, which send
     });
     const round = await roundOf(pages.port, id, 1);
     const digest = round.digests[STORE] ?? "";
+    const statusNow = async () =>
+      (
+        await call(agent, "GET", `/agent/reviews/${review}`, {
+          headers: authorized,
+        })
+      ).body.status;
+    // Each change to a pending comment is a change to the review, so other pages learn of it, and a long poll wakes.
+    // What it wakes to holds nothing for the agents, no finish and no question, so `review-canvas wait` waits on.
+    const published = (await statusNow()).revision;
+    const woken = call(
+      agent,
+      "GET",
+      `/agent/reviews/${review}/wait?revision=${published}&timeout=10000`,
+      { headers: authorized },
+    );
     for (const [row, body] of [
       [1, "First."],
       [4, "Second."],
@@ -969,13 +984,14 @@ test("pending comments stay off the agent socket until Finish review, which send
           },
         }),
       );
-    const statusNow = async () =>
-      (
-        await call(agent, "GET", `/agent/reviews/${review}`, {
-          headers: authorized,
-        })
-      ).body.status;
+    const wake = (await woken).body.status;
+    assert.ok(wake.revision > published);
+    assert.deepEqual(wake.to_answer, []);
+    assert.deepEqual(wake.feedback.comments, []);
+    assert.equal(finishedSince(wake, 0), false);
+    assert.equal(hasQuestions(wake), false);
     const hidden = await statusNow();
+    assert.ok(hidden.revision >= wake.revision);
     assert.deepEqual(hidden.to_answer, []);
     assert.deepEqual(hidden.feedback.comments, []);
     assert.deepEqual(hidden.suggestions, []);

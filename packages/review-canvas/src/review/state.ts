@@ -382,8 +382,21 @@ export const unapprove = (state: ReviewState, path: RepoPath): Outcome => {
 };
 
 /**
+ * The state with every pending comment sent, as Finish review sends them, and as a fresh start leaves the review it
+ * closes, which no finish can send them from.
+ */
+export const sendPending = (state: ReviewState): ReviewState => ({
+  ...state,
+  comments: state.comments.map((comment) =>
+    isPending(comment)
+      ? { ...comment, source: { kind: "reviewer", state: "sent" } }
+      : comment,
+  ),
+});
+
+/**
  * The reviewer finished a round. It must be the current one: a verdict on a round the reviewer has not seen would
- * approve unread code.
+ * approve unread code. The finish sends every pending comment with the verdict, in the same change.
  */
 export const submit = (
   state: ReviewState,
@@ -407,15 +420,10 @@ export const submit = (
     submitted_at: context.now,
     revision: context.revision,
   };
+  const sent = sendPending(state);
   return Result.succeed({
-    ...state,
-    // The finish sends every pending comment with the verdict, in the same change.
-    comments: state.comments.map((comment) =>
-      isPending(comment)
-        ? { ...comment, source: { kind: "reviewer", state: "sent" } }
-        : comment,
-    ),
-    submissions: [...state.submissions, submission],
+    ...sent,
+    submissions: [...sent.submissions, submission],
   });
 };
 

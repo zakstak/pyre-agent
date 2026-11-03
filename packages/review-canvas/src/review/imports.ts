@@ -28,7 +28,7 @@ import {
   appendReply,
   withRound,
 } from "./state.ts";
-import { type ReviewState, type Turn } from "./queries.ts";
+import { type ReviewState, type Turn, turnOf } from "./queries.ts";
 
 /**
  * A turn while replaying a comment's replies. `github` is a GitHub thread after its opening post or a GitHub reply:
@@ -37,25 +37,39 @@ import { type ReviewState, type Turn } from "./queries.ts";
  */
 type ReplayTurn = Turn | "github";
 
-/** The turn after a reply, or undefined when the reply was not its author's to make. */
-const nextTurn = (turn: ReplayTurn, reply: Reply): ReplayTurn | undefined => {
-  if (turn === "github")
-    return nextTurn("agent", reply) ?? nextTurn("resolved", reply);
-  switch (reply.actor) {
-    case "agent":
-      return turn === "agent" ? "reviewer" : undefined;
-    case "github":
-      return "github";
-    case "reviewer":
-      if (reply.action === "reopen")
-        return turn === "resolved" ? "agent" : undefined;
-      if (turn === "resolved") return undefined;
-      return reply.action === "accept" ? "resolved" : "agent";
-  }
+/**
+ * The turn before a comment's next reply, given the replies kept so far: as `turnOf` reads it, so an edit after an
+ * agent reply hands the turn back to the agents, as it did on the page. A document holds only the last edit's time, so
+ * an agent reply before it may follow another: an earlier edit could have come between them.
+ */
+const replayTurn = (
+  comment: Comment,
+  kept: ReadonlyArray<Reply>,
+): ReplayTurn => {
+  const last = kept.at(-1);
+  if (
+    comment.source.kind === "github" &&
+    (last === undefined || last.actor === "github")
+  )
+    return "github";
+  return turnOf({ ...comment, replies: kept });
 };
 
-const startTurn = (source: Comment["source"]): ReplayTurn =>
-  source.kind === "github" ? "github" : "agent";
+/** Whether a reply was its author's to make on the turn before it. */
+const inTurn = (turn: ReplayTurn, reply: Reply): boolean => {
+  if (turn === "github")
+    return inTurn("agent", reply) || inTurn("resolved", reply);
+  switch (reply.actor) {
+    case "agent":
+      return turn === "agent";
+    case "github":
+      return true;
+    case "reviewer":
+      return reply.action === "reopen"
+        ? turn === "resolved"
+        : turn !== "resolved";
+  }
+};
 
 /** Every GitHub ID a review holds, on comments and replies, so an import adds each GitHub comment once. */
 const gitHubIds = (comments: ReadonlyArray<Comment>): Set<string> => {
@@ -182,12 +196,10 @@ export const importFeedback = (
       already++;
       continue;
     }
-    let turn = startTurn(imported.source);
     const kept: Array<Reply> = [];
     for (const reply of imported.replies) {
       if (reply.actor === "github" && github.has(reply.github.id)) continue;
-      const next = nextTurn(turn, reply);
-      if (next === undefined) {
+      if (!inTurn(replayTurn(imported, kept), reply)) {
         skipped.push(
           `Comment ${imported.id}: ${imported.replies.length - kept.length} replies, from the first one out of turn, were left out.`,
         );
@@ -202,7 +214,6 @@ export const importFeedback = (
       const id = usedReplyIds.has(reply.id) ? context.replyId() : reply.id;
       usedReplyIds.add(id);
       kept.push({ ...reply, id } as Reply);
-      turn = next;
     }
     const id = ids.has(imported.id) ? context.commentId() : imported.id;
     ids.add(id);

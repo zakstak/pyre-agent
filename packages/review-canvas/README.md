@@ -90,7 +90,8 @@ imported from the git host have no menu.
 
 With lines selected, **Suggest change** inserts a `suggestion` block with the
 lines' current text. The composer and the sent comment show the suggestion as a
-diff, and agents receive it structured.
+diff, and agents receive it structured. A selection across a hunk header skips
+the hidden lines between the hunks, so it offers no suggestion.
 
 The unchanged lines that a gap reveals take comments as patch lines do. These
 comments anchor to the new text, and follow their lines in later rounds.

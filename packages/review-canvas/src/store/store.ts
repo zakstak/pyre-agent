@@ -73,6 +73,7 @@ import {
   reattach,
   reportDrift,
   reviewerReply,
+  sendPending,
   submit,
   unapprove,
 } from "../review/state.ts";
@@ -343,16 +344,6 @@ const sentSlots = (action: Action): ReadonlyArray<DraftSlot> => {
       return [];
   }
 };
-
-/** A state as Finish review would leave its comments: every pending one sent. The limits must hold for it too. */
-const allSent = (state: ReviewState): ReviewState => ({
-  ...state,
-  comments: state.comments.map((comment) =>
-    isPending(comment)
-      ? { ...comment, source: { kind: "reviewer", state: "sent" } }
-      : comment,
-  ),
-});
 
 export class StaleRevision extends Error {
   readonly revision: Revision;
@@ -962,7 +953,8 @@ export class Store {
 
   /**
    * Registers a thread: it joins the target's open review, or starts a review when there is none or when `fresh`
-   * asks for one. A fresh start closes the open review; its matching approvals carry over with the first round.
+   * asks for one. A fresh start closes the open review, sending its pending comments; its matching approvals carry
+   * over with the first round.
    */
   register(options: {
     readonly target: Target;
@@ -975,9 +967,13 @@ export class Store {
       let existing = this.openReview(options.target);
       let created = false;
       if (existing !== undefined && options.fresh === true) {
-        // Closing is a change to the old review: its open pages and waiting agents must learn of it.
+        // Closing is a change to the old review: its open pages and waiting agents must learn of it. A closed review
+        // cannot be finished, so its pending comments are sent as it closes: its feedback holds them, to import.
         const closed = existing.state.id;
-        this.#write(closed, { ...existing.state, closed_at: at });
+        this.#write(closed, {
+          ...sendPending(existing.state),
+          closed_at: at,
+        });
         this.#notify(closed, this.#bump(closed));
         existing = undefined;
       }
@@ -1572,7 +1568,8 @@ export class Store {
     if (round === undefined || input === undefined) return;
     const feedback = feedbackOf(
       {
-        state: allSent(state),
+        // Finish review, or a fresh start, sends every pending comment: the limits must hold for that state too.
+        state: sendPending(state),
         revision: 0 as Revision,
         threads: this.#threads(reviewId),
         round,

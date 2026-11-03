@@ -808,6 +808,147 @@ test("a feedback file imports into a fresh review once, with its answers and the
   store.close();
 });
 
+test("an import keeps an answer the agents gave after the reviewer edited an answered comment", () => {
+  const store = Store.open(":memory:");
+  const { id, thread, first } = opened(store);
+  store.act(id, {
+    kind: "comment",
+    selection: rows(first, "src/notes/store.py", 13, 15),
+    body: "Why rename here?",
+    question: true,
+  });
+  const asked = store.review(id)?.state.comments[0];
+  assert.ok(asked !== undefined);
+  const answer = (body: string) =>
+    store.act(id, {
+      kind: "answer",
+      thread: thread.id,
+      comment: asked.id,
+      answer: { disposition: "answered", body },
+    });
+  answer("To keep the write atomic.");
+  // The edit hands the comment back to the agents, who answer the new text.
+  store.act(id, {
+    kind: "edit_comment",
+    comment: asked.id,
+    body: "Why rename here, and not in save()?",
+  });
+  answer("save() calls this; one rename covers both.");
+  const view = store.review(id);
+  assert.ok(view !== undefined);
+  const answered = view.state.comments[0];
+  assert.ok(answered !== undefined);
+  assert.ok(
+    answered.source.kind === "reviewer" && answered.source.state === "edited",
+  );
+  assert.equal(turnOf(answered), "reviewer");
+  const feedback = feedbackOf(view, "2026-10-12T00:00:00.000Z" as never);
+  assert.ok(feedback !== undefined);
+
+  const fresh = store.register({
+    target: first.target,
+    label: "Codex",
+    host: { kind: "codex" },
+    fresh: true,
+  });
+  const freshId = fresh.review.state.id;
+  store.publish(freshId, fresh.thread.id, first);
+  const imported = store.importFeedback(freshId, feedback);
+  assert.equal(imported.report.comments, 1);
+  assert.equal(imported.report.replies, 2);
+  assert.doesNotMatch(imported.report.skipped.join("\n"), /out of turn/);
+  const copy = store.review(freshId)?.state.comments[0];
+  assert.ok(copy !== undefined);
+  assert.deepEqual(
+    copy.replies.map((reply) => reply.body),
+    answered.replies.map((reply) => reply.body),
+  );
+  // The second answer came after the edit, so the comment waits for the reviewer, not the agents.
+  assert.equal(turnOf(copy), "reviewer");
+
+  // Two agent answers with no edit between them are still out of turn.
+  const [one, two] = answered.replies;
+  assert.ok(one !== undefined && two !== undefined);
+  const unedited = {
+    ...feedback,
+    comments: feedback.comments.map((comment) => ({
+      ...comment,
+      id: "c_unedited" as CommentId,
+      body: "Another question.",
+      source: {
+        kind: "reviewer" as const,
+        state: "sent" as const,
+        question: true as const,
+      },
+      replies: [one, { ...two, id: `${two.id}-2` as typeof two.id }],
+    })),
+  };
+  const refused = store.importFeedback(freshId, unedited);
+  assert.equal(refused.report.replies, 1);
+  assert.match(
+    refused.report.skipped.join("\n"),
+    /1 replies, from the first one out of turn/,
+  );
+  store.close();
+});
+
+test("a fresh start sends the pending comments of the review it closes, so its feedback holds them to import", () => {
+  const store = Store.open(":memory:");
+  const { id, first } = opened(store);
+  for (const [start, end, body] of [
+    [13, 13, "Lock first."],
+    [14, 15, "Name the temp file."],
+  ] as const)
+    store.act(id, {
+      kind: "comment",
+      selection: rows(first, "src/notes/store.py", start, end),
+      body,
+    });
+  const before = store.review(id);
+  assert.ok(before !== undefined);
+  assert.deepEqual(
+    feedbackOf(before, "2026-10-12T00:00:00.000Z" as never)?.comments,
+    [],
+  );
+
+  const fresh = store.register({
+    target: first.target,
+    label: "Codex",
+    host: { kind: "codex" },
+    fresh: true,
+  });
+  // The closed review cannot be finished, so its comments were sent as it closed.
+  const closed = store.review(id);
+  assert.ok(closed !== undefined && closed.state.closed_at !== undefined);
+  assert.deepEqual(
+    closed.state.comments.map((comment) => comment.source),
+    [
+      { kind: "reviewer", state: "sent" },
+      { kind: "reviewer", state: "sent" },
+    ],
+  );
+  const feedback = feedbackOf(closed, "2026-10-12T00:00:00.000Z" as never);
+  assert.ok(feedback !== undefined);
+  assert.deepEqual(
+    feedback.comments.map((comment) => comment.body),
+    ["Lock first.", "Name the temp file."],
+  );
+
+  const freshId = fresh.review.state.id;
+  store.publish(freshId, fresh.thread.id, first);
+  const imported = store.importFeedback(freshId, feedback);
+  assert.equal(imported.report.comments, 2);
+  const copies = store.review(freshId)?.state.comments ?? [];
+  assert.deepEqual(
+    copies.map((comment) => [comment.body, turnOf(comment)]),
+    [
+      ["Lock first.", "agent"],
+      ["Name the temp file.", "agent"],
+    ],
+  );
+  store.close();
+});
+
 test("GitHub comments import once, inline ones found by their quote, and a refresh adds only new replies", () => {
   const store = Store.open(":memory:");
   const { id } = opened(store);

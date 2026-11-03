@@ -4,7 +4,9 @@ import type { Comment } from "../schema/feedback.ts";
 import { parseRows } from "./patch.ts";
 import {
   anchoredLines,
+  isRun,
   parseSuggestion,
+  replacedLines,
   rowsLines,
   suggestionBlock,
   suggestionDiff,
@@ -146,6 +148,37 @@ test("the lines a comment is on drop the diff markers and keep only the anchor's
     quote: "one\n\nthree",
   } as InlineAnchor;
   assert.deepEqual(anchoredLines(text), ["one", "", "three"]);
+});
+
+test("a suggestion replaces its comment's lines only when they fill its range, which lines across a hunk header do not", () => {
+  assert.equal(isRun([4, 5, 6]), true);
+  assert.equal(isRun([]), true);
+  assert.equal(isRun([4, 27]), false);
+  const across = {
+    kind: "patch",
+    side: "new",
+    quote: " line 4\n@@ -27,4 +27,4 @@\n line 27",
+    start_line: 4,
+    end_line: 27,
+  } as InlineAnchor;
+  // The page showed lines 4 and 27; replacing 4 through 27 with them would drop lines 5 to 26.
+  assert.equal(replacedLines(across), undefined);
+  const within = {
+    kind: "patch",
+    side: "new",
+    quote: " keep\n-gone\n+added",
+    start_line: 10,
+    end_line: 11,
+  } as InlineAnchor;
+  assert.deepEqual(replacedLines(within), ["keep", "added"]);
+  const text = {
+    kind: "text",
+    side: "new",
+    quote: "one\n\nthree",
+    start_line: 2,
+    end_line: 4,
+  } as InlineAnchor;
+  assert.deepEqual(replacedLines(text), ["one", "", "three"]);
 });
 
 test("Suggest change fills its block with the selected lines' current text, on the side the anchor takes", () => {

@@ -14,7 +14,13 @@ import type {
   Selection,
   TextSelection,
 } from "../schema/selection.ts";
-import { joinedRows, parseRows, type Row, textLines } from "./patch.ts";
+import {
+  joinedRows,
+  parseRows,
+  type Row,
+  rowsSide,
+  textLines,
+} from "./patch.ts";
 
 /** A patch's digest, which names the version of the file row numbers refer to. */
 export const patchDigest = (patch: string): PatchDigest =>
@@ -67,7 +73,7 @@ export const contextAfter = (text: string, end: number): string => {
 
 /**
  * The anchor for a row selection in a file of the given round: the selected rows as the quote, with context on each
- * side. The side is old when the selection holds deleted lines and no added ones; otherwise new.
+ * side, on the side {@link rowsSide} picks.
  */
 export const anchorForRows = (
   file: ReviewFile,
@@ -87,11 +93,7 @@ export const anchorForRows = (
   )
     return { problem: "out_of_range" };
   const selected = rows.slice(start_row, end_row + 1);
-  const side: "old" | "new" =
-    selected.some((row) => row.kind === "del") &&
-    !selected.some((row) => row.kind === "add")
-      ? "old"
-      : "new";
+  const side = rowsSide(rows, start_row, end_row);
   const lines = selected
     .map((row) => row[side])
     .filter((line): line is number => line !== undefined);

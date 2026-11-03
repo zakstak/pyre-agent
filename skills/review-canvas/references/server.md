@@ -106,7 +106,9 @@ answer, and each answer names its thread. The review as a whole changes hands
 when the reviewer chooses **Finish review**: the submission records the round, a
 verdict (comment, approve, or request changes), and a summary, and
 `review-canvas wait` returns. A question the reviewer asks now returns `wait`
-without a finish, so the agent can answer while the reviewer reads.
+without a finish, so the agent can answer while the reviewer reads. A change to
+a pending comment raises the revision, so the agent's status shows a new
+revision with nothing new in it, and `wait` keeps waiting.
 
 ## What agents tell the server
 
@@ -130,7 +132,10 @@ A thread that registers for a target joins its open review, so several agent
 conversations can work one review, or starts one when there is none. `--fresh`
 closes the open review and starts a new one; approvals whose path and
 fingerprint match the new review's first round carry over, with a record of
-where they came from. The closed review stays listed and read-only.
+where they came from. The closed review stays listed and read-only. A closed
+review cannot be finished, so closing it sends its pending comments: its
+feedback document holds them, and importing it into the new review brings them
+over. Comments do not carry over by themselves.
 
 Rounds belong to the thread that published them. Comments, replies, approvals,
 and submissions belong to the review.

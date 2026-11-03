@@ -56,21 +56,29 @@ test("a suggestion replaces the lines on the anchor's side, and is offered on ne
   const rows = parseRows("@@ -10,3 +10,3 @@\n keep\n-old\n+new\n tail\n");
   const replaced = replacedRows(rows, 1, 4);
   assert.deepEqual(replaced, {
+    kind: "lines",
     side: "new",
     first: 10,
     lines: ["keep", "new", "tail"],
   });
   assert.equal(canSuggest(replaced), true);
   assert.deepEqual(replacedRows(rows, 3, 3), {
+    kind: "lines",
     side: "new",
     first: 11,
     lines: ["new"],
   });
   // Deleted lines alone, or with context, are old-side, as the anchor is: they show a diff but offer no suggestion.
   const deleted = replacedRows(rows, 1, 2);
-  assert.deepEqual(deleted, { side: "old", first: 10, lines: ["keep", "old"] });
+  assert.deepEqual(deleted, {
+    kind: "lines",
+    side: "old",
+    first: 10,
+    lines: ["keep", "old"],
+  });
   assert.equal(canSuggest(deleted), false);
   assert.deepEqual(replacedRows(rows, 2, 2), {
+    kind: "lines",
     side: "old",
     first: 11,
     lines: ["old"],
@@ -78,6 +86,31 @@ test("a suggestion replaces the lines on the anchor's side, and is offered on ne
   // A hunk header alone is no line.
   assert.equal(replacedRows(rows, 0, 0), undefined);
   assert.equal(canSuggest(undefined), false);
+});
+
+test("a selection across a hunk header offers no suggestion: its range holds the hidden lines between the hunks", () => {
+  const rows = parseRows(
+    "@@ -1,4 +1,4 @@\n line 1\n line 2\n line 3\n line 4\n@@ -27,4 +27,4 @@\n line 27\n line 28\n-line 29\n+twenty-nine\n line 30\n",
+  );
+  // The last row of the first hunk to the first row of the second: lines 4 and 27, with 5 to 26 unshown.
+  const across = replacedRows(rows, 4, 6);
+  assert.deepEqual(across, { kind: "not_contiguous" });
+  assert.equal(canSuggest(across), false);
+  // Deleted lines across the header are old-side, and skip the same lines.
+  assert.deepEqual(replacedRows(rows, 4, 8), { kind: "not_contiguous" });
+  // A hunk header at either end of a selection skips nothing.
+  assert.deepEqual(replacedRows(rows, 5, 7), {
+    kind: "lines",
+    side: "new",
+    first: 27,
+    lines: ["line 27", "line 28"],
+  });
+  assert.deepEqual(replacedRows(rows, 3, 5), {
+    kind: "lines",
+    side: "new",
+    first: 3,
+    lines: ["line 3", "line 4"],
+  });
 });
 
 test("a composer's selection replaces its rows' lines, or lines of the file's new text", () => {
@@ -107,6 +140,7 @@ test("a composer's selection replaces its rows' lines, or lines of the file's ne
   };
   const replaced = replacedSelection(lines, rows, "one\ntwo\nthree\nfour\n");
   assert.deepEqual(replaced, {
+    kind: "lines",
     side: "new",
     first: 2,
     lines: ["two", "three"],
