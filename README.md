@@ -126,9 +126,8 @@ redistribute the skills, include LICENSE and this section.
   [upstream PR review canvas](https://github.com/cursor/plugins/tree/main/pr-review-canvas).**
   Retained instructions in `review-canvas`.
 - **Theo Browne, Copyright (c) 2026 Theo Browne,
-  [upstream tstack](https://github.com/t3dotgg/tstack).** The `babysit-pr`
-  helper `scripts/pr-wait` retains its [MIT license](skills/babysit-pr/LICENSE).
-  Its source revision is recorded in the
+  [upstream tstack](https://github.com/t3dotgg/tstack).** Retained the
+  `babysit-pr` helper `scripts/pr-wait`. Its source revision is recorded in the
   [skill](skills/babysit-pr/SKILL.md#source).
 
 The bundled Atkinson Hyperlegible fonts keep their OFL notices in

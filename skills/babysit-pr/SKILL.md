@@ -4,7 +4,7 @@ description:
   Use when the user asks to monitor, watch, or babysit a pull request through
   review and CI.
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Babysit PR
@@ -143,4 +143,5 @@ use an expected-head guard for the final merge. Verify the merged state.
 
 The bundled helper is copied unchanged from
 [tstack at revision 1085050f3baed1ac724caa4a8166145fb2ac88af](https://github.com/t3dotgg/tstack/blob/1085050f3baed1ac724caa4a8166145fb2ac88af/skills/babysit-pr/scripts/pr-wait).
-Its [MIT license](LICENSE), Copyright (c) 2026 Theo Browne, is included.
+Copyright (c) 2026 Theo Browne. See the project's [MIT license](../../LICENSE)
+and [credits](../../README.md#license-and-credits).
