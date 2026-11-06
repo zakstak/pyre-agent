@@ -70,6 +70,7 @@ STATE_DIR = Path.home() / ".local" / "state" / "pr-wait"
 # instead of replaying hours of comments as new events.
 STALE_STATE_SECONDS = 6 * 3600
 MAX_FAILED_POLLS = 10
+CHECK_REGISTRATION_GRACE_SECONDS = 60
 TRANSIENT = re.compile(
     r"HTTP (5\d\d|429)|rate limit|timed? ?out|connection (reset|refused)|EOF|"
     r"temporar|could not resolve host|TLS handshake|Something went wrong",
@@ -249,7 +250,7 @@ def required_checks(host: str, repo: str, base: str) -> set[str]:
             names.update(gh_lines(["api", "--hostname", host, path, "--jq", jq]))
         except GhError as error:
             if "HTTP 404" not in str(error):  # 404 means no protection, which is normal
-                log(f"could not read required checks from {path}: {error}")
+                raise
     return names
 
 
@@ -267,7 +268,8 @@ class Watcher:
         self.printed: set[str] = set()
         self.events = 0
         self.required: set[str] | None = None
-        self.prev_snapshot: list[tuple[str, str]] | None = None
+        self.prev_snapshot: tuple[str, list[tuple[str, str]]] | None = None
+        self.empty_gate_since: tuple[str, float] | None = None
         self.pr_files: dict[str, set[str]] = {}
 
     def load(self) -> Json | None:
@@ -386,11 +388,19 @@ class Watcher:
                 fail_lines.append(f"{label} failed: {name} {link}")
                 self.emit(f"fail:{head}:{name}:{link}", fail_lines[-1])
         watched = {name: c for name, c in checks.items() if bot_name(name) not in ADVISORY_BOTS}
-        gate_done = bool(gate) and all(bucket(n) != "pending" for n in gate)
+        no_ci = False
+        if not gate:
+            now = time.monotonic()
+            if self.empty_gate_since is None or self.empty_gate_since[0] != head:
+                self.empty_gate_since = (head, now)
+            no_ci = now - self.empty_gate_since[1] >= CHECK_REGISTRATION_GRACE_SECONDS
+        else:
+            self.empty_gate_since = None
+        gate_done = (bool(gate) or no_ci) and all(bucket(n) != "pending" for n in gate)
         all_done = gate_done and all(c["bucket"] != "pending" for c in watched.values())
         # Checks appear a few seconds after a push. Two identical polls in a row
         # guard against calling a half-registered set of checks finished.
-        snapshot = sorted((name, c["bucket"]) for name, c in watched.items())
+        snapshot = (head, sorted((name, c["bucket"]) for name, c in watched.items()))
         stable = snapshot == self.prev_snapshot
         self.prev_snapshot = snapshot
         green = gate_done and stable and not fail_lines
@@ -421,20 +431,25 @@ class Watcher:
                 kind = "new thread" if index == 0 else "thread reply"
                 self.emit(f"c:{comment['id']}", f"{kind} from {login} on {where}: {snippet(comment['body'])} {comment['url']}")
 
-        # Review bots on the current head. A bot with checks is done when they
-        # finish. Otherwise it is done once it reviews the head commit or its
-        # summary names the head.
+        # Terminal runs still emit events, but readiness needs a successful
+        # check or completed review evidence for the current head.
         bot_status: dict[str, str] = {}
         reviewed: list[str] = []
         for bot in GATING_BOTS + ADVISORY_BOTS:
             own_checks = {name: c for name, c in checks.items() if bot_name(name) == bot}
             summaries = [c for c in comments if bot_name(who(c)[0]) == bot]
             own_reviews = [r for r in reviews if bot_name(who(r)[0]) == bot]
-            on_head = any((r.get("commit") or {}).get("oid") == head for r in own_reviews)
+            on_head = any(
+                (r.get("commit") or {}).get("oid") == head
+                and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
+                for r in own_reviews
+            )
+            reviewed_head = on_head or any(short in s["body"] for s in summaries)
             if own_checks:
                 done = all(c["bucket"] != "pending" for c in own_checks.values())
+                reviewed_head = reviewed_head or all(c["bucket"] == "pass" for c in own_checks.values())
             else:
-                done = on_head or any(short in s["body"] for s in summaries)
+                done = reviewed_head
             seen = bool(own_checks or summaries or own_reviews)
             if bot in ADVISORY_BOTS and own_checks:
                 desc = next(iter(own_checks.values()))
@@ -444,7 +459,7 @@ class Watcher:
             key = f"bot:{bot}:{head}"
             was_done = key in self.reported
             if done:
-                if bot in GATING_BOTS:
+                if bot in GATING_BOTS and reviewed_head:
                     reviewed.append(bot)
                 failed = [name for name, c in own_checks.items() if c["bucket"] in FAILED]
                 detail = "; ".join(filter(None, [

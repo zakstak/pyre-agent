@@ -98,6 +98,39 @@ class WatcherTests(unittest.TestCase):
         watcher.poll()
         self.assert_exit(watcher, 0, "green on aaaaaaa")
 
+    def test_no_ci_reaches_green_or_ready_after_registration_grace(self):
+        self.checks.clear()
+        self.reviewed()
+        for until in ["green", "ready"]:
+            with (
+                self.subTest(until=until),
+                patch.object(PR_WAIT, "required_checks", return_value=set()),
+                patch.object(PR_WAIT.time, "monotonic", return_value=0) as clock,
+            ):
+                watcher = self.watcher(until)
+                watcher.poll()
+                clock.return_value = 59
+                watcher.poll()
+                clock.return_value = 60
+                self.assert_exit(watcher, 0, f"{until} on aaaaaaa")
+
+    def test_late_ci_registration_prevents_an_empty_check_set_from_passing(self):
+        self.checks.clear()
+        with (
+            patch.object(PR_WAIT, "required_checks", return_value=set()),
+            patch.object(PR_WAIT.time, "monotonic", return_value=0) as clock,
+        ):
+            watcher = self.watcher("green")
+            watcher.poll()
+            clock.return_value = 59
+            self.checks["lint"] = check("lint", "pending")
+            watcher.poll()
+            clock.return_value = 61
+            watcher.poll()
+            self.checks["lint"] = check("lint")
+            watcher.poll()
+            self.assert_exit(watcher, 0, "green on aaaaaaa")
+
     def test_required_check_failure_needs_attention_on_the_first_poll(self):
         self.checks["test"] = check(bucket="fail")
         self.assert_exit(self.watcher(), 1, "required check failed: test")
@@ -111,6 +144,24 @@ class WatcherTests(unittest.TestCase):
             watcher.poll()
             self.assert_exit(watcher, 0, "required 2/2 green")
 
+    def test_required_lookup_failure_stays_unknown_and_is_retried(self):
+        self.reviewed()
+        with patch.object(
+            PR_WAIT,
+            "required_checks",
+            side_effect=[PR_WAIT.GhError("HTTP 503", True), {"test", "lint"}],
+        ) as discover:
+            watcher = self.watcher()
+            with self.assertRaises(PR_WAIT.GhError):
+                watcher.poll()
+            self.assertIsNone(watcher.required)
+            watcher.poll()
+            watcher.poll()
+            self.checks["lint"] = check("lint")
+            watcher.poll()
+            self.assert_exit(watcher, 0, "required 2/2 green")
+            self.assertEqual(discover.call_count, 2)
+
     def test_old_head_review_does_not_make_the_current_head_ready(self):
         self.reviewed(head="c" * 40)
         watcher = self.watcher()
@@ -118,6 +169,37 @@ class WatcherTests(unittest.TestCase):
         watcher.poll()
         self.reviewed()
         self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_new_head_needs_its_own_stable_check_snapshots(self):
+        with patch.object(PR_WAIT, "required_checks", return_value=set()):
+            watcher = self.watcher()
+            watcher.poll()
+            watcher.poll()
+            self.pr["headRefOid"] = "c" * 40
+            self.reviewed()
+            watcher.poll()
+            self.checks["lint"] = check("lint", "pending")
+            watcher.poll()
+            self.checks["lint"] = check("lint")
+            watcher.poll()
+            self.assert_exit(watcher, 0, "ready on ccccccc")
+
+    def test_new_head_restarts_the_empty_ci_registration_grace(self):
+        self.checks.clear()
+        with (
+            patch.object(PR_WAIT, "required_checks", return_value=set()),
+            patch.object(PR_WAIT.time, "monotonic", return_value=0) as clock,
+        ):
+            watcher = self.watcher("green")
+            watcher.poll()
+            clock.return_value = 59
+            watcher.poll()
+            self.pr["headRefOid"] = "c" * 40
+            watcher.poll()
+            clock.return_value = 60
+            watcher.poll()
+            clock.return_value = 119
+            self.assert_exit(watcher, 0, "green on ccccccc")
 
     def test_existing_unresolved_thread_blocks_ready(self):
         self.reviewed()
@@ -142,6 +224,36 @@ class WatcherTests(unittest.TestCase):
         watcher = self.watcher()
         watcher.poll()
         self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_unsuccessful_review_runs_do_not_satisfy_ready(self):
+        for bucket in ["cancel", "skipping", "fail"]:
+            with self.subTest(bucket=bucket):
+                self.checks["Greptile"] = check("Greptile", bucket)
+                watcher = self.watcher()
+                watcher.poll()
+                watcher.poll()
+
+    def test_successful_bot_check_satisfies_ready(self):
+        self.checks["Greptile"] = check("Greptile")
+        watcher = self.watcher()
+        watcher.poll()
+        self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_canceled_bot_check_can_use_completed_current_head_review(self):
+        self.reviewed()
+        self.checks["Greptile"] = check("Greptile", "cancel")
+        watcher = self.watcher()
+        watcher.poll()
+        self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_pending_or_dismissed_review_does_not_satisfy_ready(self):
+        self.reviewed()
+        for state in ["PENDING", "DISMISSED"]:
+            with self.subTest(state=state):
+                self.pr["reviews"]["nodes"][0]["state"] = state
+                watcher = self.watcher()
+                watcher.poll()
+                watcher.poll()
 
     def test_behind_branch_needs_attention_before_ready(self):
         self.reviewed()
@@ -207,6 +319,32 @@ class WatcherTests(unittest.TestCase):
             PR_WAIT.lock("ghe.example.com:8443", "example/project", 7),
         ):
             pass
+
+
+class RequiredChecksTests(unittest.TestCase):
+    def test_lookup_failures_do_not_return_partial_or_empty_requirements(self):
+        for results in [
+            [PR_WAIT.GhError("HTTP 503", True)],
+            [["test"], PR_WAIT.GhError("HTTP 503", True)],
+            [["test"], PR_WAIT.GhError("HTTP 403", False)],
+        ]:
+            with (
+                self.subTest(results=results),
+                patch.object(PR_WAIT, "gh_lines", side_effect=results),
+                self.assertRaises(PR_WAIT.GhError),
+            ):
+                PR_WAIT.required_checks("ghe.example.com", "example/project", "main")
+
+    def test_absent_protection_returns_no_requirements(self):
+        with patch.object(
+            PR_WAIT,
+            "gh_lines",
+            side_effect=[PR_WAIT.GhError("HTTP 404", False)] * 2,
+        ):
+            self.assertEqual(
+                PR_WAIT.required_checks("ghe.example.com", "example/project", "main"),
+                set(),
+            )
 
 
 class TargetTests(unittest.TestCase):

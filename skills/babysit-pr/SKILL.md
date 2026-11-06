@@ -4,7 +4,7 @@ description:
   Use when the user asks to monitor, watch, or babysit a pull request through
   review and CI.
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Babysit PR
@@ -60,6 +60,11 @@ GitHub Enterprise PR URLs work directly. For a PR number, `gh` resolves the host
 from a host-qualified `--repo`, `GH_HOST`, or the current checkout. Authenticate
 `gh` to that host first. Every later request uses the host from the resolved PR
 URL, including REST and GraphQL queries.
+
+With no required or CI checks, the helper waits 60 seconds on the same head
+before treating CI as green. Protection lookup failures block readiness;
+transient failures retry. Canceled or skipped bot runs alone do not establish a
+completed review.
 
 It prints one line per real event. It exits 0 when the `--until` condition is
 met or the PR merges, 1 when it needs you, and 2 on bad input. Required check
@@ -150,7 +155,7 @@ use an expected-head guard for the final merge. Verify the merged state.
 
 The bundled helper is adapted from
 [tstack at revision 1085050f3baed1ac724caa4a8166145fb2ac88af](https://github.com/t3dotgg/tstack/blob/1085050f3baed1ac724caa4a8166145fb2ac88af/skills/babysit-pr/scripts/pr-wait).
-Local changes add GitHub Enterprise host resolution, pin requests to that host,
-and separate watcher state and locks by host. Copyright (c) 2026 Theo Browne.
-See the project's [MIT license](../../LICENSE) and
-[credits](../../README.md#license-and-credits).
+Local changes add host resolution and separate watcher state and locks by host.
+Readiness fixes cover unsuccessful reviews, empty CI sets, head changes, and
+protection lookup failures. Copyright (c) 2026 Theo Browne. See the project's
+[MIT license](../../LICENSE) and [credits](../../README.md#license-and-credits).
