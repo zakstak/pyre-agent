@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { parseForgeComment } from "./forge-url.ts";
 import { documentBytes } from "./encoding.ts";
@@ -6,6 +7,7 @@ import * as Limits from "./limits.ts";
 import {
   CommentId,
   CommitSha,
+  ContentDigest,
   Fingerprint,
   GitHubCommentId,
   GitHubCommentUrl,
@@ -22,6 +24,7 @@ import {
   ThreadId,
   Timestamp,
 } from "./primitives.ts";
+import { StopRef } from "./reading.ts";
 import { pullRequestKey, Target } from "./target.ts";
 import { Thread } from "./thread.ts";
 
@@ -54,6 +57,13 @@ export const RoundSnapshot = Schema.Struct({
 export type RoundSnapshot = typeof RoundSnapshot.Type;
 
 const AnchorFields = Schema.Struct({
+  /**
+   * An anchor on the rows of the file's patch. Feedback written before text anchors has no kind; it reads as a patch
+   * anchor.
+   */
+  kind: Schema.Literal("patch").pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("patch")),
+  ),
   /** The round the selection was made in. */
   snapshot: RoundSnapshot,
   path: RepoPath,
@@ -75,10 +85,10 @@ const AnchorFields = Schema.Struct({
 });
 
 /**
- * Where a comment points: an exact text selection in one file's patch, with context to find it again in a later
- * round. It never changes when the diff moves.
+ * Where a comment on patch rows points: an exact text selection in one file's patch, with context to find it again
+ * in a later round. It never changes when the diff moves.
  */
-export const Anchor = AnchorFields.check(
+export const PatchAnchor = AnchorFields.check(
   Schema.makeFilter((anchor: typeof AnchorFields.Type) => {
     if (
       anchor.end <= anchor.start ||
@@ -96,6 +106,51 @@ export const Anchor = AnchorFields.check(
     return undefined;
   }),
 );
+export type PatchAnchor = typeof PatchAnchor.Type;
+
+const TextAnchorFields = Schema.Struct({
+  /** An anchor on whole lines of the file's new text, which may lie outside the patch, as expanded context does. */
+  kind: Schema.Literal("text"),
+  snapshot: RoundSnapshot,
+  path: RepoPath,
+  /** The digest of the new text the lines were selected in. */
+  content_sha256: ContentDigest,
+  /** The selected lines, joined with LF, without a trailing LF. */
+  quote: RequiredText,
+  /** Up to 80 units of the text before the first line and after the last, LFs included. */
+  prefix: text(Limits.MAX_CONTEXT_UNITS),
+  suffix: text(Limits.MAX_CONTEXT_UNITS),
+  /** Lines of the new text are new-side lines. */
+  side: Schema.Literal("new"),
+  start_line: SourceLine,
+  end_line: SourceLine,
+});
+
+/** The number of lines a quote of whole lines holds. */
+export const quoteLines = (quote: string): number => quote.split("\n").length;
+
+/**
+ * Where a comment on lines of the file's new text points: the lines' numbers and text in the round it was made in,
+ * found again in a later round by the quote, as a patch anchor is.
+ */
+export const TextAnchor = TextAnchorFields.check(
+  Schema.makeFilter((anchor: typeof TextAnchorFields.Type) => {
+    if (anchor.end_line < anchor.start_line)
+      return { path: ["end_line"], issue: "must not come before start_line" };
+    if (quoteLines(anchor.quote) !== anchor.end_line - anchor.start_line + 1)
+      return {
+        path: ["quote"],
+        issue: "must hold one line for each line from start_line to end_line",
+      };
+    return undefined;
+  }),
+);
+export type TextAnchor = typeof TextAnchor.Type;
+
+/** Where a comment points: rows of the file's patch, or lines of its new text. */
+export const Anchor = Schema.Union([PatchAnchor, TextAnchor]).annotate({
+  expected: "an anchor whose kind is patch or text",
+});
 export type Anchor = typeof Anchor.Type;
 
 const Reason = text(Limits.MAX_ATTACHMENT_REASON_UNITS);
@@ -106,24 +161,100 @@ const AttachedFields = Schema.Struct({
   end: Offset,
 });
 
-/**
- * Where a comment's anchor lands in the current round: attached at offsets, or an orphan when its code changed,
- * moved ambiguously, or is gone. Attached offsets span the anchor's quote, found again at the anchor's own offsets or
- * by its context. The server derives it; an import never trusts it.
- */
-export const Attachment = Schema.Union([
-  AttachedFields.check(
-    Schema.makeFilter(
-      (attached: typeof AttachedFields.Type) =>
-        attached.end > attached.start || {
-          path: ["end"],
-          issue: "must exceed start",
-        },
-    ),
+/** A patch anchor found in the current round's patch: offsets into its rows joined with LF. */
+export const PatchAttached = AttachedFields.check(
+  Schema.makeFilter(
+    (attached: typeof AttachedFields.Type) =>
+      attached.end > attached.start || {
+        path: ["end"],
+        issue: "must exceed start",
+      },
   ),
-  Schema.Struct({ state: Schema.Literal("orphan"), reason: Reason }),
-]);
+);
+export type PatchAttached = typeof PatchAttached.Type;
+
+const TextAttachedFields = Schema.Struct({
+  state: Schema.Literal("attached"),
+  reason: Reason,
+  /** New-side lines of the current round's text. */
+  start_line: SourceLine,
+  end_line: SourceLine,
+});
+
+/** A text anchor found in the current round's new text: the lines it now spans. */
+export const TextAttached = TextAttachedFields.check(
+  Schema.makeFilter(
+    (attached: typeof TextAttachedFields.Type) =>
+      attached.end_line >= attached.start_line || {
+        path: ["end_line"],
+        issue: "must not come before start_line",
+      },
+  ),
+);
+export type TextAttached = typeof TextAttached.Type;
+
+export const Orphan = Schema.Struct({
+  state: Schema.Literal("orphan"),
+  reason: Reason,
+});
+export type Orphan = typeof Orphan.Type;
+
+/**
+ * Where a comment's anchor lands in the current round: attached, or an orphan when its code changed, moved
+ * ambiguously, or is gone. A patch anchor attaches at offsets of the current patch that span its quote; a text anchor
+ * attaches at lines of the current text that hold its quote. The server derives it; an import never trusts it.
+ */
+export const Attachment = Schema.Union([PatchAttached, TextAttached, Orphan]);
 export type Attachment = typeof Attachment.Type;
+
+const StopExcerptFields = Schema.Struct({
+  path: RepoPath,
+  side: Schema.Literals(["old", "new"]),
+  start_line: SourceLine,
+  end_line: SourceLine,
+});
+
+/** Lines a stop excerpted, on one side of a file, in the round its anchor names. */
+export const StopExcerpt = StopExcerptFields.check(
+  Schema.makeFilter(
+    (excerpt: typeof StopExcerptFields.Type) =>
+      excerpt.end_line >= excerpt.start_line || {
+        path: ["end_line"],
+        issue: "must not come before start_line",
+      },
+  ),
+);
+export type StopExcerpt = typeof StopExcerpt.Type;
+
+/**
+ * Where a question about a stop of the tour points: the stop, by its identity across rounds, and for context the
+ * lines it excerpted in the round the question was asked in. A later round that keeps the stop keeps the question on
+ * it.
+ */
+export const StopAnchor = Schema.Struct({
+  kind: Schema.Literal("stop"),
+  /** The round the question was asked in. */
+  snapshot: RoundSnapshot,
+  stop: StopRef,
+  excerpts: Schema.Array(StopExcerpt).check(
+    Schema.isMaxLength(Limits.MAX_EXCERPTS_PER_STOP),
+  ),
+});
+export type StopAnchor = typeof StopAnchor.Type;
+
+/** A stop anchor found in the current round's tour: the stop's place in it, from 0. */
+export const StopAttached = Schema.Struct({
+  state: Schema.Literal("attached"),
+  stop: integer(0, Limits.MAX_STOPS),
+});
+export type StopAttached = typeof StopAttached.Type;
+
+/**
+ * Where a stop comment lands in the current round: on its stop, or an orphan when the round's tour no longer has the
+ * stop, which the page then shows with the comments on the whole change. The server derives it.
+ */
+export const StopAttachment = Schema.Union([StopAttached, Orphan]);
+export type StopAttachment = typeof StopAttachment.Type;
 
 /**
  * A pull request comment's identity on GitHub, kept so a refresh imports each comment once. Every GitHub comment and
@@ -136,17 +267,43 @@ const gitHubFields = {
   url: GitHubCommentUrl,
 };
 
+/**
+ * Whether the reviewer's question was asked now: the agents answer it, and every reply after it, without waiting for
+ * the reviewer to finish the round. Absent for a review comment, which the agents read when the round is finished.
+ */
+const question = Schema.optionalKey(Schema.Literal(true));
+
+/**
+ * A reviewer's comment the agents cannot see yet: Finish review sends it. Only the reviewer can change or delete it,
+ * and nobody replies to it. Feedback never holds one.
+ */
+export const PendingSource = Schema.Struct({
+  kind: Schema.Literal("reviewer"),
+  state: Schema.Literal("pending"),
+});
+
+/** A reviewer's comment the agents can see. Feedback written before comments could wait has no state; it was sent. */
+export const SentSource = Schema.Struct({
+  kind: Schema.Literal("reviewer"),
+  state: Schema.Literal("sent").pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("sent")),
+  ),
+  question,
+});
+
+/** A sent comment whose body the reviewer changed afterwards, last at `edited_at`. */
+export const EditedSource = Schema.Struct({
+  kind: Schema.Literal("reviewer"),
+  state: Schema.Literal("edited"),
+  question,
+  edited_at: Timestamp,
+});
+
 /** Who started a comment: the reviewer on the page, or someone on GitHub, whose comment arrives with its state. */
 export const CommentSource = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("reviewer"),
-    /**
-     * True for a question the reviewer asked now: the agents answer it, and every reply after it, without waiting
-     * for the reviewer to finish the round. Absent for a review comment, which the agents read when the round is
-     * finished.
-     */
-    question: Schema.optionalKey(Schema.Literal(true)),
-  }),
+  PendingSource,
+  EditedSource,
+  SentSource,
   Schema.Struct({
     kind: Schema.Literal("github"),
     ...gitHubFields,
@@ -317,14 +474,55 @@ const CommentFields = Schema.Union([
   }),
   /** A comment on the whole review, such as a GitHub conversation comment or review summary. */
   Schema.Struct({ kind: Schema.Literal("general"), ...commentFields }),
+  /** The reviewer's comment on a stop of the tour, such as one of the questions the stop suggests. */
+  Schema.Struct({
+    kind: Schema.Literal("stop"),
+    ...commentFields,
+    anchor: StopAnchor,
+    attachment: StopAttachment,
+  }),
 ]);
+
+/** Why an attachment cannot be where its anchor landed: of another kind, or not spanning the quote. */
+const attachmentProblem = (
+  anchor: Anchor,
+  attachment: Attachment,
+): Schema.FilterIssue | undefined => {
+  if (attachment.state === "orphan") return undefined;
+  if (anchor.kind === "patch") {
+    if (!("start" in attachment))
+      return {
+        path: ["attachment"],
+        issue: "a patch anchor attaches at offsets of the patch",
+      };
+    return attachment.end - attachment.start === anchor.quote.length
+      ? undefined
+      : {
+          path: ["attachment", "end"],
+          issue:
+            "must exceed start by the anchor quote's length in UTF-16 code units",
+        };
+  }
+  if (!("start_line" in attachment))
+    return {
+      path: ["attachment"],
+      issue: "a text anchor attaches at lines of the text",
+    };
+  return attachment.end_line - attachment.start_line ===
+    anchor.end_line - anchor.start_line
+    ? undefined
+    : {
+        path: ["attachment", "end_line"],
+        issue: "must span as many lines as the anchor's quote",
+      };
+};
 
 /** Whether a GitHub comment URL names a review discussion: an inline comment, in a thread that can be resolved. */
 const isDiscussion = (url: GitHubCommentUrl) =>
   url.slice(url.indexOf("#")).startsWith("#discussion_r");
 
 /**
- * A comment the agents must answer: inline on a patch selection, or general. Of GitHub's comments, only review
+ * A comment the agents must answer: inline on a patch selection, on a stop of the tour, or general. Of GitHub's comments, only review
  * comments are inline, threaded, and resolvable; conversation comments and review summaries are general, and have no
  * GitHub replies and no resolved state.
  */
@@ -359,22 +557,32 @@ export const Comment = CommentFields.check(
         issue:
           "a general GitHub comment is a conversation comment or review summary, not a #discussion_r URL",
       };
+    } else if (comment.kind === "stop") {
+      return {
+        path: ["source", "kind"],
+        issue:
+          "a comment on a stop is the reviewer's: the git host has no tour",
+      };
     } else if (comment.kind === "general" && comment.source.resolved) {
       return {
         path: ["source", "resolved"],
         issue: "only a review thread can be resolved on GitHub",
       };
     }
+    if (
+      comment.source.kind === "reviewer" &&
+      comment.source.state === "pending" &&
+      comment.replies.length > 0
+    ) {
+      return {
+        path: ["replies"],
+        issue: "must be empty on a pending comment, which nobody has seen",
+      };
+    }
     // An attachment is where the anchor's quote was found again, exactly or by its context, so it spans the quote.
-    if (comment.kind === "inline" && comment.attachment.state === "attached") {
-      const { start, end } = comment.attachment;
-      if (end - start !== comment.anchor.quote.length) {
-        return {
-          path: ["attachment", "end"],
-          issue:
-            "must exceed start by the anchor quote's length in UTF-16 code units",
-        };
-      }
+    if (comment.kind === "inline") {
+      const problem = attachmentProblem(comment.anchor, comment.attachment);
+      if (problem !== undefined) return problem;
     }
     const thread =
       comment.kind === "inline" && comment.source.kind === "github"
@@ -554,6 +762,11 @@ export const feedbackTextUnits = (
       for (const anchor of [comment.anchor, ...comment.history])
         total += anchor.quote.length + anchor.path.length;
     }
+    if (comment.kind === "stop") {
+      const { stop, excerpts } = comment.anchor;
+      if (stop.kind === "stop") total += stop.title.length;
+      for (const excerpt of excerpts) total += excerpt.path.length;
+    }
     for (const reply of comment.replies) {
       total += reply.body.length;
       if (reply.actor === "agent" && reply.disposition === "deferred")
@@ -660,10 +873,32 @@ const feedbackRules = Schema.makeFilter((feedback: FeedbackFields) => {
   for (const [index, comment] of feedback.comments.entries()) {
     if (commentIds.has(comment.id))
       return { path: ["comments", index, "id"], issue: "duplicate comment ID" };
+    if (
+      comment.source.kind === "reviewer" &&
+      comment.source.state === "pending"
+    )
+      return {
+        path: ["comments", index, "source", "state"],
+        issue:
+          "is pending: feedback holds only comments the reviewer sent, and a pending one is sent with Finish review",
+      };
     commentIds.add(comment.id);
     if (comment.source.kind === "github") {
       const problem = fromGitHub(comment.source, ["comments", index, "source"]);
       if (problem !== undefined) return problem;
+    }
+    if (comment.kind === "stop") {
+      const { snapshot } = comment.anchor;
+      if (snapshot.round > feedback.round)
+        return {
+          path: ["comments", index, "anchor", "snapshot", "round"],
+          issue: "is after the feedback's round",
+        };
+      if (!sameDigest(snapshot))
+        return {
+          path: ["comments", index, "anchor", "snapshot", "input_sha256"],
+          issue: OTHER_DIGEST,
+        };
     }
     if (comment.kind === "inline") {
       for (const [position, anchor] of [

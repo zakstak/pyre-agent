@@ -88,6 +88,13 @@ export type InputDigest = typeof InputDigest.Type;
 export const PatchDigest = Sha256.pipe(Schema.brand("PatchDigest"));
 export type PatchDigest = typeof PatchDigest.Type;
 
+/**
+ * The SHA-256 of one file's whole new text, as the round holds it, so a selection of lines outside the patch names
+ * the text it was made on, and an anchor on them attaches at once to the same text.
+ */
+export const ContentDigest = Sha256.pipe(Schema.brand("ContentDigest"));
+export type ContentDigest = typeof ContentDigest.Type;
+
 /** SHA-256 over what a stack walkthrough step shows: its layer's head and the version of each file it covers. */
 export const StepDigest = Sha256.pipe(Schema.brand("StepDigest"));
 export type StepDigest = typeof StepDigest.Type;

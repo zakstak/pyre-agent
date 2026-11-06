@@ -5,14 +5,18 @@
  */
 import * as Schema from "effect/Schema";
 import { Rpc, RpcGroup } from "effect/rpc";
+import { Draft, DraftSlot, SavedDraft } from "./draft.ts";
 import { REVIEWER_ACTIONS, VERDICTS } from "./feedback.ts";
 import { ReviewInput } from "./input.ts";
+import { Presence } from "./presence.ts";
+import { ReadingAction, StopProgress, StopRef } from "./reading.ts";
+import { Selection } from "./selection.ts";
 import * as Limits from "./limits.ts";
 import {
   CommentId,
+  ContentDigest,
   Count,
   Fingerprint,
-  integer,
   nonEmptyText,
   PatchDigest,
   RepoPath,
@@ -47,18 +51,10 @@ export class Refused extends Schema.TaggedError<Refused>()("Refused", {
   revision: Schema.optional(Revision),
 }) {}
 
-const Row = integer(0, Limits.MAX_ROW);
 const Body = text(Limits.MAX_TEXT_UNITS);
 const RequiredBody = nonEmptyText(Limits.MAX_TEXT_UNITS);
 
-/** Whole rows of one file's patch. The digest names the patch the page showed, so rows cannot land on another. */
-export const Selection = Schema.Struct({
-  path: RepoPath,
-  patch_sha256: PatchDigest,
-  start_row: Row,
-  end_row: Row,
-});
-export type Selection = typeof Selection.Type;
+export { RowsSelection, Selection, TextSelection } from "./selection.ts";
 
 /** A change a page asks for. */
 export const PageAction = Schema.Union([
@@ -71,6 +67,14 @@ export const PageAction = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("general_comment"),
+    body: RequiredBody,
+    question: Schema.optionalKey(Schema.Boolean),
+  }),
+  /** A comment on a stop of the tour of the round the page shows, which stays on the stop across rounds. */
+  Schema.Struct({
+    kind: Schema.Literal("stop_comment"),
+    round: RoundNumber,
+    stop: StopRef,
     body: RequiredBody,
     question: Schema.optionalKey(Schema.Boolean),
   }),
@@ -97,29 +101,53 @@ export const PageAction = Schema.Union([
     comment: CommentId,
     selection: Selection,
   }),
+  /**
+   * Changes the body of one of the reviewer's comments. A pending comment stays pending; a sent one shows the agents
+   * the new text, marked edited.
+   */
+  Schema.Struct({
+    kind: Schema.Literal("edit_comment"),
+    comment: CommentId,
+    body: RequiredBody,
+  }),
+  /** Deletes one of the reviewer's comments: a pending one, or a sent one nobody has replied to. */
+  Schema.Struct({
+    kind: Schema.Literal("delete_comment"),
+    comment: CommentId,
+  }),
 ]).annotate({
   expected:
-    "an action whose kind is comment, general_comment, reply, approve, unapprove, submit, or reattach",
+    "an action whose kind is comment, general_comment, stop_comment, reply, approve, unapprove, submit, reattach, edit_comment, or delete_comment",
 });
 export type PageAction = typeof PageAction.Type;
 
-/** A review as an open page follows it: everything that changes, at one revision. Round inputs come separately. */
+/**
+ * A review as an open page follows it: everything that changes, at one revision, and the reviewer's own work on it.
+ * Round inputs come separately. A change to the review or to the reading sends a new snapshot; saving a draft does
+ * not, so `drafts` is what was saved when the snapshot was taken: what a page that opens restores.
+ */
 export const ReviewSnapshot = Schema.Struct({
   state: ReviewState,
   revision: Revision,
   threads: Schema.Array(Thread),
   /** The review that replaced this one with a fresh start, if this one is closed. */
   replaced_by: Schema.optional(ReviewId),
+  /** The reviewer's unsent text, one draft per slot. */
+  drafts: Schema.Array(SavedDraft),
+  /** Each stop of the current round's tour, closing stop included, with how the reviewer read it. Empty before a round. */
+  stops: Schema.Array(StopProgress),
 });
 export type ReviewSnapshot = typeof ReviewSnapshot.Type;
 
 /**
- * One round's input, which never changes once published, with each patch's digest: a comment's selection names the
- * patch it was made on, and the page cannot hash synchronously.
+ * One round's input, which never changes once published, with each patch's digest and each new text's digest: a
+ * comment's selection names the patch or text it was made on, and the page cannot hash synchronously.
  */
 export const RoundView = Schema.Struct({
   input: ReviewInput,
   digests: Schema.Record(RepoPath, PatchDigest),
+  /** The digest of each file's `new_content`, for files that have one. */
+  texts: Schema.Record(RepoPath, ContentDigest),
 });
 export type RoundView = typeof RoundView.Type;
 
@@ -266,6 +294,16 @@ export class PageRpcs extends RpcGroup.make(
     error: Refused,
     stream: true,
   }),
+  /**
+   * Whether an agent listens to the review now, then again whenever that changes: a thread waits or stops waiting,
+   * makes a request, publishes, or answers, or a minute passes since its last wait.
+   */
+  Rpc.make("review.presence", {
+    payload: reviewId,
+    success: Presence,
+    error: Refused,
+    stream: true,
+  }),
   Rpc.make("review.round", {
     payload: { ...reviewId, round: RoundNumber },
     success: RoundView,
@@ -285,6 +323,26 @@ export class PageRpcs extends RpcGroup.make(
       revision: Schema.optional(Revision),
     },
     success: Schema.Struct({ revision: Revision }),
+    error: Refused,
+  }),
+  /**
+   * Saves the reviewer's unsent text in its slot, replacing what the slot held. Nothing else changes: the review keeps
+   * its revision, no agent learns of it, and open pages get no new snapshot.
+   */
+  Rpc.make("review.saveDraft", {
+    payload: { ...reviewId, draft: Draft },
+    success: SavedDraft,
+    error: Refused,
+  }),
+  /** Empties a draft slot, as cancelling a box does. Sending a box's text empties its slot by itself. */
+  Rpc.make("review.discardDraft", {
+    payload: { ...reviewId, slot: DraftSlot },
+    error: Refused,
+  }),
+  /** Marks a stop read or unread. Open pages get a new snapshot with the stops' reading; the revision stays. */
+  Rpc.make("review.read", {
+    payload: { ...reviewId, action: ReadingAction },
+    success: Schema.Array(StopProgress),
     error: Refused,
   }),
   Rpc.make("review.import", {

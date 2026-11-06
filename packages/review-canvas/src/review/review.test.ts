@@ -10,7 +10,7 @@ import type {
   RoundNumber,
 } from "../schema/primitives.ts";
 import { patchTotals } from "../schema/input.ts";
-import { anchorForRows } from "./anchor.ts";
+import { anchorForRows, isAnchorProblem } from "./anchor.ts";
 import { unifiedDiff } from "./linediff.ts";
 import { applyAnalysis } from "../schema/analysis.ts";
 import { patchDigest } from "./anchor.ts";
@@ -39,7 +39,7 @@ const anchorOn = (patch: string, row: number) => {
     start_row: row,
     end_row: row,
   });
-  assert.ok(!("kind" in anchor), JSON.stringify(anchor));
+  if (isAnchorProblem(anchor)) assert.fail(JSON.stringify(anchor));
   return anchor;
 };
 
@@ -67,7 +67,7 @@ test("a selection of another version of the patch is refused, not moved", () => 
     start_row: 1,
     end_row: 1,
   });
-  assert.deepEqual(anchor, { kind: "changed" });
+  assert.deepEqual(anchor, { problem: "changed" });
 });
 
 test("a note on an old-side excerpt pins to the old line number, not a new one", () => {
@@ -113,7 +113,7 @@ test("a selection of only blank lines is refused with a reason, not a schema err
     start_row: 2,
     end_row: 2,
   });
-  assert.deepEqual(anchor, { kind: "blank" });
+  assert.deepEqual(anchor, { problem: "blank" });
   // The same blank line with a line of code beside it is fine.
   const withCode = anchorForRows(file(patch), snapshot, {
     path: "emoji.txt" as RepoPath,
@@ -121,7 +121,7 @@ test("a selection of only blank lines is refused with a reason, not a schema err
     start_row: 1,
     end_row: 2,
   });
-  assert.ok(!("kind" in withCode), JSON.stringify(withCode));
+  assert.ok(!isAnchorProblem(withCode), JSON.stringify(withCode));
 });
 
 test("a line diff of two texts is a unified patch the patch reader agrees with", () => {

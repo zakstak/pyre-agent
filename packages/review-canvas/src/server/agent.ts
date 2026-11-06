@@ -23,7 +23,12 @@ import {
   MAX_REQUEST_BYTES,
   RegisterRequest,
 } from "./requests.ts";
-import { Activity, PageAddress, ReviewStore } from "./services.ts";
+import {
+  Activity,
+  AgentPresence,
+  PageAddress,
+  ReviewStore,
+} from "./services.ts";
 import { StackPublishRequest } from "../schema/stack.ts";
 import { statusOf } from "./status.ts";
 
@@ -55,8 +60,12 @@ const authenticated = Effect.gen(function* () {
     return yield* Effect.fail(
       new RequestRefused(404, "not_found", `No review ${id}.`),
     );
+  // Every request a thread makes is a sign of it, which the page shows as when the agent was last seen.
+  const presence = yield* AgentPresence;
+  presence.seen(id as ReviewId, thread.id);
   return {
     store,
+    presence,
     id: id as ReviewId,
     thread: thread as Thread,
     view: view as ReviewView,
@@ -78,6 +87,10 @@ const Register = HttpRouter.add(
           host: body.host,
           ...(body.fresh === undefined ? {} : { fresh: body.fresh }),
         }),
+      );
+      (yield* AgentPresence).seen(
+        registered.review.state.id,
+        registered.thread.id,
       );
       return ok({
         ok: true,
@@ -132,8 +145,11 @@ const Wait = HttpRouter.add(
   "/agent/reviews/:id/wait",
   handled(
     Effect.gen(function* () {
-      const { store, id, view } = yield* authenticated;
+      const { store, presence, id, thread, view } = yield* authenticated;
       const { origin } = yield* PageAddress;
+      // The thread listens while the poll is open, and for a moment after: `wait` polls again at once.
+      const done = presence.waiting(id, thread.id);
+      yield* Effect.addFinalizer(() => Effect.sync(done));
       const params = yield* HttpServerRequest.ParsedSearchParams;
       const seen = Number(params.revision ?? "-1");
       const timeout = Math.min(
@@ -187,6 +203,7 @@ const Drift = HttpRouter.add(
           kind: "drift",
           paths: body.paths,
           head_sha: body.head_sha,
+          compared: body.compared,
         }),
       );
       return ok({ ok: true, revision });

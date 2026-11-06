@@ -47,7 +47,8 @@ test("a command that cannot start the server fails with one line and no stack tr
 });
 
 test("a T3 CLI session publishes and reports an unwritable export as a file error", (t) => {
-  const dir = scratch(t);
+  // The server the commands start stops through its socket, which goes with the folder: first the one, then the other.
+  const dir = mkdtempSync(join(tmpdir(), "review-canvas-launcher-"));
   const runtime = join(dir, "run");
   const session = join(dir, "s");
   mkdirSync(session);
@@ -62,7 +63,7 @@ test("a T3 CLI session publishes and reports an unwritable export as a file erro
       env,
       timeout: 60_000,
     });
-  t.after(() =>
+  t.after(() => {
     spawnSync(
       process.execPath,
       [
@@ -71,8 +72,9 @@ test("a T3 CLI session publishes and reports an unwritable export as a file erro
         'import { stopServer, withServerOperation } from "./src/cli/socket.ts"; await withServerOperation(stopServer);',
       ],
       { cwd: root, env },
-    ),
-  );
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
   const registered = cli(
     "register",
     "--session",

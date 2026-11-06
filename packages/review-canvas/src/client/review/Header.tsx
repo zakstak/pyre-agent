@@ -7,17 +7,17 @@ import { useState } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
 import type { Target } from "../../schema/target.ts";
 import type { Thread } from "../../schema/thread.ts";
-import { fileElementId } from "../../review/next.ts";
 import { count, targetName, VERDICT_DONE, VERDICT_TEXT } from "../names.ts";
 import { cn } from "../ui/cn.ts";
 import { TopBar } from "../ui/page.tsx";
 import { Segmented } from "../ui/segmented.tsx";
 import { TargetText } from "../ui/target.tsx";
-import { Joined, LineCounts, Prose, Time } from "../ui/text.tsx";
+import { LineCounts, Prose, Time } from "../ui/text.tsx";
 import { AgentVoice, Voice } from "../ui/voice.tsx";
 import { usePage } from "./act.ts";
 import { earlierAtom } from "./data.ts";
-import { hashOf } from "./places.ts";
+import { DriftLine } from "./Drift.tsx";
+import { RoundDiffToggle, SinceControl } from "./Since.tsx";
 import { viewAtom } from "./ui.ts";
 
 /** Whether the review reads guided or as source. A narrow page reads guided, so it shows no choice. */
@@ -40,15 +40,18 @@ export const ViewControl = () => {
 
 /**
  * The top bar of a review: the target as the page's place and a link to the pull request, and the page's choices,
- * such as the view, before the connection state.
+ * such as the view, before whether an agent listens and the connection state.
  */
 export const ReviewBar = ({
   target,
   updated,
+  agents,
   children,
 }: {
   readonly target: Target;
   readonly updated: string | undefined;
+  /** Whether an agent listens, said beside the connection state. */
+  readonly agents?: React.ReactNode;
   readonly children?: React.ReactNode;
 }) => {
   const name = targetName(target);
@@ -57,6 +60,7 @@ export const ReviewBar = ({
       width="review"
       updated={updated}
       controls={children}
+      status={agents}
       place={
         <>
           <TargetText target={target} />
@@ -224,57 +228,11 @@ const RoundsLine = ({ id }: { readonly id: ReviewId }) => {
                   )}
                 </p>
               )}
+              <RoundDiffToggle round={round.round} />
             </div>
           );
         })}
     </>
-  );
-};
-
-/** What an agent found changed since this round, as one line until the next round replaces it. */
-const DriftLine = () => {
-  const { page } = usePage();
-  const drift = page.snapshot.state.drift;
-  if (drift === undefined || drift.round !== page.round.round) return null;
-  const shown = drift.paths.slice(0, 4);
-  return (
-    <p id="drift" className="mt-2 text-small">
-      <strong className="text-warning">Changed since this round:</strong>{" "}
-      {drift.paths.length === 0 ? (
-        <span className="text-muted">the code</span>
-      ) : (
-        <>
-          <Joined
-            items={shown.map((path) =>
-              page.files.has(path) ? (
-                <a
-                  href={hashOf(fileElementId(path))}
-                  className="text-link underline underline-offset-3"
-                >
-                  <code>{path}</code>
-                </a>
-              ) : (
-                <code>{path}</code>
-              ),
-            )}
-          />
-          {drift.paths.length > shown.length
-            ? ` and ${drift.paths.length - shown.length} more`
-            : ""}
-        </>
-      )}
-      {drift.head_sha === undefined ? null : (
-        <>
-          {" "}
-          <span className="text-muted">· head</span>{" "}
-          <code>{drift.head_sha.slice(0, 7)}</code>
-        </>
-      )}{" "}
-      <span className="text-muted">
-        · checked <Time at={drift.checked_at} /> · the agents publish a new
-        round with the change.
-      </span>
-    </p>
   );
 };
 
@@ -309,6 +267,7 @@ export const Title = ({ id }: { readonly id: ReviewId }) => {
         </p>
       )}
       <RoundsLine id={id} />
+      <SinceControl />
     </header>
   );
 };

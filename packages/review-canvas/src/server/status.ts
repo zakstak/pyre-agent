@@ -1,7 +1,16 @@
-/** A review as an agent reads it: the feedback document, whose turn each comment waits for, and where it lives. */
-import type { Feedback } from "../schema/feedback.ts";
-import type { CommentId, Timestamp } from "../schema/primitives.ts";
+/**
+ * A review as an agent reads it: the feedback document, whose turn each comment waits for, the suggested changes, and
+ * where it lives. Pending comments are the reviewer's until Finish review: nothing here shows them.
+ */
+import type { Comment, Feedback } from "../schema/feedback.ts";
+import type {
+  CommentId,
+  RepoPath,
+  RoundNumber,
+  Timestamp,
+} from "../schema/primitives.ts";
 import {
+  agentComments,
   approvalHolds,
   currentSubmission,
   type Drift,
@@ -10,7 +19,78 @@ import {
   type Turn,
   turnOf,
 } from "../review/queries.ts";
+import {
+  parseSuggestion,
+  replacedLines,
+  type SuggestionProblem,
+} from "../review/suggestion.ts";
 import { feedbackOf, type ReviewView } from "../store/store.ts";
+
+/**
+ * A suggested change of an inline comment, as the agents apply it: replace the lines from `start_line` through
+ * `end_line` on `side` of `path`, in the round the anchor names, which held `current`, with `replacement`. No
+ * replacement lines means delete those lines. A malformed suggestion is reported, not applied: the body says what the
+ * reviewer meant. So is one on lines that are not one run, whose `current` would leave out lines of its range.
+ */
+export type StatusSuggestion =
+  | {
+      readonly comment: CommentId;
+      readonly state: "ready";
+      readonly path: RepoPath;
+      readonly side: "old" | "new";
+      readonly round: RoundNumber;
+      readonly start_line: number;
+      readonly end_line: number;
+      readonly current: ReadonlyArray<string>;
+      readonly replacement: ReadonlyArray<string>;
+    }
+  | {
+      readonly comment: CommentId;
+      readonly state: "malformed";
+      readonly problem: SuggestionProblem;
+    };
+
+/** The suggestions of the comments an agent sees: one per inline comment whose body has a suggestion block. */
+export const suggestionsOf = (
+  comments: ReadonlyArray<Comment>,
+): ReadonlyArray<StatusSuggestion> =>
+  comments.flatMap((comment): ReadonlyArray<StatusSuggestion> => {
+    if (comment.kind !== "inline") return [];
+    const parsed = parseSuggestion(comment.body);
+    switch (parsed.kind) {
+      case "none":
+        return [];
+      case "malformed":
+        return [
+          { comment: comment.id, state: "malformed", problem: parsed.problem },
+        ];
+      case "suggestion": {
+        const { anchor } = comment;
+        const current = replacedLines(anchor);
+        if (current === undefined)
+          return [
+            {
+              comment: comment.id,
+              state: "malformed",
+              problem: "not_contiguous",
+            },
+          ];
+        return [
+          {
+            comment: comment.id,
+            state: "ready",
+            path: anchor.path,
+            side: anchor.side,
+            round: anchor.snapshot.round,
+            start_line: anchor.start_line,
+            end_line: anchor.end_line,
+            current,
+            replacement: parsed.lines,
+          },
+        ];
+      }
+    }
+  });
 
 export interface Status {
   readonly review: string;
@@ -34,6 +114,8 @@ export interface Status {
   readonly turns: Readonly<Record<string, Turn>>;
   /** Approved files whose fingerprint still matches the current round. */
   readonly approved: ReadonlyArray<string>;
+  /** Each suggested change in the comments, by comment. */
+  readonly suggestions: ReadonlyArray<StatusSuggestion>;
   readonly feedback: Feedback | undefined;
 }
 
@@ -42,8 +124,9 @@ export const statusOf = (
   origin: string,
   now: Timestamp,
 ): Status => {
+  const comments = agentComments(view.state.comments);
   const turns = Object.fromEntries(
-    view.state.comments.map((comment) => [comment.id, turnOf(comment)]),
+    comments.map((comment) => [comment.id, turnOf(comment)]),
   );
   return {
     review: view.state.id,
@@ -52,10 +135,10 @@ export const statusOf = (
     closed: view.state.closed_at !== undefined,
     round: view.round?.round,
     submission: currentSubmission(view.state),
-    to_answer: view.state.comments
+    to_answer: comments
       .filter((comment) => turnOf(comment) === "agent")
       .map((comment) => comment.id),
-    questions: view.state.comments
+    questions: comments
       .filter((comment) => isQuestion(comment) && turnOf(comment) === "agent")
       .map((comment) => comment.id),
     files: (view.input?.files ?? []).map((file) => ({
@@ -76,6 +159,7 @@ export const statusOf = (
               approvalHolds(approval, view.input?.files ?? []),
             )
             .map((approval) => approval.path),
+    suggestions: suggestionsOf(comments),
     feedback: feedbackOf(view, now),
   };
 };

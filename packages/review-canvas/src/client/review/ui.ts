@@ -1,12 +1,15 @@
 /**
- * What the reviewer chose on the page, as atoms: folds and read stops for this tab's session, the diff layout and
- * whether whitespace changes show across visits, and in memory the gaps opened, the drafts, and whether a comment is
- * being moved. None of it is the review's state; the server never sees it. What belongs to one review is keyed by it,
- * so a page that shows several reviews, such as a stack walkthrough, never carries a draft or a move from one to another.
+ * What the reviewer chose on the page, as atoms: folds for this tab's session, the diff layout, whether whitespace
+ * changes show, and whether only the changes since the last review show across visits, and in memory the folds opened
+ * in diffs, the changes shown, the drafts, and whether a comment is being moved. None of it is the review's state. The
+ * server keeps only the drafts' text, which saving.ts sends as it is typed. What belongs to one review is keyed by it,
+ * so a page that shows several reviews, such as a stack walkthrough, never carries a draft or a move from one to
+ * another.
  */
 import { Schema } from "effect";
 import { KeyValueStore } from "effect/persistence";
 import { Atom } from "effect/reactivity";
+import type { StopView } from "../../review/tour.ts";
 import type { Verdict } from "../../schema/feedback.ts";
 import type {
   CommentId,
@@ -14,7 +17,8 @@ import type {
   RepoPath,
   ReviewId,
 } from "../../schema/primitives.ts";
-import type { GapStage } from "./diff-model.ts";
+import type { Selection } from "../../schema/selection.ts";
+import { type DiffFolds, NO_FOLDS } from "./diff-model.ts";
 import type { RoundKey } from "./data.ts";
 
 const session = Atom.runtime(KeyValueStore.layerStorage(() => sessionStorage));
@@ -33,16 +37,6 @@ export const foldsAtom = Atom.family(({ id, round }: RoundKey) =>
     key: `review-canvas:${id}:${round}:folds`,
     schema: Schema.Record(Schema.String, Fold),
     defaultValue: (): Readonly<Record<string, Fold>> => ({}),
-  }),
-);
-
-/** The stops of a round the reviewer moved to or scrolled past, which the contents mark read. */
-export const seenAtom = Atom.family(({ id, round }: RoundKey) =>
-  Atom.kvs({
-    runtime: session,
-    key: `review-canvas:${id}:${round}:seen`,
-    schema: Schema.Array(Schema.Int),
-    defaultValue: (): ReadonlyArray<number> => [],
   }),
 );
 
@@ -86,20 +80,78 @@ export const viewAtom = Atom.kvs({
   defaultValue: (): View => "guided",
 });
 
+/**
+ * Whether the page shows each file's changes since the reviewer's last review instead of its whole change, as the
+ * reviewer chose for every review. The rounds come from `sinceRound` in review/since.ts and `sinceAtom` in data.ts.
+ */
+export const sinceLastReviewAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-since-last-review",
+  schema: Schema.Boolean,
+  defaultValue: (): boolean => false,
+});
+
+/**
+ * Whether a list's files unchanged since the last review show, by the list: a stop's files by its index, or the
+ * source view's one list. Navigating to such a file opens its list.
+ */
+export const unchangedOpenAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly list: number | "source" }) =>
+    Atom.make(false).pipe(Atom.keepAlive),
+);
+
 /** The widths at which a page shows the unified layout whatever the reviewer chose. */
 export const NARROW_QUERY = "(width < 48rem)";
 
 /** The widths at which the contents stand beside the page; below, they fold into a disclosure. */
 export const WIDE_QUERY = "(min-width: 64rem)";
 
-/** How far each gap of a patch is open, by file, patch, and gap, so a new snapshot of the same patch keeps it. */
-export const gapAtom = Atom.family(
+/**
+ * How the reviewer opened the folds of a file's patch, its gaps and its folds of changes, by file and patch, so a new
+ * snapshot of the same patch keeps them. A fold they have not touched is absent: `gapStage` in diff-model.ts then
+ * decides a gap, and a fold of changes is closed.
+ */
+export const diffFoldsAtom = Atom.family(
   (_key: {
     readonly path: RepoPath;
     readonly digest: PatchDigest | undefined;
-    readonly gap: string;
-  }) => Atom.make<GapStage>(0).pipe(Atom.keepAlive),
+  }) => Atom.make<DiffFolds>(NO_FOLDS).pipe(Atom.keepAlive),
 );
+
+/**
+ * A diff a file block shows as its body: the file's patch in the round, or its changes since an earlier round while
+ * the page shows only those.
+ */
+export type BodyDiff =
+  | { readonly kind: "patch"; readonly digest: PatchDigest | undefined }
+  | { readonly kind: "since"; readonly since: number; readonly round: number };
+
+/**
+ * The changed rows of a file's body the page has shown, by review, file, and diff. Viewed asks first while some were
+ * never shown. In memory, for the page's life.
+ */
+export const shownChangesAtom = Atom.family(
+  (_key: {
+    readonly review: ReviewId;
+    readonly path: RepoPath;
+    readonly diff: BodyDiff;
+  }) => Atom.make<ReadonlySet<number>>(new Set<number>()).pipe(Atom.keepAlive),
+);
+
+/** Whether the reviewer turned Flagged only on, for every round of the review: {@link filtersFlagged} applies it. */
+export const flaggedOnlyAtom = Atom.family((_review: ReviewId) =>
+  Atom.make(false).pipe(Atom.keepAlive),
+);
+
+/**
+ * Whether the stop lists show only the stops with an attention flag, and J and K move only between those: while
+ * Flagged only is on and the round has a flagged stop. A round with none shows no switch to turn it off, so it lists
+ * every stop, and the reviewer's choice holds again in a later round with flags, whose switch shows it.
+ */
+export const filtersFlagged = (
+  flaggedOnly: boolean,
+  stops: ReadonlyArray<Pick<StopView, "attention">>,
+): boolean => flaggedOnly && stops.some((stop) => stop.attention !== null);
 
 /** A file's About or "changed since" block, opened above its diff. */
 export const extraAtom = Atom.family(
@@ -129,15 +181,13 @@ export const reattachAtom = Atom.family((_review: ReviewId) =>
 );
 
 /**
- * A comment being written on lines of a patch. It belongs to the patch it was opened on: when a new round changes
- * that patch, the draft cannot stay on its rows, and its text goes to the stash.
+ * A comment being written on lines of a file: rows of its patch, or lines of its text such as unchanged lines around
+ * a hunk. It belongs to the version its selection names: when a new round changes that version, the draft cannot
+ * stay on its lines, and its text goes to the stash.
  */
 export interface Draft {
   readonly id: number;
-  readonly path: RepoPath;
-  readonly digest: PatchDigest;
-  readonly start: number;
-  readonly end: number;
+  readonly selection: Selection;
   readonly body: string;
   readonly submitting: boolean;
   /** The ID of the + button that opened it, where focus returns when it closes. */
@@ -161,9 +211,35 @@ export const replyAtom = Atom.family(
     Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
 );
 
+/** A comment of the reviewer's being changed in place: whether its editor is open, and its text. */
+export const editAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly comment: CommentId }) =>
+    Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
+);
+
 /** The comment on the whole change being written. */
 export const generalDraftAtom = Atom.family((_review: ReviewId) =>
   Atom.make("").pipe(Atom.keepAlive),
+);
+
+/**
+ * A comment being written on a stop of the tour, by the stop's identity across rounds (`refKey` in
+ * review/stop-anchor.ts): whether its box is open, and its text.
+ */
+export const stopDraftAtom = Atom.family(
+  (_key: { readonly review: ReviewId; readonly stop: string }) =>
+    Atom.make({ open: false, body: "" }).pipe(Atom.keepAlive),
+);
+
+/**
+ * The source view's guide: which tab it shows, and whether its disclosure is open on a page too narrow to keep it
+ * beside the diff. Going to a comment on a stop shows the walkthrough, where the comment is.
+ */
+export const guideAtom = Atom.family((_review: ReviewId) =>
+  Atom.make<{
+    readonly tab: "walkthrough" | "files";
+    readonly open: boolean;
+  }>({ tab: "walkthrough", open: false }).pipe(Atom.keepAlive),
 );
 
 /** The verdict and summary of a finish being written, which carry over when a new round replaces the section. */
@@ -172,4 +248,27 @@ export const finishDraftAtom = Atom.family((_review: ReviewId) =>
     verdict: "comment",
     body: "",
   }).pipe(Atom.keepAlive),
+);
+
+/**
+ * Whether the page's single-letter shortcuts, such as J and ?, work, as the reviewer chose for every review. A reader
+ * whose speech or screen reader software types letters can turn them off; keys on a focused line of a diff still work.
+ */
+export const shortcutsAtom = Atom.kvs({
+  runtime: local,
+  key: "review-canvas-shortcuts",
+  schema: Schema.Boolean,
+  defaultValue: (): boolean => true,
+});
+
+/**
+ * Whether the key help is open, and where focus goes back to when it closes: the element that had focus when ? opened
+ * it. Opened from its button, focus goes back to the button.
+ */
+export type KeyHelpState =
+  | { readonly open: false }
+  | { readonly open: true; readonly returnTo: HTMLElement | undefined };
+
+export const keyHelpAtom = Atom.make<KeyHelpState>({ open: false }).pipe(
+  Atom.keepAlive,
 );

@@ -4,7 +4,9 @@
  * the latest round changed.
  */
 
-type Op = { readonly kind: " " | "-" | "+"; readonly text: string };
+/** One line of a line diff: kept, removed from the first text, or added in the second. */
+export type LineOp = { readonly kind: " " | "-" | "+"; readonly text: string };
+type Op = LineOp;
 
 const lines = (text: string): Array<string> => {
   if (text === "") return [];
@@ -79,6 +81,15 @@ const backtrack = (
   }
   return ops.reverse();
 };
+
+/**
+ * The shortest line diff from one list of lines to another, or undefined when they differ in more lines than `limit`.
+ */
+export const diffLines = (
+  before: ReadonlyArray<string>,
+  after: ReadonlyArray<string>,
+  limit = 2000,
+): ReadonlyArray<LineOp> | undefined => editScript(before, after, limit);
 
 /**
  * The unified patch from one text to another with `context` unchanged lines around each change, or undefined when

@@ -37,6 +37,11 @@ export interface StopView {
   readonly owns: ReadonlyArray<RepoPath>;
 }
 
+/** The files a stop's reading covers: those it owns and those it excerpts, each once, in that order. */
+export const stopFiles = (stop: StopView): ReadonlyArray<RepoPath> => [
+  ...new Set([...stop.owns, ...stop.excerpts.map((excerpt) => excerpt.path)]),
+];
+
 export interface TourView {
   readonly stops: ReadonlyArray<StopView>;
   /** What the server left out of the agent's tour, for the agent to read. */

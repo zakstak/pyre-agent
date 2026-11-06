@@ -1,14 +1,21 @@
 /**
  * A real server for browser tests: the TypeScript entry with the built page assets, its data and socket in a
- * temporary folder, and helpers that act as an agent over the socket.
+ * temporary folder, helpers that act as an agent over the socket, and a count of a page's answered RPC calls.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { request } from "node:http";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Page } from "playwright";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -65,7 +72,11 @@ export interface Server {
   readonly start: () => Promise<void>;
 }
 
-/** Starts a server and waits until it answers on its socket. */
+/**
+ * Starts a server and waits until it answers on its socket. A page that shows a pull request's review has the server
+ * read the pull request's head with `gh`, so unless the test puts its own `gh` first on `PATH`, the server finds one
+ * that fails: no test reads a real host.
+ */
 export const startServer = async (
   options: {
     readonly repositoryRoots?: ReadonlyArray<string>;
@@ -75,12 +86,20 @@ export const startServer = async (
   const dir = mkdtempSync(join(tmpdir(), "review-canvas-browser-"));
   const runtime = join(dir, "run");
   const socketPath = join(runtime, "agent.sock");
+  const offline = join(dir, "bin");
+  mkdirSync(offline);
+  writeFileSync(
+    join(offline, "gh"),
+    '#!/bin/sh\necho "browser tests read no real host: gh $*" >&2\nexit 1\n',
+    { mode: 0o755 },
+  );
   const port = await freePort();
   let child: ChildProcess;
   const spawnServer = async () => {
     child = spawn(process.execPath, [join(root, "src/server/main.ts")], {
       env: {
         ...process.env,
+        PATH: `${offline}${delimiter}${process.env.PATH ?? ""}`,
         ...options.environment,
         REVIEW_CANVAS_DATA: join(dir, "data/reviews.sqlite"),
         REVIEW_CANVAS_RUNTIME: runtime,
@@ -246,3 +265,57 @@ export const changedStore = (input: any): any => ({
       : file,
   ),
 });
+
+/** The RPC calls each page had answered, by method. */
+const answered = new WeakMap<Page, Map<string, number>>();
+
+/** The messages of one socket frame: the page sends and receives JSON, one message or an array. */
+const messages = (payload: string | Buffer): ReadonlyArray<any> => {
+  try {
+    const parsed = JSON.parse(String(payload));
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Counts the page's answered RPC calls by method, on every socket it opens. Calls that change nothing the page shows,
+ * such as saving a draft, are waited for this way instead of for a time. Call it before the page opens its socket.
+ */
+export const record = (page: Page) => {
+  const counts = new Map<string, number>();
+  answered.set(page, counts);
+  page.on("websocket", (socket) => {
+    const methods = new Map<string, string>();
+    socket.on("framesent", ({ payload }) => {
+      for (const message of messages(payload))
+        if (message?._tag === "Request")
+          methods.set(String(message.id), message.tag);
+    });
+    socket.on("framereceived", ({ payload }) => {
+      for (const message of messages(payload)) {
+        if (message?._tag !== "Exit") continue;
+        const method = methods.get(String(message.requestId));
+        if (method !== undefined)
+          counts.set(method, (counts.get(method) ?? 0) + 1);
+      }
+    });
+  });
+};
+
+/** Runs `act`, then waits until the recorded page has one more `method` call answered than before it. */
+export const thenAnswered = async (
+  page: Page,
+  method: "review.saveDraft" | "review.discardDraft",
+  act: () => Promise<unknown>,
+) => {
+  const counts = answered.get(page);
+  if (counts === undefined) throw new Error("the page is not recorded");
+  const before = counts.get(method) ?? 0;
+  await act();
+  for (let wait = 0; (counts.get(method) ?? 0) <= before; wait++) {
+    if (wait >= 200) throw new Error(`no ${method} was answered`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+};

@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import * as Schema from "effect/Schema";
-import type { ReviewFile, ReviewInput } from "../schema/input.ts";
+import type { ReviewInput } from "../schema/input.ts";
 import * as Limits from "../schema/limits.ts";
 import type {
   CommitSha,
@@ -29,7 +29,7 @@ import type {
 } from "../schema/stack.ts";
 import { StepKey } from "../schema/stack.ts";
 import { pullRequestKey } from "../schema/target.ts";
-import { patchDigest } from "./anchor.ts";
+import { fileVersion } from "./reading.ts";
 import { authoredSteps, layerInput, pullNumber } from "./stack-steps.ts";
 import { pullRequestStacks, stackAncestors } from "./stacks.ts";
 import { tourView } from "./tour.ts";
@@ -192,13 +192,6 @@ export const layerSource = (
         ...(base === undefined ? {} : { base_sha: base }),
       };
 };
-
-/** The version of a file a mark records: its fingerprint, or else its patch, so an unchanged file keeps its mark. */
-export const fileVersion = (file: ReviewFile): string =>
-  file.fingerprint ??
-  (file.patch === undefined
-    ? `none:${file.status}:${file.patch_note ?? ""}`
-    : patchDigest(file.patch));
 
 const sameFiles = (a: ReadonlyArray<ReadFile>, b: ReadonlyArray<ReadFile>) =>
   a.length === b.length &&

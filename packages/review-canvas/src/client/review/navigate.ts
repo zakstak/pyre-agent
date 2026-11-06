@@ -1,11 +1,12 @@
 /**
  * Moving through the one-scroll review page: the hash contract (`#tour/N`, `#files`, `#files/PATH`, `#ELEMENT-ID`),
- * J and K between stops, N for the next strip's target, and the scroll-spy that marks where the reviewer is. In the
- * source view a stop is a place in the guide beside the diff: moving to it scrolls the guide there and the diff to the
- * stop's first file.
+ * J and K between stops, N for the next strip's target, the other page keys in keys.ts, and the scroll-spy that marks
+ * where the reviewer is. In the source view a stop is a place in the guide beside the diff: moving to it scrolls the
+ * guide there and the diff to the stop's first file. Moving never reads a stop: dwell.ts reads the stops the reviewer
+ * keeps on screen.
  *
- * A folded file or gap renders nothing, so revealing an element is a change of state first: the file unfolds and the
- * gap opens, and the element is there to scroll to on the next frame.
+ * A folded file, gap, or fold of changes renders nothing, so revealing an element is a change of state first: the
+ * file unfolds and the fold opens, and the element is there to scroll to on the next frame.
  */
 import { RegistryContext } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
@@ -16,18 +17,43 @@ import {
   fileElementId,
   type Next,
 } from "../../review/next.ts";
-import type { ReviewId } from "../../schema/primitives.ts";
+import type { CommentId, ReviewId } from "../../schema/primitives.ts";
+import { announce } from "../ui/announce.ts";
 import { toast } from "../ui/toast.tsx";
 import type { RoundKey } from "./data.ts";
-import { layoutDiff, nextStage } from "./diff-model.ts";
-import { parseHash } from "./places.ts";
 import {
+  gapStage,
+  heldLines,
+  holdsLines,
+  lastUnit,
+  layoutDiff,
+  nextStage,
+  onVersion,
+  parseUnit,
+  type Unit,
+} from "./diff-model.ts";
+import {
+  fileOrder,
+  flaggedStep,
+  pageCommand,
+  type Step,
+  stepFrom,
+  threadOrder,
+} from "./keys.ts";
+import { hashOf, parseHash } from "./places.ts";
+import {
+  diffFoldsAtom,
+  draftsAtom,
+  filtersFlagged,
+  flaggedOnlyAtom,
   flashAtom,
   foldsAtom,
-  gapAtom,
+  guideAtom,
+  keyHelpAtom,
   openNotesAtom,
   reattachAtom,
-  seenAtom,
+  shortcutsAtom,
+  unchangedOpenAtom,
   type View,
 } from "./ui.ts";
 import type { FileModel, PageModel } from "./view.ts";
@@ -38,29 +64,55 @@ const fileAt = (page: PageModel, path: string): FileModel | undefined => {
   return files.get(path);
 };
 
-/** The file and row an element ID names, when the element is in a file's body. */
+/**
+ * The file and unit an element ID names, when the element is in a file's body: a row of the patch, or an unchanged
+ * line between hunks.
+ */
 const placeOf = (
   page: PageModel,
   id: string,
-): { readonly path: string; readonly row?: number } | undefined => {
+): { readonly path: string; readonly unit?: Unit } | undefined => {
   if (id.startsWith("files/"))
     return fileAt(page, id.slice(6)) === undefined
       ? undefined
       : { path: id.slice(6) };
   for (const model of page.files.values()) {
+    const path = model.file.path;
     const note = model.notes.find((item) => item.id === id);
-    if (note !== undefined) return { path: model.file.path, row: note.row };
+    if (note !== undefined)
+      return { path, unit: { kind: "row", index: note.row } };
     const placed = model.placed.find(
       (item) => commentElementId(item.comment.id) === id,
     );
-    if (placed !== undefined) return { path: model.file.path, row: placed.end };
+    if (placed !== undefined)
+      return { path, unit: { kind: "row", index: placed.end } };
+    const context = model.context.find(
+      (item) => commentElementId(item.comment.id) === id,
+    );
+    if (context !== undefined)
+      return {
+        path,
+        unit: lastUnit(layoutOf(model).rows, {
+          kind: "lines",
+          start: context.start_line,
+          end: context.end_line,
+        }),
+      };
     if (model.orphans.some((comment) => commentElementId(comment.id) === id))
-      return { path: model.file.path };
-    const row = new RegExp(`^f${model.index}-r([0-9]+)$`).exec(id);
-    if (row !== null) return { path: model.file.path, row: Number(row[1]) };
+      return { path };
+    const unit = new RegExp(`^f${model.index}-([rl][0-9]+)$`).exec(id);
+    const parsed = unit?.[1] === undefined ? undefined : parseUnit(unit[1]);
+    if (parsed !== undefined) return { path, unit: parsed };
   }
   return undefined;
 };
+
+/** A file's diff as its table lays it out. */
+const layoutOf = (model: FileModel) =>
+  layoutDiff(model.file.patch ?? "", {
+    shown: model.shown,
+    content: model.file.new_content,
+  });
 
 /** The stop a file belongs to, as the contents count it. */
 const stopOfPath = (page: PageModel, path: string) =>
@@ -156,6 +208,18 @@ export const showGuideStop = (index: number): boolean => {
   return true;
 };
 
+/** Puts focus on a file's line cursor, or its first line: where an arrow from the file's heading goes. */
+const focusLines = (article: Element): boolean => {
+  const table = article.querySelector("table[data-patch]");
+  const button =
+    table?.querySelector<HTMLElement>("[data-add-comment][tabindex='0']") ??
+    table?.querySelector<HTMLElement>("[data-unit] [data-add-comment]");
+  if (button === null || button === undefined) return false;
+  button.closest("[data-unit]")?.scrollIntoView({ block: "nearest" });
+  button.focus({ preventScroll: true });
+  return true;
+};
+
 /** Keeps an element of the rail in its scroller's view, moving it as little as it can. */
 export const keepInRail = (element: HTMLElement) => {
   scrollRail(element, "nearest");
@@ -219,6 +283,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
   const registry = useContext(RegistryContext);
   /** The tour position: the stop J and K move from, and until when scrolling is the page's own and moves nothing. */
   const tour = useRef({ stop: -1, steeringUntil: 0 });
+  /** The thread T last went to, which it moves from when focus is in no thread. */
+  const thread = useRef<CommentId | undefined>(undefined);
   return useMemo(() => {
     const steer = () => {
       tour.current.steeringUntil = Date.now() + 900;
@@ -226,17 +292,30 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     /** Whether the page scrolled itself a moment ago, so scrolling now is not the reviewer's. */
     const steering = () => Date.now() <= tour.current.steeringUntil;
 
-    const markRead = (indexes: ReadonlyArray<number>) => {
-      const seen = registry.get(seenAtom(key));
-      const next = [...new Set([...seen, ...indexes])].sort((a, b) => a - b);
-      if (next.length !== seen.length) registry.set(seenAtom(key), next);
-    };
-
     /**
-     * Unfolds what holds an element and opens the gap its row is in, so the element renders. In the source view a
-     * note shows only when opened, so it opens.
+     * Unfolds what holds an element and opens the gap or the fold of changes its row is in, so the element renders.
+     * In the source view a note shows only when opened, so it opens.
      */
     const revealState = (id: string) => {
+      // The source view shows a stop's comments in the guide's walkthrough, which a narrower page folds away, and
+      // which lists an unflagged stop only while Flagged only is off.
+      const onStop =
+        view === "source"
+          ? [...page.stopComments].find(([, comments]) =>
+              comments.some((comment) => commentElementId(comment.id) === id),
+            )?.[0]
+          : undefined;
+      if (onStop !== undefined) {
+        const guide = registry.get(guideAtom(key.id));
+        if (guide.tab !== "walkthrough" || !guide.open)
+          registry.set(guideAtom(key.id), { tab: "walkthrough", open: true });
+        if (
+          page.stops[onStop]?.attention === null &&
+          filtersFlagged(registry.get(flaggedOnlyAtom(key.id)), page.stops)
+        )
+          registry.set(flaggedOnlyAtom(key.id), false);
+        return;
+      }
       const place = placeOf(page, id);
       if (place === undefined) return;
       if (
@@ -249,30 +328,78 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       }
       const model = fileAt(page, place.path);
       if (model === undefined) return;
+      // A file unchanged since the last review shows once its list's disclosure opens.
+      const list = view === "source" ? "source" : stopOfPath(page, place.path);
+      if (model.since?.kind === "unchanged" && list !== -1) {
+        const disclosure = unchangedOpenAtom({ review: key.id, list });
+        if (!registry.get(disclosure)) registry.set(disclosure, true);
+      }
       const folds = registry.get(foldsAtom(key));
       if (folds[place.path] !== "open")
         registry.set(foldsAtom(key), { ...folds, [place.path]: "open" });
-      if (place.row === undefined || model.file.patch === undefined) return;
-      const row = place.row;
-      const layout = layoutDiff(model.file.patch, {
-        shown: model.shown,
-        content: model.file.new_content,
+      const unit = place.unit;
+      if (unit === undefined || model.file.patch === undefined) return;
+      const held = heldLines(
+        model.context,
+        registry
+          .get(draftsAtom(key.id))
+          .map((draft) => draft.selection)
+          .filter(
+            (selection) =>
+              selection.path === model.file.path && onVersion(selection, model),
+          ),
+      );
+      const foldsOfFile = diffFoldsAtom({
+        path: model.file.path,
+        digest: model.digest,
       });
-      for (const segment of layout.segments) {
-        if (segment.kind !== "gap") continue;
-        const holds = segment.parts.some(
-          (part) =>
-            part.kind === "folded" &&
-            part.rows.some((item) => item.index === row),
-        );
-        if (!holds) continue;
-        const gap = gapAtom({
-          path: model.file.path,
-          digest: model.digest,
-          gap: segment.key,
-        });
-        if (registry.get(gap) === 0) registry.set(gap, nextStage(0, segment));
+      const before = registry.get(foldsOfFile);
+      let opened = before;
+      for (const segment of layoutOf(model).segments) {
+        switch (segment.kind) {
+          case "rows":
+            continue;
+          case "changes":
+            if (
+              unit.kind === "row" &&
+              segment.rows.some((item) => item.index === unit.index)
+            )
+              opened = {
+                ...opened,
+                changes: { ...opened.changes, [segment.key]: true },
+              };
+            continue;
+          case "gap": {
+            const stage = gapStage(
+              opened.gaps[segment.key],
+              segment,
+              holdsLines(segment, held),
+            );
+            // A folded row shows from the gap's first stage, an unchanged line only from its last.
+            const holds = segment.parts.some((part) =>
+              unit.kind === "row"
+                ? part.kind === "folded" &&
+                  part.rows.some((item) => item.index === unit.index)
+                : part.kind === "context" &&
+                  part.lines.some((line) => line.new === unit.line),
+            );
+            if (!holds) continue;
+            const stageNow =
+              unit.kind === "line"
+                ? 2
+                : stage === 0
+                  ? nextStage(0, segment)
+                  : stage;
+            if (stageNow !== stage)
+              opened = {
+                ...opened,
+                gaps: { ...opened.gaps, [segment.key]: stageNow },
+              };
+            continue;
+          }
+        }
       }
+      if (opened !== before) registry.set(foldsOfFile, opened);
     };
 
     const reveal = async (id: string) => {
@@ -287,7 +414,6 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (page.stops.length === 0) return;
       const stop = Math.max(0, Math.min(index, page.stops.length - 1));
       tour.current.stop = stop;
-      markRead([stop]);
       if (options.keepHash !== true)
         history.replaceState(null, "", `#tour/${stop + 1}`);
       if (options.scroll === false) return;
@@ -355,6 +481,18 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       if (next.kind === "answer") land(target);
     };
 
+    /** Brings a comment into view and focuses it, as a row of the pending list does, and shows where it landed. */
+    const goComment = async (comment: CommentId) => {
+      const target = await reveal(commentElementId(comment));
+      if (target === null) return;
+      const section = target.closest<HTMLElement>("section[data-stop]");
+      if (section !== null) tour.current.stop = Number(section.dataset.stop);
+      steer();
+      target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+      land(target);
+    };
+
     /** Brings the next strip's target into view and focuses what acts on it. */
     const goNext = async () => {
       if (page.strip.kind !== "go") return;
@@ -366,6 +504,98 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     const goStep = async (step: "answer" | "file") => {
       const next = page.steps[step];
       if (next !== undefined) await go(next);
+    };
+
+    /**
+     * The file focus is in, or else the last whose top passed the line under the sticky bars. Above the first file,
+     * none: F then goes to the first.
+     */
+    const currentFile = () => {
+      const line =
+        (document.querySelector("[data-next]")?.getBoundingClientRect()
+          .bottom ?? 0) + 12;
+      const path =
+        document.activeElement?.closest<HTMLElement>("main article[data-path]")
+          ?.dataset.path ??
+        [...document.querySelectorAll<HTMLElement>("main article[data-path]")]
+          .filter((article) => article.getBoundingClientRect().top <= line)
+          .at(-1)?.dataset.path;
+      return [...page.files.keys()].find((item) => item === path);
+    };
+
+    /** F and Shift+F: the next or previous file in the page's order, from the current one. */
+    const stepFile = async (step: Step) => {
+      const path = stepFrom(fileOrder(page, view), currentFile(), step);
+      if (path === undefined)
+        return toast(
+          step === 1 ? "This is the last file." : "This is the first file.",
+        );
+      history.replaceState(null, "", hashOf(fileElementId(path)));
+      await showFile(path);
+    };
+
+    /**
+     * T and Shift+T: the next or previous thread in the page's order, from the one focus is in or else the one T last
+     * went to. The thread's file unfolds and its gap opens.
+     */
+    const stepThread = async (step: Step) => {
+      const order = threadOrder(page, view);
+      const focused = document.activeElement?.closest<HTMLElement>(
+        "article[data-comment]",
+      )?.dataset.comment;
+      const current =
+        order.find((id) => id === focused) ??
+        order.find((id) => id === thread.current);
+      const next = stepFrom(order, current, step);
+      if (next === undefined)
+        return toast(
+          order.length === 0
+            ? "There are no threads yet."
+            : step === 1
+              ? "This is the last thread."
+              : "This is the first thread.",
+        );
+      thread.current = next;
+      const target = await reveal(commentElementId(next));
+      if (target === null) return;
+      steer();
+      target.scrollIntoView({ block: "center" });
+      target.focus({ preventScroll: true });
+      land(target);
+      announce(`Thread ${order.indexOf(next) + 1} of ${order.length}.`);
+    };
+
+    /**
+     * V: marks the current file viewed, or not viewed, through its Viewed control. Focus on the file's lines goes to its
+     * heading first, since viewing folds the file. While some of its changes were never shown, the control asks first,
+     * and its dialog speaks instead.
+     */
+    const toggleViewed = () => {
+      const path = currentFile();
+      const article =
+        path === undefined
+          ? null
+          : document.getElementById(fileElementId(path));
+      const button = article?.querySelector<HTMLElement>("button[data-viewed]");
+      if (
+        path === undefined ||
+        article === null ||
+        button === null ||
+        button === undefined
+      )
+        return toast(
+          path === undefined
+            ? "Move to a file first."
+            : "This file cannot be marked viewed.",
+        );
+      const viewed = button.getAttribute("aria-pressed") !== "true";
+      if (article.contains(document.activeElement))
+        article
+          .querySelector<HTMLElement>("h3")
+          ?.focus({ preventScroll: true });
+      const asks = viewed && button.dataset.unseen !== undefined;
+      button.click();
+      if (!asks) announce(`${path} ${viewed ? "viewed" : "not viewed"}.`);
     };
 
     /** Where the hash says the page is. */
@@ -386,10 +616,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
           const element = await reveal(place.id);
           if (element === null) return;
           const section = element.closest<HTMLElement>("section[data-stop]");
-          if (section !== null) {
+          if (section !== null)
             tour.current.stop = Number(section.dataset.stop);
-            if (element === section) markRead([tour.current.stop]);
-          }
           if (element.id === "main") return;
           steer();
           element.scrollIntoView({
@@ -435,7 +663,7 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       revealState(note ?? `f${index}-r${start}`);
       // Lit before the scroll: a whitespace-only deletion the reviewer hides shows while it is lit.
       registry.set(flashAtom(key.id), { path, start, end });
-      const landing =
+      const found =
         note === undefined
           ? await new Promise<HTMLElement | null>((resolve) =>
               requestAnimationFrame(() =>
@@ -449,6 +677,13 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
               ),
             )
           : await shown(note);
+      // Showing only the changes since the last review, a changed file has no rows of the round's patch: the excerpt
+      // lands on the file.
+      const landing =
+        found ??
+        (note === undefined
+          ? document.getElementById(fileElementId(path))
+          : null);
       if (landing !== null) {
         steer();
         landing.scrollIntoView({ block: "start" });
@@ -467,9 +702,8 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     };
 
     /**
-     * Marks where the reviewer is: the stops whose headings passed under the sticky bars are read, and, when the
-     * reviewer scrolled rather than the page, the stop J and K count from. Returns the file or stop row the contents
-     * mark as current.
+     * Marks where the reviewer is: when the reviewer scrolled rather than the page, the stop J and K count from, the
+     * last whose heading passed under the sticky bars. Returns the file or stop row the contents mark as current.
      */
     const spy = (): string | undefined => {
       if (view === "source") return spySource();
@@ -482,7 +716,6 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       const passed = heads.flatMap((head, at) =>
         head !== null && head.getBoundingClientRect().top <= line ? [at] : [],
       );
-      if (passed.length > 0) markRead(passed);
       if (!steering()) {
         const first = heads[0];
         tour.current.stop =
@@ -513,9 +746,9 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
     };
 
     /**
-     * The spy in the source view, where the diff is in path order: the file at the line, and the stop that owns it is
-     * read and, when the reviewer scrolled rather than the page, the stop J and K count from. Before the first file
-     * reaches the line, nothing is marked and J and K count from before the first stop.
+     * The spy in the source view, where the diff is in path order: the file at the line, and when the reviewer scrolled
+     * rather than the page, the stop that owns it is the one J and K count from. Before the first file reaches the
+     * line, nothing is marked and J and K count from before the first stop.
      */
     const spySource = (): string | undefined => {
       const line =
@@ -536,11 +769,25 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       const path = markAt(articles, line)?.dataset.path;
       if (path === undefined) return undefined;
       const stop = stopOfPath(page, path);
-      if (stop !== -1) {
-        markRead([stop]);
-        if (!steering()) tour.current.stop = stop;
-      }
+      if (stop !== -1 && !steering()) tour.current.stop = stop;
       return `file:${path}`;
+    };
+
+    /**
+     * J and K: the next or previous stop, or while the stop lists show only flagged stops, the next or previous of
+     * those.
+     */
+    const stepStop = async (step: Step) => {
+      if (!filtersFlagged(registry.get(flaggedOnlyAtom(key.id)), page.stops))
+        return showStop(tour.current.stop + step);
+      const target = flaggedStep(page.stops, tour.current.stop, step);
+      if (target === undefined)
+        return toast(
+          step === 1
+            ? "This is the last flagged stop."
+            : "This is the first flagged stop.",
+        );
+      return showStop(target);
     };
 
     return {
@@ -549,14 +796,17 @@ export const useNavigate = (key: RoundKey, page: PageModel, view: View) => {
       steering,
       showStop,
       showFile,
+      stepFile,
+      stepThread,
+      toggleViewed,
       goNext,
       goStep,
+      goComment,
       goFinish,
       applyHash,
       flash,
       spy,
-      next: () => showStop(tour.current.stop + 1),
-      previous: () => showStop(tour.current.stop - 1),
+      stepStop,
     };
   }, [registry, key, page, view]);
 };
@@ -619,27 +869,70 @@ export const useCancelReattach = (review: ReviewId) => {
   }, [review, registry]);
 };
 
-/** J and K between stops, N for the next thing to do, Esc to stop moving a comment. */
+/** Where a key is the focused element's own: text fields, dialogs and confirmations, and menus, which type ahead. */
+const KEYS_OWN =
+  "textarea, input, select, [role='dialog'], [role='alertdialog'], [role='menu']";
+
+/**
+ * The page keys of keys.ts: J and K between stops, N for the next thing to do, F and T between files and threads, V,
+ * E, and ? for the key help. None fires from a text field, a dialog, or a menu, or when the reviewer turned them off. An arrow
+ * on a file's heading goes to its lines, whatever the setting: it acts only where focus is. Esc stops moving a comment.
+ */
 export const useKeys = (review: ReviewId, navigate: Navigation) => {
+  const registry = useContext(RegistryContext);
   useCancelReattach(review);
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.defaultPrevented) return;
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        target.closest("textarea, input, select, [contenteditable='true']") !==
-          null
+        (target.isContentEditable || target.closest(KEYS_OWN) !== null)
       )
         return;
-      const key = event.key.toLowerCase();
-      if (key === "j") void navigate.next();
-      else if (key === "k") void navigate.previous();
-      else if (key === "n") void navigate.goNext();
-      else return;
+      if (
+        event.key === "ArrowDown" &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        target instanceof HTMLElement
+      ) {
+        const article = target
+          .closest("[data-file-head]")
+          ?.closest("article[data-path]");
+        if (article !== null && article !== undefined && focusLines(article))
+          event.preventDefault();
+        return;
+      }
+      if (!registry.get(shortcutsAtom)) return;
+      const command = pageCommand(event);
+      if (command === undefined) return;
       event.preventDefault();
+      switch (command.kind) {
+        case "stop":
+          return void navigate.stepStop(command.step);
+        case "next":
+          return void navigate.goNext();
+        case "file":
+          return void navigate.stepFile(command.step);
+        case "thread":
+          return void navigate.stepThread(command.step);
+        case "viewed":
+          return navigate.toggleViewed();
+        case "finish":
+          return void navigate.goFinish();
+        case "help":
+          return registry.set(keyHelpAtom, {
+            open: true,
+            returnTo:
+              target instanceof HTMLElement && target !== document.body
+                ? target
+                : undefined,
+          });
+      }
     };
     document.addEventListener("keydown", keys);
     return () => document.removeEventListener("keydown", keys);
-  }, [navigate]);
+  }, [navigate, registry]);
 };

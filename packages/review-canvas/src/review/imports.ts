@@ -9,17 +9,21 @@ import type {
   Attachment,
   Comment,
   Feedback,
+  PatchAnchor,
   Reply,
   RoundSnapshot,
+  StopAnchor,
 } from "../schema/feedback.ts";
 import { compareReplies } from "../schema/feedback.ts";
 import type { GitHubItem, GitHubPost, GitHubThread } from "../schema/github.ts";
-import type { ReviewFile } from "../schema/input.ts";
+import type { ReviewFile, ReviewInput } from "../schema/input.ts";
 import type { CommitSha, ReplyId, Timestamp } from "../schema/primitives.ts";
 import type { ImportReport } from "../schema/rpc.ts";
 import { targetKey } from "../schema/target.ts";
 import type { Thread } from "../schema/thread.ts";
-import { anchorAt, attach } from "./anchor.ts";
+import { anchorAt, attach, isAnchorProblem, textAnchorAt } from "./anchor.ts";
+import { attachStop, findStop, stopAnchorFor } from "./stop-anchor.ts";
+import { tourView } from "./tour.ts";
 import { attachedRows, parseRows, type Row } from "./patch.ts";
 import {
   type ActionContext,
@@ -27,7 +31,7 @@ import {
   appendReply,
   withRound,
 } from "./state.ts";
-import { type ReviewState, type Turn } from "./queries.ts";
+import { type ReviewState, type Turn, turnOf } from "./queries.ts";
 
 /**
  * A turn while replaying a comment's replies. `github` is a GitHub thread after its opening post or a GitHub reply:
@@ -36,25 +40,39 @@ import { type ReviewState, type Turn } from "./queries.ts";
  */
 type ReplayTurn = Turn | "github";
 
-/** The turn after a reply, or undefined when the reply was not its author's to make. */
-const nextTurn = (turn: ReplayTurn, reply: Reply): ReplayTurn | undefined => {
-  if (turn === "github")
-    return nextTurn("agent", reply) ?? nextTurn("resolved", reply);
-  switch (reply.actor) {
-    case "agent":
-      return turn === "agent" ? "reviewer" : undefined;
-    case "github":
-      return "github";
-    case "reviewer":
-      if (reply.action === "reopen")
-        return turn === "resolved" ? "agent" : undefined;
-      if (turn === "resolved") return undefined;
-      return reply.action === "accept" ? "resolved" : "agent";
-  }
+/**
+ * The turn before a comment's next reply, given the replies kept so far: as `turnOf` reads it, so an edit after an
+ * agent reply hands the turn back to the agents, as it did on the page. A document holds only the last edit's time, so
+ * an agent reply before it may follow another: an earlier edit could have come between them.
+ */
+const replayTurn = (
+  comment: Comment,
+  kept: ReadonlyArray<Reply>,
+): ReplayTurn => {
+  const last = kept.at(-1);
+  if (
+    comment.source.kind === "github" &&
+    (last === undefined || last.actor === "github")
+  )
+    return "github";
+  return turnOf({ ...comment, replies: kept });
 };
 
-const startTurn = (source: Comment["source"]): ReplayTurn =>
-  source.kind === "github" ? "github" : "agent";
+/** Whether a reply was its author's to make on the turn before it. */
+const inTurn = (turn: ReplayTurn, reply: Reply): boolean => {
+  if (turn === "github")
+    return inTurn("agent", reply) || inTurn("resolved", reply);
+  switch (reply.actor) {
+    case "agent":
+      return turn === "agent";
+    case "github":
+      return true;
+    case "reviewer":
+      return reply.action === "reopen"
+        ? turn === "resolved"
+        : turn !== "resolved";
+  }
+};
 
 /** Every GitHub ID a review holds, on comments and replies, so an import adds each GitHub comment once. */
 const gitHubIds = (comments: ReadonlyArray<Comment>): Set<string> => {
@@ -82,15 +100,41 @@ const reanchor = (
   snapshot: RoundSnapshot,
 ): Anchor => {
   const found = attach(anchor, file);
-  if (found.state === "attached" && file?.patch !== undefined) {
-    const moved = anchorAt(file.patch, file.path, snapshot, {
-      start: found.start,
-      end: found.end,
-      side: anchor.side,
-    });
-    if (!("kind" in moved)) return moved;
+  if (found.state === "attached" && file !== undefined) {
+    const moved =
+      "start_line" in found
+        ? textAnchorAt(file, snapshot, found.start_line, found.end_line)
+        : file.patch === undefined
+          ? undefined
+          : anchorAt(file.patch, file.path, snapshot, {
+              start: found.start,
+              end: found.end,
+              side: anchor.side,
+            });
+    if (moved !== undefined && !isAnchorProblem(moved)) return moved;
   }
   return { ...anchor, snapshot };
+};
+
+/**
+ * An imported stop anchor in the current round: on the stop of the same identity, with the lines it excerpts now, or,
+ * where the tour has no such stop, its earlier lines, named as of the current round, as an orphan.
+ */
+const reanchorStop = (
+  anchor: StopAnchor,
+  input: ReviewInput,
+  snapshot: RoundSnapshot,
+): Pick<Extract<Comment, { kind: "stop" }>, "anchor" | "attachment"> => {
+  const stops = tourView(input).stops;
+  const stop = findStop(stops, anchor.stop);
+  const moved =
+    stop === undefined
+      ? { ...anchor, snapshot }
+      : stopAnchorFor(snapshot, anchor.stop, stop, input);
+  return {
+    anchor: moved,
+    attachment: attachStop(moved, stops, snapshot.round),
+  };
 };
 
 export interface FeedbackImport {
@@ -176,12 +220,10 @@ export const importFeedback = (
       already++;
       continue;
     }
-    let turn = startTurn(imported.source);
     const kept: Array<Reply> = [];
     for (const reply of imported.replies) {
       if (reply.actor === "github" && github.has(reply.github.id)) continue;
-      const next = nextTurn(turn, reply);
-      if (next === undefined) {
+      if (!inTurn(replayTurn(imported, kept), reply)) {
         skipped.push(
           `Comment ${imported.id}: ${imported.replies.length - kept.length} replies, from the first one out of turn, were left out.`,
         );
@@ -196,26 +238,37 @@ export const importFeedback = (
       const id = usedReplyIds.has(reply.id) ? context.replyId() : reply.id;
       usedReplyIds.add(id);
       kept.push({ ...reply, id } as Reply);
-      turn = next;
     }
     const id = ids.has(imported.id) ? context.commentId() : imported.id;
     ids.add(id);
     const updated_at = (kept.at(-1)?.created_at ??
       imported.created_at) as Timestamp;
-    if (imported.kind === "inline") {
-      const file = files.get(imported.anchor.path);
-      const anchor = reanchor(imported.anchor, file, snapshot);
-      comments.push({
-        ...imported,
-        id,
-        updated_at,
-        replies: kept,
-        anchor,
-        history: [],
-        attachment: attach(anchor, file),
-      });
-    } else {
-      comments.push({ ...imported, id, updated_at, replies: kept });
+    switch (imported.kind) {
+      case "inline": {
+        const file = files.get(imported.anchor.path);
+        const anchor = reanchor(imported.anchor, file, snapshot);
+        comments.push({
+          ...imported,
+          id,
+          updated_at,
+          replies: kept,
+          anchor,
+          history: [],
+          attachment: attach(anchor, file),
+        });
+        break;
+      }
+      case "stop":
+        comments.push({
+          ...imported,
+          id,
+          updated_at,
+          replies: kept,
+          ...reanchorStop(imported.anchor, input, snapshot),
+        });
+        break;
+      case "general":
+        comments.push({ ...imported, id, updated_at, replies: kept });
     }
     commentCount++;
     replyCount += kept.length;
@@ -261,7 +314,7 @@ const spanAnchor = (
   side: "old" | "new",
   from: number,
   end: number,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   const last = rows[end];
   if (last === undefined) return undefined;
   for (let at = from; at >= 0; at--) {
@@ -273,8 +326,8 @@ const spanAnchor = (
       end: last.offset + last.text.length,
       side,
     });
-    if (!("kind" in anchor)) return anchor;
-    if (anchor.kind !== "blank") return undefined;
+    if (!isAnchorProblem(anchor)) return anchor;
+    if (anchor.problem !== "blank") return undefined;
   }
   return undefined;
 };
@@ -286,7 +339,7 @@ const spanAnchor = (
 export const gitHubAnchor = (
   thread: GitHubThread,
   snapshot: RoundSnapshot,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   const side = sideOf(thread.side);
   const rows = parseRows(thread.diff_hunk);
   const end = rows.findLastIndex((row) => row[side] !== undefined);
@@ -319,7 +372,7 @@ const placedAnchor = (
   file: ReviewFile,
   snapshot: RoundSnapshot,
   lines: number,
-): Anchor | undefined => {
+): PatchAnchor | undefined => {
   if (thread.line === undefined || file.patch === undefined) return undefined;
   const side = sideOf(thread.side);
   const rows = parseRows(file.patch);
@@ -345,7 +398,9 @@ const gitHubPlacement = (
   file: ReviewFile | undefined,
   snapshot: RoundSnapshot,
   onHead: boolean,
-): { readonly anchor: Anchor; readonly attachment: Attachment } | undefined => {
+):
+  | { readonly anchor: PatchAnchor; readonly attachment: Attachment }
+  | undefined => {
   const quoted = gitHubAnchor(thread, snapshot);
   const found =
     quoted === undefined
@@ -384,9 +439,43 @@ const gitHubReply = (post: GitHubPost, id: ReplyId): Reply => ({
 });
 
 /**
+ * A comment the review already holds, with the authors of its GitHub post and replies as the host names them now. An
+ * earlier import may have read a bot's login without its `[bot]` suffix; a refresh puts the actor's type back.
+ */
+const withAuthors = (
+  comment: Comment,
+  posts: ReadonlyArray<GitHubPost>,
+): Comment => {
+  const authors = new Map(posts.map((post) => [post.id, post.author]));
+  const source =
+    comment.source.kind === "github" &&
+    authors.has(comment.source.id) &&
+    authors.get(comment.source.id) !== comment.source.author
+      ? { ...comment.source, author: authors.get(comment.source.id) ?? null }
+      : comment.source;
+  const replies = comment.replies.map((reply) =>
+    reply.actor === "github" &&
+    authors.has(reply.github.id) &&
+    authors.get(reply.github.id) !== reply.github.author
+      ? {
+          ...reply,
+          github: {
+            ...reply.github,
+            author: authors.get(reply.github.id) ?? null,
+          },
+        }
+      : reply,
+  );
+  return source === comment.source &&
+    replies.every((reply, at) => reply === comment.replies[at])
+    ? comment
+    : { ...comment, source, replies };
+};
+
+/**
  * Imports a pull request's GitHub comments: review threads become inline comments found again by their quote, and
  * conversation comments and review summaries become general ones. A comment the review already holds gets only its
- * new replies and GitHub's current resolution. Each arrives as the agents' turn, except a thread GitHub shows
+ * new replies, GitHub's current resolution, and its authors as GitHub names them now. Each arrives as the agents' turn, except a thread GitHub shows
  * resolved. `head` is the commit GitHub numbered the threads' current lines on; a round of that pull request head can
  * place a thread by them.
  */
@@ -430,7 +519,7 @@ export const importGitHub = (
       const existing = comments[at];
       if (existing !== undefined) {
         already++;
-        let updated = existing;
+        let updated = withAuthors(existing, [item, ...item.replies]);
         if (
           updated.source.kind === "github" &&
           updated.source.resolved !== item.resolved
@@ -494,6 +583,12 @@ export const importGitHub = (
     }
     if (github.has(item.id)) {
       already++;
+      const at = comments.findIndex(
+        (comment) =>
+          comment.source.kind === "github" && comment.source.id === item.id,
+      );
+      const existing = comments[at];
+      if (existing !== undefined) comments[at] = withAuthors(existing, [item]);
       continue;
     }
     comments.push({

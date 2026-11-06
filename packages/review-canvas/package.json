@@ -1,6 +1,6 @@
 {
   "name": "@pyre-agent/review-canvas",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.15.0",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.6",
+    "@effect/platform-node-shared": "4.0.6",
     "effect": "4.0.6"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "@vitejs/plugin-react": "6.1.2",
     "class-variance-authority": "0.7.1",
     "lucide-react": "1.61.0",
+    "markdown-it": "15.0.3",
     "playwright": "1.64.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",

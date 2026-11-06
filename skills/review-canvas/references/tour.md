@@ -22,7 +22,9 @@ reads.
   reviewer's to make: a `tradeoff`, a `contract` that other code depends on, a
   `product` decision, a `risk` to judge, or an `accessibility` call. Not a bug,
   not a missing test, not a style preference. Do not invent concerns. A stop
-  holds one; when two calls belong to one stop, split it.
+  holds one; when two calls belong to one stop, split it. The page's stop list
+  shows the kind, and the note cut to one line as the stop's subtitle. Begin the
+  note with the decision.
 - **Excerpts.** 3 to 25 rows each as the page shows them, deleted lines
   included, usually 1 to 3 per stop, each with a short caption. Name lines on
   the `new` side, which for an added file are its own line numbers, or on the
@@ -109,7 +111,14 @@ removed.
 ## Later rounds
 
 Tour what changed since the last round. The page marks each file new or changed
-in this round and shows its changes since the round before.
+in this round and shows its changes since the round before. The reviewer can
+also show only the changes since their last finished review.
+
+The server keeps which stops the reviewer read. A stop of a later round is the
+same stop when it has the same title; the closing stop is always the same. A
+read stop shows as changed, naming the files, when the new round changes a file
+it owns or excerpts. Keep a stop's title while its subject is the same, so its
+reading carries over, and give a stop a new title when its subject changes.
 
 Before you write the tour, read `"$RC" status --session "$SESSION"`. Its `turns`
 give each comment's state. A comment whose turn is `resolved` is settled: the

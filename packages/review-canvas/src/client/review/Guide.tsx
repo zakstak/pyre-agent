@@ -3,10 +3,11 @@
  * tour order as prose with small excerpts that link into the code, or lists the files as the contents do. A wide page
  * keeps it beside the diff, scrolling on its own; a narrower one folds it into a disclosure above the diff.
  */
-import { useAtomValue } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Check } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { RepoPath } from "../../schema/primitives.ts";
+import type { StopRead } from "../../schema/reading.ts";
 import { parseRows } from "../../review/patch.ts";
 import type { ExcerptView, StopView } from "../../review/tour.ts";
 import { count, lineRange, splitPath } from "../names.ts";
@@ -16,7 +17,12 @@ import { Segmented } from "../ui/segmented.tsx";
 import { Stat } from "../ui/stat.tsx";
 import { Inline, Lead, Prose, Time } from "../ui/text.tsx";
 import { usePage } from "./act.ts";
-import { DiffChoices, FileList } from "./Contents.tsx";
+import {
+  DiffChoices,
+  FileList,
+  FlaggedOnly,
+  useListedStops,
+} from "./Contents.tsx";
 import { Marker } from "./Diff.tsx";
 import { Narration } from "./Header.tsx";
 import { fileElementId } from "../../review/next.ts";
@@ -27,10 +33,20 @@ import {
   spiedPlace,
   useMoved,
 } from "./navigate.ts";
+import { StopDrift } from "./Drift.tsx";
 import { hashOf } from "./places.ts";
 import { Rail } from "./Rail.tsx";
-import { Attention, Questions, StopProse } from "./Sections.tsx";
-import { seenAtom, WIDE_QUERY } from "./ui.ts";
+import {
+  READ_TEXT,
+  ReadCount,
+  ReadMark,
+  readOf,
+  ReadToggle,
+  StopChanged,
+} from "./Reading.tsx";
+import { Attention, FlagMark, StopProse } from "./Sections.tsx";
+import { StopTalk } from "./StopTalk.tsx";
+import { guideAtom, WIDE_QUERY } from "./ui.ts";
 import { noteElementId } from "./view.ts";
 
 /** How many rows of an excerpt the guide shows; the diff has the rest. */
@@ -144,14 +160,12 @@ const GuideStop = ({
   read,
   onFile,
   onExcerpt,
-  onAsk,
 }: {
   readonly stop: StopView;
   readonly current: boolean;
-  readonly read: boolean;
+  readonly read: StopRead;
   readonly onFile: (path: RepoPath) => void;
   readonly onExcerpt: (target: ExcerptTarget) => void;
-  readonly onAsk: (question: string) => void;
 }) => {
   const { page } = usePage();
   const owned = stop.owns.flatMap((path) => {
@@ -163,6 +177,7 @@ const GuideStop = ({
     <li
       id={`guide-stop-${stop.index + 1}`}
       data-guide-stop={stop.index}
+      data-read={read.state}
       aria-current={current ? "location" : undefined}
       className="m-0 border-t border-separator px-2 pt-3 pb-4 aria-[current]:bg-selected"
     >
@@ -170,7 +185,7 @@ const GuideStop = ({
         <span
           className={cn(
             "font-mono text-technical",
-            read ? "text-accent" : "text-muted",
+            read.state === "read" ? "text-accent" : "text-muted",
           )}
         >
           {stop.index + 1}
@@ -178,6 +193,11 @@ const GuideStop = ({
         <h2 tabIndex={-1} className="min-w-0 flex-1 font-semibold text-ink">
           {stop.title}
         </h2>
+        {stop.attention === null ? null : (
+          <FlagMark flag={stop.attention} className="self-center" />
+        )}
+        <span className="sr-only">{READ_TEXT[read.state]}</span>
+        <ReadMark read={read} className="self-center" />
         <Stat
           icon={Check}
           title={`${viewed} of ${count(owned.length, "file")} viewed`}
@@ -185,8 +205,11 @@ const GuideStop = ({
           {viewed}/{owned.length}
         </Stat>
       </div>
+      <StopChanged stop={stop.index} className="mt-2" />
+      <StopDrift stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
+      <ReadToggle stop={stop.index} className="mt-2 -ml-2.5" />
       {stop.excerpts.map((excerpt, at) => (
         <Excerpt
           key={at}
@@ -196,7 +219,7 @@ const GuideStop = ({
           onExcerpt={onExcerpt}
         />
       ))}
-      <Questions stop={stop} onAsk={onAsk} />
+      <StopTalk stop={stop} />
       {owned.length === 0 ? null : (
         <p data-guide-files className="mt-3 font-mono text-technical">
           {owned.map((model, at) => (
@@ -232,24 +255,25 @@ const GuideStop = ({
 export const Guide = ({
   onFile,
   onExcerpt,
-  onAsk,
   steering,
 }: {
   readonly onFile: (path: RepoPath) => void;
   readonly onExcerpt: (target: ExcerptTarget) => void;
-  readonly onAsk: (question: string) => void;
   /** Whether the page is scrolling itself, when the guide leaves its scroller where the page put it. */
   readonly steering: () => boolean;
 }) => {
   const { id, page } = usePage();
   const wide = useMedia(WIDE_QUERY);
-  const [tab, setTab] = useState<Tab>("walkthrough");
-  const [open, setOpen] = useState(false);
-  const read = new Set(useAtomValue(seenAtom({ id, round: page.round.round })));
+  // Atoms, not state: going to a comment on a stop opens the walkthrough it is in.
+  const [{ tab, open }, setGuide] = useAtom(guideAtom(id));
+  const setTab = (next: Tab) => setGuide((now) => ({ ...now, tab: next }));
+  const setOpen = (next: boolean) =>
+    setGuide((now) => ({ ...now, open: next }));
   const spied = useAtomValue(spiedAtom);
   const { file: spiedFile, stop: spiedStop } = spiedPlace(page, spied);
   const scroller = useRef<HTMLDivElement>(null);
   const moved = useMoved();
+  const stops = useListedStops();
   // Once the reviewer has moved, a wide page keeps the marked stop, or in the files the marked file, in the guide's
   // view, unless the page put it somewhere itself.
   useEffect(() => {
@@ -292,16 +316,19 @@ export const Guide = ({
             <Prose text={page.input.summary} />
           </div>
         )}
+        <p className="px-2 pb-2 text-muted">
+          <ReadCount />
+        </p>
+        <FlaggedOnly className="mx-2 mb-2" />
         <ol aria-label="Walkthrough" className="m-0 list-none p-0">
-          {page.stops.map((stop) => (
+          {stops.map((stop) => (
             <GuideStop
               key={stop.index}
               stop={stop}
               current={spiedStop === stop.index}
-              read={read.has(stop.index)}
+              read={readOf(page, stop.index)}
               onFile={pick}
               onExcerpt={onExcerpt}
-              onAsk={onAsk}
             />
           ))}
         </ol>

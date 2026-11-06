@@ -4,10 +4,21 @@
  */
 import { Data, Effect, Layer, Queue, Result, Stream } from "effect";
 import { RpcSerialization, RpcServer } from "effect/rpc";
-import { patchDigest } from "../review/anchor.ts";
+import { contentDigest, patchDigest } from "../review/anchor.ts";
+import {
+  keptSightings,
+  presenceExpires,
+  presenceOf,
+} from "../review/presence.ts";
 import { ActionError } from "../review/state.ts";
+import type { Presence } from "../schema/presence.ts";
 import { decodeBytes, FeedbackDocument } from "../schema/document.ts";
-import type { PatchDigest, RepoPath, ReviewId } from "../schema/primitives.ts";
+import type {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+  ReviewId,
+} from "../schema/primitives.ts";
 import { repositoryId } from "../schema/repositories.ts";
 import { PageRpcs, Refused, type ReviewSnapshot } from "../schema/rpc.ts";
 import {
@@ -17,10 +28,10 @@ import {
   type Store,
 } from "../store/store.ts";
 import { browsePull } from "./browse.ts";
-import { repositoryPullRequests } from "./pull-requests.ts";
+import { makePushes, repositoryPullRequests } from "./pull-requests.ts";
 import { loadHome } from "./home.ts";
 import { groupRepositories, identifyRepository } from "./repositories.ts";
-import { Activity, ReviewStore } from "./services.ts";
+import { Activity, AgentPresence, ReviewStore } from "./services.ts";
 
 /** An exception a store call raised that is no refusal: a bug, which fails the call as a defect. */
 class Unexpected extends Data.TaggedError("Unexpected")<{
@@ -65,9 +76,12 @@ const handlers = (roots: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const store = yield* ReviewStore;
       const activity = yield* Activity;
+      const presence = yield* AgentPresence;
       // Every call a page makes counts as activity.
       const touched = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         Effect.sync(() => activity.touch()).pipe(Effect.andThen(effect));
+      // What the server learns of commits pushed to its reviews' pull requests, from their hosts.
+      const pushes = yield* makePushes(store);
       return PageRpcs.of({
         "home.load": ({ root }) => touched(loadHome(store, roots, root)),
 
@@ -84,9 +98,29 @@ const handlers = (roots: ReadonlyArray<string>) =>
                     "Monitor a remote repository in Settings to discover its open PRs.",
                 };
               const address = repository.identity.address;
-              return yield* Effect.promise((signal) =>
+              const read_from = Date.now();
+              const pulls = yield* Effect.promise((signal) =>
                 repositoryPullRequests(address, signal, scope),
               );
+              // The open list shows each head as of its read: a review whose round is behind it learns what was
+              // pushed, after the list is answered.
+              if (pulls.kind === "ready" && scope !== "history")
+                yield* Effect.forkDetach(
+                  pushes.notice(
+                    pulls.items.flatMap((pull) =>
+                      pull.head_sha === undefined
+                        ? []
+                        : [
+                            {
+                              url: pull.url,
+                              head_sha: pull.head_sha,
+                              read_from,
+                            },
+                          ],
+                    ),
+                  ),
+                );
+              return pulls;
             }),
           ),
 
@@ -139,7 +173,8 @@ const handlers = (roots: ReadonlyArray<string>) =>
 
         /**
          * The review now, then again after each change. A page that falls behind gets the newest snapshot, not every
-         * one between. An open watch keeps the server from idling out.
+         * one between. An open watch keeps the server from idling out, and has the server read the head of the
+         * review's pull request from its host, so the page learns of commits pushed since the round on its own.
          */
         "review.watch": ({ id }) =>
           Stream.callback<void>(
@@ -148,18 +183,76 @@ const handlers = (roots: ReadonlyArray<string>) =>
                 Effect.sync(() => {
                   activity.streamOpened();
                   Queue.offerUnsafe(queue, undefined);
-                  return store.subscribe((review) => {
+                  const changed = (review: ReviewId) => {
                     if (review === id) Queue.offerUnsafe(queue, undefined);
-                  });
+                  };
+                  // The reviewer's reading shows on every open page; a saved draft shows only where it was typed.
+                  const stops = [
+                    store.subscribe(changed),
+                    store.subscribeWorkspace(changed),
+                  ];
+                  return () => {
+                    for (const stop of stops) stop();
+                  };
                 }),
                 (unsubscribe) =>
                   Effect.sync(() => {
                     unsubscribe();
                     activity.streamClosed();
                   }),
-              ),
+              ).pipe(Effect.andThen(pushes.watch(id))),
             { bufferSize: 1, strategy: "sliding" },
           ).pipe(Stream.mapEffect(() => snapshotOf(store, id))),
+
+        /**
+         * Whether an agent listens, now and after every change: what the server saw of the review's threads, what the
+         * review keeps of them, and the moment a thread that waited a minute ago stops counting as listening.
+         */
+        "review.presence": ({ id }) =>
+          store.review(id) === undefined
+            ? Stream.fail(noSuchReview(id))
+            : Stream.callback<Presence>(
+                (queue) =>
+                  Effect.acquireRelease(
+                    Effect.sync(() => {
+                      let timer: ReturnType<typeof setTimeout> | undefined;
+                      let last = "";
+                      const emit = () => {
+                        clearTimeout(timer);
+                        const view = store.review(id);
+                        if (view === undefined) return;
+                        const now = Date.now();
+                        const live = presence.live(id);
+                        const value = presenceOf(
+                          live,
+                          keptSightings(view.state),
+                          now,
+                        );
+                        const expires = presenceExpires(live, now);
+                        if (expires !== undefined)
+                          timer = setTimeout(emit, expires - now + 1);
+                        const key = JSON.stringify(value);
+                        if (key === last) return;
+                        last = key;
+                        Queue.offerUnsafe(queue, value);
+                      };
+                      emit();
+                      const changed = (review: ReviewId) => {
+                        if (review === id) emit();
+                      };
+                      const stops = [
+                        presence.subscribe(changed),
+                        store.subscribe(changed),
+                      ];
+                      return () => {
+                        clearTimeout(timer);
+                        for (const stop of stops) stop();
+                      };
+                    }),
+                    (stop) => Effect.sync(stop),
+                  ),
+                { bufferSize: 1, strategy: "sliding" },
+              ),
 
         /** Like a review's watch: the newest snapshot after any change to the walkthrough or its layers' reviews. */
         "stack.watch": ({ id }) =>
@@ -207,10 +300,14 @@ const handlers = (roots: ReadonlyArray<string>) =>
                   message: `Review ${id} has no round ${round}.`,
                 });
               const digests: Record<RepoPath, PatchDigest> = {};
-              for (const file of input.files)
+              const texts: Record<RepoPath, ContentDigest> = {};
+              for (const file of input.files) {
                 if (file.patch !== undefined)
                   digests[file.path] = patchDigest(file.patch);
-              return { input, digests };
+                if (file.new_content !== undefined)
+                  texts[file.path] = contentDigest(file.new_content);
+              }
+              return { input, digests, texts };
             }),
           ),
 
@@ -231,6 +328,15 @@ const handlers = (roots: ReadonlyArray<string>) =>
           touched(
             attempt(() => ({ revision: store.act(id, action, revision) })),
           ),
+
+        "review.saveDraft": ({ id, draft }) =>
+          touched(attempt(() => store.saveDraft(id, draft))),
+
+        "review.discardDraft": ({ id, slot }) =>
+          touched(attempt(() => store.discardDraft(id, slot))),
+
+        "review.read": ({ id, action }) =>
+          touched(attempt(() => store.read(id, action))),
 
         "review.import": ({ id, text, revision }) =>
           touched(

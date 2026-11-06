@@ -72,6 +72,88 @@ secret patterns. A match omits that file's content and reports its path;
 `--include-secret PATH` explicitly allows it, while `--no-content` collects only
 patches. The detector does not recognize every possible secret format.
 
+## Review page
+
+The server saves the reviewer's unsent text half a second after they stop
+typing: line comments, replies, edits, the comment on the whole change, and the
+finish summary. Leaving a box or the window saves it at once. A page that is
+hidden, closed, or left for another page posts what is still unsent to
+`/reviews/ID/drafts` in a request the browser finishes after the page is gone;
+the server takes it only from its own pages' Origin. Browsers let such requests
+carry 64 KiB in all, so the page puts in as many boxes as fit, shortest first,
+and sends the rest over its socket, which arrives only if the page stays open,
+as when it was hidden. A reload, a server restart, or another browser puts the
+text back. Sending or cancelling a box clears its saved text. When a new round
+changes the lines under a comment, its text fills the next comment instead.
+
+**Comment** leaves a comment pending until **Finish review**, which sends it
+with the verdict; agents do not see it before. After the round is finished, a
+comment is sent at once. The next strip shows the count, such as **3 pending**;
+choose it to list them and go to one. **Ask now** sends a question at once. The
+comment menu edits a comment, or deletes one with no replies. Agents see an
+edited sent comment as edited. **Withdraw** retracts a sent comment. Comments
+imported from the git host have no menu.
+
+A stop's suggested questions and its **Ask about this stop** open a box inside
+the stop. The comment stays on the stop, with its answer, in every later round
+whose tour keeps a stop of the same title; when a round drops the stop, the
+comment moves to the comments on the whole change with a note naming the stop.
+
+Comment and reply bodies render as Markdown, as GitHub shows them, through
+markdown-it's tokens drawn as React elements, so no markup from a body is ever
+injected. Of raw HTML, a few formatting tags such as `<details>`, `<summary>`,
+and `<sub>` become those elements without their attributes. Other tags in an
+HTML block go and their text stays, as on GitHub; scripts, styles, and HTML
+comments are dropped; a tag in running text stays text. Images show as links and
+never load, and links go only to web and mail addresses. A GitHub bot's comments
+carry its `[bot]` login and show the bot mark.
+
+The top bar says whether an agent listens: while a thread's `wait` is open and
+for a minute after it ends, or else when a thread was last seen. A question
+asked now, or a finished round, says when no agent listens and none has checked
+in since, until one does.
+
+With lines selected, **Suggest change** inserts a `suggestion` block with the
+lines' current text. The composer and the sent comment show the suggestion as a
+diff, and agents receive it structured. A selection across a hunk header skips
+the hidden lines between the hunks, so it offers no suggestion.
+
+The unchanged lines that a gap reveals take comments as patch lines do. These
+comments anchor to the new text, and follow their lines in later rounds.
+
+A stop shows its files with the tour's excerpts open. Changed lines outside the
+excerpts fold behind their own control, such as **6 more changed lines (+6
+−0)**, never behind **Show N more lines**, which folds only unchanged lines.
+**Expand all** on a file opens all of its folds, and **Expand all files** and
+**Collapse all files** sit with the diff layout choices. When a file has changed
+lines the page never showed, **Viewed** says how many and offers to show them
+first.
+
+The server also keeps which tour stops the reviewer read. A stop is read once
+most of it stays on screen for two seconds, or when the reviewer chooses **Mark
+read**. Jumps, links, and fast scrolling read no stop that they pass. **Mark
+unread** keeps a stop unread until the reviewer leaves it and comes back. The
+guide and the contents show **n of m stops read**. When a later round changes a
+file that a read stop owns or excerpts, the stop shows as changed and names the
+file; **Mark read** reads it again.
+
+The stop lists show each flagged stop's attention kind. The contents also show
+the attention note as a one-line subtitle. **Flagged only** lists only the
+flagged stops, and J and K move between them while it is on. A round with no
+flagged stop has no switch and lists every stop; the setting holds again in a
+later round with flags.
+
+**Only changes since your last review** shows each file's changes since the
+round of the reviewer's last finished review, or since the previous round before
+any finish, and folds the unchanged files away. The browser remembers the
+setting. The rounds line opens an earlier round's whole diff read-only.
+
+The whole review works from the keyboard. Press ? or the keyboard button for the
+keys: J and K for stops, F for files, T for threads, the arrow keys for a line
+cursor that Shift extends, C to comment, V to mark a file viewed, and E for the
+finish. Keys never fire in a text field, a dialog, or a menu, and the help turns
+single-letter keys off.
+
 ## Private Git hosts
 
 `collect --pr URL` supports HTTPS review URLs on public and private hosts:
@@ -136,6 +218,21 @@ files, branches, and indexes in monitored checkouts stay unchanged. Host
 authentication failures appear separately from saved reviews, which remain
 usable offline.
 
+When the list shows a head other than the one an open review's round shows, the
+server has the host compare the two heads once and keeps the result as the
+review's drift, as `review-canvas check` would. The review page then says that
+commits were pushed since the round, with their count, the new head, and the
+files that changed, which each stop covering them names too. After a force-push,
+GitHub and Gitea/Forgejo cannot list those files; GitLab compares the two trees
+directly.
+
+While a page shows a pull request's review, the server also reads that pull
+request's head every minute, so a push shows without monitoring its repository.
+A read that started before the round was published or the drift was recorded
+changes nothing. A recorded head clears when the host shows the round's head
+again. When the host could not compare a head, the server tries again after five
+minutes.
+
 PRs whose base branches match other open PRs' source branches appear as stacks,
 ordered from base to tip. Each layer shows its dependency. The same navigation
 appears while reviewing a layer. Fork branches and ambiguous source branches are
@@ -187,10 +284,12 @@ repositories in deeper directories. Each Git status read has a timeout and
 output limit; failures show **Unavailable**. Scans and status reads do not fetch
 from remotes or write to repository indexes.
 
-Existing version 2 and 3 databases upgrade in place, preserving reviews and
+Existing version 2, 3, and 4 databases upgrade in place, preserving reviews and
 rounds. Earlier checkout acceptances are converted to repository identities.
-Missing accepted paths remain visible until they can be identified again.
-Earlier server builds cannot read the upgraded database.
+Missing accepted paths remain visible until they can be identified again. A
+comment an earlier page showed as pending stays pending until **Finish review**;
+every other comment counts as sent. Earlier server builds cannot read the
+upgraded database.
 
 ## Layout
 

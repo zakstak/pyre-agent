@@ -211,9 +211,18 @@ interface Page<T> {
 
 type Side = "LEFT" | "RIGHT";
 
+/**
+ * Who wrote a post, as GitHub's GraphQL API reports the actor. A Bot's `login` there lacks the `[bot]` suffix that
+ * its login carries everywhere else, so the actor's type is read beside it.
+ */
+interface Actor {
+  readonly __typename: string;
+  readonly login: string;
+}
+
 interface Post {
   readonly id: string;
-  readonly author: { readonly login: string } | null;
+  readonly author: Actor | null;
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
@@ -236,7 +245,7 @@ interface ThreadNode {
   };
 }
 
-const POST = "id author { login } body createdAt url";
+const POST = "id author { __typename login } body createdAt url";
 
 const QUERIES = {
   reviewThreads: `isResolved path diffSide startDiffSide originalStartLine line comments(first: 100) { nodes { ${POST} diffHunk } }`,
@@ -310,9 +319,20 @@ export const cleanBody = (text: string): string =>
 
 const time = (at: string) => new Date(at).toISOString();
 
+/**
+ * An actor's login as the review keeps it: a bot's with the `[bot]` suffix GitHub gives its bots' logins outside
+ * GraphQL, which is how the review keeps that a bot wrote a comment, and the page marks it. `type` is the actor's type
+ * as the host names it, "Bot" for a bot: GitHub's GraphQL `__typename`, or a Gitea or Forgejo user's `type`.
+ */
+export const actorLogin = (login: string, type: string | undefined): string =>
+  type === "Bot" && !login.endsWith("[bot]") ? `${login}[bot]` : login;
+
 const post = (node: Post) => ({
   id: node.id,
-  author: node.author?.login ?? null,
+  author:
+    node.author === null
+      ? null
+      : actorLogin(node.author.login, node.author.__typename),
   url: node.url,
   body: cleanBody(node.body),
   created_at: time(node.createdAt),

@@ -10,14 +10,18 @@ import {
   Count,
   integer,
   PullRequestUrl,
+  RepoPath,
 } from "../schema/primitives.ts";
+import type { HeadComparison } from "../schema/state.ts";
 import { GitHubImport } from "../schema/github.ts";
 import * as Limits from "../schema/limits.ts";
 import { parseRows } from "../review/patch.ts";
 import {
+  actorLogin,
   branchHome,
   cleanBody,
   findPullRequest,
+  GhFailed,
   readComments,
   runGh,
   type Gh,
@@ -246,6 +250,186 @@ export const readPullRequest = (
   return view;
 };
 
+/** What a host's comparison of a pull request's heads found, and the files it knows differ: every one when listed. */
+export interface HeadsCompared {
+  readonly comparison: Exclude<HeadComparison, { kind: "failed" }>;
+  readonly paths: ReadonlyArray<RepoPath>;
+}
+
+/** The most files GitHub lists in a comparison; a comparison that lists this many may have more. */
+const GITHUB_COMPARE_FILES = 300;
+
+const REWRITTEN =
+  "The head was rewritten, as by a force-push, so the host cannot list the files that differ from the round's head.";
+
+/** The paths a host named, a renamed file's both, each once in path order, as repository paths. */
+const repoPaths = (names: ReadonlyArray<string>): ReadonlyArray<RepoPath> =>
+  decode(Schema.Array(RepoPath), [...new Set(names)].sort());
+
+const GitHubCompare = Schema.Struct({
+  ahead_by: Count,
+  behind_by: Count,
+  files: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        filename: Schema.String,
+        previous_filename: Schema.optional(Schema.NullOr(Schema.String)),
+      }),
+    ),
+  ),
+});
+const GitLabCompare = Schema.Struct({
+  commits: Schema.Array(Schema.Unknown),
+  diffs: Schema.Array(
+    Schema.Struct({ old_path: Schema.String, new_path: Schema.String }),
+  ),
+  compare_timeout: Schema.optional(Schema.NullOr(Schema.Boolean)),
+});
+const GiteaCompare = Schema.Struct({
+  total_commits: Count,
+  commits: Schema.Array(
+    Schema.Struct({
+      files: Schema.optional(
+        Schema.NullOr(Schema.Array(Schema.Struct({ filename: Schema.String }))),
+      ),
+    }),
+  ),
+});
+
+/**
+ * How a pull request's head moved from the round's head `from` to `to`, as its host compares them: the commits `to`
+ * adds, and the files that differ when the host can list them all. GitHub and Gitea/Forgejo compare from the commits'
+ * merge base, which lists every file only when `to` builds on `from`; GitLab compares the two trees directly. Gitea
+ * lists the files the new commits touch. Throws ForgeFailed, or GhFailed, when the host cannot compare them.
+ */
+export const compareHeads = (
+  url: PullRequestUrl,
+  from: CommitSha,
+  to: CommitSha,
+  clients: ForgeClients,
+): HeadsCompared => {
+  const pull = addressOf(url);
+  if (pull.provider === "github") {
+    const text = clients.gh([
+      "api",
+      "--hostname",
+      pull.host,
+      `repos/${pull.repository}/compare/${from}...${to}`,
+      "--jq",
+      "{ahead_by, behind_by, files: [.files[]? | {filename, previous_filename}]}",
+    ]);
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new ForgeFailed(`${pull.host} did not return JSON.`);
+    }
+    const raw = decode(GitHubCompare, json);
+    const files = raw.files ?? [];
+    if (raw.behind_by > 0)
+      return {
+        comparison: {
+          kind: "unlisted",
+          commits: raw.ahead_by,
+          reason: REWRITTEN,
+        },
+        paths: [],
+      };
+    const paths = repoPaths(
+      files.flatMap((file) => [
+        file.filename,
+        ...(file.previous_filename == null ? [] : [file.previous_filename]),
+      ]),
+    );
+    return files.length >= GITHUB_COMPARE_FILES
+      ? {
+          comparison: {
+            kind: "unlisted",
+            commits: raw.ahead_by,
+            reason: `The host lists only the first ${GITHUB_COMPARE_FILES} files of a comparison.`,
+          },
+          paths,
+        }
+      : { comparison: { kind: "listed", commits: raw.ahead_by }, paths };
+  }
+  if (pull.provider === "gitlab") {
+    const raw = decode(
+      GitLabCompare,
+      clients.api(
+        pull,
+        `/api/v4/projects/${encodeURIComponent(pull.repository)}/repository/compare?from=${from}&to=${to}&straight=true`,
+      ),
+    );
+    const paths = repoPaths(
+      raw.diffs.flatMap((diff) => [diff.old_path, diff.new_path]),
+    );
+    return raw.compare_timeout === true
+      ? {
+          comparison: {
+            kind: "unlisted",
+            commits: raw.commits.length,
+            reason: "The host timed out comparing the heads.",
+          },
+          paths,
+        }
+      : { comparison: { kind: "listed", commits: raw.commits.length }, paths };
+  }
+  const compare = (base: CommitSha, head: CommitSha) =>
+    decode(
+      GiteaCompare,
+      clients.api(
+        pull,
+        `/api/v1/repos/${pull.repository}/compare/${base}...${head}`,
+      ),
+    );
+  const ahead = compare(from, to);
+  if (compare(to, from).total_commits > 0)
+    return {
+      comparison: {
+        kind: "unlisted",
+        commits: ahead.total_commits,
+        reason: REWRITTEN,
+      },
+      paths: [],
+    };
+  return {
+    comparison: { kind: "listed", commits: ahead.total_commits },
+    paths: repoPaths(
+      ahead.commits.flatMap((commit) =>
+        (commit.files ?? []).map((file) => file.filename),
+      ),
+    ),
+  };
+};
+
+/**
+ * {@link compareHeads}, or why the host could not compare the heads, as a drift records it. A head that did not move
+ * changed nothing.
+ */
+export const comparePushed = (
+  url: PullRequestUrl,
+  from: CommitSha,
+  to: CommitSha,
+  clients: ForgeClients,
+): {
+  readonly comparison: HeadComparison;
+  readonly paths: ReadonlyArray<RepoPath>;
+} => {
+  try {
+    return compareHeads(url, from, to, clients);
+  } catch (error) {
+    if (error instanceof ForgeFailed || error instanceof GhFailed)
+      return {
+        comparison: {
+          kind: "failed",
+          reason: `The host could not compare the heads: ${error.message}`,
+        },
+        paths: [],
+      };
+    throw error;
+  }
+};
+
 const GitLabFile = Schema.Struct({
   new_path: Schema.String,
   old_path: Schema.String,
@@ -386,18 +570,28 @@ const GitLabNote = Schema.Struct({
   position: Schema.optionalKey(Schema.NullOr(GitLabPosition)),
 });
 const GitLabDiscussion = Schema.Struct({ notes: Schema.Array(GitLabNote) });
+/**
+ * A Gitea or Forgejo account. Newer hosts name its type, "Bot" for a bot, as GitHub does; GitLab's notes never say
+ * whether their author is a bot.
+ */
+const GiteaUser = Schema.Struct({
+  login: Schema.String,
+  type: Schema.optionalKey(Schema.String),
+});
+const giteaAuthor = (user: typeof GiteaUser.Type | null): string | null =>
+  user === null ? null : actorLogin(user.login, user.type);
 const GiteaPost = Schema.Struct({
   id: Id,
   body: Schema.String,
   created_at: Schema.String,
   html_url: Schema.String,
-  user: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  user: Schema.NullOr(GiteaUser),
 });
 const GiteaReview = Schema.Struct({
   id: Id,
   body: Schema.String,
   submitted_at: Schema.String,
-  user: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+  user: Schema.NullOr(GiteaUser),
   html_url: Schema.String,
   state: Schema.String,
 });
@@ -549,7 +743,7 @@ export const readHostedComments = (
   } else {
     const post = (note: typeof GiteaPost.Type) => ({
       id: `gitea_comment_${note.id}`,
-      author: note.user?.login ?? null,
+      author: giteaAuthor(note.user),
       body: cleanBody(note.body),
       created_at: time(note.created_at),
       url: note.html_url,
@@ -576,7 +770,7 @@ export const readHostedComments = (
         add({
           kind: "review",
           id: `gitea_review_${review.id}`,
-          author: review.user?.login ?? null,
+          author: giteaAuthor(review.user),
           body: cleanBody(review.body),
           created_at: time(review.submitted_at),
           url: review.html_url,
@@ -641,6 +835,7 @@ export const readOpenPullRequests = (
 ): ReadonlyArray<OpenPullRequest> => {
   const branch = Schema.Struct({
     ref: Schema.String,
+    sha: Schema.optional(CommitSha),
     repo: Schema.NullOr(Schema.Struct({ full_name: Schema.String })),
   });
   const github = Schema.Struct({
@@ -685,6 +880,7 @@ export const readOpenPullRequests = (
           item.base.repo !== null &&
           item.head.repo.full_name.toLowerCase() ===
             item.base.repo.full_name.toLowerCase(),
+        ...(item.head.sha === undefined ? {} : { head_sha: item.head.sha }),
       }));
   } else if (pull.provider === "gitlab") {
     items = pages(
@@ -697,6 +893,7 @@ export const readOpenPullRequests = (
         source_branch: Schema.String,
         source_project_id: Schema.NullOr(Count),
         target_project_id: Count,
+        sha: Schema.optional(CommitSha),
       }),
       clients.api,
       2000,
@@ -706,6 +903,7 @@ export const readOpenPullRequests = (
       base_branch: item.target_branch,
       head_branch: item.source_branch,
       same_repository: item.source_project_id === item.target_project_id,
+      ...(item.sha === undefined ? {} : { head_sha: item.sha }),
     }));
   } else {
     items = pages(
@@ -723,6 +921,7 @@ export const readOpenPullRequests = (
         item.head.repo !== null &&
         item.base.repo !== null &&
         item.head.repo.full_name === item.base.repo.full_name,
+      ...(item.head.sha === undefined ? {} : { head_sha: item.head.sha }),
     }));
   }
   if (items.length > 2000)

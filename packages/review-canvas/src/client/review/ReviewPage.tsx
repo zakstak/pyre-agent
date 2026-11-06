@@ -10,7 +10,6 @@ import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Cause, Option, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import type { ReviewInput } from "../../schema/input.ts";
 import {
   type RepoPath,
@@ -34,19 +33,23 @@ import { Prose, Time } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
 import { ReviewContext, useImport } from "./act.ts";
 import { useStashChangedDrafts } from "./Composer.tsx";
+import { useKeepComposer, useRestoreDrafts } from "./saving.ts";
 import { Contents } from "./Contents.tsx";
 import { reviewAtom, type RoundKey, roundAtom } from "./data.ts";
+import { useDwellRead } from "./dwell.ts";
 import { Guide } from "./Guide.tsx";
+import { KeyHelp } from "./KeyHelp.tsx";
 import { Narration, ReviewBar, Title, ViewControl, Who } from "./Header.tsx";
+import { AgentPresence } from "./Presence.tsx";
 import { useHash, useKeys, useNavigate, useScrollSpy } from "./navigate.ts";
 import { hashOf } from "./places.ts";
-import { FileBlock } from "./FileBlock.tsx";
+import { FileBlocks } from "./FileBlock.tsx";
 import { Finish } from "./Finish.tsx";
 import { Departed, General, StopSection } from "./Sections.tsx";
+import { useSince } from "./Since.tsx";
 import { NextStrip, useStickyBars } from "./Strip.tsx";
 import {
   foldsAtom,
-  generalDraftAtom,
   layoutAtom,
   NARROW_QUERY,
   type View,
@@ -162,6 +165,9 @@ const Waiting = ({ snapshot }: { readonly snapshot: ReviewSnapshot }) => {
       <ReviewBar
         target={snapshot.state.target}
         updated={snapshot.state.created_at}
+        agents={
+          <AgentPresence id={snapshot.state.id} threads={snapshot.threads} />
+        }
       />
       <Frame>
         <header className="col-span-full pt-6">
@@ -239,7 +245,6 @@ const Review = ({
     () => ({ id, round: page.round.round }),
     [id, page.round.round],
   );
-  const registry = useContext(RegistryContext);
   const general = useRef<HTMLTextAreaElement>(null);
   const [layout] = useAtom(layoutAtom);
   const [chosen] = useAtom(viewAtom);
@@ -255,25 +260,12 @@ const Review = ({
   }, [page.input.target.title]);
   useHash(navigate);
   useScrollSpy(navigate);
+  useDwellRead(key, page, view);
   useKeys(id, navigate);
   useRoundChange(key, page);
-
-  /** Puts a stop's question at the start of the comment on the whole change, and the caret after it. */
-  const ask = (question: string) => {
-    const area = general.current;
-    if (area === null) return;
-    const now = registry.get(generalDraftAtom(id));
-    const next = now.startsWith(question)
-      ? now
-      : now === ""
-        ? question
-        : `${question}\n\n${now}`;
-    // Drawn at once, so the caret goes after the text the box now holds.
-    flushSync(() => registry.set(generalDraftAtom(id), next));
-    area.scrollIntoView({ block: "center" });
-    area.focus();
-    area.setSelectionRange(next.length, next.length);
-  };
+  // The reviewer's unsent text: back into its boxes when the review first shows, and kept as they type.
+  useRestoreDrafts(id, page, navigate.reveal);
+  useKeepComposer(id);
 
   /** Goes to a file from the contents or the guide, and names it in the hash. */
   const showFile = (path: RepoPath) => {
@@ -284,8 +276,13 @@ const Review = ({
   return (
     <ReviewContext.Provider value={context}>
       <SkipLink />
-      <ReviewBar target={page.snapshot.state.target} updated={page.updated}>
+      <ReviewBar
+        target={page.snapshot.state.target}
+        updated={page.updated}
+        agents={<AgentPresence id={id} threads={page.snapshot.threads} />}
+      >
         <ViewControl />
+        <KeyHelp />
       </ReviewBar>
       <Frame view={view}>
         <Title id={id} />
@@ -296,12 +293,12 @@ const Review = ({
           onGo={() => void navigate.goNext()}
           onStep={(step) => void navigate.goStep(step)}
           onFinish={() => void navigate.goFinish()}
+          onComment={(comment) => void navigate.goComment(comment)}
         />
         {view === "source" ? (
           <Guide
             onFile={showFile}
             onExcerpt={(target) => void navigate.showExcerpt(target)}
-            onAsk={ask}
             steering={navigate.steering}
           />
         ) : (
@@ -312,12 +309,14 @@ const Review = ({
         )}
         <main id="main" tabIndex={-1} className="min-w-0 pt-6 outline-none">
           {view === "source" ? (
-            pathOrder(page.files.keys()).map((path) => {
-              const model = page.files.get(path);
-              return model === undefined ? null : (
-                <FileBlock key={path} model={model} split={split} />
-              );
-            })
+            <FileBlocks
+              models={pathOrder(page.files.keys()).flatMap((path) => {
+                const model = page.files.get(path);
+                return model === undefined ? [] : [model];
+              })}
+              split={split}
+              list="source"
+            />
           ) : (
             <>
               {page.input.summary === undefined ? null : (
@@ -335,10 +334,10 @@ const Review = ({
                   stop={stop}
                   split={split}
                   ruled={stop.index > 0 || page.input.summary !== undefined}
+                  reading
                   onFlash={(path, index, start, end) =>
                     void navigate.flash(path, index, start, end)
                   }
-                  onAsk={ask}
                 />
               ))}
             </>
@@ -400,12 +399,20 @@ const Loaded = ({
 }) => {
   const round = snapshot.state.rounds.at(-1);
   const { view, previous, ready, failure } = useRound(id, round);
+  const compared = useSince(id, snapshot.state, round);
   const fresh = useMemo(
     () =>
-      round === undefined || view === undefined || !ready
+      round === undefined || view === undefined || !ready || !compared.ready
         ? undefined
-        : pageModel(snapshot, round, view.input, view.digests, previous),
-    [snapshot, round, view, previous, ready],
+        : pageModel(
+            snapshot,
+            round,
+            view.input,
+            view,
+            previous,
+            compared.since,
+          ),
+    [snapshot, round, view, previous, ready, compared.ready, compared.since],
   );
   // A new round's input arrives a moment after the snapshot that announces it. Until then the page keeps showing the
   // round it has, so the review stays mounted: the finish keeps the round it names, open files stay open, and the

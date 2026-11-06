@@ -1,19 +1,26 @@
 /** The sections of the review page's one scroll: the stops with their files, then what left and the whole change. */
 import { useAtom } from "@effect/atom-react";
-import { ArrowUp, Check } from "lucide-react";
+import { ArrowUp, Check, Flag } from "lucide-react";
 import { parseRows } from "../../review/patch.ts";
+import { stopTitle } from "../../review/stop-anchor.ts";
 import type { StopView } from "../../review/tour.ts";
+import type { Attention as AttentionFlag } from "../../schema/tour.ts";
 import { count, lineRange } from "../names.ts";
-import { Button, TOUCH_TARGET } from "../ui/button.tsx";
+import { Button } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
 import { Stat } from "../ui/stat.tsx";
 import { Inline, Joined, Prose } from "../ui/text.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { useAct, usePage, useSending } from "./act.ts";
-import { FileBlock } from "./FileBlock.tsx";
+import { FileBlocks } from "./FileBlock.tsx";
 import { Narration } from "./Header.tsx";
+import { StopDrift } from "./Drift.tsx";
+import { ReadToggle, StopChanged } from "./Reading.tsx";
+import { StopTalk } from "./StopTalk.tsx";
+import { useKeepDraft, useSendDraft } from "./saving.ts";
 import {
   ACTIONS_CLASS,
+  DraftNote,
   Orphan,
   submitOnModEnter,
   ThreadView,
@@ -26,7 +33,56 @@ const ATTENTION_LEAD = {
   product: "Product call",
   risk: "Risk",
   accessibility: "Accessibility",
-} as const;
+} as const satisfies Record<AttentionFlag["kind"], string>;
+
+/** A flagged stop's mark in a stop list: a flag and the attention's kind. */
+export const FlagMark = ({
+  flag,
+  className,
+}: {
+  readonly flag: AttentionFlag;
+  readonly className?: string;
+}) => (
+  <span
+    data-flag={flag.kind}
+    className={cn(
+      "inline-flex shrink-0 items-center gap-1 text-technical font-semibold text-warning",
+      className,
+    )}
+  >
+    <Flag aria-hidden="true" className="size-3 shrink-0" />
+    {ATTENTION_LEAD[flag.kind]}
+  </span>
+);
+
+/**
+ * A flagged stop's subtitle in a stop list: its kind, then the decision the attention names, cut to the line. The
+ * whole text is the title.
+ */
+export const FlagLine = ({
+  flag,
+  className,
+}: {
+  readonly flag: AttentionFlag;
+  readonly className?: string;
+}) => (
+  <span
+    data-flag-line
+    title={`${ATTENTION_LEAD[flag.kind]}: ${flag.note}`}
+    className={cn(
+      "flex min-w-0 items-baseline gap-1.5 text-technical font-normal",
+      className,
+    )}
+  >
+    <FlagMark flag={flag} className="self-center" />
+    <span aria-hidden="true" className="text-muted">
+      ·
+    </span>
+    <span data-flag-note className="min-w-0 truncate text-muted">
+      <Inline text={flag.note} />
+    </span>
+  </span>
+);
 
 /** For an excerpt of a file an earlier stop owns: one line that points at those rows instead of a second diff. */
 const Also = ({
@@ -117,42 +173,6 @@ export const Attention = ({
     </p>
   );
 
-/** The questions a stop suggests, each of which starts the comment on the whole change. A closed review asks none. */
-export const Questions = ({
-  stop,
-  onAsk,
-}: {
-  readonly stop: StopView;
-  readonly onAsk: (question: string) => void;
-}) => {
-  const { page } = usePage();
-  return stop.questions.length === 0 || !page.writable ? null : (
-    <div
-      role="group"
-      aria-label="Questions to ask"
-      className="mt-3 flex flex-wrap gap-2"
-    >
-      {stop.questions.map((question) => (
-        <button
-          key={question}
-          type="button"
-          data-question={question}
-          onClick={() => onAsk(question)}
-          className={cn(
-            TOUCH_TARGET,
-            "inline-flex min-h-7 items-center gap-2 rounded-control border border-line bg-raised px-2.5 py-0.5 text-left text-small hover:bg-subtle",
-          )}
-        >
-          <span aria-hidden="true" className="font-bold text-accent">
-            ?
-          </span>
-          <Inline text={question} />
-        </button>
-      ))}
-    </div>
-  );
-};
-
 /** A rule over a section of the page's one scroll, after the one before it. */
 const RULED = "mt-10 border-t border-separator pt-8";
 
@@ -161,11 +181,13 @@ export const StopSection = ({
   split,
   ruled,
   onFlash,
-  onAsk,
   narration,
+  reading = false,
 }: {
   readonly stop: StopView;
   readonly split: boolean;
+  /** Whether the stop says when a later round changed it since the reviewer read it, as the review's own page does. */
+  readonly reading?: boolean;
   /** What the line over the heading says, when the stop is shown outside its review's own walkthrough. */
   readonly narration?: string | undefined;
   /** A rule parts the stop from what comes before it: every stop but a first with no round summary over it. */
@@ -176,7 +198,6 @@ export const StopSection = ({
     start: number,
     end: number,
   ) => void;
-  readonly onAsk: (question: string) => void;
 }) => {
   const { page } = usePage();
   const owned = stop.owns.flatMap((path) => {
@@ -212,20 +233,23 @@ export const StopSection = ({
           </span>{" "}
           <span>{stop.title}</span>
         </h2>
-        <Stat
-          icon={Check}
-          title={`${viewed} of ${count(owned.length, "file")} viewed`}
-        >
-          {viewed}/{owned.length}
-        </Stat>
+        <span className="flex items-center gap-3">
+          {reading ? <ReadToggle stop={stop.index} /> : null}
+          <Stat
+            icon={Check}
+            title={`${viewed} of ${count(owned.length, "file")} viewed`}
+          >
+            {viewed}/{owned.length}
+          </Stat>
+        </span>
       </div>
+      {reading ? <StopChanged stop={stop.index} className="mt-2" /> : null}
+      <StopDrift stop={stop.index} className="mt-2" />
       <StopProse stop={stop} />
       <Attention stop={stop} />
       <Also stop={stop} onFlash={onFlash} />
-      {owned.map((model) => (
-        <FileBlock key={model.file.path} model={model} split={split} />
-      ))}
-      <Questions stop={stop} onAsk={onAsk} />
+      <FileBlocks models={owned} split={split} list={stop.index} />
+      <StopTalk stop={stop} />
     </section>
   );
 };
@@ -259,6 +283,11 @@ export const General = ({
   const { id, page } = usePage();
   const act = useAct();
   const [body, setBody] = useAtom(generalDraftAtom(id));
+  useKeepDraft(
+    { kind: "general" },
+    body.trim() === "" ? undefined : { kind: "general", body },
+  );
+  const sendDraft = useSendDraft({ kind: "general" });
   const { busy, run } = useSending();
   // A closed review has nothing to add: the section shows only what was said.
   if (!page.writable && page.general.length === 0) return null;
@@ -266,11 +295,13 @@ export const General = ({
     const text = body.trim();
     if (text === "") return textarea.current?.focus();
     const outcome = await run(() =>
-      act({
-        kind: "general_comment",
-        body: text,
-        ...(question ? { question: true } : {}),
-      }),
+      sendDraft(() =>
+        act({
+          kind: "general_comment",
+          body: text,
+          ...(question ? { question: true } : {}),
+        }),
+      ),
     );
     if (outcome?.ok === true) setBody((now) => (now === body ? "" : now));
   };
@@ -284,6 +315,13 @@ export const General = ({
               key={comment.id}
               className="rounded-panel bg-surface px-4 py-3"
             >
+              {comment.kind === "stop" ? (
+                <p data-dropped-stop className="mb-2 text-small text-muted">
+                  On the stop “{stopTitle(comment.anchor.stop)}” of round{" "}
+                  {comment.anchor.snapshot.round}, which round{" "}
+                  {page.round.round}’s tour no longer has.
+                </p>
+              ) : null}
               <ThreadView comment={comment} />
             </div>
           ))}
@@ -323,6 +361,7 @@ export const General = ({
                 once.
               </span>
             )}
+            <DraftNote shown={body.trim() !== ""} />
           </div>
         </form>
       )}

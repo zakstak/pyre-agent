@@ -1,6 +1,7 @@
 /**
  * The composer: a comment being written under the rows it is on. Its draft is in the drafts atom, not the component,
- * so a layout change that redraws the table keeps the text, and a new round that changes the rows can stash it.
+ * so a layout change that redraws the table keeps the text, and a new round that changes the rows can stash it. The
+ * server keeps the text as it is typed: see saving.ts.
  */
 import { RegistryContext } from "@effect/atom-react";
 import type { AtomRegistry } from "effect/reactivity";
@@ -9,13 +10,14 @@ import { flushSync } from "react-dom";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
 import { toast } from "../ui/toast.tsx";
-import type {
-  PatchDigest,
-  RepoPath,
-  ReviewId,
-} from "../../schema/primitives.ts";
+import type { RepoPath, ReviewId } from "../../schema/primitives.ts";
+import type { Selection } from "../../schema/selection.ts";
 import { useAct, usePage } from "./act.ts";
-import { ACTIONS_CLASS, submitOnModEnter } from "./Thread.tsx";
+import { type FileVersion, onVersion } from "./diff-model.ts";
+import { STASHED_TEXT, useSendDraft } from "./saving.ts";
+import { canSuggest, type Replaced } from "./suggest.ts";
+import { SuggestButton, SuggestionPreview } from "./Suggestion.tsx";
+import { ACTIONS_CLASS, DraftNote, submitOnModEnter } from "./Thread.tsx";
 import { type Draft, draftsAtom, reattachAtom, stashAtom } from "./ui.ts";
 
 /**
@@ -42,14 +44,15 @@ export const openDraft = (
 };
 
 /**
- * Takes a review's drafts off patches its round no longer has. A draft whose code changed cannot stay on its rows: its
- * text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the review shows a
- * round, so a draft left on a review the page moved away from is recovered when the page shows that review again.
+ * Takes a review's drafts off versions of files its round no longer has. A draft whose code changed cannot stay on its
+ * lines: its text goes to the stash, which fills the next comment the reviewer opens. Runs whenever a page of the
+ * review shows a round, so a draft left on a review the page moved away from is recovered when the page shows that
+ * review again.
  */
 export const useStashChangedDrafts = (
   review: ReviewId,
   files:
-    | ReadonlyMap<RepoPath, { readonly digest: PatchDigest | undefined }>
+    | ReadonlyMap<RepoPath, Pick<FileVersion, "digest" | "text">>
     | undefined,
 ) => {
   const registry = useContext(RegistryContext);
@@ -58,7 +61,8 @@ export const useStashChangedDrafts = (
     const drafts = registry.get(draftsAtom(review));
     const lost = drafts.filter(
       (draft) =>
-        !draft.submitting && files.get(draft.path)?.digest !== draft.digest,
+        !draft.submitting &&
+        !onVersion(draft.selection, files.get(draft.selection.path)),
     );
     if (lost.length === 0) return;
     registry.set(
@@ -70,28 +74,37 @@ export const useStashChangedDrafts = (
       .find((body) => body.trim() !== "");
     if (text !== undefined) {
       registry.set(stashAtom(review), text);
-      toast(
-        "The code under your comment changed in a new round. Your text is kept: select lines to comment on, and it fills the new comment.",
-        "danger",
-      );
+      toast(STASHED_TEXT, "danger");
     }
   }, [review, files, registry]);
 };
 
-/** `table` is the ID of the diff table the composer is in, and `range` names the lines it comments on. */
+/** The line a selection ends on, as a selector of the table's units in any layout. */
+const lastLine = (selection: Selection): string =>
+  selection.kind === "rows"
+    ? `[data-row="${selection.end_row}"]`
+    : `[data-new="${selection.end_line}"]`;
+
+/**
+ * `table` is the ID of the diff table the composer is in, `range` names the lines it comments on, and `replaced` is
+ * what a suggestion on them replaces, when the page can read their text.
+ */
 export const Composer = ({
   draft,
   table,
   range,
+  replaced,
 }: {
   readonly draft: Draft;
   readonly table: string;
   readonly range: string;
+  readonly replaced: Replaced | undefined;
 }) => {
   const registry = useContext(RegistryContext);
   const { id: review } = usePage();
   const drafts = draftsAtom(review);
   const act = useAct();
+  const sendDraft = useSendDraft({ kind: "comment" });
   const area = useRef<HTMLTextAreaElement>(null);
   const textId = `composer-${draft.id}`;
   // A composer that is no longer on the page, because a new round changed its rows, cannot take its refusal back.
@@ -128,7 +141,7 @@ export const Composer = ({
       (
         document.getElementById(draft.opener) ??
         document.querySelector<HTMLElement>(
-          `table[data-table="${table}"] [data-row="${draft.end}"] [data-add-comment]`,
+          `table[data-table="${table}"] ${lastLine(draft.selection)} [data-add-comment]`,
         )
       )?.focus();
   };
@@ -142,19 +155,16 @@ export const Composer = ({
     const body = draft.body.trim();
     if (body === "") return area.current?.focus();
     update((item) => ({ ...item, submitting: true }));
-    const outcome = await act(
-      {
-        kind: "comment",
-        selection: {
-          path: draft.path,
-          patch_sha256: draft.digest,
-          start_row: draft.start,
-          end_row: draft.end,
+    const outcome = await sendDraft(() =>
+      act(
+        {
+          kind: "comment",
+          selection: draft.selection,
+          body,
+          ...(question ? { question: true } : {}),
         },
-        body,
-        ...(question ? { question: true } : {}),
-      },
-      { quiet: true },
+        { quiet: true },
+      ),
     );
     if (outcome.ok) return close();
     if (mounted.current) {
@@ -176,9 +186,19 @@ export const Composer = ({
         void send(false);
       }}
     >
-      <p className="mb-1.5 text-small text-muted">
-        Comment on <span data-range>{range}</span>
-      </p>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <p className="text-small text-muted">
+          Comment on <span data-range>{range}</span>
+        </p>
+        {!canSuggest(replaced) ? null : (
+          <SuggestButton
+            area={area}
+            replaced={replaced}
+            disabled={draft.submitting}
+            onBody={(body) => update((item) => ({ ...item, body }))}
+          />
+        )}
+      </div>
       <label className="sr-only" htmlFor={textId}>
         Comment
       </label>
@@ -207,6 +227,7 @@ export const Composer = ({
           }
         }}
       />
+      <SuggestionPreview body={draft.body} replaced={replaced} />
       <div className={ACTIONS_CLASS}>
         <Button
           type="submit"
@@ -232,6 +253,7 @@ export const Composer = ({
           Cancel
         </Button>
         <span className="text-small text-muted">Ctrl+Enter · Esc</span>
+        <DraftNote shown={draft.body.trim() !== ""} />
       </div>
     </form>
   );

@@ -75,7 +75,16 @@ const text = async (page: Page, selector: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Marks every file viewed through its Viewed button, one at a time. */
+/** Finishes the round from the page, which sends the pending comments to the agents. */
+const finishRound = async (page: Page) => {
+  await page.locator("#finish button[type=submit]").click();
+  await page.locator("#finish [data-submission]").waitFor();
+};
+
+/**
+ * Marks every file viewed through its Viewed button, one at a time. A file with changes the page never showed asks
+ * first; Mark viewed anyway goes ahead.
+ */
 const viewAll = async (page: Page) => {
   for (;;) {
     const button = page
@@ -85,7 +94,10 @@ const viewAll = async (page: Page) => {
     const path = await button.evaluate(
       (element) => element.closest("article")?.dataset.path ?? "",
     );
+    const asks = (await button.getAttribute("data-unseen")) !== null;
     await button.click();
+    if (asks)
+      await page.locator("[data-unseen-dialog] [data-view-anyway]").click();
     await page
       .locator(
         `article[data-path='${path}'] button[data-viewed][aria-pressed='true']`,
@@ -104,7 +116,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await server?.stop();
   });
 
-  test("J and K move between stops and mark them read, and a note link reveals its own row", async () => {
+  test("J and K move between stops, and a note link reveals its own row", async () => {
     const input = fixtureInput();
     const agent = await server.register(input);
     await agent.publish(input);
@@ -119,16 +131,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.press("j");
     assert.equal(await focusedStop(page), "The rename");
     assert.match(page.url(), /#tour\/2$/);
-    // The stop moved to, and the one scrolled past on the way.
-    await page.locator("[data-stop-link='0'][data-read]").waitFor();
-    assert.deepEqual(
-      await page
-        .locator("[data-stop-link][data-read]")
-        .evaluateAll((links) =>
-          links.map((link) => (link as HTMLElement).dataset.stopLink),
-        ),
-      ["0", "1"],
-    );
+    // Moving reads no stop: reading.test.ts covers how a stop is read.
     await page.keyboard.press("k");
     assert.equal(await focusedStop(page), "save() becomes atomic");
     assert.match(page.url(), /#tour\/1$/);
@@ -172,6 +175,9 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       .locator("article[data-comment][data-turn='agent']")
       .first()
       .waitFor();
+    // The comment is pending until the finish sends it.
+    assert.deepEqual((await agent.status()).to_answer, []);
+    await finishRound(page);
     const [comment] = (await agent.status()).to_answer;
     await agent.answer(comment, {
       disposition: "rejected",
@@ -333,7 +339,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.locator("#finish input[value='approve']").check();
     await page.locator("#finish textarea").fill("Ship it.");
     await page.locator("#finish button[type=submit]").click();
-    // The section shows the submission, and the strip says the agents have the turn. Focus stays in the section.
+    // The section shows the submission, and the strip says no agent has heard of it yet. Focus stays in the section.
     await page.locator("#finish [data-submission]").waitFor();
     await page.waitForFunction(
       () => document.activeElement?.id === "finish-title",
@@ -349,12 +355,20 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     assert.equal(await page.locator("#finish form").count(), 0);
     assert.match(
       await text(page, "[data-next]"),
-      /You finished round 2 · approve · the agents have the turn/,
+      /You finished round 2 · approve · Claude Code isn’t listening; it will see this when it checks in\./,
     );
     const status = await agent.status();
     assert.deepEqual(
       [status.submission.round, status.submission.verdict],
       [2, "approve"],
+    );
+    // The agent checked in, so the strip says the agents have the turn.
+    await page.locator("[data-next] [data-strip-not-listening]").waitFor({
+      state: "detached",
+    });
+    assert.match(
+      await text(page, "[data-next]"),
+      /You finished round 2 · approve · the agents have the turn/,
     );
     await page.close();
   });
@@ -717,39 +731,37 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(agent.url);
-    await page.locator("button[data-question]").first().click();
+    // A stop's question opens a box in the stop it is about.
+    const stop = page.locator("section[data-stop='0']");
+    await stop.locator("button[data-question]").click();
     assert.equal(
-      await page.locator("#general-body").inputValue(),
+      await stop.locator("[data-stop-composer] textarea").inputValue(),
       "Should a failed write clean up?",
     );
     await page.waitForFunction(
-      () => document.activeElement?.id === "general-body",
+      () => document.activeElement?.id === "stop-1-ask",
     );
-    await page
-      .locator("#general form")
+    await stop
+      .locator("[data-stop-composer]")
       .getByRole("button", { name: "Ask now", exact: true })
       .click();
-    await page.locator("#general article[data-comment]").waitFor();
+    const thread = stop.locator("[data-stop-talk] article[data-comment]");
+    await thread.waitFor();
     // A question waits for the agent at once; its answer is the reviewer's turn. One chip says so each time.
-    assert.deepEqual(
-      await page
-        .locator("#general article[data-comment] [data-chip]")
-        .allTextContents(),
-      ["Waiting for Claude Code"],
-    );
+    assert.deepEqual(await thread.locator("[data-chip]").allTextContents(), [
+      "Waiting for Claude Code",
+    ]);
     const status = await agent.status();
     assert.equal(status.questions.length, 1);
     await agent.answer(status.questions[0], {
       disposition: "answered",
       body: "Yes; mkstemp leaves it otherwise.",
     });
-    await page.locator("#general li[data-reply='agent']").waitFor();
-    assert.deepEqual(
-      await page
-        .locator("#general article[data-comment] [data-chip]")
-        .allTextContents(),
-      ["Your turn", "Answered"],
-    );
+    await thread.locator("li[data-reply='agent']").waitFor();
+    assert.deepEqual(await thread.locator("[data-chip]").allTextContents(), [
+      "Your turn",
+      "Answered",
+    ]);
     await page.close();
   });
 
@@ -815,6 +827,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.type("Split view comment.");
     await page.keyboard.press("Control+Enter");
     await page.locator("article[data-comment]").first().waitFor();
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.deepEqual(
       [comment.anchor.side, comment.anchor.start_line],
@@ -861,6 +874,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.getByText("The comment moved to the lines you chose.").waitFor();
     assert.equal(await page.locator("#departed").count(), 0);
     assert.equal(await page.locator(composer).count(), 0);
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.equal(comment.anchor.path, "src/notes/cli.py");
     await page.close();
@@ -900,10 +914,10 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await unchanged.locator("tr[data-unchanged]").count(), 8);
     assert.equal(await unchanged.isVisible(), true);
-    // Unchanged lines take no comment.
+    // Unchanged lines take comments, as rows of the patch do.
     assert.equal(
       await unchanged.locator("button[data-add-comment]").count(),
-      0,
+      8,
     );
     await file.locator("button[data-viewed]").click();
     await file.locator("button[data-viewed][aria-pressed='true']").waitFor();
@@ -968,14 +982,22 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     const agent = await server.register(input);
     await agent.publish(input);
     const page = await open(`${agent.url}#files/src/notes/store.py`);
-    // Lines 3 to 5 are outside the stop's excerpt: they fold, and get their + buttons when shown.
+    // Lines 3 to 5 are outside the stop's excerpt: they fold, the added line 3 with the changes and lines 4 and 5 with
+    // the unchanged lines, and get their + buttons when shown.
     const plus = (line: number) =>
       page.locator(
         `${table("src/notes/store.py")} tr[data-new='${line}'] button[data-add-comment]`,
       );
     assert.equal(await plus(3).count(), 0);
     await page
-      .locator(`${table("src/notes/store.py")} button[data-expand='r0']`)
+      .locator(
+        `${table("src/notes/store.py")} button[data-expand-changes='c0']`,
+      )
+      .click();
+    assert.equal(await plus(3).count(), 1);
+    assert.equal(await plus(4).count(), 0);
+    await page
+      .locator(`${table("src/notes/store.py")} button[data-expand='r4']`)
       .click();
     await plus(3).focus();
     await page.keyboard.press("Enter");
@@ -993,6 +1015,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     await page.keyboard.type("Group these imports.");
     await page.keyboard.press("Control+Enter");
     await page.locator("article[data-comment]").first().waitFor();
+    await finishRound(page);
     const [comment] = (await agent.status()).feedback.comments;
     assert.deepEqual(
       [comment.anchor.start_line, comment.anchor.end_line],
@@ -1379,7 +1402,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     );
     assert.equal(await label(), "Show 3 more lines");
     assert.equal(await control.getAttribute("aria-expanded"), "false");
-    // The folded rows take comments once shown; the unchanged lines never do.
+    // The folded rows take comments once shown, and so do the unchanged lines.
     assert.ok(
       (await gapTable
         .locator("tbody[data-gap-lines='folded'] button[data-add-comment]")
@@ -1400,7 +1423,7 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
       await gapTable
         .locator("tbody[data-gap-lines='unchanged'] button[data-add-comment]")
         .count(),
-      0,
+      3,
     );
     assert.equal(await label(), `Hide ${folded + context} lines`);
     assert.equal(await control.getAttribute("aria-expanded"), "true");
@@ -1504,9 +1527,12 @@ describe("review page", { skip: !built && "run pnpm build first" }, () => {
     }
     const long = rows.find((row) => row.path.endsWith("contents-sidebar.ts"));
     assert.equal(long?.cut, true);
+    // Each list's kicker; the walkthrough's also counts the stops read.
     const kickers = await page
       .locator("nav[aria-label='Stops and files'] > p")
-      .allTextContents();
+      .evaluateAll((items) =>
+        items.map((item) => item.firstChild?.textContent ?? ""),
+      );
     assert.deepEqual(kickers, ["Walkthrough", "Files"]);
     assert.equal(
       await page

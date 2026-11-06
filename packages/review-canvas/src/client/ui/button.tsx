@@ -26,6 +26,8 @@ export const buttonVariants = cva(
         default: "border-line bg-raised text-ink hover:bg-subtle",
         primary: "border-action bg-action text-on-action hover:brightness-110",
         quiet: "border-transparent bg-transparent text-ink hover:bg-subtle",
+        /** What removes something for good, such as deleting a comment. */
+        danger: "border-danger bg-raised text-danger hover:bg-subtle",
       },
       size: {
         default: "min-h-11 px-4 py-2 text-base",

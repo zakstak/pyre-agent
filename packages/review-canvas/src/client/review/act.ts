@@ -13,15 +13,17 @@ import {
   useState,
 } from "react";
 import type { ReviewId } from "../../schema/primitives.ts";
+import type { StopProgress } from "../../schema/reading.ts";
 import type { PageAction } from "../../schema/rpc.ts";
 import { type CallError, failureText, NO_ANSWER } from "../rpc.ts";
 import { toast } from "../ui/toast.tsx";
-import { actionsAtom } from "./data.ts";
+import type { DraftStatus } from "./drafts.ts";
+import { actionsAtom, draftStatusAtom, workspaceAtom } from "./data.ts";
 import type { View } from "./ui.ts";
 import type { PageModel } from "./view.ts";
 
 /** What a change came to: its result, or why it did not go through. */
-type Outcome<A> =
+export type Outcome<A> =
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly message: string };
 
@@ -87,6 +89,46 @@ export const useImport = () => {
           : await actions.importFeedback(text, shown),
       ),
     [actions, shown],
+  );
+};
+
+/** The review's workspace, once the RPC client is ready. */
+const useWorkspace = () => {
+  const { id } = usePage();
+  return Option.getOrUndefined(
+    AsyncResult.value(useAtomValue(workspaceAtom(id))),
+  );
+};
+
+/** Where saving the drafts is: idle, saving, saved at a time, or failed with the server's words. */
+export const useDraftStatus = (): DraftStatus => {
+  const { id } = usePage();
+  return useAtomValue(draftStatusAtom(id));
+};
+
+/**
+ * Marks a stop of the round the page shows read, or unread. The page's next snapshot shows the reading; the outcome
+ * carries it at once.
+ */
+export const useReadStop = () => {
+  const { page } = usePage();
+  const workspace = useWorkspace();
+  const round = page.round.round;
+  return useCallback(
+    async (
+      stop: number,
+      read = true,
+    ): Promise<Outcome<ReadonlyArray<StopProgress>>> =>
+      outcomeOf(
+        workspace === undefined
+          ? undefined
+          : await workspace.read({
+              kind: read ? "read" : "unread",
+              round,
+              stop,
+            }),
+      ),
+    [workspace, round],
   );
 };
 

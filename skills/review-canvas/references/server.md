@@ -65,31 +65,39 @@ reviews while the server runs. This is accepted for one user on one machine.
 ## What the server owns
 
 The server is the one authority on a review. Each action is one transaction that
-raises the review's revision: a comment, a reply, an accept, a reopen, an
-approval, a submission, a published round, an agent's answer. A page sends the
-revision it saw with each action; when the review moved on, the server refuses
-the action and the page refreshes. No state is written that the feedback schema
-would refuse, so every review exports as a valid feedback document.
+raises the review's revision: a comment, an edit or a delete of one, a reply, an
+accept, a reopen, an approval, a submission, a published round, an agent's
+answer. A page sends the revision it saw with each action; when the review moved
+on, the server refuses the action and the page refreshes. No state is written
+that the feedback schema would refuse, so every review exports as a valid
+feedback document, and so would with every pending comment sent.
+
+The server also keeps the reviewer's own work beside the review: unsent text,
+saved as they type, one draft per box, and which tour stops they read, with the
+file versions they read them at. Neither raises the revision or reaches an
+agent. A reload, a restart, or another browser finds both again.
 
 A page acts on the revision it shows. A comment names the patch its rows belong
 to, and a finish names the round it covers, so neither can land on a round the
 reviewer has not seen even while the newer one is on its way.
 
 Pages are rendered in the browser and need JavaScript. An open page holds one
-WebSocket to the server and receives the review again whenever it changes,
-keeping the reviewer's place, open drafts, and scroll. A draft whose code
-changed is not moved; its text fills the next comment. When the server stops,
-the page says so and reconnects on its own when the server returns on the same
-port. Whole files show unified or side by side; the browser remembers the
-choice.
+WebSocket to the server and receives the review again whenever it or the
+reviewer's reading changes, keeping the reviewer's place, open drafts, and
+scroll. A draft whose code changed is not moved; its text fills the next
+comment. When the server stops, the page says so and reconnects on its own when
+the server returns on the same port. Whole files show unified or side by side;
+the browser remembers the choice.
 
 ## Whose turn
 
 Each comment waits for one side:
 
-- **The agent** when the comment has no answer, or the reviewer reopened it or
-  replied after the last answer.
-- **The reviewer** when the last entry is an agent's answer.
+- **The agent** when the comment has no answer, or the reviewer reopened it,
+  replied, or edited it after the last answer.
+- **The reviewer** when the last entry is an agent's answer, or while the
+  comment is pending: written, but not yet sent with **Finish review**. No agent
+  sees a pending comment.
 - **Nobody** once the reviewer accepted the last answer, or withdrew the
   comment. The reviewer can reopen it.
 
@@ -98,15 +106,28 @@ answer, and each answer names its thread. The review as a whole changes hands
 when the reviewer chooses **Finish review**: the submission records the round, a
 verdict (comment, approve, or request changes), and a summary, and
 `review-canvas wait` returns. A question the reviewer asks now returns `wait`
-without a finish, so the agent can answer while the reviewer reads.
+without a finish, so the agent can answer while the reviewer reads. A change to
+a pending comment raises the revision, so the agent's status shows a new
+revision with nothing new in it, and `wait` keeps waiting.
+
+The page shows beside its connection state whether an agent listens: a thread
+listens while its `wait` request is open, and for a minute after one ends, since
+`wait` asks again at once. Otherwise the page shows when a thread of the review
+last made a request, published, or answered, or that none has. A question asked
+now or a finished round that no agent listens for says so on the page, until a
+thread of the review makes any request. Keep `wait` running in a loop while the
+reviewer works, so questions reach you as they are asked.
 
 ## What agents tell the server
 
 Beside rounds and answers, an agent reports two things the page shows:
 
 - **Drift.** `review-canvas check` compares the code with the current round: a
-  working tree's files, or a pull request's head. The page shows what changed
-  until the next round.
+  working tree's files, or a pull request's head and the files the host's
+  comparison of it with the round's head lists. The page shows what changed
+  until the next round. For a pull request, the server also notices a new head
+  on its own and records the comparison itself; see
+  [the hosted request reference](pull-request.md#later-rounds).
 - **Hosted comments.** `publish` and `review-canvas comments` read the pull
   request's comments through its provider adapter and hand them over, with the
   head it read them at. The server stores them once by provider comment ID
@@ -122,7 +143,10 @@ A thread that registers for a target joins its open review, so several agent
 conversations can work one review, or starts one when there is none. `--fresh`
 closes the open review and starts a new one; approvals whose path and
 fingerprint match the new review's first round carry over, with a record of
-where they came from. The closed review stays listed and read-only.
+where they came from. The closed review stays listed and read-only. A closed
+review cannot be finished, so closing it sends its pending comments: its
+feedback document holds them, and importing it into the new review brings them
+over. Comments do not carry over by themselves.
 
 Rounds belong to the thread that published them. Comments, replies, approvals,
 and submissions belong to the review.

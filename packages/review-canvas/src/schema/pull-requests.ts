@@ -1,6 +1,12 @@
 import * as Schema from "effect/Schema";
-import { CommitSha, nonEmptyText, PullRequestUrl } from "./primitives.ts";
+import {
+  CommitSha,
+  nonEmptyText,
+  PullRequestUrl,
+  RepoPath,
+} from "./primitives.ts";
 import { ReviewInput } from "./input.ts";
+import { HeadComparison } from "./state.ts";
 
 export const PullScope = Schema.Literals(["all", "requested", "history"]);
 export type PullScope = typeof PullScope.Type;
@@ -21,6 +27,8 @@ export const OpenPullRequest = Schema.Struct({
   head_branch: nonEmptyText(1024),
   /** False when the source repository is deleted or differs from the target repository. */
   same_repository: Schema.Boolean,
+  /** The head commit the host shows now, which tells a review whether commits were pushed since its round. */
+  head_sha: Schema.optional(CommitSha),
   history: Schema.optional(
     Schema.Struct({
       state: Schema.Literals(["OPEN", "MERGED", "CLOSED"]),
@@ -46,6 +54,43 @@ export const RepositoryPullRequests = Schema.Union([
   }),
 ]);
 export type RepositoryPullRequests = typeof RepositoryPullRequests.Type;
+
+/** What the host's comparison of a pull request's two heads found, as a worker off the server's event loop reports it. */
+export const ComparedHeads = Schema.Struct({
+  comparison: HeadComparison,
+  paths: Schema.Array(RepoPath),
+});
+export type ComparedHeads = typeof ComparedHeads.Type;
+
+/** The head a pull request's host shows now, or why the host could not say, as a worker reports it. */
+export const PullHead = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("ready"), head_sha: CommitSha }),
+  Schema.Struct({
+    kind: Schema.Literal("unavailable"),
+    message: Schema.String,
+  }),
+]);
+export type PullHead = typeof PullHead.Type;
+
+/**
+ * What the server asks a worker to read from a host: a repository's pull requests, a pull request's head, or the
+ * comparison of a pull request's two heads.
+ */
+export const HostRead = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("pulls"),
+    address: Schema.String,
+    scope: PullScope,
+  }),
+  Schema.Struct({ kind: Schema.Literal("head"), url: PullRequestUrl }),
+  Schema.Struct({
+    kind: Schema.Literal("compare"),
+    url: PullRequestUrl,
+    from: CommitSha,
+    to: CommitSha,
+  }),
+]);
+export type HostRead = typeof HostRead.Type;
 
 /** A browse-only snapshot; collecting it does not create a review or an agent thread. */
 export const PullRequestSnapshot = Schema.Union([

@@ -82,13 +82,19 @@ export const pullRequestKey = (
   return pull.provider === "github" ? pull.url.toLowerCase() : pull.url;
 };
 
+/**
+ * A pull request target's identity, from its URL alone: GitHub pull requests keep the original discriminator's key,
+ * whichever kind names them.
+ */
+export const pullRequestTargetKey = (url: PullRequestUrl): string =>
+  `${parsePullRequest(url)?.provider === "github" ? "github_pr" : "pull_request"}:${pullRequestKey(url)}`;
+
 /** A target's identity, which keys its reviews: the pull request's key, or the working tree's root. */
 export const targetKey = (target: Target): string => {
   switch (target.kind) {
     case "github_pr":
-      return `github_pr:${pullRequestKey(target.url)}`;
     case "pull_request":
-      return `${target.provider === "github" ? "github_pr" : "pull_request"}:${pullRequestKey(target.url)}`;
+      return pullRequestTargetKey(target.url);
     case "worktree":
       return `worktree:${target.root}`;
   }

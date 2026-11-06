@@ -90,9 +90,37 @@ export const parseRows = (patch: string): ReadonlyArray<Row> => {
   return rows;
 };
 
+/**
+ * A file's new text as lines, and those lines joined with LF: the text a text anchor's context indexes. A trailing LF
+ * ends the last line; it does not add an empty one.
+ */
+export const textLines = (
+  content: string,
+): { readonly lines: ReadonlyArray<string>; readonly text: string } => {
+  const lines = content.split("\n");
+  if (content.endsWith("\n")) lines.pop();
+  return { lines, text: lines.join("\n") };
+};
+
 /** The rows joined with LF: the text anchor offsets index. */
 export const joinedRows = (rows: ReadonlyArray<Row>): string =>
   rows.map((row) => row.text).join("\n");
+
+/**
+ * The side a selection of patch rows is on: old for deleted lines with no added line among them, else new. The anchor
+ * the server makes and the lines "Suggest change" fills its block with both take this side.
+ */
+export const rowsSide = (
+  rows: ReadonlyArray<Row>,
+  start_row: number,
+  end_row: number,
+): "old" | "new" => {
+  const selected = rows.slice(start_row, end_row + 1);
+  return selected.some((row) => row.kind === "del") &&
+    !selected.some((row) => row.kind === "add")
+    ? "old"
+    : "new";
+};
 
 /** The row that shows a source line on one side, if the patch shows it. */
 export const rowForLine = (
@@ -148,12 +176,22 @@ export const hunkRanges = (patch: string): ReadonlyArray<HunkRange> =>
       return { old: span(match[1], match[2]), new: span(match[3], match[4]) };
     });
 
-/** The rows an attachment spans in the file's current patch. */
+/**
+ * The rows an attachment spans in the file's current patch. Lines of the text attach to rows when the patch shows
+ * their first and last line; lines outside the patch span no rows.
+ */
 export const attachedRows = (
   rows: ReadonlyArray<Row>,
   attachment: Attachment,
 ): { readonly start: number; readonly end: number } | undefined => {
   if (attachment.state !== "attached") return undefined;
+  if ("start_line" in attachment) {
+    const first = rowForLine(rows, "new", attachment.start_line);
+    const last = rowForLine(rows, "new", attachment.end_line);
+    return first === undefined || last === undefined
+      ? undefined
+      : { start: first.index, end: last.index };
+  }
   let start: number | undefined;
   let end: number | undefined;
   for (const row of rows) {

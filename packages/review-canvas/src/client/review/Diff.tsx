@@ -3,52 +3,99 @@
  * the unchanged lines between hunks behind a control, and the composer under the rows the reviewer selects. In the
  * source view a note shows only when the reviewer presses its letter on the row.
  *
- * Every line a reviewer can select is a unit: a table row in the unified layout, one half of a row in the split
- * layout. Dragging the line numbers selects units; the + button selects one, and with Shift extends the open
- * composer's range.
+ * Changed rows outside the tour's excerpts fold behind a control of their own, which counts what they add and delete;
+ * unchanged rows and lines fold behind the gaps' controls. A fold of unchanged lines never hides a change.
+ *
+ * Every line a reviewer can select is a unit: a row of the patch or an unchanged line between hunks, drawn as a table
+ * row in the unified layout and as one half of a row in the split layout. Dragging the line numbers selects units; the
+ * + button selects one, and with Shift extends the open composer's range. A selection of rows only is rows of the
+ * patch; one that takes in an unchanged line is new-side lines of the file's text.
+ *
+ * From the keyboard, the + buttons are the line cursor: arrows move it, Shift with an arrow selects lines from it, and
+ * Enter or C opens the composer on the selection. Only the cursor's button is in the tab order.
  */
 import { RegistryContext, useAtom, useAtomValue } from "@effect/atom-react";
 import { Equal } from "effect";
 import { Atom } from "effect/reactivity";
-import { FoldVertical, UnfoldVertical } from "lucide-react";
-import { Fragment, useContext, useEffect, useMemo } from "react";
+import { FileDiff, FoldVertical, UnfoldVertical } from "lucide-react";
+import { Fragment, useContext, useEffect, useMemo, useState } from "react";
 import { type Row, whitespaceOnly } from "../../review/patch.ts";
 import type { ReviewId } from "../../schema/primitives.ts";
 import { lineRange } from "../names.ts";
+import { announce } from "../ui/announce.ts";
 import { TOUCH_TARGET } from "../ui/button.tsx";
 import { cn } from "../ui/cn.ts";
-import { Inline, Lead } from "../ui/text.tsx";
+import { Inline, Lead, LineCounts } from "../ui/text.tsx";
 import { toast } from "../ui/toast.tsx";
 import { useAct, usePage } from "./act.ts";
 import { Composer, openDraft } from "./Composer.tsx";
 import {
   changeable,
+  changesLabel,
+  type DiffFolds,
   type GapPart,
   gapLabel,
   type GapLine,
+  gapStage,
+  heldLines,
+  holdsLines,
+  inSpan,
+  type InlineComment,
+  lastUnit,
   layoutDiff,
   nextStage,
+  onVersion,
   pairRows,
-  type PlacedComment,
+  parseUnit,
+  readingOrder,
   type Segment,
+  selectionOf,
+  shownChanges,
+  type Span,
+  spanEnds,
+  spanOf,
+  spanOfSelection,
+  type Unit,
+  unitKey,
 } from "./diff-model.ts";
+import { lineCommand, stepFrom } from "./keys.ts";
+import { replacedSelection } from "./suggest.ts";
 import { ThreadView } from "./Thread.tsx";
 import {
+  type BodyDiff,
+  diffFoldsAtom,
   type Draft,
   draftsAtom,
   flashAtom,
-  gapAtom,
   openNotesAtom,
   reattachAtom,
+  shownChangesAtom,
   whitespaceAtom,
 } from "./ui.ts";
 import type { FileModel, InlineNote } from "./view.ts";
 
-/** A drag over the line numbers of one file, from the row it started on to the row under the pointer. */
+/** Units of one file from where a selection started to where it is now. */
+interface Reach {
+  readonly path: string;
+  readonly from: Unit;
+  readonly to: Unit;
+}
+
+/**
+ * A drag over the line numbers of one file, from the unit it started on to the unit under the pointer. With Shift, it
+ * keeps the lines of the open composer too, so a Shift-click extends them.
+ */
 const dragAtom = Atom.make<
-  | { readonly path: string; readonly from: number; readonly to: number }
-  | undefined
+  (Reach & { readonly keep: ReadonlyArray<Unit> }) | undefined
 >(undefined).pipe(Atom.keepAlive);
+
+/**
+ * Lines selected from the keyboard in one file of a review, from the line Shift and an arrow started on to the line
+ * cursor. Enter or C opens the composer on them; a plain arrow or Esc lets them go.
+ */
+const markAtom = Atom.family((_review: ReviewId) =>
+  Atom.make<Reach | undefined>(undefined).pipe(Atom.keepAlive),
+);
 
 /**
  * What one table reads of the page-wide drag, flash, and drafts. A table re-renders only when its own part changes,
@@ -59,6 +106,12 @@ const dragOf = Atom.family((path: string) =>
     Atom.withEquality(Equal.equals),
   ),
 );
+const markOf = Atom.family(
+  ({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
+    Atom.map(markAtom(review), (mark) =>
+      mark?.path === path ? mark : undefined,
+    ).pipe(Atom.withEquality(Equal.equals)),
+);
 const flashOf = Atom.family(
   ({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
     Atom.map(flashAtom(review), (flash) =>
@@ -68,7 +121,7 @@ const flashOf = Atom.family(
 const draftsOf = Atom.family(
   ({ review, path }: { readonly review: ReviewId; readonly path: string }) =>
     Atom.map(draftsAtom(review), (drafts) =>
-      drafts.filter((draft) => draft.path === path),
+      drafts.filter((draft) => draft.selection.path === path),
     ).pipe(Atom.withEquality(Equal.equals)),
 );
 
@@ -97,9 +150,25 @@ const lineLabel = (
   return `${old ? "old " : ""}${lineRange(first, last, "line")}`;
 };
 
+/** The selected lines as words: rows as `lineLabel` names them, lines of the text by their numbers. */
+const spanLabel = (rows: ReadonlyArray<Row>, span: Span): string =>
+  span.kind === "rows"
+    ? lineLabel(rows, span.start, span.end)
+    : lineRange(span.start, span.end, "line");
+
+type Side = "old" | "new" | "unified";
+
 /** The ID of a unit's + button, where focus returns when its composer closes. */
-const plusId = (table: string, row: number, side: "old" | "new" | "unified") =>
-  `${table}-plus-${row}-${side}`;
+const plusId = (table: string, unit: Unit, side: Side) =>
+  `${table}-plus-${unitKey(unit)}-${side}`;
+
+/** The side of the split layout a unit's button is on, by default: a deletion's old half, else the new. */
+const sideOf = (rows: ReadonlyArray<Row>, unit: Unit, split: boolean): Side =>
+  !split
+    ? "unified"
+    : unit.kind === "row" && rows[unit.index]?.kind === "del"
+      ? "old"
+      : "new";
 
 const ROW_TONE: Readonly<Record<Row["kind"], string>> = {
   add: "bg-diff-addition",
@@ -233,16 +302,21 @@ interface TableContext {
   readonly columns: number;
   /** Whether units take selections: a writable review, not a read-only patch. */
   readonly selectable: boolean;
+  /** Whether unchanged lines take selections too: the page has the digest of the file's text. */
+  readonly linesSelectable: boolean;
   readonly reattaching: boolean;
-  readonly selected:
-    | { readonly start: number; readonly end: number }
-    | undefined;
+  readonly selected: Span | undefined;
   readonly flash: { readonly start: number; readonly end: number } | undefined;
-  readonly commented: ReadonlySet<number>;
+  /** Rows and unchanged lines a thread sits on. */
+  readonly commentedRows: ReadonlySet<number>;
+  readonly commentedLines: ReadonlySet<number>;
   /** Rows whose change is whitespace only, when the reviewer hides such changes; else none. */
   readonly quiet: ReadonlySet<number>;
   /** Hunk headers a gap's control shows instead of a row of their own. */
   readonly absorbed: ReadonlySet<number>;
+  /** How the reviewer opened the table's gaps and folds of changes, and a change to that. */
+  readonly folds: DiffFolds;
+  readonly setFolds: (change: (folds: DiffFolds) => DiffFolds) => void;
   readonly notesAt: ReadonlyMap<number, ReadonlyArray<InlineNote>>;
   /** Where notes show only on demand, the IDs of those the reviewer opened; undefined where every note shows. */
   readonly openNotes: ReadonlySet<string> | undefined;
@@ -250,33 +324,51 @@ interface TableContext {
     notes: ReadonlyArray<InlineNote>,
     open: boolean,
   ) => void;
-  readonly threadsAt: ReadonlyMap<number, ReadonlyArray<PlacedComment>>;
+  /** The threads by the key of the unit they end on. */
+  readonly threadsAt: ReadonlyMap<string, ReadonlyArray<InlineComment>>;
   readonly drafts: ReadonlyArray<Draft>;
+  /** The ID of the + button in the tab order: the line cursor's, once a line had focus. */
+  readonly cursor: string | undefined;
   readonly select: (
-    row: Row,
+    unit: Unit,
     event: React.MouseEvent | React.KeyboardEvent,
     opener: string,
   ) => void;
-  readonly startDrag: (row: Row, event: React.MouseEvent) => void;
-  readonly hover: (row: Row) => void;
+  readonly startDrag: (unit: Unit, event: React.MouseEvent) => void;
+  readonly hover: (unit: Unit) => void;
 }
 
-const lit = (table: TableContext, row: Row) =>
-  table.selected !== undefined &&
-  row.index >= table.selected.start &&
-  row.index <= table.selected.end
+const rowUnit = (row: Row): Unit => ({ kind: "row", index: row.index });
+
+/** Whether the selection covers a unit; `data-selected` says so to tests and styles. */
+const isSelected = (table: TableContext, unit: Unit) =>
+  table.selected !== undefined && inSpan(table.rows, table.selected, unit);
+
+const lit = (table: TableContext, unit: Unit) =>
+  isSelected(table, unit)
     ? "!bg-selection"
-    : table.flash !== undefined &&
-        row.index >= table.flash.start &&
-        row.index <= table.flash.end
+    : unit.kind === "row" &&
+        table.flash !== undefined &&
+        unit.index >= table.flash.start &&
+        unit.index <= table.flash.end
       ? "!bg-highlight"
       : undefined;
 
+const isCommented = (table: TableContext, unit: Unit) =>
+  unit.kind === "row"
+    ? table.commentedRows.has(unit.index)
+    : table.commentedLines.has(unit.line);
+
 /** Whether a row holds something that must not vanish: a thread, a note, a draft, or a flash. */
 const anchored = (table: TableContext, index: number) =>
-  table.commented.has(index) ||
+  table.commentedRows.has(index) ||
   table.notesAt.has(index) ||
-  table.drafts.some((draft) => index >= draft.start && index <= draft.end) ||
+  table.drafts.some((draft) =>
+    inSpan(table.rows, spanOfSelection(draft.selection), {
+      kind: "row",
+      index,
+    }),
+  ) ||
   (table.flash !== undefined &&
     index >= table.flash.start &&
     index <= table.flash.end);
@@ -292,26 +384,39 @@ const look = (table: TableContext, row: Row): Row["kind"] | "hidden" => {
   return table.split ? "context" : "hidden";
 };
 
+/** The line cursor shows on the unit whose + button has keyboard focus: a frame inside the line. */
+const CURSOR =
+  "has-[[data-add-comment]:focus-visible]:outline-2 has-[[data-add-comment]:focus-visible]:-outline-offset-2 has-[[data-add-comment]:focus-visible]:outline-focus";
+
+/**
+ * A unit's + button, which is also the line cursor. Its description is the line's code, so moving the cursor reads
+ * the line.
+ */
 const Plus = ({
   table,
-  row,
+  unit,
+  line,
   side,
 }: {
   readonly table: TableContext;
-  readonly row: Row;
-  readonly side: "old" | "new" | "unified";
+  readonly unit: Unit;
+  /** The line number it names: new-side, unless the unit is a deletion. */
+  readonly line: number | undefined;
+  readonly side: Side;
 }) => {
-  const id = plusId(table.id, row.index, side);
+  const id = plusId(table.id, unit, side);
   return (
     <button
       type="button"
       id={id}
+      tabIndex={table.cursor === id ? 0 : -1}
       title="Comment on this line"
-      aria-label={`Comment on line ${row.new ?? row.old}`}
+      aria-label={`Comment on line ${line}`}
+      aria-describedby={`${id}-code`}
       data-add-comment
       onClick={(event) => {
         // The mouse goes through the drag; a click with no pointer is Enter or Space.
-        if (event.detail === 0) table.select(row, event, id);
+        if (event.detail === 0) table.select(unit, event, id);
       }}
       className={cn(
         "absolute top-0 left-0.5 z-[1] inline-grid size-6 max-md:left-0 place-items-center rounded-sm bg-accent font-sans text-sm leading-none font-bold text-on-accent",
@@ -324,40 +429,70 @@ const Plus = ({
   );
 };
 
-const unitProps = (table: TableContext, row: Row) =>
+/** What a selectable unit carries: its key, its new-side line, its selection, and the drag passing over it. */
+const unitProps = (
+  table: TableContext,
+  unit: Unit,
+  line: number | undefined,
+) => ({
+  "data-unit": unitKey(unit),
+  "data-selectable": "",
+  "data-new": line ?? "",
+  "data-selected": isSelected(table, unit) ? "" : undefined,
+  onMouseEnter: () => table.hover(unit),
+});
+
+const rowProps = (table: TableContext, row: Row) =>
   table.selectable && changeable(row)
-    ? {
-        "data-row": row.index,
-        "data-selectable": "",
-        "data-new": row.new ?? "",
-        onMouseEnter: () => table.hover(row),
-      }
+    ? { "data-row": row.index, ...unitProps(table, rowUnit(row), row.new) }
     : { "data-row": row.index };
 
-const gutterProps = (table: TableContext, row: Row) =>
-  table.selectable && changeable(row)
+interface GutterProps {
+  readonly onMouseDown?: (event: React.MouseEvent) => void;
+  readonly className?: string;
+}
+
+/** A selectable unit's line numbers and marker: a drag starts there. Nothing for any other. */
+const gutterProps = (
+  table: TableContext,
+  unit: Unit,
+  selectable: boolean,
+): GutterProps =>
+  selectable
     ? {
-        onMouseDown: (event: React.MouseEvent) => table.startDrag(row, event),
+        onMouseDown: (event) => table.startDrag(unit, event),
         className: table.reattaching ? "cursor-crosshair" : "cursor-pointer",
       }
     : {};
 
+const rowGutterProps = (table: TableContext, row: Row): GutterProps =>
+  gutterProps(table, rowUnit(row), table.selectable && changeable(row));
+
 /** Notes on the rows, then the threads that end there, then the composer anchored there. */
 const Extras = ({
   table,
-  indexes,
+  units,
 }: {
   readonly table: TableContext;
-  readonly indexes: ReadonlyArray<number>;
+  readonly units: ReadonlyArray<Unit>;
 }) => {
-  const unique = [...new Set(indexes)];
-  const notes = unique
+  const keys = [...new Set(units.map(unitKey))];
+  const notes = [
+    ...new Set(
+      units.flatMap((unit) => (unit.kind === "row" ? [unit.index] : [])),
+    ),
+  ]
     .flatMap((index) => table.notesAt.get(index) ?? [])
     .filter(
       (note) => table.openNotes === undefined || table.openNotes.has(note.id),
     );
-  const placed = unique.flatMap((index) => table.threadsAt.get(index) ?? []);
-  const drafts = table.drafts.filter((draft) => unique.includes(draft.end));
+  const placed = keys.flatMap((key) => table.threadsAt.get(key) ?? []);
+  const drafts = table.drafts.flatMap((draft) => {
+    const span = spanOfSelection(draft.selection);
+    return keys.includes(unitKey(lastUnit(table.rows, span)))
+      ? [{ draft, span }]
+      : [];
+  });
   return (
     <>
       {notes.map((note) => (
@@ -367,21 +502,26 @@ const Extras = ({
         <tr>
           <td colSpan={table.columns} className={UNDER}>
             <div className={cn(ROW_BODY, "py-1")}>
-              {placed.map((item) => (
-                <ThreadView key={item.comment.id} comment={item.comment} />
+              {placed.map((comment) => (
+                <ThreadView key={comment.id} comment={comment} />
               ))}
             </div>
           </td>
         </tr>
       )}
-      {drafts.map((draft) => (
+      {drafts.map(({ draft, span }) => (
         <tr key={draft.id} data-composer>
           <td colSpan={table.columns} className={UNDER}>
             <div className={cn(ROW_BODY, "pt-2.5 pb-3")}>
               <Composer
                 draft={draft}
                 table={table.id}
-                range={lineLabel(table.rows, draft.start, draft.end)}
+                range={spanLabel(table.rows, span)}
+                replaced={replacedSelection(
+                  draft.selection,
+                  table.rows,
+                  table.model.file.new_content,
+                )}
               />
             </div>
           </td>
@@ -442,9 +582,16 @@ const SOURCE = "pr-4 whitespace-pre max-md:pr-3 max-md:pl-1";
 const SPLIT_UNCHANGED =
   "w-1/2 overflow-hidden pr-3 text-ellipsis whitespace-pre";
 
-/** The source of a row: code in ink, a hunk header or meta row in the row's muted tone. */
-const Source = ({ row }: { readonly row: Row }) => (
+/** The source of a row: code in ink, a hunk header or meta row in the row's muted tone. `id` names it for its + button. */
+const Source = ({
+  row,
+  id,
+}: {
+  readonly row: Row;
+  readonly id?: string | undefined;
+}) => (
   <code
+    id={id}
     className={
       row.kind === "hunk" || row.kind === "meta" ? "text-technical" : "text-ink"
     }
@@ -453,6 +600,10 @@ const Source = ({ row }: { readonly row: Row }) => (
   </code>
 );
 
+/** The ID of the code a unit's + button reads as its description. */
+const codeId = (table: TableContext, unit: Unit, side: Side) =>
+  `${plusId(table.id, unit, side)}-code`;
+
 const UnifiedRow = ({
   table,
   row,
@@ -460,32 +611,41 @@ const UnifiedRow = ({
   readonly table: TableContext;
   readonly row: Row;
 }) => {
-  const unit = table.selectable && changeable(row);
+  const unit = rowUnit(row);
+  const selectable = table.selectable && changeable(row);
   const shown = look(table, row);
   if (shown === "hidden") return null;
   return (
     <>
       <tr
         id={`${table.id}-r${row.index}`}
-        {...unitProps(table, row)}
+        {...rowProps(table, row)}
         data-kind={row.kind}
         data-whitespace={shown === row.kind ? undefined : "hidden"}
         className={cn(
           "group/unit scroll-my-(--scroll-top)",
           ROW_TONE[shown],
-          table.commented.has(row.index) && "shadow-mark",
-          lit(table, row),
+          isCommented(table, unit) && "shadow-mark",
+          selectable && CURSOR,
+          lit(table, unit),
         )}
       >
         <td
-          {...gutterProps(table, row)}
+          {...rowGutterProps(table, row)}
           className={cn(
             "relative select-none",
             NUMBER_GUTTER,
-            gutterProps(table, row).className,
+            rowGutterProps(table, row).className,
           )}
         >
-          {unit ? <Plus table={table} row={row} side="unified" /> : null}
+          {selectable ? (
+            <Plus
+              table={table}
+              unit={unit}
+              line={row.new ?? row.old}
+              side="unified"
+            />
+          ) : null}
           <LineNumbers
             old={row.old}
             fresh={row.new}
@@ -493,21 +653,24 @@ const UnifiedRow = ({
           />
         </td>
         <td
-          {...gutterProps(table, row)}
+          {...rowGutterProps(table, row)}
           className={cn(
             "relative select-none",
             MARKER_GUTTER,
-            gutterProps(table, row).className,
+            rowGutterProps(table, row).className,
           )}
         >
           <NoteMarker table={table} index={row.index} />
           <Marker kind={shown} />
         </td>
         <td className={SOURCE}>
-          <Source row={row} />
+          <Source
+            row={row}
+            id={selectable ? codeId(table, unit, "unified") : undefined}
+          />
         </td>
       </tr>
-      <Extras table={table} indexes={[row.index]} />
+      <Extras table={table} units={[unit]} />
     </>
   );
 };
@@ -523,40 +686,49 @@ const Half = ({
 }) => {
   if (row === undefined)
     return <td data-half={side} className="w-1/2 bg-surface" />;
-  const unit = table.selectable && changeable(row);
+  const unit = rowUnit(row);
+  const selectable = table.selectable && changeable(row);
   // A half is never hidden: the split layout shows a whitespace-only deletion as the old side of an unchanged pair.
   const shown = look(table, row) === "context" ? "context" : row.kind;
   return (
     <td
-      {...unitProps(table, row)}
+      {...rowProps(table, row)}
       data-half={side}
       data-kind={row.kind}
       data-whitespace={shown === row.kind ? undefined : "hidden"}
       className={cn(
-        "group/unit relative w-1/2 overflow-hidden pr-3 align-top text-ellipsis whitespace-pre",
+        "group/unit relative w-1/2 scroll-my-(--scroll-top) overflow-hidden pr-3 align-top text-ellipsis whitespace-pre",
         side === "new" && "border-l border-separator",
         ROW_TONE[shown],
-        table.commented.has(row.index) && "shadow-mark",
-        lit(table, row),
+        isCommented(table, unit) && "shadow-mark",
+        selectable && CURSOR,
+        lit(table, unit),
       )}
     >
       <span
-        {...gutterProps(table, row)}
+        {...rowGutterProps(table, row)}
         className={cn(
           "relative select-none",
           HALF_NUMBER_GUTTER,
-          gutterProps(table, row).className,
+          rowGutterProps(table, row).className,
         )}
       >
-        {unit ? <Plus table={table} row={row} side={side} /> : null}
+        {selectable ? (
+          <Plus
+            table={table}
+            unit={unit}
+            line={row.new ?? row.old}
+            side={side}
+          />
+        ) : null}
         {row[side] ?? ""}
       </span>
       <span
-        {...gutterProps(table, row)}
+        {...rowGutterProps(table, row)}
         className={cn(
           "select-none",
           HALF_MARKER_GUTTER,
-          gutterProps(table, row).className,
+          rowGutterProps(table, row).className,
         )}
       >
         {side === "new" || row.kind === "del" ? (
@@ -564,7 +736,10 @@ const Half = ({
         ) : null}
         <Marker kind={shown} />
       </span>
-      <Source row={row} />
+      <Source
+        row={row}
+        id={selectable ? codeId(table, unit, side) : undefined}
+      />
     </td>
   );
 };
@@ -594,58 +769,151 @@ const RowsOf = ({
               <code className="text-technical">{pair.whole.content}</code>
             </td>
           </tr>
-          <Extras table={table} indexes={[pair.whole.index]} />
+          <Extras table={table} units={[rowUnit(pair.whole)]} />
         </Fragment>
       );
-    const indexes = [pair.old?.index, pair.new?.index].filter(
-      (index): index is number => index !== undefined,
+    const halves = [pair.old, pair.new].filter(
+      (row): row is Row => row !== undefined,
     );
+    const first = Math.min(...halves.map((row) => row.index));
     return (
-      <Fragment key={`p${Math.min(...indexes)}`}>
-        <tr
-          id={`${table.id}-p${Math.min(...indexes)}`}
-          className="scroll-my-(--scroll-top)"
-        >
+      <Fragment key={`p${first}`}>
+        <tr id={`${table.id}-p${first}`} className="scroll-my-(--scroll-top)">
           <Half table={table} row={pair.old} side="old" />
           <Half table={table} row={pair.new} side="new" />
         </tr>
-        <Extras table={table} indexes={indexes} />
+        <Extras table={table} units={halves.map(rowUnit)} />
       </Fragment>
     );
   });
 };
 
+/**
+ * One half of an unchanged line in the split layout: both halves show the same line of the text, and either selects
+ * it.
+ */
+const UnchangedHalf = ({
+  table,
+  line,
+  side,
+}: {
+  readonly table: TableContext;
+  readonly line: GapLine;
+  readonly side: "old" | "new";
+}) => {
+  const unit: Unit = { kind: "line", line: line.new };
+  const selectable = table.linesSelectable;
+  return (
+    <td
+      {...(selectable ? unitProps(table, unit, line.new) : {})}
+      data-half={side}
+      className={cn(
+        SPLIT_UNCHANGED,
+        "group/unit relative scroll-my-(--scroll-top) align-top",
+        side === "new" && "border-l border-separator",
+        isCommented(table, unit) && "shadow-mark",
+        selectable && CURSOR,
+        lit(table, unit),
+      )}
+    >
+      <span
+        {...gutterProps(table, unit, selectable)}
+        className={cn(
+          "relative select-none",
+          HALF_NUMBER_GUTTER,
+          gutterProps(table, unit, selectable).className,
+        )}
+      >
+        {selectable ? (
+          <Plus table={table} unit={unit} line={line.new} side={side} />
+        ) : null}
+        {line[side]}
+      </span>
+      <span className={HALF_MARKER_GUTTER} />
+      <code
+        id={selectable ? codeId(table, unit, side) : undefined}
+        className="text-ink"
+      >
+        {line.text}
+      </code>
+    </td>
+  );
+};
+
+/**
+ * An unchanged line between hunks. Where the page has the digest of the file's text, it takes comments as a patch
+ * row does: they anchor to its new-side line number and its text.
+ */
 const UnchangedLine = ({
   table,
   line,
 }: {
   readonly table: TableContext;
   readonly line: GapLine;
-}) =>
-  table.split ? (
-    <tr data-unchanged className="text-muted">
-      <td className={SPLIT_UNCHANGED}>
-        <span className={HALF_NUMBER_GUTTER}>{line.old}</span>
-        <span className={HALF_MARKER_GUTTER} />
-        <code className="text-ink">{line.text}</code>
-      </td>
-      <td className={cn(SPLIT_UNCHANGED, "border-l border-separator")}>
-        <span className={HALF_NUMBER_GUTTER}>{line.new}</span>
-        <span className={HALF_MARKER_GUTTER} />
-        <code className="text-ink">{line.text}</code>
-      </td>
-    </tr>
-  ) : (
-    <tr data-unchanged className="text-muted">
-      <td className={NUMBER_GUTTER}>
-        <LineNumbers old={line.old} fresh={line.new} />
-      </td>
-      <td className={MARKER_GUTTER} />
-      <td className={SOURCE}>
-        <code className="text-ink">{line.text}</code>
-      </td>
-    </tr>
+}) => {
+  const unit: Unit = { kind: "line", line: line.new };
+  const selectable = table.linesSelectable;
+  if (table.split)
+    return (
+      <>
+        <tr
+          id={`${table.id}-l${line.new}`}
+          data-unchanged
+          className="scroll-my-(--scroll-top) text-muted"
+        >
+          <UnchangedHalf table={table} line={line} side="old" />
+          <UnchangedHalf table={table} line={line} side="new" />
+        </tr>
+        <Extras table={table} units={[unit]} />
+      </>
+    );
+  return (
+    <>
+      <tr
+        id={`${table.id}-l${line.new}`}
+        data-unchanged
+        {...(selectable ? unitProps(table, unit, line.new) : {})}
+        className={cn(
+          "group/unit scroll-my-(--scroll-top) text-muted",
+          isCommented(table, unit) && "shadow-mark",
+          selectable && CURSOR,
+          lit(table, unit),
+        )}
+      >
+        <td
+          {...gutterProps(table, unit, selectable)}
+          className={cn(
+            "relative select-none",
+            NUMBER_GUTTER,
+            gutterProps(table, unit, selectable).className,
+          )}
+        >
+          {selectable ? (
+            <Plus table={table} unit={unit} line={line.new} side="unified" />
+          ) : null}
+          <LineNumbers old={line.old} fresh={line.new} />
+        </td>
+        <td
+          {...gutterProps(table, unit, selectable)}
+          className={cn(
+            "select-none",
+            MARKER_GUTTER,
+            gutterProps(table, unit, selectable).className,
+          )}
+        />
+        <td className={SOURCE}>
+          <code
+            id={selectable ? codeId(table, unit, "unified") : undefined}
+            className="text-ink"
+          >
+            {line.text}
+          </code>
+        </td>
+      </tr>
+      <Extras table={table} units={[unit]} />
+    </>
   );
+};
 
 const GapPartRows = ({
   table,
@@ -664,27 +932,24 @@ const GapPartRows = ({
 
 /**
  * One control for hidden lines next to each other: the folded rows first, then the unchanged lines, then none. It sits
- * in the line-number gutter, and beside it the header of the hunk that follows, which then has no row of its own.
+ * in the line-number gutter, and beside it the header of the hunk that follows, which then has no row of its own. A
+ * gap whose unchanged lines hold a thread or a comment being written shows open until the reviewer chooses.
  */
 const GapGroup = ({
   table,
   gap,
   header,
+  held,
 }: {
   readonly table: TableContext;
   readonly gap: Extract<Segment, { kind: "gap" }>;
   readonly header: Row | undefined;
+  readonly held: ReadonlyArray<{
+    readonly start: number;
+    readonly end: number;
+  }>;
 }) => {
-  const [stage, setStage] = useAtom(
-    gapAtom({
-      path: table.model.file.path,
-      digest: table.model.digest,
-      gap: gap.key,
-    }),
-  );
-  // A gap with only one kind of hidden line has no first stage.
-  const shown =
-    stage === 1 && (gap.folded === 0 || gap.context === 0) ? 2 : stage;
+  const shown = gapStage(table.folds.gaps[gap.key], gap, holdsLines(gap, held));
   const label = gapLabel(shown, gap);
   const Icon = shown === 2 ? FoldVertical : UnfoldVertical;
   const button = (
@@ -696,7 +961,12 @@ const GapGroup = ({
       aria-expanded={shown === 2}
       aria-label={label}
       title={label}
-      onClick={() => setStage(nextStage(shown, gap))}
+      onClick={() =>
+        table.setFolds((folds) => ({
+          ...folds,
+          gaps: { ...folds.gaps, [gap.key]: nextStage(shown, gap) },
+        }))
+      }
       className={cn(
         TOUCH_TARGET,
         "inline-grid h-6 w-full place-items-center align-top text-muted hover:text-ink",
@@ -736,7 +1006,7 @@ const GapGroup = ({
         </tr>
       )}
       {header === undefined ? null : (
-        <Extras table={table} indexes={[header.index]} />
+        <Extras table={table} units={[rowUnit(header)]} />
       )}
     </tbody>
   );
@@ -758,9 +1028,92 @@ const GapGroup = ({
 };
 
 /**
- * Selecting rows of one table: a drag over its line numbers, or a + button, which with Shift extends the open
- * composer's range. A selection moves the comment being moved, or opens a composer on the rows. `table` is the
- * table's ID and `rows` its rows.
+ * Changed rows outside the tour's excerpts, behind a control of their own: it says how many lines they add and delete,
+ * in the warning tone, so a change never reads as more of the same. The rows show under it once it is open.
+ */
+const ChangeFold = ({
+  table,
+  fold,
+}: {
+  readonly table: TableContext;
+  readonly fold: Extract<Segment, { kind: "changes" }>;
+}) => {
+  const open = table.folds.changes[fold.key] === true;
+  const total = fold.additions + fold.deletions;
+  return (
+    <>
+      <tbody data-changes={fold.key}>
+        <tr className="scroll-my-(--scroll-top) bg-surface">
+          <td colSpan={table.columns} className="border-l-2 border-warning p-0">
+            <button
+              type="button"
+              data-expand-changes={fold.key}
+              data-additions={fold.additions}
+              data-deletions={fold.deletions}
+              aria-expanded={open}
+              onClick={() =>
+                table.setFolds((folds) => ({
+                  ...folds,
+                  changes: { ...folds.changes, [fold.key]: !open },
+                }))
+              }
+              className={cn(
+                TOUCH_TARGET,
+                "sticky left-0 inline-flex h-7 items-center gap-2 pr-3 pl-2.5 font-sans text-small font-semibold text-warning hover:underline",
+              )}
+            >
+              <FileDiff aria-hidden="true" className="size-3.5 shrink-0" />
+              {open ? (
+                changesLabel(true, fold)
+              ) : (
+                <span>
+                  {total} more changed line{total === 1 ? "" : "s"} (
+                  <LineCounts
+                    additions={fold.additions}
+                    deletions={fold.deletions}
+                    className="font-normal"
+                  />
+                  )
+                </span>
+              )}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+      {open ? (
+        <tbody data-gap-lines="changes">
+          <RowsOf table={table} rows={fold.rows} />
+        </tbody>
+      ) : null}
+    </>
+  );
+};
+
+/** A + button and the unit it selects, when the element is one. */
+const lineButtonOf = (
+  element: EventTarget,
+): { readonly button: HTMLElement; readonly unit: Unit } | undefined => {
+  if (
+    !(element instanceof HTMLElement) ||
+    !element.matches("[data-add-comment]")
+  )
+    return undefined;
+  const key = element.closest<HTMLElement>("[data-unit]")?.dataset.unit;
+  const unit = key === undefined ? undefined : parseUnit(key);
+  return unit === undefined ? undefined : { button: element, unit };
+};
+
+/** The + buttons of a table, each with the unit it selects, in the order the page lists them. */
+const lineButtons = (container: HTMLElement) =>
+  [...container.querySelectorAll("[data-add-comment]")].flatMap((element) => {
+    const line = lineButtonOf(element);
+    return line === undefined ? [] : [line];
+  });
+
+/**
+ * Selecting lines of one table: a drag over its line numbers, a + button, which with Shift extends the open composer's
+ * range, or the keyboard's line cursor. A selection moves the comment being moved, or opens a composer on the lines.
+ * `table` is the table's ID and `rows` its rows.
  */
 const useSelection = (
   model: FileModel,
@@ -772,34 +1125,41 @@ const useSelection = (
   const registry = useContext(RegistryContext);
   const { id: review } = usePage();
   const act = useAct();
-  const drag = useAtomValue(dragOf(model.file.path));
+  const path = model.file.path;
+  const drag = useAtomValue(dragOf(path));
+  const mark = useAtomValue(markOf({ review, path }));
 
-  const choose = async (start: number, end: number, opener: string) => {
-    const digest = model.digest;
-    if (digest === undefined) return;
+  const choose = async (span: Span, opener: string) => {
+    const selection = selectionOf(
+      { path, digest: model.digest, text: model.text },
+      span,
+    );
+    if (selection === undefined) return;
+    registry.set(markAtom(review), undefined);
     const moving = registry.get(reattachAtom(review));
     if (moving !== undefined) {
       registry.set(reattachAtom(review), undefined);
       const outcome = await act({
         kind: "reattach",
         comment: moving,
-        selection: {
-          path: model.file.path,
-          patch_sha256: digest,
-          start_row: start,
-          end_row: end,
-        },
+        selection,
       });
       if (outcome.ok) toast("The comment moved to the lines you chose.");
       return;
     }
-    openDraft(registry, review, {
-      path: model.file.path,
-      digest,
-      start,
-      end,
-      opener,
-    });
+    openDraft(registry, review, { selection, opener });
+  };
+
+  /** The composer open on this file's lines, which Shift extends. */
+  const openComposer = () =>
+    registry
+      .get(draftsAtom(review))
+      .find((draft) => !draft.submitting && draft.selection.path === path);
+
+  /** The keyboard selection in this file, as its ends. */
+  const marked = (): ReadonlyArray<Unit> => {
+    const now = registry.get(markAtom(review));
+    return now?.path === path ? [now.from, now.to] : [];
   };
 
   // A drag ends wherever the pointer is released. The read-only patch above the diff takes no selection.
@@ -807,80 +1167,177 @@ const useSelection = (
     if (readOnly) return;
     const release = () => {
       const now = registry.get(dragAtom);
-      if (now === undefined || now.path !== model.file.path) return;
+      if (now === undefined || now.path !== path) return;
       registry.set(dragAtom, undefined);
-      const end = Math.max(now.from, now.to);
-      const side = !split
-        ? "unified"
-        : rows[end]?.kind === "del"
-          ? "old"
-          : "new";
-      void choose(Math.min(now.from, now.to), end, plusId(table, end, side));
+      const span = spanOf(rows, [now.from, now.to, ...now.keep]);
+      const last = lastUnit(rows, span);
+      void choose(span, plusId(table, last, sideOf(rows, last, split)));
     };
     document.addEventListener("mouseup", release);
     return () => document.removeEventListener("mouseup", release);
   });
 
+  /** Moves the line cursor to the next or previous line the table shows, extending the selection with Shift. */
+  const move = (
+    container: HTMLElement,
+    from: ReturnType<typeof lineButtonOf>,
+    step: 1 | -1,
+    extend: boolean,
+  ): boolean => {
+    const listed = lineButtons(container);
+    const current = from?.unit;
+    const order = readingOrder(listed.map((item) => item.unit)).map(unitKey);
+    const next = stepFrom(
+      order,
+      current === undefined ? undefined : unitKey(current),
+      step,
+    );
+    if (next === undefined) return false;
+    const candidates = listed.filter((item) => unitKey(item.unit) === next);
+    const half = from?.button.closest<HTMLElement>("[data-half]")?.dataset.half;
+    const target =
+      candidates.find(
+        (item) =>
+          item.button.closest<HTMLElement>("[data-half]")?.dataset.half ===
+          half,
+      ) ?? candidates.at(-1);
+    if (target === undefined) return false;
+    if (extend) {
+      const anchor = marked()[0] ?? current ?? target.unit;
+      registry.set(markAtom(review), { path, from: anchor, to: target.unit });
+      announce(
+        `Selected ${spanLabel(rows, spanOf(rows, [anchor, target.unit]))}.`,
+      );
+    } else if (marked().length > 0) registry.set(markAtom(review), undefined);
+    target.button.closest("[data-unit]")?.scrollIntoView({ block: "nearest" });
+    target.button.focus({ preventScroll: true });
+    return true;
+  };
+
   return {
-    /** The rows the drag under way covers. */
-    dragged:
-      drag === undefined
-        ? undefined
-        : {
-            start: Math.min(drag.from, drag.to),
-            end: Math.max(drag.from, drag.to),
-          },
+    /** The lines the drag under way covers, or else those the keyboard selected. */
+    reaching:
+      drag !== undefined
+        ? spanOf(rows, [drag.from, drag.to, ...drag.keep])
+        : mark !== undefined
+          ? spanOf(rows, [mark.from, mark.to])
+          : undefined,
     select: (
-      row: Row,
+      unit: Unit,
       event: React.MouseEvent | React.KeyboardEvent,
       opener: string,
     ) => {
-      const open = registry
-        .get(draftsAtom(review))
-        .find((draft) => !draft.submitting && draft.path === model.file.path);
+      const open = openComposer();
       if (event.shiftKey && open !== undefined)
         void choose(
-          Math.min(open.start, row.index),
-          Math.max(open.end, row.index),
+          spanOf(rows, [
+            unit,
+            ...spanEnds(spanOfSelection(open.selection)),
+            ...marked(),
+          ]),
           open.opener,
         );
-      else void choose(row.index, row.index, opener);
+      else void choose(spanOf(rows, [unit, ...marked()]), opener);
     },
-    startDrag: (row: Row, event: React.MouseEvent) => {
+    startDrag: (unit: Unit, event: React.MouseEvent) => {
       if (event.button !== 0) return;
       event.preventDefault();
+      const open = event.shiftKey ? openComposer() : undefined;
       registry.set(dragAtom, {
-        path: model.file.path,
-        from: row.index,
-        to: row.index,
+        path,
+        from: unit,
+        to: unit,
+        keep:
+          open === undefined ? [] : spanEnds(spanOfSelection(open.selection)),
       });
     },
-    hover: (row: Row) => {
+    hover: (unit: Unit) => {
       const now = registry.get(dragAtom);
       if (
         now !== undefined &&
-        now.path === model.file.path &&
-        now.to !== row.index
+        now.path === path &&
+        unitKey(now.to) !== unitKey(unit)
       )
-        registry.set(dragAtom, { ...now, to: row.index });
+        registry.set(dragAtom, { ...now, to: unit });
+    },
+    /**
+     * The line keys, on the table's group: arrows from a line or from the group itself, and C or Esc on a line. Keys
+     * from anything else in the table, such as a thread's buttons or a composer, are theirs.
+     */
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      if (readOnly || event.defaultPrevented) return;
+      const command = lineCommand(event);
+      if (command === undefined) return;
+      const line = lineButtonOf(event.target);
+      if (line === undefined && event.target !== event.currentTarget) return;
+      switch (command.kind) {
+        case "move": {
+          if (move(event.currentTarget, line, command.step, command.extend))
+            return event.preventDefault();
+          // Up from the first line goes back to the file's heading, where Down came in.
+          const heading =
+            line === undefined || command.step === 1 || command.extend
+              ? null
+              : event.currentTarget
+                  .closest("article[data-path]")
+                  ?.querySelector<HTMLElement>("h3");
+          if (heading === null || heading === undefined) return;
+          event.preventDefault();
+          heading.focus();
+          return;
+        }
+        case "comment": {
+          if (line === undefined) return;
+          event.preventDefault();
+          void choose(spanOf(rows, [line.unit, ...marked()]), line.button.id);
+          return;
+        }
+        case "clear":
+          if (marked().length === 0) return;
+          registry.set(markAtom(review), undefined);
+          announce("Selection cleared.");
+          return;
+      }
     },
   };
 };
 
+/** A file's own patch as its table lays it out, with the tour's excerpts and the comments' rows shown. */
+export const useFileLayout = (model: FileModel) => {
+  const shownKey = model.shown
+    ?.map((range) => `${range.start}-${range.end}`)
+    .join(",");
+  return useMemo(
+    () =>
+      layoutDiff(model.file.patch ?? "", {
+        shown: model.shown,
+        content: model.file.new_content,
+      }),
+    [model.file.patch, shownKey, model.file.new_content],
+  );
+};
+
 /**
  * The diff table. `patch` overrides the file's patch for a read-only view, such as the changes between rounds: no
- * selection, no gaps, no threads or notes.
+ * selection, no gaps, no threads or notes. `body` names the diff when the table is its file's body, which records the
+ * changes it shows, so Viewed can say which the reviewer was never shown.
  */
 export const DiffTable = ({
   model,
   split: wantSplit,
   patch,
+  body,
 }: {
   readonly model: FileModel;
   readonly split: boolean;
   readonly patch?: string;
+  readonly body?: BodyDiff;
 }) => {
   const { id: review, page, view } = usePage();
+  const registry = useContext(RegistryContext);
+  const [folds, setFolds] = useAtom(
+    diffFoldsAtom({ path: model.file.path, digest: model.digest }),
+  );
   const [openNotes, setOpenNotes] = useAtom(openNotesAtom(review));
   const readOnly = patch !== undefined;
   const source = patch ?? model.file.patch ?? "";
@@ -898,16 +1355,30 @@ export const DiffTable = ({
   );
   const drafts = useAtomValue(
     draftsOf({ review, path: model.file.path }),
-  ).filter((draft) => !readOnly && draft.digest === model.digest);
+  ).filter((draft) => !readOnly && onVersion(draft.selection, model));
   const reattaching = useAtomValue(reattachAtom(review));
   const flash = useAtomValue(flashOf({ review, path: model.file.path }));
-  const { dragged, select, startDrag, hover } = useSelection(
+  // The changes the table shows join those the page has shown of the file's body.
+  useEffect(() => {
+    if (body === undefined) return;
+    const shownAtom = shownChangesAtom({
+      review,
+      path: model.file.path,
+      diff: body,
+    });
+    const seen = registry.get(shownAtom);
+    const fresh = shownChanges(layout, folds).filter((row) => !seen.has(row));
+    if (fresh.length > 0) registry.set(shownAtom, new Set([...seen, ...fresh]));
+  });
+  const { reaching, select, startDrag, hover, onKeyDown } = useSelection(
     model,
     id,
     layout.rows,
     split,
     readOnly,
   );
+  // The + button in the tab order: the one that last had focus, so Tab comes back to the line cursor.
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const editable = drafts.find((draft) => !draft.submitting);
   const whitespace = useAtomValue(whitespaceAtom);
   const quiet = useMemo(
@@ -937,6 +1408,31 @@ export const DiffTable = ({
       ),
     [headers],
   );
+  const context = readOnly ? [] : model.context;
+  const held = heldLines(
+    context,
+    drafts.map((draft) => draft.selection),
+  );
+  const contextSpans = context.map(
+    (item): Span => ({
+      kind: "lines",
+      start: item.start_line,
+      end: item.end_line,
+    }),
+  );
+  const threadsAt = new Map<string, Array<InlineComment>>();
+  const thread = (unit: Unit, comment: InlineComment) => {
+    const key = unitKey(unit);
+    threadsAt.set(key, [...(threadsAt.get(key) ?? []), comment]);
+  };
+  if (!readOnly) {
+    for (const item of model.placed)
+      thread({ kind: "row", index: item.end }, item.comment);
+    context.forEach((item, at) => {
+      const span = contextSpans[at];
+      if (span !== undefined) thread(lastUnit(layout.rows, span), item.comment);
+    });
+  }
 
   const table: TableContext = {
     model,
@@ -945,20 +1441,41 @@ export const DiffTable = ({
     split,
     columns: split ? 2 : 3,
     selectable: page.writable && !readOnly && model.digest !== undefined,
+    linesSelectable:
+      page.writable &&
+      !readOnly &&
+      model.digest !== undefined &&
+      model.text !== undefined,
     reattaching: reattaching !== undefined,
     selected:
-      dragged ??
+      reaching ??
       (editable === undefined
         ? undefined
-        : { start: editable.start, end: editable.end }),
+        : spanOfSelection(editable.selection)),
     flash: readOnly ? undefined : flash,
     quiet,
     absorbed,
-    commented: new Set(
-      model.placed.flatMap((item) =>
+    folds,
+    setFolds,
+    // The threads' rows are rows of the file's own patch, not of a read-only one.
+    commentedRows: new Set([
+      ...(readOnly ? [] : model.placed).flatMap((item) =>
         Array.from(
           { length: item.end - item.start + 1 },
           (_, at) => item.start + at,
+        ),
+      ),
+      ...layout.rows
+        .filter((row) =>
+          contextSpans.some((span) => inSpan(layout.rows, span, rowUnit(row))),
+        )
+        .map((row) => row.index),
+    ]),
+    commentedLines: new Set(
+      context.flatMap((item) =>
+        Array.from(
+          { length: item.end_line - item.start_line + 1 },
+          (_, at) => item.start_line + at,
         ),
       ),
     ),
@@ -973,8 +1490,9 @@ export const DiffTable = ({
         }
         return next;
       }),
-    threadsAt: readOnly ? new Map() : groupBy(model.placed, (item) => item.end),
+    threadsAt,
     drafts,
+    cursor,
     select,
     startDrag,
     hover,
@@ -985,6 +1503,11 @@ export const DiffTable = ({
       role="group"
       aria-label={`Diff of ${model.file.path}`}
       tabIndex={0}
+      onKeyDown={onKeyDown}
+      onFocus={(event) => {
+        const line = lineButtonOf(event.target);
+        if (line !== undefined) setCursor(line.button.id);
+      }}
       className="@container overflow-x-auto bg-code focus-visible:-outline-offset-2"
     >
       <table
@@ -1011,20 +1534,28 @@ export const DiffTable = ({
             </tr>
           )}
         </thead>
-        {layout.segments.map((segment, at) =>
-          segment.kind === "rows" ? (
-            <tbody key={at}>
-              <RowsOf table={table} rows={segment.rows} />
-            </tbody>
-          ) : (
-            <GapGroup
-              key={at}
-              table={table}
-              gap={segment}
-              header={headers[at]}
-            />
-          ),
-        )}
+        {layout.segments.map((segment, at) => {
+          switch (segment.kind) {
+            case "rows":
+              return (
+                <tbody key={at}>
+                  <RowsOf table={table} rows={segment.rows} />
+                </tbody>
+              );
+            case "gap":
+              return (
+                <GapGroup
+                  key={at}
+                  table={table}
+                  gap={segment}
+                  header={headers[at]}
+                  held={held}
+                />
+              );
+            case "changes":
+              return <ChangeFold key={at} table={table} fold={segment} />;
+          }
+        })}
       </table>
     </div>
   );

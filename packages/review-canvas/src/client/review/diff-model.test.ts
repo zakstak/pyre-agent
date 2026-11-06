@@ -1,14 +1,44 @@
-// How the page lays out a patch: unchanged lines between hunks, split pairs, folded rows, and their one control.
+// How the page lays out a patch: unchanged lines between hunks, split pairs, folded rows and changes, and their
+// controls.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Comment } from "../../schema/feedback.ts";
+import type { ReviewFile } from "../../schema/input.ts";
 import { parseRows } from "../../review/patch.ts";
+import type {
+  ContentDigest,
+  PatchDigest,
+  RepoPath,
+} from "../../schema/primitives.ts";
 import {
+  allFoldsOpen,
+  allOpen,
+  changesLabel,
   gapLabel,
+  gapStage,
   gaps,
+  hasFolds,
+  heldLines,
+  holdsLines,
+  inSpan,
+  lastUnit,
   layoutDiff,
+  NO_FOLDS,
   nextStage,
+  onVersion,
   pairRows,
+  parseUnit,
+  placeComments,
+  readingOrder,
   type Segment,
+  selectionOf,
+  shownChanges,
+  spanEnds,
+  spanOf,
+  spanOfSelection,
+  type Unit,
+  unitKey,
+  unseenChanges,
 } from "./diff-model.ts";
 
 // Lines 1-10 of a file; the patch changes line 3 and line 8.
@@ -17,18 +47,29 @@ const patch =
   "@@ -2,3 +2,3 @@\n line 2\n-line 3\n+three!\n line 4\n@@ -7,3 +7,3 @@\n line 7\n-line 8\n+eight!\n line 9\n";
 
 const shape = (segments: ReadonlyArray<Segment>) =>
-  segments.map((segment) =>
-    segment.kind === "rows"
-      ? ["rows", segment.rows.map((row) => row.index)]
-      : [
+  segments.map((segment) => {
+    switch (segment.kind) {
+      case "rows":
+        return ["rows", segment.rows.map((row) => row.index)];
+      case "gap":
+        return [
           "gap",
           segment.key,
           segment.folded,
           segment.context,
           segment.toggleAt,
           segment.parts.map((part) => part.kind),
-        ],
-  );
+        ];
+      case "changes":
+        return [
+          "changes",
+          segment.key,
+          segment.rows.map((row) => row.index),
+          segment.additions,
+          segment.deletions,
+        ];
+    }
+  });
 
 test("the unchanged lines around the hunks come from the file's text, with both line numbers", () => {
   assert.deepEqual(
@@ -93,6 +134,115 @@ test("rows outside the shown ranges fold behind one control; runs too short to f
   );
 });
 
+// A file like build.ts in a large pull request: six lines added at its top, the tour's excerpt on its last change.
+const build =
+  "@@ -1,7 +1,14 @@\n import a\n+import b\n+import c\n+import d\n+import e\n+import f\n+import g\n u1\n u2\n u3\n u4\n u5\n-old\n+new\n+newer\n u6\n";
+
+test("changed rows outside the shown ranges fold behind a control of their own, never with unchanged lines", () => {
+  const layout = layoutDiff(build, { shown: [{ start: 13, end: 15 }] });
+  // The header, `import a`, and the six additions fold as changes; u1-u5 fold as unchanged lines; the excerpt shows.
+  assert.deepEqual(shape(layout.segments), [
+    ["changes", "c0", [0, 1, 2, 3, 4, 5, 6, 7], 6, 0],
+    ["gap", "r8", 5, 0, 0, ["folded"]],
+    ["rows", [13, 14, 15, 16]],
+  ]);
+  // No gap of unchanged lines hides a changed row.
+  for (const segment of layout.segments)
+    if (segment.kind === "gap")
+      for (const part of segment.parts)
+        if (part.kind === "folded")
+          assert.ok(
+            part.rows.every((row) => row.kind !== "add" && row.kind !== "del"),
+          );
+  assert.equal(
+    changesLabel(false, { additions: 6, deletions: 0 }),
+    "6 more changed lines (+6 −0)",
+  );
+  assert.equal(
+    changesLabel(true, { additions: 6, deletions: 0 }),
+    "Hide 6 changed lines",
+  );
+  assert.equal(
+    changesLabel(false, { additions: 0, deletions: 1 }),
+    "1 more changed line (+0 −1)",
+  );
+});
+
+test("short unchanged runs between changes fold with them; long ones fold apart; too little to fold shows", () => {
+  const patch =
+    "@@ -1,12 +1,12 @@\n-a\n+A\n b\n-c\n+C\n d\n e\n f\n g\n h\n-i\n+I\n j\n";
+  // Everything is hidden but the last row: the first two changes join across `b`; d-h stand alone.
+  assert.deepEqual(
+    shape(layoutDiff(patch, { shown: [{ start: 13, end: 13 }] }).segments),
+    [
+      ["changes", "c0", [0, 1, 2, 3, 4, 5], 2, 2],
+      ["gap", "r6", 5, 0, 0, ["folded"]],
+      ["rows", [11, 12, 13]],
+    ],
+  );
+  // A lone hidden change too short to fold shows, as a short unchanged run does.
+  assert.deepEqual(
+    shape(
+      layoutDiff("@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n d\n e\n f\n", {
+        shown: [
+          { start: 0, end: 1 },
+          { start: 4, end: 7 },
+        ],
+      }).segments,
+    ),
+    [["rows", [0, 1, 2, 3, 4, 5, 6, 7]]],
+  );
+});
+
+test("with the file's text, a fold of changes parts the unchanged lines around it", () => {
+  const text = Array.from({ length: 14 }, (_, at) => `l${at + 1}`);
+  // Lines 5-10 are new; the excerpt is line 13.
+  const hunk =
+    "@@ -4,4 +4,10 @@\n l4\n+l5\n+l6\n+l7\n+l8\n+l9\n+l10\n l11\n l12\n l13\n";
+  const layout = layoutDiff(hunk, {
+    shown: [{ start: 10, end: 10 }],
+    content: `${text.join("\n")}\n`,
+  });
+  assert.deepEqual(shape(layout.segments), [
+    ["gap", "0", 0, 3, 0, ["context"]],
+    ["changes", "c0", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 6, 0],
+    ["rows", [10]],
+    ["gap", "1", 0, 1, 0, ["context"]],
+  ]);
+});
+
+test("the reviewer's folds: which changes show, whether every fold is open, and what was never shown", () => {
+  const layout = layoutDiff(build, { shown: [{ start: 13, end: 15 }] });
+  const rows = layout.rows;
+  assert.equal(hasFolds(layout), true);
+  assert.equal(hasFolds(layoutDiff(build)), false);
+  // At the page's folds only the excerpt's changes show.
+  assert.deepEqual(shownChanges(layout, NO_FOLDS), [13, 14, 15]);
+  assert.deepEqual(
+    unseenChanges(rows, new Set(shownChanges(layout, NO_FOLDS))),
+    {
+      additions: 6,
+      deletions: 0,
+      first: 2,
+    },
+  );
+  assert.equal(allFoldsOpen(layout, NO_FOLDS), false);
+  const open = allOpen(layout);
+  assert.deepEqual(open, { gaps: { r8: 2 }, changes: { c0: true } });
+  assert.equal(allFoldsOpen(layout, open), true);
+  assert.deepEqual(shownChanges(layout, open), [2, 3, 4, 5, 6, 7, 13, 14, 15]);
+  assert.equal(
+    unseenChanges(rows, new Set(shownChanges(layout, open))),
+    undefined,
+  );
+  // A file never opened showed none of its changes.
+  assert.deepEqual(unseenChanges(rows, new Set()), {
+    additions: 8,
+    deletions: 1,
+    first: 2,
+  });
+});
+
 test("folded rows next to unchanged lines are one gap, whose control sits above the unchanged lines", () => {
   const text = Array.from({ length: 12 }, (_, at) =>
     at === 8 ? "L9" : `l${at + 1}`,
@@ -122,4 +272,245 @@ test("a gap's control shows the folded rows, then the unchanged lines, then hide
   // With one kind of hidden line there is no middle step.
   assert.equal(nextStage(0, { folded: 0, context: 1 }), 2);
   assert.equal(gapLabel(0, { folded: 0, context: 1 }), "Show 1 more line");
+});
+
+test("a comment on lines of the text sits on the patch rows that show them, or under unchanged lines outside the patch", () => {
+  const file = { path: "a.txt", patch, new_content: content } as ReviewFile;
+  const comment = (id: string, attachment: object) =>
+    ({
+      kind: "inline",
+      id,
+      anchor: { kind: "text", path: "a.txt" },
+      attachment,
+    }) as unknown as Comment;
+  const lines = (start_line: number, end_line: number) => ({
+    state: "attached",
+    reason: "Same text.",
+    start_line,
+    end_line,
+  });
+  const { placed, context, orphans } = placeComments(file, [
+    // Lines 3 and 4 are the added "three!" and the context after it: rows 3 and 4.
+    comment("in-patch", lines(3, 4)),
+    // Line 6 is between the hunks, which only the file's text shows.
+    comment("outside", lines(6, 6)),
+    comment("gone", { state: "orphan", reason: "Gone." }),
+  ]);
+  assert.deepEqual(
+    placed.map((item) => [item.comment.id, item.start, item.end]),
+    [["in-patch", 3, 4]],
+  );
+  assert.deepEqual(
+    context.map((item) => [item.comment.id, item.start_line, item.end_line]),
+    [["outside", 6, 6]],
+  );
+  assert.deepEqual(
+    orphans.map((item) => item.id),
+    ["gone"],
+  );
+});
+
+// The units of `patch` above: row 0 is the first header, rows 1-4 are lines 2-4 with "line 3" deleted and "three!"
+// added, row 5 the second header, rows 6-9 lines 7-9 with "line 8" deleted and "eight!" added. Lines 1, 5, 6, and 10
+// are unchanged lines outside the patch.
+const rows = parseRows(patch);
+const row = (index: number): Unit => ({ kind: "row", index });
+const line = (number: number): Unit => ({ kind: "line", line: number });
+
+test("a unit's name in the page reads back as the unit, and nothing else does", () => {
+  for (const unit of [row(0), row(12), line(1), line(40)])
+    assert.deepEqual(parseUnit(unitKey(unit)), unit);
+  assert.equal(unitKey(row(3)), "r3");
+  assert.equal(unitKey(line(6)), "l6");
+  for (const text of ["", "r", "x3", "r-1", "l1.5", "r03", "r3 ", "lines"])
+    assert.equal(parseUnit(text), undefined, text);
+});
+
+test("rows alone span rows of the patch; with an unchanged line, the span is new-side lines", () => {
+  assert.deepEqual(spanOf(rows, [row(4), row(2)]), {
+    kind: "rows",
+    start: 2,
+    end: 4,
+  });
+  assert.deepEqual(spanOf(rows, [line(5), line(6)]), {
+    kind: "lines",
+    start: 5,
+    end: 6,
+  });
+  // From line 1, above the first hunk, to "three!" (row 3, line 3).
+  assert.deepEqual(spanOf(rows, [line(1), row(3)]), {
+    kind: "lines",
+    start: 1,
+    end: 3,
+  });
+  // A deletion adds no new line at either end: "line 8" (row 7) sits after line 7.
+  assert.deepEqual(spanOf(rows, [line(5), row(7)]), {
+    kind: "lines",
+    start: 5,
+    end: 7,
+  });
+  assert.deepEqual(spanOf(rows, [row(7), line(10)]), {
+    kind: "lines",
+    start: 8,
+    end: 10,
+  });
+  // A single unit spans itself.
+  assert.deepEqual(spanOf(rows, [line(6)]), {
+    kind: "lines",
+    start: 6,
+    end: 6,
+  });
+  assert.deepEqual(spanEnds({ kind: "lines", start: 5, end: 7 }), [
+    line(5),
+    line(7),
+  ]);
+  assert.deepEqual(spanEnds({ kind: "rows", start: 2, end: 4 }), [
+    row(2),
+    row(4),
+  ]);
+});
+
+test("a lines span covers the rows that show its lines but no deletion, and ends under its last line", () => {
+  const lines = { kind: "lines", start: 1, end: 3 } as const;
+  assert.deepEqual(
+    [line(1), row(1), row(2), row(3), row(4), line(5)].map((unit) =>
+      inSpan(rows, lines, unit),
+    ),
+    [true, true, false, true, false, false],
+  );
+  const rowSpan = { kind: "rows", start: 2, end: 3 } as const;
+  assert.deepEqual(
+    [row(1), row(2), row(3), line(3)].map((unit) =>
+      inSpan(rows, rowSpan, unit),
+    ),
+    [false, true, true, false],
+  );
+  // The thread goes under the row that shows the last line, or under the unchanged line itself.
+  assert.deepEqual(lastUnit(rows, lines), row(3));
+  assert.deepEqual(
+    lastUnit(rows, { kind: "lines", start: 5, end: 6 }),
+    line(6),
+  );
+  assert.deepEqual(lastUnit(rows, rowSpan), row(3));
+});
+
+test("a span is sent with the digest of what it spans, and a selection holds while that digest is the file's", () => {
+  const file = {
+    path: "a.txt" as RepoPath,
+    digest: "p".repeat(64) as PatchDigest,
+    text: "t".repeat(64) as ContentDigest,
+  };
+  const rowsSelection = selectionOf(file, { kind: "rows", start: 2, end: 4 });
+  assert.deepEqual(rowsSelection, {
+    kind: "rows",
+    path: "a.txt",
+    patch_sha256: file.digest,
+    start_row: 2,
+    end_row: 4,
+  });
+  const textSelection = selectionOf(file, { kind: "lines", start: 5, end: 6 });
+  assert.deepEqual(textSelection, {
+    kind: "text",
+    path: "a.txt",
+    content_sha256: file.text,
+    start_line: 5,
+    end_line: 6,
+  });
+  // Without the digest, nothing can be sent.
+  assert.equal(
+    selectionOf(
+      { ...file, text: undefined },
+      { kind: "lines", start: 5, end: 6 },
+    ),
+    undefined,
+  );
+  assert.equal(
+    selectionOf(
+      { ...file, digest: undefined },
+      { kind: "rows", start: 2, end: 4 },
+    ),
+    undefined,
+  );
+  if (rowsSelection === undefined || textSelection === undefined)
+    return assert.fail("both selections exist");
+  assert.deepEqual(spanOfSelection(textSelection), {
+    kind: "lines",
+    start: 5,
+    end: 6,
+  });
+  assert.equal(onVersion(rowsSelection, file), true);
+  assert.equal(onVersion(textSelection, file), true);
+  // A new round's patch leaves a text selection where it was, and the other way round.
+  const newPatch = { ...file, digest: "q".repeat(64) as PatchDigest };
+  assert.equal(onVersion(rowsSelection, newPatch), false);
+  assert.equal(onVersion(textSelection, newPatch), true);
+  assert.equal(
+    onVersion(textSelection, {
+      ...file,
+      text: "u".repeat(64) as ContentDigest,
+    }),
+    false,
+  );
+  assert.equal(onVersion(textSelection, undefined), false);
+});
+
+test("a gap holding a thread's lines shows open until the reviewer chooses", () => {
+  const layout = layoutDiff(patch, { content });
+  const middle = layout.segments[2];
+  if (middle?.kind !== "gap") return assert.fail("the gap between the hunks");
+  const held = heldLines(
+    [{ start_line: 6, end_line: 6 }],
+    [
+      {
+        kind: "rows",
+        path: "a.txt" as RepoPath,
+        patch_sha256: "p".repeat(64) as PatchDigest,
+        start_row: 1,
+        end_row: 1,
+      },
+      {
+        kind: "text",
+        path: "a.txt" as RepoPath,
+        content_sha256: "t".repeat(64) as ContentDigest,
+        start_line: 10,
+        end_line: 10,
+      },
+    ],
+  );
+  assert.deepEqual(held, [
+    { start: 6, end: 6 },
+    { start: 10, end: 10 },
+  ]);
+  assert.equal(holdsLines(middle, held), true);
+  assert.equal(holdsLines(middle, [{ start: 1, end: 1 }]), false);
+  assert.equal(gapStage(undefined, middle, true), 2);
+  assert.equal(gapStage(undefined, middle, false), 0);
+  // The reviewer's choice wins, held or not.
+  assert.equal(gapStage(0, middle, true), 0);
+  // A gap with only one kind of hidden line has no first stage.
+  assert.equal(gapStage(1, middle, false), 2);
+  assert.equal(gapStage(1, { folded: 3, context: 2 }, false), 1);
+});
+
+test("the line cursor reads units in patch order, even where the split layout lists a deletion after an addition", () => {
+  // Split pairs list their halves on one line: deletions 5-7 beside additions 8-9, so 6 comes after 8. Context rows
+  // and unchanged lines are listed twice, once per half.
+  assert.deepEqual(
+    readingOrder([
+      line(1),
+      line(1),
+      row(4),
+      row(4),
+      row(5),
+      row(8),
+      row(6),
+      row(9),
+      row(7),
+      row(10),
+      row(10),
+      line(20),
+      line(20),
+    ]).map(unitKey),
+    ["l1", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "l20"],
+  );
 });

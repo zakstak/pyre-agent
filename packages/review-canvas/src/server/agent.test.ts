@@ -30,7 +30,12 @@ import { finishedSince, hasQuestions } from "./status.ts";
 import { AgentApi } from "./agent.ts";
 import { App } from "./app.ts";
 import { Assets } from "./assets.ts";
-import { activityLayer, PageAddress, storeLayer } from "./services.ts";
+import {
+  activityLayer,
+  PageAddress,
+  presenceLayer,
+  storeLayer,
+} from "./services.ts";
 
 interface Reply {
   readonly status: number;
@@ -223,6 +228,7 @@ const withServers = (
     Layer.provide(TestAssets),
     Layer.provide(storeLayer(":memory:")),
     Layer.provide(activityLayer),
+    Layer.provide(presenceLayer),
   );
   return Effect.runPromise(
     Effect.scoped(
@@ -335,6 +341,8 @@ for (const kind of ["claude-code", "codex", "t3"] as const) {
         "http://evil.example",
       );
       assert.ok(unopened(foreign), String(foreign));
+      // A selection without a kind, as pages built before text selections send it, is a selection of rows. Asked now,
+      // the comment reaches the agents at once.
       const commented = succeeded(
         await act(pages.port, id, {
           action: {
@@ -346,6 +354,7 @@ for (const kind of ["claude-code", "codex", "t3"] as const) {
               end_row: 15,
             },
             body: "Lock first.",
+            question: true,
           },
           revision: 2,
         }),
@@ -468,11 +477,17 @@ for (const kind of ["claude-code", "codex", "t3"] as const) {
         session_id: "test-session",
       });
 
-      // A page on the loopback port cannot reach the agent API.
+      // A page on the loopback port cannot reach the agent API: the page server has no such route, and a post that
+      // no page of its own sent is refused before any route.
       const crossed = await call(pages, "POST", "/agent/register", {
         body: "{}",
+        headers: { origin: `http://127.0.0.1:${pages.port}` },
       });
       assert.equal(crossed.status, 404);
+      const originless = await call(pages, "POST", "/agent/register", {
+        body: "{}",
+      });
+      assert.equal(originless.status, 403);
     }));
 }
 
@@ -505,6 +520,7 @@ test("the review watch reports the revision, then each change", () =>
     const hello = Schema.decodeSync(PageAction)({
       kind: "general_comment",
       body: "Hello",
+      question: true,
     });
     const snapshots = succeeded(
       await rpc(pages.port, (client) =>
@@ -922,4 +938,232 @@ test("a stack walkthrough publishes over the socket with every layer's thread, a
       home.stacks.map((item) => [item.id, item.read]),
       [[id, 1]],
     );
+  }));
+
+test("pending comments stay off the agent socket until Finish review, which sends them edited and with their suggestions", () =>
+  withServers(async (agent, pages) => {
+    const registered = await call(agent, "POST", "/agent/register", {
+      body: JSON.stringify({
+        target: input().target,
+        label: "Claude Code",
+        host: { kind: "claude-code" },
+      }),
+    });
+    const { review, token } = registered.body as {
+      review: string;
+      token: string;
+    };
+    const id = Schema.decodeSync(ReviewId)(review);
+    const authorized = { authorization: `Bearer ${token}` };
+    await call(agent, "POST", `/agent/reviews/${review}/rounds`, {
+      body: fixtureBytes("input/worktree.json"),
+      headers: authorized,
+    });
+    const round = await roundOf(pages.port, id, 1);
+    const digest = round.digests[STORE] ?? "";
+    const statusNow = async () =>
+      (
+        await call(agent, "GET", `/agent/reviews/${review}`, {
+          headers: authorized,
+        })
+      ).body.status;
+    // Each change to a pending comment is a change to the review, so other pages learn of it, and a long poll wakes.
+    // What it wakes to holds nothing for the agents, no finish and no question, so `review-canvas wait` waits on.
+    const published = (await statusNow()).revision;
+    const woken = call(
+      agent,
+      "GET",
+      `/agent/reviews/${review}/wait?revision=${published}&timeout=10000`,
+      { headers: authorized },
+    );
+    for (const [row, body] of [
+      [1, "First."],
+      [4, "Second."],
+      [7, "Third:\n```suggestion\ndef load(file):\n```"],
+    ] as const)
+      succeeded(
+        await act(pages.port, id, {
+          action: {
+            kind: "comment",
+            selection: {
+              kind: "rows",
+              path: STORE,
+              patch_sha256: digest,
+              start_row: row,
+              end_row: row,
+            },
+            body,
+          },
+        }),
+      );
+    const wake = (await woken).body.status;
+    assert.ok(wake.revision > published);
+    assert.deepEqual(wake.to_answer, []);
+    assert.deepEqual(wake.feedback.comments, []);
+    assert.equal(finishedSince(wake, 0), false);
+    assert.equal(hasQuestions(wake), false);
+    const hidden = await statusNow();
+    assert.ok(hidden.revision >= wake.revision);
+    assert.deepEqual(hidden.to_answer, []);
+    assert.deepEqual(hidden.feedback.comments, []);
+    assert.deepEqual(hidden.suggestions, []);
+    const exported = await new Promise<string>((resolve, reject) => {
+      request(
+        `http://127.0.0.1:${pages.port}/reviews/${review}/feedback.json`,
+        (response) => {
+          let text = "";
+          response.on("data", (chunk: Buffer) => (text += chunk.toString()));
+          response.on("end", () => resolve(text));
+        },
+      )
+        .on("error", reject)
+        .end();
+    });
+    assert.deepEqual(JSON.parse(exported).comments, []);
+
+    const page = await snapshotOf(pages.port, id);
+    const [one, two, three] = page.state.comments;
+    assert.ok(one !== undefined && two !== undefined && three !== undefined);
+    succeeded(
+      await act(pages.port, id, {
+        action: {
+          kind: "edit_comment",
+          comment: one.id,
+          body: "First, edited.",
+        },
+      }),
+    );
+    succeeded(
+      await act(pages.port, id, {
+        action: { kind: "delete_comment", comment: two.id },
+      }),
+    );
+    const before = (await statusNow()).revision;
+    succeeded(
+      await act(pages.port, id, {
+        action: { kind: "submit", round: 1, verdict: "comment", body: "" },
+      }),
+    );
+    const waited = (
+      await call(
+        agent,
+        "GET",
+        `/agent/reviews/${review}/wait?revision=${before}`,
+        {
+          headers: authorized,
+        },
+      )
+    ).body.status;
+    assert.ok(finishedSince(waited, 0));
+    assert.deepEqual(waited.to_answer, [one.id, three.id]);
+    assert.deepEqual(
+      waited.feedback.comments.map((item: { body: string }) => item.body),
+      ["First, edited.", "Third:\n```suggestion\ndef load(file):\n```"],
+    );
+    assert.deepEqual(waited.suggestions, [
+      {
+        comment: three.id,
+        state: "ready",
+        path: STORE,
+        side: "new",
+        round: 1,
+        start_line: 7,
+        end_line: 7,
+        current: ["def load(path):"],
+        replacement: ["def load(file):"],
+      },
+    ]);
+
+    // After the finish, editing a sent comment shows the agents the new text, marked edited with its time.
+    succeeded(
+      await act(pages.port, id, {
+        action: {
+          kind: "edit_comment",
+          comment: one.id,
+          body: "First, again.",
+        },
+      }),
+    );
+    const edited = (await statusNow()).feedback.comments[0];
+    assert.equal(edited.body, "First, again.");
+    assert.equal(edited.source.state, "edited");
+    assert.match(edited.source.edited_at, /^\d{4}-\d\d-\d\dT/);
+  }));
+
+test("a page saves drafts, reads stops, and gets each file's text digest over the socket", () =>
+  withServers(async (agent, pages) => {
+    const registered = await call(agent, "POST", "/agent/register", {
+      body: JSON.stringify({
+        target: input().target,
+        label: "Codex",
+        host: { kind: "codex" },
+      }),
+    });
+    const { review, token } = registered.body as {
+      review: string;
+      token: string;
+    };
+    const id = Schema.decodeSync(ReviewId)(review);
+    await call(agent, "POST", `/agent/reviews/${review}/rounds`, {
+      body: fixtureBytes("input/worktree.json"),
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const round = await roundOf(pages.port, id, 1);
+    // The fixture holds no file's whole text, so no text digest.
+    assert.deepEqual(round.texts, {});
+    const before = await snapshotOf(pages.port, id);
+    assert.deepEqual(before.drafts, []);
+    assert.deepEqual(
+      before.stops.map((item) => item.read.state),
+      ["unread"],
+    );
+    const saved = succeeded(
+      await rpc(pages.port, (client) =>
+        client("review.saveDraft", {
+          id,
+          draft: { kind: "general", body: "Half a thought" },
+        }),
+      ),
+    );
+    assert.deepEqual(saved.draft, { kind: "general", body: "Half a thought" });
+    const stops = succeeded(
+      await rpc(pages.port, (client) =>
+        client("review.read", {
+          id,
+          action: {
+            kind: "read",
+            round: Schema.decodeSync(RoundNumber)(1),
+            stop: 0,
+          },
+        }),
+      ),
+    );
+    assert.equal(stops[0]?.read.state, "read");
+    // A second page, as another browser opens the review, finds both, at the same revision.
+    const after = await snapshotOf(pages.port, id);
+    assert.equal(after.revision, before.revision);
+    assert.deepEqual(
+      after.drafts.map((item) => item.draft),
+      [{ kind: "general", body: "Half a thought" }],
+    );
+    assert.equal(after.stops[0]?.read.state, "read");
+    succeeded(
+      await rpc(pages.port, (client) =>
+        client("review.discardDraft", { id, slot: { kind: "general" } }),
+      ),
+    );
+    assert.deepEqual((await snapshotOf(pages.port, id)).drafts, []);
+    const stale = refused(
+      await rpc(pages.port, (client) =>
+        client("review.read", {
+          id,
+          action: {
+            kind: "read",
+            round: Schema.decodeSync(RoundNumber)(2),
+            stop: 0,
+          },
+        }),
+      ),
+    );
+    assert.equal(stale.kind, "changed");
   }));

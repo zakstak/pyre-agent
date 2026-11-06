@@ -5,18 +5,23 @@
 import type { Comment, Verdict } from "../../schema/feedback.ts";
 import type { ReviewFile, ReviewInput } from "../../schema/input.ts";
 import type {
+  ContentDigest,
   PatchDigest,
   RepoPath,
   RoundNumber,
+  Timestamp,
 } from "../../schema/primitives.ts";
-import type { ReviewSnapshot } from "../../schema/rpc.ts";
+import type { StopProgress, StopRead } from "../../schema/reading.ts";
+import type { ReviewSnapshot, RoundView } from "../../schema/rpc.ts";
+import type { Drift } from "../../schema/state.ts";
 import type { Thread } from "../../schema/thread.ts";
 import { unifiedDiff } from "../../review/linediff.ts";
+import { parseRows, rowsForLines } from "../../review/patch.ts";
 import {
-  answerStep,
-  fileStep,
   type Next,
-  nextStep,
+  pageOrder,
+  roundSteps,
+  type Steps,
 } from "../../review/next.ts";
 import {
   type Progress,
@@ -25,9 +30,16 @@ import {
   standingOf,
 } from "../../review/progress.ts";
 import { currentSubmission, type Round } from "../../review/queries.ts";
-import { type StopView, tourView } from "../../review/tour.ts";
+import type {
+  CannotCompare,
+  SinceComparison,
+  SinceFile,
+} from "../../review/since.ts";
+import { findStop } from "../../review/stop-anchor.ts";
+import { type StopView, stopFiles, tourView } from "../../review/tour.ts";
 import { count, lineRange, splitPath, threadNameOf } from "../names.ts";
 import {
+  type ContextComment,
   type InlineComment,
   type PlacedComment,
   placeComments,
@@ -68,13 +80,23 @@ export interface FileModel {
   /** The file's place in the round, which names its table. */
   readonly index: number;
   readonly file: ReviewFile;
-  /** The digest of the patch the page shows, which a comment's selection names. */
+  /** The digest of the patch the page shows, which a selection of its rows names. */
   readonly digest: PatchDigest | undefined;
+  /** The digest of the file's whole new text, which a selection of its lines names, as of unchanged lines. */
+  readonly text: ContentDigest | undefined;
   /** An approval of this version of the file holds. */
   readonly approved: boolean;
   /** The reviewer viewed an earlier version, which changed since. */
   readonly lapsed: boolean;
+  /**
+   * How the file changed since the reviewer's last review, when the page shows only that: unchanged files fold into
+   * a disclosure, and a changed one shows its change since then instead of its whole change. Undefined shows the
+   * whole change.
+   */
+  readonly since: SinceFile | undefined;
   readonly placed: ReadonlyArray<PlacedComment>;
+  /** Comments on lines outside the patch, which show under those lines once their gap is open. */
+  readonly context: ReadonlyArray<ContextComment>;
   readonly orphans: ReadonlyArray<InlineComment>;
   /** Comments not yet resolved, and those whose turn is the reviewer's. */
   readonly open: number;
@@ -129,17 +151,34 @@ export const fileStatus = (
   return undefined;
 };
 
+/**
+ * The rows of the patch that comments outside it also cover, as one that starts on unchanged lines and ends in a
+ * hunk: they show, so the thread under its last line shows once its gap opens.
+ */
+const contextRows = (
+  file: ReviewFile,
+  context: ReadonlyArray<ContextComment>,
+): ReadonlyArray<{ readonly start: number; readonly end: number }> => {
+  if (context.length === 0) return [];
+  const rows = parseRows(file.patch ?? "");
+  return context.flatMap((item) => {
+    const span = rowsForLines(rows, "new", item.start_line, item.end_line);
+    return span === undefined ? [] : [span];
+  });
+};
+
 /** Each file's block as the page shows it: its approval, comments, the tour's excerpts and notes, and its fold. */
 const fileModels = (
   snapshot: ReviewSnapshot,
   input: ReviewInput,
-  digests: Readonly<Record<RepoPath, PatchDigest>>,
+  { digests, texts }: Digests,
   stops: ReadonlyArray<StopView>,
   next: Next,
   previous: ReviewInput | undefined,
   round: number,
   counts: Progress,
   standing: (comment: Comment) => Standing,
+  since: SinceComparison | undefined,
 ): ReadonlyMap<RepoPath, FileModel> => {
   const { state } = snapshot;
   const owner = new Map<string, StopView>();
@@ -157,9 +196,10 @@ const fileModels = (
         : undefined;
   return new Map(
     input.files.map((file, index): [RepoPath, FileModel] => {
-      const { placed, orphans } = placeComments(file, state.comments);
+      const { placed, context, orphans } = placeComments(file, state.comments);
       const comments: ReadonlyArray<Comment> = [
         ...placed.map((item) => item.comment),
+        ...context.map((item) => item.comment),
         ...orphans,
       ];
       const approved = counts.viewed.has(file.path);
@@ -201,12 +241,17 @@ const fileModels = (
       const forYou = comments.filter(
         (comment) => standing(comment) === "reviewer",
       ).length;
+      const sinceFile = since?.files.get(file.path);
+      // Showing what changed since the last review, each change since then but a mechanical one is open until the
+      // reviewer views it.
       const foldable =
-        approved ||
-        file.group === "mechanical" ||
-        stop?.closing === true ||
-        unchangedSince !== undefined ||
-        owned.length === 0;
+        sinceFile !== undefined && sinceFile.kind !== "unchanged"
+          ? approved || file.group === "mechanical"
+          : approved ||
+            file.group === "mechanical" ||
+            stop?.closing === true ||
+            unchangedSince !== undefined ||
+            owned.length === 0;
       // What the strip points at, and a file with an answer waiting for the reviewer, stay open: the reviewer has
       // something to do there.
       const held = foldable && (target === file.path || forYou > 0);
@@ -216,16 +261,20 @@ const fileModels = (
           index,
           file,
           digest: digests[file.path],
+          text: texts[file.path],
           approved,
           lapsed,
+          since: sinceFile,
           placed,
+          context,
           orphans,
           open,
           forYou,
+          // The changes since the last review are the file's body then: no second diff since the round before.
           status: fileStatus(
             file,
             lapsed,
-            sincePatch === undefined
+            sincePatch === undefined || since !== undefined
               ? undefined
               : { round: round - 1, patch: sincePatch },
           ),
@@ -242,6 +291,7 @@ const fileModels = (
                     start: item.start,
                     end: item.end,
                   })),
+                  ...contextRows(file, context),
                 ],
           notes,
           folded: foldable && !held,
@@ -273,6 +323,8 @@ export type Strip =
       readonly kind: "finished";
       readonly round: RoundNumber;
       readonly verdict: Verdict;
+      /** When the reviewer finished the round. */
+      readonly at: Timestamp;
     }
   | { readonly kind: "closed" };
 
@@ -282,7 +334,9 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
       const place =
         next.place.kind === "general"
           ? "on the whole change"
-          : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
+          : next.place.kind === "stop"
+            ? `on stop ${next.place.stop} · ${next.place.title}`
+            : `${next.place.path}:${lineRange(next.place.start, next.place.end)}`;
       return {
         kind: "go",
         what: next.github
@@ -313,7 +367,12 @@ const stripOf = (next: Next, threads: ReadonlyArray<Thread>): Strip => {
         next,
       };
     case "finished":
-      return { kind: "finished", round: next.round, verdict: next.verdict };
+      return {
+        kind: "finished",
+        round: next.round,
+        verdict: next.verdict,
+        at: next.at,
+      };
     case "closed":
       return { kind: "closed" };
   }
@@ -325,48 +384,71 @@ export interface PageModel {
   readonly round: Round;
   readonly stops: ReadonlyArray<StopView>;
   readonly files: ReadonlyMap<RepoPath, FileModel>;
-  readonly next: Next;
+  /** The round's steps and the one the strip names, from one call so the strip and N agree. */
+  readonly steps: Steps;
+  /** What the strip says about `steps.next`. */
   readonly strip: Strip;
-  /** Where the strip's steps go: the first answer for the reviewer and the first file not viewed, when there is one. */
-  readonly steps: {
-    readonly answer: Extract<Next, { kind: "answer" }> | undefined;
-    readonly file: Extract<Next, { kind: "file" }> | undefined;
-  };
   readonly progress: Progress;
+  /** The reviewer's pending comments, which Finish review sends, in the order the page shows them. */
+  readonly pending: ReadonlyArray<Comment>;
+  /**
+   * Each file of the round against the round of the reviewer's last review, when the page shows only what changed
+   * since then; undefined when it shows the whole change.
+   */
+  readonly since: SinceComparison | undefined;
+  /** What was found changed since this round, until the next round replaces it; undefined when nothing was. */
+  readonly drift: DriftModel | undefined;
+  /** How the reviewer read each stop of this round, by the stop's index, and how many of the stops are read. */
+  readonly reading: {
+    readonly stops: ReadonlyMap<number, StopRead>;
+    readonly read: number;
+    readonly total: number;
+  };
   readonly standing: (comment: Comment) => Standing;
   readonly writable: boolean;
   /** The reviewer finished this round. */
   readonly finished: boolean;
   /** Inline comments whose file left the round. */
   readonly departed: ReadonlyArray<InlineComment>;
+  /** The comments on each stop of the round's tour, by the stop's index. */
+  readonly stopComments: ReadonlyMap<number, ReadonlyArray<StopComment>>;
+  /** Comments on the whole change, and comments on stops the round's tour no longer has. */
   readonly general: ReadonlyArray<Comment>;
   /** The newest time anything in the review changed, for the top bar. */
   readonly updated: string;
 }
 
-/** The review page for a snapshot with a round, its input, and the round before's input when there is one. */
+/** The digests a round's view carries: each patch's and each new text's. */
+export type Digests = Pick<RoundView, "digests" | "texts">;
+
+/**
+ * The review page for a snapshot with a round, its input, and the round before's input when there is one. With
+ * `since`, the page shows each file's change since the reviewer's last review.
+ */
 export const pageModel = (
   snapshot: ReviewSnapshot,
   round: Round,
   input: ReviewInput,
-  digests: Readonly<Record<RepoPath, PatchDigest>>,
+  digests: Digests,
   previous: ReviewInput | undefined,
+  since?: SinceComparison,
 ): PageModel => {
   const { state } = snapshot;
   const { stops } = tourView(input);
-  const next = nextStep(state, input, stops, round);
+  const steps = roundSteps(state, input, stops, round);
   const counts = progress(state, input);
-  const standing = standingOf(state);
+  const standing = standingOf;
   const files = fileModels(
     snapshot,
     input,
     digests,
     stops,
-    next,
+    steps.next,
     previous,
     round.round,
     counts,
     standing,
+    since,
   );
   return {
     snapshot,
@@ -374,13 +456,15 @@ export const pageModel = (
     round,
     stops,
     files,
-    next,
-    strip: stripOf(next, snapshot.threads),
-    steps: {
-      answer: answerStep(state, input, stops),
-      file: fileStep(state, input, stops),
-    },
+    steps,
+    strip: stripOf(steps.next, snapshot.threads),
     progress: counts,
+    since,
+    pending: state.comments
+      .filter((comment) => standing(comment) === "pending")
+      .toSorted(pageOrder(input, stops)),
+    drift: driftModel(state.drift, round, stops),
+    reading: readingSummary(snapshot.stops, stops.length),
     standing,
     writable: state.closed_at === undefined,
     finished: currentSubmission(state) !== undefined,
@@ -388,7 +472,7 @@ export const pageModel = (
       (comment): comment is InlineComment =>
         comment.kind === "inline" && !files.has(comment.anchor.path),
     ),
-    general: state.comments.filter((comment) => comment.kind === "general"),
+    ...stopTalk(state.comments, stops),
     updated: [
       round.published_at,
       ...state.comments.map((comment) => comment.updated_at),
@@ -397,6 +481,142 @@ export const pageModel = (
       state.drift?.checked_at ?? "",
     ].reduce((a, b) => (b > a ? b : a)),
   };
+};
+
+/** A comment on a stop of the tour. */
+export type StopComment = Extract<Comment, { readonly kind: "stop" }>;
+
+/**
+ * Where comments that are not on lines show: a stop's under the stop of the same identity in the round's tour, and
+ * one whose stop the round dropped with the comments on the whole change.
+ */
+export const stopTalk = (
+  comments: ReadonlyArray<Comment>,
+  stops: ReadonlyArray<StopView>,
+): Pick<PageModel, "stopComments" | "general"> => {
+  const onStops = new Map<number, Array<StopComment>>();
+  const general: Array<Comment> = [];
+  for (const comment of comments) {
+    switch (comment.kind) {
+      case "inline":
+        break;
+      case "general":
+        general.push(comment);
+        break;
+      case "stop": {
+        const stop = findStop(stops, comment.anchor.stop);
+        if (stop === undefined) general.push(comment);
+        else
+          onStops.set(stop.index, [
+            ...(onStops.get(stop.index) ?? []),
+            comment,
+          ]);
+      }
+    }
+  }
+  return { stopComments: onStops, general };
+};
+
+/** What was found changed since the round the page shows, and the changed files each stop owns or excerpts. */
+export interface DriftModel {
+  readonly found: Drift;
+  /** By the stop's index, the changed files of each stop that covers any, in the stop's order. */
+  readonly stops: ReadonlyMap<number, ReadonlyArray<RepoPath>>;
+}
+
+/** The drift of the round the page shows, with the stops it changed; a drift of another round is not this one's. */
+export const driftModel = (
+  drift: Drift | undefined,
+  round: Round,
+  stops: ReadonlyArray<StopView>,
+): DriftModel | undefined => {
+  if (drift === undefined || drift.round !== round.round) return undefined;
+  const changed = new Set(drift.paths);
+  return {
+    found: drift,
+    stops: new Map(
+      stops.flatMap((stop) => {
+        const files = stopFiles(stop).filter((path) => changed.has(path));
+        return files.length === 0 ? [] : [[stop.index, files] as const];
+      }),
+    ),
+  };
+};
+
+/**
+ * The stops' reading as the guide counts it: "n of m read" counts read stops; a changed stop is not read until the
+ * reviewer reads it again. A stop the snapshot does not name yet, as while a new round's snapshot is on its way, is
+ * unread.
+ */
+export const readingSummary = (
+  progress: ReadonlyArray<StopProgress>,
+  total: number,
+): PageModel["reading"] => {
+  const stops = new Map(progress.map((item) => [item.stop, item.read]));
+  return {
+    stops,
+    read: [...stops.values()].filter((read) => read.state === "read").length,
+    total,
+  };
+};
+
+/**
+ * The stops among `indexes` that keeping them on screen marks read: those not read yet. A stop a later round
+ * changed stays changed until the reviewer marks it read, so the page keeps saying what changed.
+ */
+export const autoRead = (
+  reading: PageModel["reading"],
+  indexes: ReadonlyArray<number>,
+): ReadonlyArray<number> =>
+  indexes.filter(
+    (index) => (reading.stops.get(index)?.state ?? "unread") === "unread",
+  );
+
+/**
+ * Files as a list shows them while the page shows only what changed since the last review: the changed ones, and
+ * those unchanged since then, which fold into a disclosure. Without that, every file shows.
+ */
+export const partSince = (
+  models: ReadonlyArray<FileModel>,
+): {
+  readonly shown: ReadonlyArray<FileModel>;
+  readonly unchanged: ReadonlyArray<FileModel>;
+} => ({
+  shown: models.filter((model) => model.since?.kind !== "unchanged"),
+  unchanged: models.filter((model) => model.since?.kind === "unchanged"),
+});
+
+const CANNOT_COMPARE: Readonly<Record<CannotCompare, string>> = {
+  deleted: "the file is deleted now, so there is no text to compare",
+  no_text: "a round did not keep this file's whole text",
+  too_different: "the versions differ in too many lines to compare",
+};
+
+/** What a file's block says over its body while the page shows only what changed since round `round`. */
+export const sinceNote = (since: SinceFile, round: number): string => {
+  switch (since.kind) {
+    case "unchanged":
+      return `Unchanged since round ${round}.`;
+    case "changed":
+      return `Changes since round ${round}`;
+    case "added":
+      return `New since round ${round}: its whole change is new.`;
+    case "cannot_compare":
+      return `Can’t compare with round ${round}: ${CANNOT_COMPARE[since.reason]}. This is its whole change.`;
+  }
+};
+
+/** How many files changed since the last review, how many did not, and how many left, as the control says it. */
+export const sinceSummary = (since: SinceComparison): string => {
+  const changed = since.files.size - since.unchanged;
+  return [
+    ...(changed === 0
+      ? [`nothing changed since round ${since.round}`]
+      : [`${count(changed, "file")} changed`, `${since.unchanged} unchanged`]),
+    ...(since.left.length === 0
+      ? []
+      : [`${count(since.left.length, "file")} left the review`]),
+  ].join(" · ");
 };
 
 /** Paths in path order, grouped by their folder; files at the root come first, under no folder. */

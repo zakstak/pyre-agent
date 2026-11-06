@@ -4,9 +4,12 @@
  */
 import * as Schema from "effect/Schema";
 import { Approval, Comment, Submission } from "./feedback.ts";
+import * as Limits from "./limits.ts";
 import {
   CommitSha,
+  Count,
   InputDigest,
+  nonEmptyText,
   RepoPath,
   ReviewId,
   Revision,
@@ -35,15 +38,39 @@ export const SubmissionRecord = Schema.Struct({
 });
 export type SubmissionRecord = typeof SubmissionRecord.Type;
 
+const Reason = nonEmptyText(Limits.MAX_TEXT_UNITS);
+
 /**
- * What an agent found when it compared the code with the current round: the files that changed since, and for a pull
- * request the head it found. The page shows it until the next round replaces the round it describes.
+ * What the git host found when it compared the round's head with the head it shows now: `listed`, the commits the new
+ * head adds and every file that differs; `unlisted`, the commits but not every file, as after a force-push or past the
+ * host's file limit, and why; `failed`, why the host could not compare them.
+ */
+export const HeadComparison = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("listed"), commits: Count }),
+  Schema.Struct({
+    kind: Schema.Literal("unlisted"),
+    commits: Count,
+    reason: Reason,
+  }),
+  Schema.Struct({ kind: Schema.Literal("failed"), reason: Reason }),
+]).annotate({
+  expected: "a head comparison whose kind is listed, unlisted, or failed",
+});
+export type HeadComparison = typeof HeadComparison.Type;
+
+/**
+ * What was found changed since the current round, by an agent's check or, for a pull request, by the server when the
+ * host showed a new head, in the pull request or in its repository's list of open ones: the files known to have
+ * changed since, and for a pull request the head found and, when the host compared it with the round's, what that
+ * found. A head with no comparison came from an agent that could not compare it. The page shows it until the next
+ * round replaces the round it describes, or the host shows the round's head again.
  */
 export const Drift = Schema.Struct({
   round: RoundNumber,
   checked_at: Timestamp,
   paths: Schema.Array(RepoPath),
   head_sha: Schema.optional(CommitSha),
+  compared: Schema.optional(HeadComparison),
 });
 export type Drift = typeof Drift.Type;
 
