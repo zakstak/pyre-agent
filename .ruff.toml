@@ -1,2 +1,6 @@
 # The repository's checks run on Python 3.10+.
 target-version = "py310"
+
+[lint.per-file-ignores]
+# The helper handles gh exit codes and returns a live lock.
+"skills/babysit-pr/scripts/pr-wait" = ["PLW1510", "SIM115"]
