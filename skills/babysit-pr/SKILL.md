@@ -4,7 +4,7 @@ description:
   Use when the user asks to monitor, watch, or babysit a pull request through
   review and CI.
 metadata:
-  version: "1.0.1"
+  version: "1.0.2"
 ---
 
 # Babysit PR
@@ -46,13 +46,20 @@ Wait with [scripts/pr-wait](scripts/pr-wait) from this skill's directory. Use
 its absolute path, not a command assumed to be on `PATH`:
 
 ```bash
-/absolute/path/to/babysit-pr/scripts/pr-wait <pr> [--repo owner/name] [--until ready|green|any-change]
+/absolute/path/to/babysit-pr/scripts/pr-wait <pr> [--repo [host/]owner/name] [--until ready|green|any-change]
 ```
 
 The helper requires Python 3.10 or newer, POSIX file locking, and an
 authenticated `gh` on `PATH`. It stores locks and event state in
-`~/.local/state/pr-wait/`. Its review query reads at most 100 items per
-connection; independently verify paginated review state at the final gate.
+`~/.local/state/pr-wait/`, keyed by host, repository, and PR number. Older state
+without a hostname starts a fresh baseline. Its review query reads at most 100
+items per connection; independently verify paginated review state at the final
+gate.
+
+GitHub Enterprise PR URLs work directly. For a PR number, `gh` resolves the host
+from a host-qualified `--repo`, `GH_HOST`, or the current checkout. Authenticate
+`gh` to that host first. Every later request uses the host from the resolved PR
+URL, including REST and GraphQL queries.
 
 It prints one line per real event. It exits 0 when the `--until` condition is
 met or the PR merges, 1 when it needs you, and 2 on bad input. Required check
@@ -141,7 +148,9 @@ use an expected-head guard for the final merge. Verify the merged state.
 
 ## Source
 
-The bundled helper is copied unchanged from
+The bundled helper is adapted from
 [tstack at revision 1085050f3baed1ac724caa4a8166145fb2ac88af](https://github.com/t3dotgg/tstack/blob/1085050f3baed1ac724caa4a8166145fb2ac88af/skills/babysit-pr/scripts/pr-wait).
-Copyright (c) 2026 Theo Browne. See the project's [MIT license](../../LICENSE)
-and [credits](../../README.md#license-and-credits).
+Local changes add GitHub Enterprise host resolution, pin requests to that host,
+and separate watcher state and locks by host. Copyright (c) 2026 Theo Browne.
+See the project's [MIT license](../../LICENSE) and
+[credits](../../README.md#license-and-credits).

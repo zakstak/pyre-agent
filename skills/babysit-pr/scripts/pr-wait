@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """pr-wait: watch one GitHub pull request and print one line per real event.
 
-  pr-wait <pr> [--repo owner/name] [--until green|ready|any-change] [--interval 20]
+  pr-wait <pr> [--repo [host/]owner/name] [--until green|ready|any-change] [--interval 20]
 
-<pr> is a PR number or PR URL. Without --repo, the repo comes from the URL or
-from the current checkout. Stdout carries only events, one line each, so a
-monitor (Claude Code's Monitor tool) wakes the agent once per real event.
+<pr> is a PR number or PR URL on GitHub.com or GitHub Enterprise. gh resolves
+the host and repo from the URL, --repo, GH_HOST, or the current checkout.
+Stdout carries only events, one line each, so a monitor (Claude Code's Monitor
+tool) wakes the agent once per real event.
 Progress and errors that do not end the run go to stderr.
 
 --until
@@ -37,10 +38,10 @@ CodeRabbit is advisory: pr-wait reports it but never waits for it. Comment
 edits are never events, and top-level comments from CI and deploy bots
 (github-actions, Vercel) are skipped, because checks already carry that news.
 
-State lives in ~/.local/state/pr-wait/. A lock makes a second watcher for the
-same PR exit at once. A state file lets a restarted watcher report what arrived
-while no watcher ran. The first run for a PR records what already exists and
-reports only what comes after.
+State lives in ~/.local/state/pr-wait/, keyed by host, repo, and PR number.
+A lock makes a second watcher for the same PR exit at once. A state file lets
+a restarted watcher report what arrived while no watcher ran. The first run
+for a PR records what already exists and reports only what comes after.
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, NoReturn
+from urllib.parse import quote
 
 GATING_BOTS = ("greptile", "macroscope")
 ADVISORY_BOTS = ("coderabbit",)
@@ -77,6 +79,7 @@ FAILED = ("fail", "cancel")
 # gh pr checks buckets, worst first. Duplicate names (push and pull_request runs
 # of one job) collapse to the worst bucket.
 RANK = {"fail": 4, "cancel": 3, "pending": 2, "pass": 1, "skipping": 0}
+PR_URL = re.compile(r"https?://([^/\s]+)/([\w.-]+/[\w.-]+)/pull/(\d+)(?:[/?#]\S*)?")
 
 QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
@@ -175,46 +178,51 @@ def digest(body: str) -> str:
     return hashlib.sha1(re.sub(r"\s+", " ", plain(body)).encode()).hexdigest()[:12]
 
 
-def parse_target(raw: str | None, repo: str | None) -> tuple[str, int]:
+def parse_target(raw: str | None, repo: str | None) -> tuple[str, str, int]:
     if raw is None or not raw.strip():
-        fail("missing PR number. Did a variable expand to nothing? Usage: pr-wait <pr> [--repo owner/name]")
-    url = re.fullmatch(r"https?://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)(?:[/?#]\S*)?", raw.strip())
+        fail("missing PR number. Did a variable expand to nothing? Usage: pr-wait <pr> [--repo [host/]owner/name]")
+    url = PR_URL.fullmatch(raw.strip())
     number = re.fullmatch(r"#?(\d+)", raw.strip())
     if url:
-        repo = repo or url.group(1)
-        pr = int(url.group(2))
+        pr = int(url.group(3))
     elif number:
         pr = int(number.group(1))
     else:
         fail(f"'{raw}' is not a PR number or PR URL")
     if pr <= 0:
         fail(f"'{raw}' is not a valid PR number")
-    if not repo:
-        try:
-            repo = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).stdout.strip()
-        except GhError as error:
-            fail(f"no --repo given and the current directory has no GitHub repo ({error})")
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
-        fail(f"'{repo}' is not owner/name")
+    if repo and not re.fullmatch(r"(?:[^/\s]+/)?[\w.-]+/[\w.-]+", repo):
+        fail(f"'{repo}' is not [host/]owner/name")
+    # Let gh resolve its native host and checkout settings, then keep the host
+    # from the canonical PR URL for every request and state key that follows.
+    args = ["pr", "view", raw.strip() if url else str(pr), "--json", "url", "--jq", ".url"]
+    if repo:
+        args.extend(["-R", repo])
     try:
-        gh(["pr", "view", str(pr), "-R", repo, "--json", "number"])
+        resolved = gh(args).stdout.strip()
     except GhError as error:
-        if not error.transient:  # a transient failure is retried by the poll loop
-            fail(f"cannot read {repo}#{pr}: {error}")
-    return repo, pr
+        fail(f"cannot resolve {raw}: {error}", code=1 if error.transient else 2)
+    target = PR_URL.fullmatch(resolved)
+    if target is None or int(target.group(3)) <= 0:
+        fail(f"gh returned an invalid PR URL: {resolved}", code=1)
+    return target.group(1).lower(), target.group(2), int(target.group(3))
 
 
-def lock(repo: str, pr: int) -> Any:
+def state_key(host: str, repo: str, pr: int) -> str:
+    return f"{quote(host, safe='')}__{repo.replace('/', '__')}__{pr}"
+
+
+def lock(host: str, repo: str, pr: int) -> Any:
     """Hold a per-PR lock for the life of the process. The OS drops it on exit."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    handle = open(STATE_DIR / f"{repo.replace('/', '__')}__{pr}.lock", "a+")
+    handle = open(STATE_DIR / f"{state_key(host, repo, pr)}.lock", "a+")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         handle.seek(0)
         pid = handle.read().strip() or "unknown"
         fail(
-            f"pid {pid} already watches {repo}#{pr}, so this watcher exits to avoid "
+            f"pid {pid} already watches {host}/{repo}#{pr}, so this watcher exits to avoid "
             f"duplicate events. If no events reach you from it, run `kill {pid}` and start again."
         )
     handle.seek(0)
@@ -224,7 +232,7 @@ def lock(repo: str, pr: int) -> Any:
     return handle
 
 
-def required_checks(repo: str, base: str) -> set[str]:
+def required_checks(host: str, repo: str, base: str) -> set[str]:
     """Required check names for the base branch, from rulesets and classic branch
     protection. Knowing them up front means a required check that has not started
     yet counts as pending, instead of green by omission."""
@@ -238,7 +246,7 @@ def required_checks(repo: str, base: str) -> set[str]:
     names: set[str] = set()
     for path, jq in sources:
         try:
-            names.update(gh_lines(["api", path, "--jq", jq]))
+            names.update(gh_lines(["api", "--hostname", host, path, "--jq", jq]))
         except GhError as error:
             if "HTTP 404" not in str(error):  # 404 means no protection, which is normal
                 log(f"could not read required checks from {path}: {error}")
@@ -246,10 +254,11 @@ def required_checks(repo: str, base: str) -> set[str]:
 
 
 class Watcher:
-    def __init__(self, repo: str, pr: int, until: str, interval: int) -> None:
+    def __init__(self, host: str, repo: str, pr: int, until: str, interval: int) -> None:
+        self.host = host
         self.repo, self.pr, self.until, self.interval = repo, pr, until, interval
         self.owner, self.name = repo.split("/")
-        self.path = STATE_DIR / f"{repo.replace('/', '__')}__{pr}.json"
+        self.path = STATE_DIR / f"{state_key(host, repo, pr)}.json"
         state = self.load()
         # First run for this PR: record what exists and report nothing.
         self.baseline = state is None
@@ -297,7 +306,7 @@ class Watcher:
 
     def fetch_pr(self) -> Json:
         proc = gh([
-            "api", "graphql", "-f", f"query={QUERY}",
+            "api", "--hostname", self.host, "graphql", "-f", f"query={QUERY}",
             "-f", f"owner={self.owner}", "-f", f"name={self.name}", "-F", f"number={self.pr}",
         ])
         data = json.loads(proc.stdout)["data"]
@@ -308,7 +317,7 @@ class Watcher:
     def fetch_checks(self) -> dict[str, Json]:
         # gh pr checks exits 8 while checks are pending and 1 when one failed.
         # Those are states, not errors: read the JSON and ignore the exit code.
-        proc = gh(["pr", "checks", str(self.pr), "-R", self.repo, "--json", "name,bucket,link,description"], allow=(0, 1, 8))
+        proc = gh(["pr", "checks", str(self.pr), "-R", f"{self.host}/{self.repo}", "--json", "name,bucket,link,description"], allow=(0, 1, 8))
         if not proc.stdout.strip():
             if "no checks reported" in proc.stderr:
                 return {}
@@ -324,8 +333,8 @@ class Watcher:
         """Files this PR touches that the new base commits also touch."""
         try:
             if head not in self.pr_files:
-                self.pr_files[head] = set(gh_lines(["pr", "diff", str(self.pr), "-R", self.repo, "--name-only"]))
-            moved = gh_lines(["api", f"repos/{self.repo}/compare/{old}...{new}", "--jq", ".files[].filename"])
+                self.pr_files[head] = set(gh_lines(["pr", "diff", str(self.pr), "-R", f"{self.host}/{self.repo}", "--name-only"]))
+            moved = gh_lines(["api", "--hostname", self.host, f"repos/{self.repo}/compare/{old}...{new}", "--jq", ".files[].filename"])
         except GhError as error:
             log(f"could not compare base commits: {error}")
             return []
@@ -336,7 +345,7 @@ class Watcher:
         if not base_oid:
             return ""
         try:
-            count = gh(["api", f"repos/{self.repo}/compare/{base_oid}...{head}", "--jq", ".behind_by"]).stdout.strip()
+            count = gh(["api", "--hostname", self.host, f"repos/{self.repo}/compare/{base_oid}...{head}", "--jq", ".behind_by"]).stdout.strip()
         except GhError:
             return ""
         return f"; {count} commit{'' if count == '1' else 's'} behind {base}"
@@ -350,9 +359,9 @@ class Watcher:
 
         base = pr["baseRefName"]
         if self.required is None:
-            self.required = required_checks(self.repo, base)
+            self.required = required_checks(self.host, self.repo, base)
             gate = ", ".join(sorted(self.required)) or "none set, so every CI check gates"
-            log(f"watching {self.repo}#{self.pr} until {self.until}; required checks: {gate}")
+            log(f"watching {self.host}/{self.repo}#{self.pr} until {self.until}; required checks: {gate}")
         checks = self.fetch_checks()
         head = pr["headRefOid"]
         short = head[:7]
@@ -532,7 +541,7 @@ class Watcher:
             else:
                 self.save()
                 if self.baseline:
-                    log(f"baseline recorded for {self.repo}#{self.pr}; reporting only new events")
+                    log(f"baseline recorded for {self.host}/{self.repo}#{self.pr}; reporting only new events")
                 self.baseline = False
             time.sleep(self.interval)
 
@@ -540,13 +549,13 @@ class Watcher:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="pr-wait", description="Watch a GitHub PR and print one line per real event.")
     parser.add_argument("pr", nargs="?", help="PR number or URL")
-    parser.add_argument("--repo", help="owner/name (default: from the URL or the current checkout)")
+    parser.add_argument("--repo", help="[host/]owner/name (default: gh resolves the URL, GH_HOST, or current checkout)")
     parser.add_argument("--until", choices=("green", "ready", "any-change"), default="ready")
     parser.add_argument("--interval", type=int, default=20, help="seconds between polls (default 20, min 5)")
     args = parser.parse_args()
-    repo, pr = parse_target(args.pr, args.repo)
-    _lock = lock(repo, pr)
-    Watcher(repo, pr, args.until, max(args.interval, 5)).run()
+    host, repo, pr = parse_target(args.pr, args.repo)
+    _lock = lock(host, repo, pr)
+    Watcher(host, repo, pr, args.until, max(args.interval, 5)).run()
 
 
 if __name__ == "__main__":

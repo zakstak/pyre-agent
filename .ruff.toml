@@ -2,5 +2,5 @@
 target-version = "py310"
 
 [lint.per-file-ignores]
-# Preserve the upstream helper: it handles gh exit codes and returns a live lock.
+# The helper handles gh exit codes and returns a live lock.
 "skills/babysit-pr/scripts/pr-wait" = ["PLW1510", "SIM115"]
