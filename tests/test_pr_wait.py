@@ -1,6 +1,7 @@
 """Exercise the bundled watcher offline, with disposable event state."""
 
 import contextlib
+import copy
 import importlib.machinery
 import importlib.util
 import io
@@ -169,6 +170,79 @@ class WatcherTests(unittest.TestCase):
         watcher.poll()
         self.reviewed()
         self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_commit_mention_in_a_queued_summary_is_not_review_completion(self):
+        for head in [self.pr["headRefOid"][:7], self.pr["headRefOid"]]:
+            with self.subTest(head=head):
+                self.pr["comments"]["nodes"] = [
+                    comment(
+                        "queued",
+                        "greptile[bot]",
+                        f"Review queued for {head}. Analysis has not started.",
+                    )
+                ]
+                watcher = self.watcher()
+                watcher.poll()
+                watcher.poll()
+                self.assertNotIn("ready on", self.output.getvalue())
+
+    def test_retargeting_reloads_requirements_before_reporting_ready(self):
+        self.reviewed()
+        with patch.object(
+            PR_WAIT, "required_checks", side_effect=[{"test"}, {"release-validation"}]
+        ) as discover:
+            watcher = self.watcher()
+            watcher.poll()
+            self.pr["baseRefName"] = "release"
+            self.pr["baseRef"]["target"]["oid"] = "d" * 40
+            watcher.base_overlap = Mock(return_value=[])
+            watcher.poll()
+            watcher.poll()
+            discover.assert_called_with("github.com", "example/project", "release")
+            self.assertNotIn("ready on", self.output.getvalue())
+            self.checks["release-validation"] = check("release-validation")
+            watcher.poll()
+            self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_push_between_pr_and_check_reads_does_not_return_stale_readiness(self):
+        for until in ["green", "ready"]:
+            with self.subTest(until=until):
+                self.pr["headRefOid"] = "a" * 40
+                self.reviewed()
+                watcher = self.watcher(until)
+                watcher.poll()
+                captured = copy.deepcopy(self.pr)
+                self.pr["headRefOid"] = "c" * 40
+                watcher.fetch_pr.side_effect = [captured, self.pr]
+                watcher.poll()
+                watcher.fetch_checks.assert_called_with(captured["headRefOid"])
+                watcher.fetch_pr.side_effect = None
+                self.reviewed()
+                watcher.poll()
+                self.assert_exit(watcher, 0, f"{until} on ccccccc")
+
+    def test_base_or_review_changes_before_ready_are_reassessed(self):
+        for change in ["base", "thread"]:
+            with self.subTest(change=change):
+                self.reviewed()
+                watcher = self.watcher()
+                watcher.base_overlap = Mock(return_value=[])
+                watcher.poll()
+                captured = copy.deepcopy(self.pr)
+                if change == "base":
+                    self.pr["baseRef"]["target"]["oid"] = "d" * 40
+                else:
+                    self.pr["reviewThreads"]["nodes"] = [
+                        {
+                            "isResolved": False,
+                            "path": "app.py",
+                            "line": 4,
+                            "comments": {"nodes": [comment("late-finding")]},
+                        }
+                    ]
+                watcher.fetch_pr.side_effect = [captured, self.pr]
+                watcher.poll()
+                self.assertNotIn("ready on", self.output.getvalue())
 
     def test_new_head_needs_its_own_stable_check_snapshots(self):
         with patch.object(PR_WAIT, "required_checks", return_value=set()):
@@ -347,6 +421,109 @@ class RequiredChecksTests(unittest.TestCase):
             )
 
 
+class CommitChecksTests(unittest.TestCase):
+    def test_commit_checks_include_every_page_and_the_latest_legacy_status(self):
+        head = "a" * 40
+        run = {
+            "name": "test",
+            "status": "completed",
+            "conclusion": "success",
+            "html_url": "https://example.com/test",
+            "output": {"title": "Passed"},
+        }
+        status = {
+            "context": "legacy",
+            "state": "success",
+            "target_url": "https://example.com/legacy",
+            "description": "Passed",
+        }
+        pages = [
+            [
+                {"check_runs": [run]},
+                {"check_runs": [dict(run, name="late", conclusion="failure")]},
+            ],
+            [
+                [status],
+                [
+                    dict(status, state="failure"),
+                    dict(status, context="late", state="pending"),
+                ],
+            ],
+        ]
+        responses = [
+            subprocess.CompletedProcess([], 0, stdout=json.dumps(page))
+            for page in pages
+        ]
+        with patch.object(PR_WAIT, "gh", side_effect=responses) as gh:
+            checks = PR_WAIT.Watcher(
+                "ghe.example.com", "example/project", 7, "green", 20
+            ).fetch_checks(head)
+        self.assertEqual(
+            {name: item["bucket"] for name, item in checks.items()},
+            {
+                "test": "pass",
+                "legacy": "pass",
+                "late": "fail",
+            },
+        )
+        paths = []
+        for call in gh.call_args_list:
+            args = call.args[0]
+            self.assertEqual(args[:3], ["api", "--hostname", "ghe.example.com"])
+            self.assertIn("--paginate", args)
+            self.assertIn("--slurp", args)
+            paths.append(args[3])
+        self.assertEqual(
+            paths,
+            [
+                f"repos/example/project/commits/{head}/check-runs?filter=latest&per_page=100",
+                f"repos/example/project/commits/{head}/statuses?per_page=100",
+            ],
+        )
+
+    def test_check_conclusions_and_incomplete_runs_have_correct_buckets(self):
+        conclusions = {
+            "success": "pass",
+            "neutral": "skipping",
+            "skipped": "skipping",
+            "cancelled": "cancel",
+            "failure": "fail",
+            "timed_out": "fail",
+            "action_required": "fail",
+            "stale": "fail",
+            "startup_failure": "fail",
+            "unknown-result": "pending",
+            None: "pending",
+        }
+        runs = [
+            {
+                "name": str(conclusion),
+                "status": "completed",
+                "conclusion": conclusion,
+                "html_url": "https://example.com/check",
+            }
+            for conclusion in conclusions
+        ]
+        runs.append(dict(runs[0], name="running", status="in_progress"))
+        responses = [
+            subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps([{"check_runs": runs}])
+            ),
+            subprocess.CompletedProcess([], 0, stdout="[[]]"),
+        ]
+        with patch.object(PR_WAIT, "gh", side_effect=responses):
+            checks = PR_WAIT.Watcher(
+                "github.com", "example/project", 7, "green", 20
+            ).fetch_checks("a" * 40)
+        self.assertEqual(
+            {name: item["bucket"] for name, item in checks.items()},
+            {
+                **{str(name): bucket for name, bucket in conclusions.items()},
+                "running": "pending",
+            },
+        )
+
+
 class TargetTests(unittest.TestCase):
     def setUp(self):
         self.gh = self.enterContext(patch.object(PR_WAIT, "gh"))
@@ -422,6 +599,23 @@ class HostRoutingTests(unittest.TestCase):
                     output = "2\n"
                 elif ".files[].filename" in args:
                     output = "changed.py\n"
+                elif "/check-runs?" in args[3]:
+                    output = json.dumps(
+                        [
+                            {
+                                "check_runs": [
+                                    {
+                                        "name": "test",
+                                        "status": "completed",
+                                        "conclusion": "success",
+                                        "html_url": "https://example.com/test",
+                                    }
+                                ]
+                            }
+                        ]
+                    )
+                elif "/statuses?" in args[3]:
+                    output = "[[]]"
                 else:
                     output = "test\n"
             else:
@@ -439,11 +633,11 @@ class HostRoutingTests(unittest.TestCase):
         ):
             watcher = PR_WAIT.Watcher(host, repo, 7, "green", 20)
             self.assertEqual(watcher.fetch_pr()["viewer"], "operator")
-            self.assertEqual(set(watcher.fetch_checks()), {"test"})
+            self.assertEqual(set(watcher.fetch_checks("a" * 40)), {"test"})
             self.assertEqual(watcher.base_overlap("head", "old", "new"), ["changed.py"])
             self.assertIn("2 commits behind", watcher.behind("main", "base", "head"))
             self.assertEqual(PR_WAIT.required_checks(host, repo, "main"), {"test"})
-            self.assertEqual(gh.call_count, 7)
+            self.assertEqual(gh.call_count, 8)
 
 
 class CliTests(unittest.TestCase):

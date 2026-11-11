@@ -5,7 +5,7 @@ description:
   "Invoke only by name. Carry an assigned task through a draft PR, checks, and
   review fixes, then ask before marking ready."
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
 ---
 
 # Deliver a draft PR
@@ -18,6 +18,10 @@ subject to actual tool permissions. It does not authorize merging the PR,
 deployment, installing tooling, credential changes, changing repository or bot
 configuration, unrelated work, or destructive overwrite. If essential intent or
 authority is missing, ask one focused question before the dependent action.
+
+Use the [GitHub comment skill](../leaving-pr-comments/SKILL.md) for every reply.
+For a fixed finding, put only the full fixing commit hash in the reply body
+below the required attribution.
 
 Keep routine implementation, review assessment, retries and branch integration
 autonomous. Interact when human judgment is needed, a hard blocker prevents
@@ -58,8 +62,8 @@ updates.
 
 For bot feedback:
 
-- A clear valid in-scope defect: fix it, verify, push, reply with only the full
-  fix commit hash, then resolve the thread.
+- A clear valid in-scope defect: fix it, verify, push, reply with the fixing
+  commit, then resolve the thread.
 - A verified false positive, future concern or scope expansion: give one terse
   inline explanation, then resolve the thread. Do not dismiss a report merely
   because it is inconvenient; uncertainty that prevents an honest decision is a
@@ -67,8 +71,8 @@ For bot feedback:
 
 For human feedback:
 
-- A clear valid in-scope fix: implement, verify, push, reply with only the full
-  fix commit hash, then resolve the thread.
+- A clear valid in-scope fix: implement, verify, push, reply with the fixing
+  commit, then resolve the thread.
 - Before disagreeing, dismissing, deferring or sending any other human-directed
   reply, ask the user how to proceed. Do not resolve that thread while the
   decision is pending.
