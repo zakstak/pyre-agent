@@ -11,8 +11,8 @@ This is a workflow for making your code changes more correct before (or
 sometimes after) filing a pull request. tl;dr - use OpenAI's GPT Sol to review
 your code in a loop.
 
-Make the smallest changes that fix verified in-scope defects. Be careful of
-scope creep and push back on findings the evidence does not support.
+Make the most minimal possible changes to appease the Sol reviewers. Be careful
+of scope creep and don't be scared to push back.
 
 ## Budget
 
@@ -71,10 +71,9 @@ Repo: <abs path> Base: <sha> Intent: <intent> Out of scope: <scope> Checks: <res
 See: git diff <base> [-- <paths>]; git status --short (read untracked).
 Read surrounding code. Find bugs, broken callers, mismatch with intent.
 Skip style unless it hides a bug. Hold to the smallest change. Flag code,
-tests, or guards the intent does not need. Rate severity by consequences and
-evidence. Rarity alone does not make a bug a nit. Track scope separately.
-blocker = supported behavior is seriously wrong. should = other real in-scope bug.
-nit = optional improvement without a demonstrated correctness problem.
+tests, or guards the intent does not need. Out-of-scope paths, small perf,
+extra compat: nits. Rarity alone does not make an in-scope bug a nit.
+blocker = intended case wrong. should = real bug callers will hit, in intent. nit = rest.
 Reply:
 VERDICT: APPROVE or CHANGES
 S1 [blocker|should|nit] <file>:<line> <claim>. Fix: <suggestion> (stable ids)
@@ -82,9 +81,8 @@ S1 [blocker|should|nit] <file>:<line> <claim>. Fix: <suggestion> (stable ids)
 
 ## 3. Answer findings
 
-Check each finding and severity yourself against the supported behavior and
-consequences. An infrequent race, security failure, or data-loss bug can still
-block approval. Track out-of-scope findings separately from severity.
+Check each finding and severity yourself. Out-of-scope paths or small
+performance costs are nits. Rarity alone does not make an in-scope bug a nit.
 
 - Agree: smallest fix. Prefer delete or narrow over new lock, cache, helper, or
   option. Fix the case that happened. Add one focused test that fails without

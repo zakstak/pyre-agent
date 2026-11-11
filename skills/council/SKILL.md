@@ -4,7 +4,7 @@ description:
   Use when the user says 'council' to request three delegates from different
   providers for help with their task.
 metadata:
-  version: "1.1.1"
+  version: "1.1.0"
 ---
 
 # Council
@@ -15,10 +15,9 @@ the task's scope and existing authority.
 
 ## Prepare the work
 
-For an audit or review-only request, keep the implementation unchanged and
-return findings. When implementation is authorized, address outstanding PR
-comments, fix known issues, and run relevant checks before council. Give council
-the updated implementation. If the user wants to discard the implementation and
+Before an audit, address outstanding PR comments, fix known issues, and run
+relevant checks. Give council the updated implementation; do not defer known
+fixes until reviews return. If the user wants to discard the implementation and
 explore new ideas, skip fixes to code being replaced.
 
 ## Select three providers
@@ -63,10 +62,8 @@ replaced or no longer needed through `task_cancel`.
 
 Collect all three responses and summarize useful findings, disagreements, and
 recommended next steps. Verify findings against the implementation and request.
-When implementation is authorized, fix recommendations you agree are valid and
-in scope, then run affected checks. For an audit, report their disposition
-without edits. Explain why you reject a finding; do not change code only to
-raise a score.
+Fix recommendations you agree are valid and in scope, then run affected checks.
+Explain why you reject a finding; do not change code only to raise a score.
 
 Count each full review pass as one round. A fresh review after fixes starts a
 new round with three new delegate tasks. Give them the updated implementation

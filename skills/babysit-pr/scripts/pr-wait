@@ -77,7 +77,8 @@ TRANSIENT = re.compile(
     re.IGNORECASE,
 )
 FAILED = ("fail", "cancel")
-# Check buckets, worst first. Duplicate check names collapse to the worst bucket.
+# gh pr checks buckets, worst first. Duplicate names (push and pull_request runs
+# of one job) collapse to the worst bucket.
 RANK = {"fail": 4, "cancel": 3, "pending": 2, "pass": 1, "skipping": 0}
 PR_URL = re.compile(r"https?://([^/\s]+)/([\w.-]+/[\w.-]+)/pull/(\d+)(?:[/?#]\S*)?")
 
@@ -268,10 +269,8 @@ class Watcher:
         self.events = 0
         self.required: set[str] | None = None
         self.required_base: str | None = None
-        self.prev_snapshot: (
-            tuple[str, str, str | None, list[tuple[str, str]]] | None
-        ) = None
-        self.empty_gate_since: tuple[str, str, float] | None = None
+        self.prev_snapshot: tuple[str, list[tuple[str, str]]] | None = None
+        self.empty_gate_since: tuple[str, float] | None = None
         self.pr_files: dict[str, set[str]] = {}
 
     def load(self) -> Json | None:
@@ -318,86 +317,19 @@ class Watcher:
         pr["viewer"] = data["viewer"]["login"]
         return pr
 
-    def fetch_checks(self, head: str) -> dict[str, Json]:
-        # Pin both APIs to the captured commit. A PR-number query can switch
-        # heads between the PR read and the checks read. Slurp retains all pages.
-        prefix = f"repos/{self.repo}/commits/{head}"
-        runs = json.loads(
-            gh(
-                [
-                    "api",
-                    "--hostname",
-                    self.host,
-                    f"{prefix}/check-runs?filter=latest&per_page=100",
-                    "--paginate",
-                    "--slurp",
-                ]
-            ).stdout
-        )
-        statuses = json.loads(
-            gh(
-                [
-                    "api",
-                    "--hostname",
-                    self.host,
-                    f"{prefix}/statuses?per_page=100",
-                    "--paginate",
-                    "--slurp",
-                ]
-            ).stdout
-        )
+    def fetch_checks(self) -> dict[str, Json]:
+        # gh pr checks exits 8 while checks are pending and 1 when one failed.
+        # Those are states, not errors: read the JSON and ignore the exit code.
+        proc = gh(["pr", "checks", str(self.pr), "-R", f"{self.host}/{self.repo}", "--json", "name,bucket,link,description"], allow=(0, 1, 8))
+        if not proc.stdout.strip():
+            if "no checks reported" in proc.stderr:
+                return {}
+            raise GhError(proc.stderr.strip() or f"gh pr checks exited {proc.returncode}", False)
         checks: dict[str, Json] = {}
-
-        def include(row: Json) -> None:
+        for row in json.loads(proc.stdout):
             current = checks.get(row["name"])
-            if current is None or RANK.get(row["bucket"], 2) > RANK.get(
-                current["bucket"], 2
-            ):
+            if current is None or RANK.get(row["bucket"], 2) > RANK.get(current["bucket"], 2):
                 checks[row["name"]] = row
-
-        for page in runs:
-            for run in page["check_runs"]:
-                conclusion = run["conclusion"] if run["status"] == "completed" else None
-                bucket = {
-                    "success": "pass",
-                    "neutral": "skipping",
-                    "skipped": "skipping",
-                    "failure": "fail",
-                    "timed_out": "fail",
-                    "action_required": "fail",
-                    "stale": "fail",
-                    "startup_failure": "fail",
-                    "cancelled": "cancel",
-                }.get(conclusion, "pending")
-                include(
-                    {
-                        "name": run["name"],
-                        "bucket": bucket,
-                        "link": run["html_url"],
-                        "description": (run.get("output") or {}).get("title") or "",
-                    }
-                )
-        # Legacy statuses are newest first, including superseded results for
-        # the same context. Only its first result describes the current status.
-        seen: set[str] = set()
-        for page in statuses:
-            for status in page:
-                name = status["context"]
-                if name in seen:
-                    continue
-                seen.add(name)
-                include(
-                    {
-                        "name": name,
-                        "bucket": {
-                            "success": "pass",
-                            "error": "fail",
-                            "failure": "fail",
-                        }.get(status["state"], "pending"),
-                        "link": status["target_url"] or "",
-                        "description": status["description"] or "",
-                    }
-                )
         return checks
 
     def base_overlap(self, head: str, old: str, new: str) -> list[str]:
@@ -429,7 +361,6 @@ class Watcher:
             self.finish(1, [f"closed without merging: {pr['url']}"])
 
         base = pr["baseRefName"]
-        base_oid = ((pr.get("baseRef") or {}).get("target") or {}).get("oid")
         if self.required_base != base:
             self.required = None
             self.prev_snapshot = None
@@ -439,8 +370,8 @@ class Watcher:
             self.required_base = base
             gate = ", ".join(sorted(self.required)) or "none set, so every CI check gates"
             log(f"watching {self.host}/{self.repo}#{self.pr} until {self.until}; required checks: {gate}")
+        checks = self.fetch_checks()
         head = pr["headRefOid"]
-        checks = self.fetch_checks(head)
         short = head[:7]
         mine = {who(pr)[0], pr["viewer"]}
         comments = pr["comments"]["nodes"]
@@ -466,24 +397,16 @@ class Watcher:
         no_ci = False
         if not gate:
             now = time.monotonic()
-            if self.empty_gate_since is None or self.empty_gate_since[:2] != (
-                head,
-                base,
-            ):
-                self.empty_gate_since = (head, base, now)
-            no_ci = now - self.empty_gate_since[2] >= CHECK_REGISTRATION_GRACE_SECONDS
+            if self.empty_gate_since is None or self.empty_gate_since[0] != head:
+                self.empty_gate_since = (head, now)
+            no_ci = now - self.empty_gate_since[1] >= CHECK_REGISTRATION_GRACE_SECONDS
         else:
             self.empty_gate_since = None
         gate_done = (bool(gate) or no_ci) and all(bucket(n) != "pending" for n in gate)
         all_done = gate_done and all(c["bucket"] != "pending" for c in watched.values())
         # Checks appear a few seconds after a push. Two identical polls in a row
         # guard against calling a half-registered set of checks finished.
-        snapshot = (
-            head,
-            base,
-            base_oid,
-            sorted((name, c["bucket"]) for name, c in watched.items()),
-        )
+        snapshot = (head, sorted((name, c["bucket"]) for name, c in watched.items()))
         stable = snapshot == self.prev_snapshot
         self.prev_snapshot = snapshot
         green = gate_done and stable and not fail_lines
@@ -527,9 +450,12 @@ class Watcher:
                 and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
                 for r in own_reviews
             )
-            # A queued, failed, or historical summary may mention this commit.
-            # Only a submitted review or successful check proves completion.
+            # A commit mention alone may only acknowledge a queued review.
             reviewed_head = on_head
+            for summary in summaries:
+                match = re.search(r"\bLast reviewed commit:\s*[`\[]?([0-9a-f]{7,40})\b", plain(summary["body"]), re.IGNORECASE)
+                if match and head.startswith(match[1].lower()):
+                    reviewed_head = True
             if own_checks:
                 done = all(c["bucket"] != "pending" for c in own_checks.values())
                 reviewed_head = reviewed_head or all(c["bucket"] == "pass" for c in own_checks.values())
@@ -562,6 +488,7 @@ class Watcher:
                         self.emit(f"summary:{s['id']}:{new}", f"{bot} summary changed on {short}: {text} {s['url']}")
 
         # Base branch and merge state.
+        base_oid = ((pr.get("baseRef") or {}).get("target") or {}).get("oid")
         old_base = self.state["base_oid"]
         if base_oid and old_base and base_oid != old_base and not self.baseline:
             touched = self.base_overlap(head, old_base, base_oid)
@@ -610,8 +537,8 @@ class Watcher:
                     "state",
                     "headRefOid",
                     "baseRefName",
-                    "baseRef",
                     "mergeStateStatus",
+                    "comments",
                     "reviews",
                     "reviewThreads",
                 )

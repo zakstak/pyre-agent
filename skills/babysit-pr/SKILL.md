@@ -66,11 +66,12 @@ before treating CI as green. Protection lookup failures block readiness;
 transient failures retry. Canceled or skipped bot runs alone do not establish a
 completed review.
 
-The helper reads check runs and legacy statuses for the captured commit, reloads
-requirements when the base branch changes, and confirms the head, base, and
-review state before reporting readiness. Review completion requires a submitted
-current-head review or a successful bot check. A summary mentioning a commit,
-including a queued-review acknowledgement, does not establish completion.
+The helper reloads requirements when the PR changes base branch and rechecks the
+head, base branch name, merge state, reviews, and threads before readiness.
+Review completion requires a submitted current-head review, a successful bot
+check, or a summary whose `Last reviewed commit` field identifies the head. A
+bare commit mention, including a queued-review acknowledgement, does not prove
+completion.
 
 It prints one line per real event. It exits 0 when the `--until` condition is
 met or the PR merges, 1 when it needs you, and 2 on bad input. Required check
