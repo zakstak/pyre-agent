@@ -1,6 +1,7 @@
 """Exercise the bundled watcher offline, with disposable event state."""
 
 import contextlib
+import copy
 import importlib.machinery
 import importlib.util
 import io
@@ -169,6 +170,125 @@ class WatcherTests(unittest.TestCase):
         watcher.poll()
         self.reviewed()
         self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_commit_mention_in_a_queued_summary_is_not_review_completion(self):
+        head = self.pr["headRefOid"]
+        for body in [
+            f"Review queued for {head[:7]}. Analysis has not started.",
+            f"Review queued for {head}. Analysis has not started.",
+            f"Confidence score: 5/5\nLast reviewed commit: bbbbbbb\nQueued for {head}",
+        ]:
+            with self.subTest(body=body):
+                self.pr["comments"]["nodes"] = [
+                    comment("queued", "greptile[bot]", body)
+                ]
+                watcher = self.watcher()
+                watcher.poll()
+                watcher.poll()
+                self.assertNotIn("ready on", self.output.getvalue())
+
+    def test_completed_summary_can_satisfy_ready_without_a_check_or_review(self):
+        head = self.pr["headRefOid"]
+        for commit in [
+            head[:7],
+            f"`{head}`",
+            f"[{head[:7]}](https://example.com/commit)",
+        ]:
+            with self.subTest(commit=commit):
+                self.pr["comments"]["nodes"] = [
+                    comment(
+                        "completed",
+                        "greptile[bot]",
+                        f"Confidence score: 5/5\n<sub>Last reviewed commit: {commit}</sub>",
+                    )
+                ]
+                watcher = self.watcher()
+                watcher.poll()
+                self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_advancing_base_does_not_hold_stable_head_checks(self):
+        self.reviewed()
+        for until in ["green", "ready"]:
+            with self.subTest(until=until):
+                watcher = self.watcher(until)
+                watcher.base_overlap = Mock(return_value=[])
+                watcher.poll()
+                self.pr["baseRef"]["target"]["oid"] = "d" * 40
+                captured = copy.deepcopy(self.pr)
+                self.pr["baseRef"]["target"]["oid"] = "e" * 40
+                watcher.fetch_pr.side_effect = [captured, self.pr]
+                self.assert_exit(watcher, 0, f"{until} on aaaaaaa")
+
+    def test_retargeting_reloads_requirements_before_reporting_ready(self):
+        self.reviewed()
+        with patch.object(
+            PR_WAIT, "required_checks", side_effect=[{"test"}, {"release-validation"}]
+        ) as discover:
+            watcher = self.watcher()
+            watcher.poll()
+            self.pr["baseRefName"] = "release"
+            self.pr["baseRef"]["target"]["oid"] = "d" * 40
+            watcher.base_overlap = Mock(return_value=[])
+            watcher.poll()
+            watcher.poll()
+            discover.assert_called_with("github.com", "example/project", "release")
+            self.assertNotIn("ready on", self.output.getvalue())
+            self.checks["release-validation"] = check("release-validation")
+            watcher.poll()
+            self.assert_exit(watcher, 0, "ready on aaaaaaa")
+
+    def test_push_between_pr_and_check_reads_does_not_return_stale_readiness(self):
+        for until in ["green", "ready"]:
+            with self.subTest(until=until):
+                self.pr["headRefOid"] = "a" * 40
+                self.reviewed()
+                watcher = self.watcher(until)
+                watcher.poll()
+                captured = copy.deepcopy(self.pr)
+                self.pr["headRefOid"] = "c" * 40
+                watcher.fetch_pr.side_effect = [captured, self.pr]
+                watcher.poll()
+                watcher.fetch_pr.side_effect = None
+                self.reviewed()
+                watcher.poll()
+                self.assert_exit(watcher, 0, f"{until} on ccccccc")
+
+    def test_base_or_review_changes_before_ready_are_reassessed(self):
+        for change in ["base", "review", "summary", "thread"]:
+            with self.subTest(change=change):
+                self.reviewed()
+                watcher = self.watcher()
+                watcher.base_overlap = Mock(return_value=[])
+                if change == "summary":
+                    self.pr["reviews"]["nodes"] = []
+                    self.pr["comments"]["nodes"] = [
+                        comment(
+                            "summary", "greptile[bot]", "Last reviewed commit: aaaaaaa"
+                        )
+                    ]
+                watcher.poll()
+                captured = copy.deepcopy(self.pr)
+                if change == "base":
+                    self.pr["baseRefName"] = "release"
+                    self.pr["baseRef"]["target"]["oid"] = "d" * 40
+                elif change == "review":
+                    self.pr["reviews"]["nodes"][0]["state"] = "DISMISSED"
+                elif change == "summary":
+                    self.pr["comments"]["nodes"][0]["body"] = (
+                        "Review queued for aaaaaaa"
+                    )
+                else:
+                    self.pr["reviewThreads"]["nodes"] = [
+                        {
+                            "isResolved": False,
+                            "path": "app.py",
+                            "line": 4,
+                            "comments": {"nodes": [comment("late-finding")]},
+                        }
+                    ]
+                watcher.fetch_pr.side_effect = [captured, self.pr]
+                watcher.poll()
+                self.assertNotIn("ready on", self.output.getvalue())
 
     def test_new_head_needs_its_own_stable_check_snapshots(self):
         with patch.object(PR_WAIT, "required_checks", return_value=set()):

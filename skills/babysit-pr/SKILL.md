@@ -4,7 +4,7 @@ description:
   Use when the user asks to monitor, watch, or babysit a pull request through
   review and CI.
 metadata:
-  version: "1.0.3"
+  version: "1.0.4"
 ---
 
 # Babysit PR
@@ -65,6 +65,13 @@ With no required or CI checks, the helper waits 60 seconds on the same head
 before treating CI as green. Protection lookup failures block readiness;
 transient failures retry. Canceled or skipped bot runs alone do not establish a
 completed review.
+
+The helper reloads requirements when the PR changes base branch and rechecks the
+head, base branch name, merge state, reviews, and threads before readiness.
+Review completion requires a submitted current-head review, a successful bot
+check, or a summary whose `Last reviewed commit` field identifies the head. A
+bare commit mention, including a queued-review acknowledgement, does not prove
+completion.
 
 It prints one line per real event. It exits 0 when the `--until` condition is
 met or the PR merges, 1 when it needs you, and 2 on bad input. Required check
@@ -157,5 +164,6 @@ The bundled helper is adapted from
 [tstack at revision 1085050f3baed1ac724caa4a8166145fb2ac88af](https://github.com/t3dotgg/tstack/blob/1085050f3baed1ac724caa4a8166145fb2ac88af/skills/babysit-pr/scripts/pr-wait).
 Local changes add host resolution and separate watcher state and locks by host.
 Readiness fixes cover unsuccessful reviews, empty CI sets, head changes, and
-protection lookup failures. Copyright (c) 2026 Theo Browne. See the project's
+protection lookup failures, including base retargeting and changes during a
+readiness check. Copyright (c) 2026 Theo Browne. See the project's
 [MIT license](../../LICENSE) and [credits](../../README.md#license-and-credits).

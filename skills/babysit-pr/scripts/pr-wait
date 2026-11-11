@@ -268,6 +268,7 @@ class Watcher:
         self.printed: set[str] = set()
         self.events = 0
         self.required: set[str] | None = None
+        self.required_base: str | None = None
         self.prev_snapshot: tuple[str, list[tuple[str, str]]] | None = None
         self.empty_gate_since: tuple[str, float] | None = None
         self.pr_files: dict[str, set[str]] = {}
@@ -360,8 +361,13 @@ class Watcher:
             self.finish(1, [f"closed without merging: {pr['url']}"])
 
         base = pr["baseRefName"]
+        if self.required_base != base:
+            self.required = None
+            self.prev_snapshot = None
+            self.empty_gate_since = None
         if self.required is None:
             self.required = required_checks(self.host, self.repo, base)
+            self.required_base = base
             gate = ", ".join(sorted(self.required)) or "none set, so every CI check gates"
             log(f"watching {self.host}/{self.repo}#{self.pr} until {self.until}; required checks: {gate}")
         checks = self.fetch_checks()
@@ -444,7 +450,12 @@ class Watcher:
                 and r["state"] in ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
                 for r in own_reviews
             )
-            reviewed_head = on_head or any(short in s["body"] for s in summaries)
+            # A commit mention alone may only acknowledge a queued review.
+            reviewed_head = on_head
+            for summary in summaries:
+                match = re.search(r"\bLast reviewed commit:\s*[`\[]?([0-9a-f]{7,40})\b", plain(summary["body"]), re.IGNORECASE)
+                if match and head.startswith(match[1].lower()):
+                    reviewed_head = True
             if own_checks:
                 done = all(c["bucket"] != "pending" for c in own_checks.values())
                 reviewed_head = reviewed_head or all(c["bucket"] == "pass" for c in own_checks.values())
@@ -520,6 +531,21 @@ class Watcher:
         # Decide whether to stop. A green or ready line carries the same summary
         # as the checks line, so it marks that event as reported.
         if self.until != "any-change":
+            if green and (self.until == "green" or reviewed):
+                current = self.fetch_pr()
+                fields = (
+                    "state",
+                    "headRefOid",
+                    "baseRefName",
+                    "mergeStateStatus",
+                    "comments",
+                    "reviews",
+                    "reviewThreads",
+                )
+                if any(current.get(field) != pr.get(field) for field in fields):
+                    self.prev_snapshot = None
+                    self.empty_gate_since = None
+                    return
             if merge_state == "DIRTY":
                 self.finish(1, [dirty_line])
             if fail_lines:

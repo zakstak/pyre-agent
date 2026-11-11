@@ -25,3 +25,5 @@ jobs:
           python3 tests/check_skill_shape.py
       - name: Check the native plugin package
         run: python3 -m unittest tests/test_plugins.py tests/test_skill_package.py
+      - name: Test the PR watcher offline
+        run: python3 -m unittest tests/test_pr_wait.py
