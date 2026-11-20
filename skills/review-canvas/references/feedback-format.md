@@ -29,8 +29,8 @@ rounds. An approval a fresh start carried from an earlier review names it in
 ## Threads
 
 Each thread holds `id`, `label`, and `host` (`kind` of `claude-code`, `codex`,
-or `t3`, with an optional `session_id`). Tokens never appear. Every agent reply
-names its thread.
+`t3`, or `antigravity`, with an optional `session_id`). Tokens never appear.
+Every agent reply names its thread.
 
 ## Comments
 

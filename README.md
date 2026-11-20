@@ -1,6 +1,6 @@
 # Pyre Agent
 
-Engineering skills and review tools for Codex and Claude Code.
+Engineering skills and review tools for Codex, Claude Code, and Antigravity.
 
 - Code guidance for debugging, TypeScript, boundary validation, and API
   migrations.
@@ -47,17 +47,25 @@ claude plugin marketplace add https://github.com/zakstak/pyre-agent.git
 claude plugin install pyre-agent@pyre-agent-local
 ```
 
+### Antigravity
+
+```sh
+agy plugin install https://github.com/zakstak/pyre-agent
+```
+
 </details>
 
-Both hosts use the bundled catalog, `pyre-agent-local`. For managed
-installations or checkout testing, see
-[installation verification](docs/verify-install.md).
+Codex and Claude Code use the bundled catalog, `pyre-agent-local`; Antigravity
+installs directly from the repository or a local checkout via
+`.antigravity-plugin/plugin.json`. For managed installations or checkout
+testing, see [installation verification](docs/verify-install.md).
 
 ## Use
 
-Invoke a skill by name, for example `/pyre-agent:unslop` in Claude Code or
-`$pyre-agent:unslop` in Codex. Skills marked "Invoke only by name" require an
-explicit request; other skills describe when they apply in their `SKILL.md`.
+Invoke a skill by name, for example `/pyre-agent:unslop` in Claude Code,
+`$pyre-agent:unslop` in Codex, or `/unslop` in Antigravity. Skills marked
+"Invoke only by name" require an explicit request; other skills describe when
+they apply in their `SKILL.md`.
 
 The review canvas needs Node 26 and pnpm and builds on first use. See its
 [package README](packages/review-canvas/README.md) for setup and supported Git

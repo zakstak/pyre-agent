@@ -2,10 +2,10 @@
 name: setup
 description:
   "Use when the user asks to install, update, or migrate Pyre Agent and selected
-  extras in Codex or Claude Code. Perform native setup and verification, then
-  hand hook acceptance to the user."
+  extras in Codex, Claude Code, or Antigravity. Perform native setup and
+  verification, then hand hook acceptance to the user."
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Set up Pyre Agent
@@ -20,10 +20,11 @@ the plugin yet.
 
 Identify the current machine, host CLI, and active configuration profile. Use
 the host the user selected, or the current agent's host when unspecified. Set up
-both hosts when requested. Resolve plugin sources and refs from the request or
-existing installation configuration. Core defaults to
+multiple hosts when requested. Resolve plugin sources and refs from the request
+or existing installation configuration. Core defaults to
 `https://github.com/zakstak/pyre-agent.git`, catalog `pyre-agent-local`, plugin
-`pyre-agent`.
+`pyre-agent` in Codex and Claude Code, and installs directly from
+`https://github.com/zakstak/pyre-agent` in Antigravity.
 
 Inspect the selected host's marketplace and plugin inventories before making
 changes:
@@ -36,6 +37,10 @@ codex plugin list --json
 ```sh
 claude plugin marketplace list --json
 claude plugin list --json
+```
+
+```sh
+agy plugin list --json
 ```
 
 Run only the commands for selected hosts. Reuse a correct registration and
@@ -62,12 +67,18 @@ claude plugin marketplace add https://github.com/zakstak/pyre-agent.git
 claude plugin install pyre-agent@pyre-agent-local
 ```
 
+```sh
+agy plugin install https://github.com/zakstak/pyre-agent
+```
+
 Use the requested source, ref, and catalog identity for managed or checkout
-installs. For existing sources, use the host's native refresh and update
-commands; check its help rather than removing a source to force a refresh.
-Register and install selected extras separately using their actual catalogs.
-Keep each plugin installed from one catalog. Remove a superseded copy only as
-part of the requested migration, preserving plugin data.
+installs. For existing sources in Codex and Claude Code, use the host's native
+refresh and update commands; check its help rather than removing a source to
+force a refresh. In Antigravity, re-run `agy plugin install <source>` to replace
+an existing installation in place. Register and install selected extras
+separately using their actual catalogs or, in Antigravity, their source URL or
+local plugin directory. Keep each plugin installed from one catalog. Remove a
+superseded copy only as part of the requested migration, preserving plugin data.
 
 Inspect inventories again. Confirm the source, revision, version, enabled state,
 and discoverable skills. Core contains no startup hook or personal context;
