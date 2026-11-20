@@ -14,7 +14,8 @@ from pathlib import Path
 from tests.check_skill_package import package_errors
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN_ID = "pyre-agent@pyre-agent-local"
+TEST_MARKETPLACE = "pyre-agent-test"
+TEST_PLUGIN_ID = f"pyre-agent@{TEST_MARKETPLACE}"
 
 
 def read_json(path):
@@ -71,13 +72,29 @@ class PackageTests(unittest.TestCase):
         )
         manifests = [
             read_json(ROOT / f".{host}-plugin/plugin.json")
-            for host in ("codex", "claude")
+            for host in ("codex", "claude", "antigravity")
         ]
-        self.assertEqual(manifests[0]["name"], manifests[1]["name"])
-        self.assertEqual(manifests[0]["version"], manifests[1]["version"])
-        self.assertFalse((ROOT / "hooks").exists())
-        self.assertFalse((ROOT / "context").exists())
-        self.assertFalse((ROOT / "plugins").exists())
+        for field in ("name", "version", "license"):
+            self.assertEqual(
+                {manifest[field] for manifest in manifests},
+                {manifests[0][field]},
+                field,
+            )
+        antigravity = manifests[2]
+        self.assertTrue(antigravity.get("displayName"))
+        self.assertTrue(antigravity.get("description"))
+        self.assertTrue(antigravity.get("author"))
+        self.assertFalse(antigravity.get("disabled", False))
+        for forbidden in (
+            "hooks",
+            "context",
+            "plugins",
+            "rules",
+            "agents",
+            "hooks.json",
+            "mcp_config.json",
+        ):
+            self.assertFalse((ROOT / forbidden).exists(), forbidden)
         self.assertEqual([p["name"] for p in codex["plugins"]], ["pyre-agent"])
 
 
@@ -102,6 +119,16 @@ class NativePluginTests(unittest.TestCase):
                 ".git", "__pycache__", "*.pyc", "node_modules", "dist"
             ),
         )
+        # Use an isolated catalog name in the disposable copy so machine-wide
+        # Claude managed settings for pyre-agent-local do not reject self.repo.
+        for relative in (
+            ".agents/plugins/marketplace.json",
+            ".claude-plugin/marketplace.json",
+        ):
+            catalog_path = self.repo / relative
+            catalog = read_json(catalog_path)
+            catalog["name"] = TEST_MARKETPLACE
+            catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
         self.codex = self.base / "codex"
         self.claude = self.base / "claude"
         self.codex.mkdir()
@@ -195,7 +222,7 @@ class NativePluginTests(unittest.TestCase):
     def test_hosts_install_discover_refresh_and_remove_the_plugin(self):
         self.run_cli("codex", "plugin", "marketplace", "add", str(self.repo), "--json")
         installed = json.loads(
-            self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json")
+            self.run_cli("codex", "plugin", "add", TEST_PLUGIN_ID, "--json")
         )
         installed_path = Path(installed["installedPath"])
         self.assertTrue(installed_path.is_relative_to(self.codex))
@@ -203,7 +230,7 @@ class NativePluginTests(unittest.TestCase):
         self.assert_skill_package(installed_path)
         inventory = json.loads(
             self.run_cli(
-                "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
+                "codex", "plugin", "list", "--marketplace", TEST_MARKETPLACE, "--json"
             )
         )
         self.assertTrue(inventory["installed"][0]["enabled"])
@@ -225,18 +252,18 @@ class NativePluginTests(unittest.TestCase):
                 hook
                 for entry in hooks["data"]
                 for hook in entry["hooks"]
-                if hook.get("pluginId") == PLUGIN_ID
+                if hook.get("pluginId") == TEST_PLUGIN_ID
             ]
         )
         self.run_cli("claude", "plugin", "marketplace", "add", str(self.repo))
-        self.run_cli("claude", "plugin", "install", PLUGIN_ID, "--json")
+        self.run_cli("claude", "plugin", "install", TEST_PLUGIN_ID, "--json")
         (claude_install,) = read_json(self.claude / "plugins/installed_plugins.json")[
             "plugins"
-        ][PLUGIN_ID]
+        ][TEST_PLUGIN_ID]
         claude_installed_path = Path(claude_install["installPath"])
         self.assertTrue(claude_installed_path.is_relative_to(self.claude))
         self.assert_skill_package(claude_installed_path)
-        inventory = self.run_cli("claude", "plugin", "details", "pyre-agent")
+        inventory = self.run_cli("claude", "plugin", "details", TEST_PLUGIN_ID)
         for path in self.repo.glob("skills/*/SKILL.md"):
             self.assertIn(path.parent.name, inventory)
         self.assertIn("Hooks (0)", inventory)
@@ -244,10 +271,11 @@ class NativePluginTests(unittest.TestCase):
         updated = readme.read_text() + "\nUpdated local package.\n"
         readme.write_text(updated)
         self.assertNotEqual((installed_path / "README.md").read_text(), updated)
-        self.run_cli("codex", "plugin", "add", PLUGIN_ID, "--json")
+        self.run_cli("codex", "plugin", "add", TEST_PLUGIN_ID, "--json")
         self.assertEqual((installed_path / "README.md").read_text(), updated)
         self.assertIn(
-            "nothing to update", self.run_cli("claude", "plugin", "update", PLUGIN_ID)
+            "nothing to update",
+            self.run_cli("claude", "plugin", "update", TEST_PLUGIN_ID),
         )
 
         for config, instructions in (
@@ -257,18 +285,143 @@ class NativePluginTests(unittest.TestCase):
             self.assertFalse((config / instructions).exists())
             for name in actual:
                 self.assertFalse((config / "skills" / name.split(":", 1)[1]).exists())
-        self.run_cli("codex", "plugin", "remove", PLUGIN_ID, "--json")
-        self.run_cli("claude", "plugin", "uninstall", PLUGIN_ID)
+        self.run_cli("codex", "plugin", "remove", TEST_PLUGIN_ID, "--json")
+        self.run_cli("claude", "plugin", "uninstall", TEST_PLUGIN_ID)
         inventory = json.loads(
             self.run_cli(
-                "codex", "plugin", "list", "--marketplace", "pyre-agent-local", "--json"
+                "codex", "plugin", "list", "--marketplace", TEST_MARKETPLACE, "--json"
             )
         )
         self.assertFalse(inventory["installed"])
         self.assertNotIn(
-            PLUGIN_ID,
+            TEST_PLUGIN_ID,
             read_json(self.claude / "plugins/installed_plugins.json")["plugins"],
         )
+
+
+@unittest.skipUnless(
+    shutil.which("agy"),
+    "Native integration requires Antigravity CLI",
+)
+class NativeAntigravityPluginTests(unittest.TestCase):
+    def setUp(self):
+        self.agy = native_cli("agy", "HOME")
+        self.temp = tempfile.TemporaryDirectory(prefix="pyre-plugin-agy-")
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.repo = self.base / "marketplace with spaces"
+        shutil.copytree(
+            ROOT,
+            self.repo,
+            ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", "*.pyc", "node_modules", "dist"
+            ),
+        )
+        self.env = dict(
+            os.environ,
+            HOME=str(self.base),
+            XDG_CONFIG_HOME=str(self.base / "xdg"),
+        )
+
+    def run_agy(self, *args):
+        result = subprocess.run(
+            (self.agy, *args),
+            check=False,
+            cwd=self.base,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout
+
+    def assert_skill_package(self, installed_path):
+        self.assertEqual(package_errors(installed_path), [])
+        for forbidden in (
+            "hooks",
+            "context",
+            "plugins",
+            "rules",
+            "agents",
+            "hooks.json",
+            "mcp_config.json",
+        ):
+            self.assertFalse((installed_path / forbidden).exists(), forbidden)
+        for name in ("LICENSE", "README.md"):
+            self.assertEqual(
+                (installed_path / name).read_bytes(), (self.repo / name).read_bytes()
+            )
+
+    def test_antigravity_validates_installs_refreshes_and_removes_the_plugin(self):
+        manifest = read_json(self.repo / ".antigravity-plugin/plugin.json")
+        shared = {path.parent.name for path in self.repo.glob("skills/*/SKILL.md")}
+
+        report = json.loads(
+            self.run_agy("plugin", "validate", "--json", str(self.repo))
+        )
+        self.assertEqual(report["manifest"], ".antigravity-plugin/plugin.json")
+        self.assertEqual(report["name"], manifest["name"])
+        self.assertEqual(
+            report["components"],
+            {
+                "agents": 0,
+                "hooks": 0,
+                "mcpServers": 0,
+                "rules": 0,
+                "sidecars": 0,
+                "skills": len(shared),
+            },
+        )
+        unexpected_findings = [
+            finding
+            for finding in report.get("findings", [])
+            if finding.get("severity") == "error"
+            or (
+                finding.get("severity") == "warning"
+                and finding.get("file") != "AGENTS.md"
+            )
+        ]
+        self.assertEqual(unexpected_findings, [])
+
+        self.run_agy("plugin", "install", str(self.repo))
+        config_dir = self.base / ".gemini/config"
+        installed_path = config_dir / "plugins" / manifest["name"]
+        self.assertTrue(installed_path.is_dir())
+        self.assertNotEqual(installed_path, self.repo)
+        self.assert_skill_package(installed_path)
+
+        (entry,) = json.loads(self.run_agy("plugin", "list", "--json"))
+        self.assertEqual(entry["name"], manifest["name"])
+        self.assertTrue(entry["enabled"])
+        self.assertEqual(entry["version"], manifest["version"])
+        self.assertEqual(Path(entry["path"]), installed_path)
+        self.assertEqual(set(entry["skills"]), shared)
+        for absent in ("hooks", "rules", "agents", "mcpServers"):
+            self.assertFalse(entry.get(absent), absent)
+
+        readme = self.repo / "README.md"
+        updated = readme.read_text() + "\nUpdated local package.\n"
+        readme.write_text(updated)
+        self.assertNotEqual((installed_path / "README.md").read_text(), updated)
+        self.run_agy("plugin", "install", str(self.repo))
+        self.assertEqual((installed_path / "README.md").read_text(), updated)
+
+        self.run_agy("plugin", "disable", manifest["name"])
+        (disabled_entry,) = json.loads(self.run_agy("plugin", "list", "--json"))
+        self.assertFalse(disabled_entry["enabled"])
+        self.run_agy("plugin", "enable", manifest["name"])
+        (enabled_entry,) = json.loads(self.run_agy("plugin", "list", "--json"))
+        self.assertTrue(enabled_entry["enabled"])
+
+        for instructions in ("AGENTS.md", "GEMINI.md"):
+            self.assertFalse((config_dir / instructions).exists())
+        for name in shared:
+            self.assertFalse((config_dir / "skills" / name).exists())
+
+        self.run_agy("plugin", "uninstall", manifest["name"])
+        self.assertEqual(json.loads(self.run_agy("plugin", "list", "--json")), [])
+        self.assertFalse(installed_path.exists())
 
 
 if __name__ == "__main__":

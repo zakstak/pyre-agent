@@ -258,7 +258,7 @@ const patchOf = (path: string): string =>
 
 const STORE = Schema.decodeSync(RepoPath)("src/notes/store.py");
 
-for (const kind of ["claude-code", "codex", "t3"] as const) {
+for (const kind of ["claude-code", "codex", "t3", "antigravity"] as const) {
   test(`${kind}: an agent registers, publishes, and answers; a page comments, submits, and exports`, () =>
     withServers(async (agent, pages) => {
       const registered = await call(agent, "POST", "/agent/register", {

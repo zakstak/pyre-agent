@@ -6,12 +6,15 @@ private source URLs on the machine or in its managed deployment configuration.
 
 ## Check the package in temporary profiles
 
-Both `codex` and `claude` must be on `PATH` for native tests to run, even when
-the variables below select different binaries. Otherwise those tests skip.
+Both `codex` and `claude` must be on `PATH` for the Codex and Claude native
+tests to run, and `agy` must be on `PATH` for the Antigravity native tests, even
+when the variables below select different binaries. Otherwise the corresponding
+tests skip.
 
 ```sh
 PYRE_TEST_CODEX_BIN=/path/to/native/codex \
 PYRE_TEST_CLAUDE_BIN=/path/to/native/claude \
+PYRE_TEST_AGY_BIN=/path/to/native/agy \
 python3 -m unittest tests/test_plugins.py tests/test_skill_versions.py tests/test_skill_package.py
 ```
 
@@ -21,10 +24,10 @@ check refresh behavior, and remove the plugin. They do not copy credentials or
 perform model inference. Temporary profiles isolate host configuration, but are
 not an operating-system sandbox.
 
-Both installed copies must retain local instruction references, companion
-skills, and the source LICENSE and README. They must contain no personal
-context, startup hooks, or nested personal plugins. Check an assembled package
-without either host:
+Every installed copy must retain local instruction references, companion skills,
+and the source LICENSE and README. They must contain no personal context,
+startup hooks, or nested personal plugins. Check an assembled package without
+any host:
 
 ```sh
 python3 tests/check_skill_package.py /path/to/package
@@ -36,6 +39,17 @@ Validate the Claude manifest and catalog:
 claude plugin validate .claude-plugin/plugin.json --strict
 claude plugin validate .claude-plugin/marketplace.json --strict
 ```
+
+Validate the Antigravity manifest and components:
+
+```sh
+agy plugin validate .
+```
+
+In a multi-tool repository, `agy plugin validate` emits an expected warning for
+root `AGENTS.md` (contributor rules ignored by Antigravity plugins, which load
+rules only from `rules/`). Confirm zero errors and no other warnings via
+`agy plugin validate --json .`.
 
 ## Verify acquisition from GitHub
 
@@ -106,6 +120,7 @@ codex plugin marketplace list --json
 codex plugin list --json
 claude plugin marketplace list --json
 claude plugin list --json
+agy plugin list --json
 ```
 
 Back up the relevant registration files and plugin caches outside the source

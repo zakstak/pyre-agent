@@ -1,0 +1,12 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "pyre-agent",
+  "displayName": "Pyre Agent",
+  "version": "4.17.0",
+  "description": "Reusable engineering skills for Codex, Claude Code, and Antigravity.",
+  "author": {
+    "name": "Zak"
+  },
+  "repository": "https://github.com/zakstak/pyre-agent",
+  "license": "MIT"
+}

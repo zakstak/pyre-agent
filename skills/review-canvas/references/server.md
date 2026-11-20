@@ -23,7 +23,10 @@ starts a server. A starting server takes an exclusive lock on `server.lock` in
 the runtime folder and holds it while it runs; the operating system releases it
 when the process ends. Under the lock it removes a stale socket and binds a new
 one, so two starts never both bind, and a server that finds another one
-answering exits.
+answering exits. Older server builds reject threads registered with host kinds
+they do not recognize (such as `antigravity`); upgrade all installed copies
+sharing the default database together, or give staggered installs separate
+`REVIEW_CANVAS_DATA` and `REVIEW_CANVAS_RUNTIME` paths.
 
 Without `REVIEW_CANVAS_PORT`, a server asks for the page port in `port`, the one
 the last server listened on, and takes any free port when that one is busy. A

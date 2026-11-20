@@ -289,7 +289,10 @@ rounds. Earlier checkout acceptances are converted to repository identities.
 Missing accepted paths remain visible until they can be identified again. A
 comment an earlier page showed as pending stays pending until **Finish review**;
 every other comment counts as sent. Earlier server builds cannot read the
-upgraded database.
+upgraded database. Older builds also reject threads registered with host kinds
+they do not recognize (such as `antigravity`); upgrade every installed copy
+sharing `REVIEW_CANVAS_DATA` together, or give staggered installs separate
+`REVIEW_CANVAS_DATA` and `REVIEW_CANVAS_RUNTIME` paths.
 
 ## Layout
 

@@ -53,9 +53,10 @@ python3 tests/check_skill_package.py
 python3 -m unittest discover -s tests
 ```
 
-The version check includes uncommitted and untracked files. Native installation
-tests skip unless both `codex` and `claude` are on `PATH`. Check the skip count
-before treating a passing suite as installation verification. Follow
+The version check includes uncommitted and untracked files. Codex and Claude
+native installation tests skip unless both `codex` and `claude` are on `PATH`,
+and Antigravity native tests skip unless `agy` is on `PATH`. Check the skip
+count before treating a passing suite as installation verification. Follow
 [installation verification](docs/verify-install.md) for temporary profiles and
 native binary selection. Those profiles isolate host configuration, but are not
 an operating-system sandbox.
@@ -101,9 +102,9 @@ runs before commits and in CI.
 
 ## Plugin releases
 
-Match each plugin's name and release version across its Codex and Claude
-manifests. Raise the release version when its contents change. Skill changes
-also need the version increase described above.
+Match each plugin's name and release version across its Codex, Claude, and
+Antigravity manifests. Raise the release version when its contents change. Skill
+changes also need the version increase described above.
 
 The bundled catalogs select core from the same source tree. Managed catalogs can
 pin immutable source revisions; publish the source before updating those pins.

@@ -16,9 +16,10 @@ plugins. Keep personal skills, startup context, machine paths, private service
 addresses, and installation defaults out of core. Extract the reusable mechanism
 into core when useful, and keep its personal configuration in the plugin.
 
-Maintain personal plugins in a separate extras repository with native Codex and
-Claude manifests and catalogs. Do not fork core or copy its engineering skills
-into extras. Install core and the selected extras alongside each other.
+Maintain personal plugins in a separate extras repository with native Codex,
+Claude, and Antigravity manifests and catalogs. Do not fork core or copy its
+engineering skills into extras. Install core and the selected extras alongside
+each other.
 
 Personal context is maintained outside this repository. The bundled catalogs
 contain only core. Do not add personal packages or private extras repository
@@ -33,9 +34,9 @@ package completeness, and license requirements. Reuse the checkers in `tests/`.
 When distributing checkers to an extras repository, record their source revision
 and provide a command to refresh them without editing a second set of rules.
 
-Match each plugin's name and version across its Codex and Claude manifests.
-Raise its release version when its contents change. Raise a changed skill's
-`metadata.version` too, as described in the
+Match each plugin's name and version across its Codex, Claude, and Antigravity
+manifests. Raise its release version when its contents change. Raise a changed
+skill's `metadata.version` too, as described in the
 [contribution guide](CONTRIBUTING.md#skill-versions). Keep referenced resources
 inside the installed package. Use host-native plugins for installation and
 hooks, rather than writing global instruction files or copying skills into a

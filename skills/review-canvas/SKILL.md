@@ -6,7 +6,7 @@ description:
   work. The agent writes a tour and answers browser comments through a local
   server."
 metadata:
-  version: "5.5.1"
+  version: "5.6.0"
 ---
 
 # Review canvas
@@ -134,7 +134,7 @@ side of an added file.
 
 ```sh
 "$RC" publish --input "$SESSION/round-1.json" --analysis "$SESSION/analysis.json" --dry-run
-"$RC" register --session "$SESSION" --input "$SESSION/round-1.json" --label "Claude Code: short change title"
+"$RC" register --session "$SESSION" --input "$SESSION/round-1.json" --host HOST --label "Host: short change title"
 "$RC" publish --session "$SESSION" --input "$SESSION/round-1.json" --analysis "$SESSION/analysis.json"
 ```
 
@@ -150,10 +150,9 @@ not publish to try things.
 input's target, or starts a review when there is none, and writes
 `session.json`. Its URL shows a waiting page until the first round. Pass
 `--fresh` to start a new review of a target that already has one; the earlier
-review closes, and approvals that still match carry over. Pass `--host codex`
-for Codex or `--host t3` for T3 Code; `claude-code` is the default.
-`--session-id` takes the host's session ID only when the host gives it as such.
-The label is what the reviewer sees on every answer.
+review closes, and matching approvals carry over. `--host` takes `claude-code`
+(default), `codex`, `t3`, or `antigravity`. Pass `--session-id` only when the
+host gives its session ID. The label is what the reviewer sees on every answer.
 
 `publish` also imports comments from the target's pull request, or the open
 request of the working tree's branch. An explicit URL selects GitHub Enterprise,
