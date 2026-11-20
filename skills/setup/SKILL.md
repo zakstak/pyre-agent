@@ -74,16 +74,22 @@ agy plugin install https://github.com/zakstak/pyre-agent
 Use the requested source, ref, and catalog identity for managed or checkout
 installs. For existing sources in Codex and Claude Code, use the host's native
 refresh and update commands; check its help rather than removing a source to
-force a refresh. In Antigravity, re-run `agy plugin install <source>` to replace
-an existing installation in place. Register and install selected extras
+force a refresh. In Antigravity, `agy plugin list --json` reports only
+`"source": "antigravity"` without the source URL, path, or revision. Before
+replacing an existing Antigravity install with `agy plugin install <source>`,
+recover its original source and ref from reliable install metadata or deployment
+configuration; if provenance is unknown, ask the user for the original source
+instead of assuming the public default. Register and install selected extras
 separately using their actual catalogs or, in Antigravity, their source URL or
 local plugin directory. Keep each plugin installed from one catalog. Remove a
 superseded copy only as part of the requested migration, preserving plugin data.
 
 Inspect inventories again. Confirm the source, revision, version, enabled state,
-and discoverable skills. Core contains no startup hook or personal context;
-attribute optional hooks to the extras plugin that owns them. Report what the
-host inventory proves separately from hook execution and model behavior.
+and discoverable skills (in Antigravity, `agy plugin list --json` omits source
+URL and revision, so verify version, enabled state, skills, and the installed
+source). Core contains no startup hook or personal context; attribute optional
+hooks to the extras plugin that owns them. Report what the host inventory proves
+separately from hook execution and model behavior.
 
 For packaging experiments, follow
 [installation verification](../../docs/verify-install.md) with temporary

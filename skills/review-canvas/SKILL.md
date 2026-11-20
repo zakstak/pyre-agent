@@ -134,7 +134,7 @@ side of an added file.
 
 ```sh
 "$RC" publish --input "$SESSION/round-1.json" --analysis "$SESSION/analysis.json" --dry-run
-"$RC" register --session "$SESSION" --input "$SESSION/round-1.json" --label "Claude Code: short change title"
+"$RC" register --session "$SESSION" --input "$SESSION/round-1.json" --host HOST --label "Host: short change title"
 "$RC" publish --session "$SESSION" --input "$SESSION/round-1.json" --analysis "$SESSION/analysis.json"
 ```
 
