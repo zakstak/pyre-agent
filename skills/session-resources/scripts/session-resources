@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# The session-resources command, run from wherever this skill is installed.
+#
+# The command is the Rust crate in packages/session-resources of the repository this skill ships in. On first use, and
+# again when the crate's sources or lockfile differ from what its build was made from, this builds it with cargo. The
+# build records a hash of its inputs, so the check reads contents, never file times. It needs cargo, and network access
+# the first time to fetch the locked crates. Build output goes to stderr, so stdout stays the command's output.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package="${SESSION_RESOURCES_PACKAGE:-$here/../../../packages/session-resources}"
+if [[ ! -f "$package/Cargo.toml" ]]; then
+  printf 'session-resources: no crate at %s. Set SESSION_RESOURCES_PACKAGE to packages/session-resources.\n' \
+    "$package" >&2
+  exit 1
+fi
+package="$(cd "$package" && pwd)"
+# The crate is a member of the repository's Cargo workspace, whose root holds the lockfile.
+workspace="$(cd "$package/../.." && pwd)"
+target="$workspace/target"
+built="$target/release/session-resources"
+# The launcher runs its own copy, outside the folders `cargo clean` empties, and replaces it by rename. A launcher that
+# already decided to run it is never left without a file, even while another one rebuilds.
+binary="$target/launcher/session-resources"
+stamp_file="$target/launcher/.inputs.sha256"
+
+# A hash over the build inputs: the workspace manifest and lockfile, the whole crate (sources, page template, scripts,
+# and vendored uPlot), and the internal visual style sheets and fonts the page compiles in, by path and content.
+inputs_hash() {
+  (
+    cd "$workspace"
+    find Cargo.toml Cargo.lock packages/session-resources skills/internal-visual-style/assets/tokens.css \
+      skills/internal-visual-style/assets/components.css skills/internal-visual-style/assets/fonts -type f -print0 |
+      LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+  )
+}
+
+# Whether the binary is missing or was built from other inputs. Sets `current` to the inputs' hash.
+stale() {
+  current="$(inputs_hash)"
+  [[ ! -x "$binary" || "$(cat "$stamp_file" 2>/dev/null)" != "$current" ]]
+}
+
+if stale; then
+  if ! command -v cargo >/dev/null; then
+    printf 'session-resources: needs cargo (Rust 1.89 or newer) to build %s.\n' "$package" >&2
+    exit 1
+  fi
+  # One launcher builds at a time. The check, clean, build, and stamp run under one lock and the check repeats inside
+  # it, so a launcher never cleans the binary another has just built and is about to run.
+  mkdir -p "$target/launcher"
+  exec 9>"$target/launcher/.lock"
+  flock 9
+  if stale; then
+    printf 'session-resources: building %s\n' "$package" >&2
+    # cargo decides what to rebuild from file times, which can miss a content change that kept its time. The hash
+    # changed, so clear this crate's release output and build it again; dependencies stay built. Running from the
+    # workspace keeps a cargo config in the caller's folder out of the build.
+    (
+      cd "$workspace"
+      cargo clean --release --quiet -p session-resources --target-dir "$target" 2>/dev/null || true
+      cargo build --release --locked --quiet -p session-resources --target-dir "$target"
+    ) >&2
+    cp "$built" "$binary.new.$$"
+    mv -f "$binary.new.$$" "$binary"
+    printf '%s\n' "$current" >"$stamp_file"
+  fi
+  exec 9>&-
+fi
+
+exec "$binary" "$@"

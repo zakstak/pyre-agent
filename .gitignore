@@ -4,3 +4,4 @@ node_modules/
 packages/review-canvas/dist/
 .pytest_cache/
 .ruff_cache/
+/target/

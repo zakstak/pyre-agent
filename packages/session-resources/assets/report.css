@@ -1,0 +1,107 @@
+/* Report roles. Series hues are the dataviz categorical set in a validated order; greys are context. */
+:root {
+  --sr-s1: light-dark(#6250d6, #9085e9);
+  --sr-s2: light-dark(#eb6834, #d95926);
+  --sr-s3: light-dark(#1baf7a, #199e70);
+  --sr-s4: light-dark(#2a78d6, #3987e5);
+  --sr-s5: light-dark(#e87ba4, #d55181);
+  --sr-s6: light-dark(#eda100, #c98500);
+  --sr-ctx: var(--text-secondary);
+  --sr-grid: var(--separator);
+  --sr-band: light-dark(color-mix(in oklab, var(--sr-s1) 7%, var(--bg-page)), color-mix(in oklab, var(--sr-s1) 13%, var(--bg-page)));
+  --sr-track: light-dark(color-mix(in oklab, var(--sr-s1) 9%, var(--bg-page)), color-mix(in oklab, var(--sr-s1) 17%, var(--bg-page)));
+  --sr-hatch: color-mix(in oklab, var(--text-secondary) 45%, var(--bg-page));
+}
+.page { padding-block-start: var(--space-6); }
+.page > section { margin-block-start: var(--space-7); }
+h2 { margin-block-end: var(--space-3); }
+.n, td, .figs dd, .meter b { font-family: var(--font-technical); font-variant-numeric: tabular-nums; }
+.meta { margin-block-start: var(--space-1); color: var(--text-secondary); font-size: var(--size-small); }
+.st::before { content: var(--g, "●"); margin-inline-end: 0.35em; color: var(--c, var(--text-secondary)); }
+.st.run { --c: var(--sr-s1); } .st.ok { --g: "✓"; --c: var(--status-success); }
+.st.stop { --g: "■"; --c: var(--status-warning); } .st.off { --g: "✕"; }
+
+/* Headline figures: type on the page, no tiles. */
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: var(--space-4) var(--space-6); margin-block-start: var(--space-5); }
+.figs dt, .figs small, th, .sub { font-size: var(--size-small); color: var(--text-secondary); font-weight: 400; }
+.figs dd { font-size: 1.875rem; font-weight: 650; line-height: 1.2; letter-spacing: -0.02em; }
+.figs small { display: block; font-family: var(--font-technical); font-size: var(--size-technical); }
+
+/* Charts. One time axis; the toolbar holds the cursor time and the only two controls. */
+.charts { margin-block-start: var(--space-6) !important; }
+.bar { display: flex; align-items: center; gap: var(--space-3); min-block-size: var(--control-min); }
+.bar .n { flex: 1; font-size: var(--size-technical); }
+.bar button { min-block-size: 2.25rem; padding-block: 0; font-size: var(--size-small); }
+.chart { margin-block-start: var(--space-4); }
+.chart header { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-4); font-size: var(--size-small); }
+.chart h3 { font-size: var(--size-small); margin-inline-end: auto; }
+.chart h3 span { font-weight: 400; color: var(--text-secondary); }
+.key { display: inline-flex; align-items: center; gap: 0.4em; white-space: nowrap; }
+.key i { inline-size: 0.75rem; block-size: 0.75rem; border-radius: 2px; background: var(--k); }
+.key.line i { block-size: 2px; } .key.dash i { block-size: 0; border-block-start: 2px dashed var(--k); background: none; }
+.key b { min-inline-size: 4.2em; font-family: var(--font-technical); font-size: var(--size-technical); font-weight: 600; text-align: end; }
+.key.soft i { opacity: 0.45; }
+.plot { block-size: var(--h, 11rem); }
+.lanes { position: relative; overflow: hidden; margin-block-start: var(--space-2); font-size: var(--size-technical); line-height: 1.375rem; }
+.lane { position: relative; block-size: 1.375rem; margin-block-end: 3px; }
+.lane > b { position: absolute; inset-inline-start: 0; font-weight: 400; color: var(--text-secondary); font-size: var(--size-small); }
+.sp { position: absolute; display: none; block-size: 100%; padding-inline-start: 0.3em; white-space: nowrap; border-radius: 3px;
+  font-family: var(--font-technical); font-style: normal; color: var(--text-primary); background: light-dark(color-mix(in oklab, var(--k, var(--sr-s1)) 24%, var(--bg-page)), color-mix(in oklab, var(--k, var(--sr-s1)) 42%, var(--bg-page))); }
+.sp.mute { color: transparent; }
+.sp.native { background: color-mix(in oklab, var(--sr-ctx) 26%, var(--bg-page)); }
+.sp.gap { background: none; color: var(--text-secondary); text-align: center; padding: 0; font-size: var(--size-small); font-family: var(--font-reading); }
+.u-over { cursor: crosshair; }
+.u-select { background: color-mix(in oklab, var(--sr-s1) 18%, transparent); }
+.u-cursor-x { border-inline-end: 1px solid var(--text-secondary) !important; }
+.u-cursor-pt { border-width: 2px !important; }
+
+/* Tables: rows on the page, tone on hover, no frame. */
+table { inline-size: 100%; border-collapse: collapse; font-size: var(--size-small); }
+th, td { padding: var(--space-2) var(--space-3); text-align: end; vertical-align: baseline; white-space: nowrap; }
+th:first-child, td:first-child { padding-inline-start: 0; }
+td.n { white-space: nowrap !important; }
+th.l, td.l { text-align: start; white-space: normal; font-family: var(--font-reading); }
+td { font-size: var(--size-technical); }
+td.l { font-size: var(--size-small); }
+tbody tr:hover { background: var(--sr-track); }
+tr.root td.l { font-weight: 650; }
+tr.ctx td { color: var(--text-secondary); }
+td.l .sub { margin-inline-start: 0.5em; font-weight: 400; }
+td.share { inline-size: 22%; min-inline-size: 6rem; padding-inline-end: 0; }
+.share i { display: block; block-size: 0.5rem; border-radius: 2px; background: var(--sr-track); }
+.share i::before { content: ""; display: block; block-size: 100%; inline-size: var(--v); min-inline-size: 2px; border-radius: 2px; background: var(--sr-s1); }
+.share.est i::before { opacity: 0.5; }
+[data-d="1"] td.l { padding-inline-start: 1.25rem; } [data-d="2"] td.l { padding-inline-start: 2.5rem; } [data-d="3"] td.l { padding-inline-start: 3.75rem; }
+abbr { text-decoration: none; cursor: help; }
+
+/* Machine: average as fill, peak as tick, capacity as track. */
+.meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-4) var(--space-6); }
+.meter { font-size: var(--size-small); }
+.meter b { font-size: var(--size-subheading); font-weight: 650; }
+.meter i { position: relative; display: block; block-size: 0.5rem; margin-block: var(--space-1); border-radius: 2px; background: var(--sr-track); }
+.meter i::before { content: ""; position: absolute; inset: 0 auto 0 0; inline-size: var(--v); border-radius: 2px; background: var(--sr-ctx); }
+.meter i::after { content: ""; position: absolute; inset: -3px auto -3px var(--p); inline-size: 2px; background: var(--text-primary); }
+.split { display: flex; gap: 2px; block-size: 0.75rem; margin-block: var(--space-5) var(--space-2); }
+.split i { flex: var(--v) 0 0; min-inline-size: 3px; border-radius: 2px; background: var(--k); }
+.keys { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); font-size: var(--size-small); }
+.keys .key b { min-inline-size: 0; }
+
+details { margin-block-start: var(--space-2); }
+details + details { margin-block-start: 0; }
+summary span { font-weight: 400; color: var(--text-secondary); font-size: var(--size-small); }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--space-3) var(--space-5); padding-block: var(--space-2) var(--space-4); font-size: var(--size-small); }
+.facts dt { color: var(--text-secondary); } .facts dd { font-family: var(--font-technical); }
+.notes { max-inline-size: var(--measure-reading); padding-block-end: var(--space-4); font-size: var(--size-small); color: var(--text-secondary); }
+.notes code { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .page { padding-inline: var(--space-4); }
+  .x { display: none; }
+  .figs { grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .figs dd { font-size: 1.5rem; }
+  .plot { --h: 9rem; }
+  .hint, .lane > b { display: none; }
+  .chart .key b { min-inline-size: 0; }
+  th, td { padding-inline: var(--space-2); }
+  td.l .sub { display: block; margin: 0; }
+}

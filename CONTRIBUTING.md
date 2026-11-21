@@ -106,6 +106,19 @@ Match each plugin's name and release version across its Codex, Claude, and
 Antigravity manifests. Raise the release version when its contents change. Skill
 changes also need the version increase described above.
 
+Hosts install core from `main`, so merging a version raise releases it. After
+each such merge, tag it:
+
+```sh
+git fetch origin --tags
+python3 tests/tag_releases.py          # lists untagged releases
+python3 tests/tag_releases.py --push   # tags and pushes them
+```
+
+The script tags the first commit on `main` with each version as
+`vMAJOR.MINOR.PATCH`, with the commit subject as the message. It skips versions
+that already have a tag, and stops when the manifests disagree.
+
 The bundled catalogs select core from the same source tree. Managed catalogs can
 pin immutable source revisions; publish the source before updating those pins.
 Keep machine registration, credentials, private source URLs, and deployment

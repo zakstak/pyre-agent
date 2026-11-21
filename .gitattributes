@@ -1,0 +1,3 @@
+# Vendored upstream builds, kept byte for byte (see packages/session-resources/vendor/uplot/README.md).
+packages/session-resources/vendor/uplot/uPlot.iife.min.js -pragma-generated
+packages/session-resources/vendor/uplot/uPlot.min.css -pragma-generated

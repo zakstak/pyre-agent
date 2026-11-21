@@ -1,0 +1,31 @@
+name: Session resources
+
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - packages/session-resources/**
+      - skills/session-resources/**
+      - skills/internal-visual-style/assets/tokens.css
+      - skills/internal-visual-style/assets/components.css
+      - skills/internal-visual-style/assets/fonts/**
+      - .github/workflows/session-resources.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/session-resources
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      # The skill's launcher builds the release binary on first use and runs it.
+      - run: ../../skills/session-resources/scripts/session-resources --help
