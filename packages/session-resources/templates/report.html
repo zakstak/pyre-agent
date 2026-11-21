@@ -1,0 +1,150 @@
+{%- macro value(v) -%}
+{%- if let Some(q) = v.qualifier %}<abbr title="{{ q.reason }}">{{ q.symbol }}</abbr> {% endif %}{{ v.text -}}
+{%- endmacro -%}
+<!doctype html>
+<html lang="en" data-palette="violet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · resources</title>
+<style>{{ style|safe }}</style>
+</head>
+<body>
+<main class="page">
+<header>
+  <h1>{{ title }}</h1>
+  <p class="meta">{{ meta }}{% if let Some(s) = status %} · <span class="st {{ s.class }}">{{ s.word }}</span>{% endif %}</p>
+  {%- if !figures.is_empty() %}
+  <dl class="figs">
+    {%- for f in figures %}
+    <div><dt>{{ f.label }}</dt><dd>{% call value(f.value) %}{% endcall %}</dd><small>{{ f.detail }}</small></div>
+    {%- endfor %}
+  </dl>
+  {%- endif %}
+</header>
+
+{%- if let Some(c) = charts %}
+<section class="charts" aria-label="Usage over time">
+  <div class="bar">
+    <span class="n" id="sr-time">{{ c.range }}</span>
+    <span class="hint sub">drag to zoom</span>
+    <button id="sr-reset" class="quiet" hidden>Reset zoom</button>
+    <button id="sr-machine" aria-pressed="false">Machine</button>
+  </div>
+  <div class="lanes">
+    {%- for lane in c.lanes %}
+    <div class="lane"><b>{{ lane.name }}</b>
+      {%- for s in lane.spans -%}
+      <i class="sp{% if s.native %} native{% endif %}" style="--k:var(--{{ s.color }})" data-f="{{ s.f }}" data-t="{{ s.t }}" title="{{ s.tip }}">{{ s.label }}</i>
+      {%- endfor -%}
+      {%- for (f, t, d) in lane.idle -%}
+      <i class="sp gap" data-f="{{ f }}" data-t="{{ t }}" title="No live scope for {{ d }}; time collapsed">{{ d }}<span class="x"> idle</span></i>
+      {%- endfor -%}
+    </div>
+    {%- endfor %}
+  </div>
+  {%- for chart in c.charts %}
+  <div class="chart" id="c-{{ chart.id }}"{% if chart.short %} style="--h:8rem"{% endif %}>
+    <header><h3>{{ chart.title }} <span>{{ chart.sub }}</span></h3></header>
+    <div class="plot"></div>
+  </div>
+  {%- endfor %}
+</section>
+{%- else if let Some(text) = empty %}
+<section class="charts"><p class="sub">{{ text }}</p></section>
+{%- endif %}
+
+<section>
+  <h2>Where it went</h2>
+  <table>
+    <thead><tr>
+      <th class="l">Thread</th><th>CPU</th><th class="x"></th><th>Memory peak</th><th class="x">GiB·h</th>
+      {%- if tree_vram %}<th class="x">GPU peak</th>{% endif %}<th class="x">Wall</th>
+    </tr></thead>
+    <tbody>
+      {%- for r in tree %}
+      <tr class="{{ r.class }}" data-d="{{ r.depth }}">
+        <td class="l">{{ r.name }}<span class="sub">{{ r.sub }}
+          {%- if let Some(own) = r.own %} · own <abbr title="Estimate: after its native subagents">~</abbr> {{ own }}{% endif -%}
+        </span></td>
+        <td>{% call value(r.cpu) %}{% endcall %}</td>
+        <td class="share x{% if let Some((_, true)) = r.share %} est{% endif %}">
+          {%- if let Some((v, _)) = r.share %}<i style="--v:{{ "{:.1}"|format(v) }}%"></i>{% endif -%}
+        </td>
+        <td>{{ r.memory }}</td><td class="x">{{ r.gib_hours }}</td>
+        {%- if tree_vram %}<td class="x">{{ r.vram }}</td>{% endif %}<td class="x">{{ r.wall }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</section>
+
+{%- if !turns.is_empty() %}
+<section>
+  <h2>Turns</h2>
+  <table>
+    <thead><tr>
+      <th class="l">Turn</th><th class="l x">Start</th><th class="l">Status</th><th class="x">Duration</th><th>CPU</th>
+      <th class="x"></th><th>Memory peak</th>
+    </tr></thead>
+    <tbody>
+      {%- for r in turns %}
+      <tr>
+        <td class="l n">{{ r.label }}</td><td class="l n x">{{ r.start }}</td>
+        <td class="l">
+          {%- if let Some(s) = r.status %}<span class="st {{ s.class }}">{{ s.word }}</span>{% endif -%}
+          {%- if let Some(n) = r.note %}<span class="sub">{{ n }}</span>{% endif -%}
+        </td>
+        <td class="x">{{ r.duration }}</td><td>{% call value(r.cpu) %}{% endcall %}</td>
+        <td class="share x">{% if let Some(v) = r.share %}<i style="--v:{{ "{:.1}"|format(v) }}%"></i>{% endif %}</td>
+        <td>{{ r.memory }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+</section>
+{%- endif %}
+
+{%- if let Some(m) = machine %}
+<section>
+  <h2>Machine <span class="sub">{{ m.sub }}</span></h2>
+  <div class="meters">
+    {%- for meter in m.meters %}
+    <div class="meter">{{ meter.label }}<br><b>{{ meter.value }}</b> <span class="sub">{{ meter.of }}</span>
+      <i style="--v:{{ "{:.2}"|format(meter.average) }}%;--p:{{ "{:.2}"|format(meter.peak) }}%"></i>
+      <span class="sub">{{ meter.detail }}</span></div>
+    {%- endfor %}
+  </div>
+  <div class="split" role="img" aria-label="Machine CPU time by consumer">
+    {%- for p in m.parts %}<i style="--v:{{ p.percent }};--k:{{ p.color }}" title="{{ p.label }} {{ p.text }}"></i>{% endfor -%}
+  </div>
+  <div class="keys">
+    {%- for p in m.parts %}<span class="key" style="--k:{{ p.color }}"><i></i>{{ p.label }} <b>{{ p.text }}</b></span>{% endfor -%}
+  </div>
+</section>
+{%- endif %}
+
+<section>
+  {%- if !overhead.is_empty() %}
+  <details>
+    <summary>Sampler overhead <span class="x">{{ overhead_summary }}</span></summary>
+    <dl class="facts">
+      {%- for (k, v) in overhead %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor -%}
+    </dl>
+  </details>
+  {%- endif %}
+  <details>
+    <summary>Method</summary>
+    <div class="notes stack">
+      {%- for p in method %}<p>{{ p }}</p>{% endfor %}
+      {%- if !thread_id.is_empty() %}<p>Thread <code>{{ thread_id }}</code></p>{% endif %}
+    </div>
+  </details>
+</section>
+</main>
+{%- if let Some(c) = charts %}
+<script type="application/json" id="sr-data">{{ c.data|safe }}</script>
+{%- endif %}
+{{ script|safe }}
+</body>
+</html>

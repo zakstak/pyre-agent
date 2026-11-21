@@ -106,6 +106,11 @@ Match each plugin's name and release version across its Codex, Claude, and
 Antigravity manifests. Raise the release version when its contents change. Skill
 changes also need the version increase described above.
 
+Hosts install core from `main`, so merging a version raise releases it. The
+release tag workflow then tags that commit `vMAJOR.MINOR.PATCH`. It fails if the
+three manifests disagree, and skips a version that already has a tag. Do not
+create release tags by hand.
+
 The bundled catalogs select core from the same source tree. Managed catalogs can
 pin immutable source revisions; publish the source before updating those pins.
 Keep machine registration, credentials, private source URLs, and deployment

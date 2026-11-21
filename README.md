@@ -14,6 +14,9 @@ Engineering skills and review tools for Codex, Claude Code, and Antigravity.
   and checks before posting.
 - A [shared visual style](skills/internal-visual-style/SKILL.md) for UI work
   without an existing design system.
+- [Session resources](skills/session-resources/SKILL.md) for the CPU, memory,
+  and GPU memory a T3 Code task and its subagents used, measured passively on
+  Linux.
 
 Browse the [shared skills](skills/).
 
@@ -69,7 +72,8 @@ they apply in their `SKILL.md`.
 
 The review canvas needs Node 26 and pnpm and builds on first use. See its
 [package README](packages/review-canvas/README.md) for setup and supported Git
-hosts.
+hosts. Session resources needs cargo and builds on first use; see its
+[package README](packages/session-resources/README.md).
 
 ## Optional extras
 
@@ -138,6 +142,10 @@ redistribute the skills, include LICENSE and this section.
   [upstream tstack](https://github.com/t3dotgg/tstack).** Retained the
   `babysit-pr` helper `scripts/pr-wait`. Its source revision is recorded in the
   [skill](skills/babysit-pr/SKILL.md#source).
+
+The session-resources report page bundles
+[uPlot](https://github.com/leeoniya/uPlot), Copyright (c) 2022 Leon Sorokin,
+MIT, with its notice in `packages/session-resources/vendor/uplot/`.
 
 The bundled Atkinson Hyperlegible fonts keep their OFL notices in
 `skills/internal-visual-style/assets/fonts/`.

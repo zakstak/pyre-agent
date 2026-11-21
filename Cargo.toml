@@ -1,0 +1,8 @@
+# Rust packages in this repository. Pragma's hooks and CI run cargo from the root.
+[workspace]
+members = ["packages/session-resources"]
+resolver = "3"
+
+[profile.release]
+strip = true
+lto = "thin"

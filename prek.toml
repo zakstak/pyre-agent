@@ -10,8 +10,8 @@ name = "format"
 entry = ".pragma-hooks/format.sh"
 language = "script"
 files = '\.(go|rs|ts|tsx|js|jsx|html|htm|yml|yaml|sh|md|toml|json|py)$'
-# Preserve protocol fixture bytes and the demo's unchanged approval target.
-exclude = '(^tests/fixtures/|(^|/)pnpm-lock\.yaml$|^packages/review-canvas/fixtures/python/feedback-v3\.json$|^docs/review-canvas-demo/unchanged\.md$)'
+# Preserve protocol fixture bytes, the demo's unchanged approval target, and vendored upstream builds.
+exclude = '(^tests/fixtures/|^packages/session-resources/vendor/|(^|/)pnpm-lock\.yaml$|^packages/review-canvas/fixtures/python/feedback-v3\.json$|^docs/review-canvas-demo/unchanged\.md$)'
 stages = ["pre-commit"]
 
 [[repos.hooks]]
