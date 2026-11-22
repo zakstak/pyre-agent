@@ -291,16 +291,21 @@ fn groups(root: &Node) -> Vec<Group<'_>> {
         units: root.units.clone(),
         nodes: vec![root],
     }];
-    let mut delegated: Vec<&Node> = root
+    // A delegated thread that ran only in a shared scope has no measurement of its own, but its descendants may.
+    let mut delegated: Vec<(&Node, Vec<Unit>, u64)> = root
         .children
         .iter()
-        .filter(|c| c.kind == NodeKind::Delegated && c.measured.is_some())
+        .filter(|c| c.kind == NodeKind::Delegated)
+        .filter_map(|c| {
+            let cpu = subtree_cpu(c)?;
+            let mut units = Vec::new();
+            collect_units(c, &mut units);
+            Some((c, units, cpu))
+        })
         .collect();
-    delegated.sort_by_key(|c| std::cmp::Reverse(c.measured.as_ref().map_or(0, |m| m.cpu_usec)));
+    delegated.sort_by_key(|(_, _, cpu)| std::cmp::Reverse(*cpu));
     let fold = delegated.len() > MAX_DELEGATED;
-    for (index, child) in delegated.into_iter().enumerate() {
-        let mut units = Vec::new();
-        collect_units(child, &mut units);
+    for (index, (child, units, _)) in delegated.into_iter().enumerate() {
         if fold && index + 1 >= MAX_DELEGATED {
             if let Some(other) = out.get_mut(MAX_DELEGATED) {
                 other.units.extend(units);
@@ -323,6 +328,16 @@ fn groups(root: &Node) -> Vec<Group<'_>> {
         }
     }
     out
+}
+
+/// CPU measured anywhere in a node's subtree, or `None` when no node in it has a measured scope.
+fn subtree_cpu(node: &Node) -> Option<u64> {
+    let own = node.measured.as_ref().map(|m| m.cpu_usec);
+    node.children
+        .iter()
+        .filter_map(subtree_cpu)
+        .chain(own)
+        .reduce(|a, b| a + b)
 }
 
 fn natives(node: &Node, end: i64, into: &mut Vec<LaneSpan>) {

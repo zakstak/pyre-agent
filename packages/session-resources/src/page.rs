@@ -16,6 +16,7 @@ const UPLOT_CSS: &str = include_str!("../vendor/uplot/uPlot.min.css");
 const UPLOT_JS: &str = include_str!("../vendor/uplot/uPlot.iife.min.js");
 const PAGE_CSS: &str = include_str!("../assets/report.css");
 const PAGE_JS: &str = include_str!("../assets/report.js");
+pub(crate) const GAP_JS: &str = include_str!("../assets/gap.js");
 
 /// A turn under this share of the task's CPU is quiet; runs of quiet turns share one row.
 const QUIET_SHARE: f64 = 0.01;
@@ -564,9 +565,11 @@ fn machine(report: &Report) -> Option<Machine> {
         }
         meters.push(Meter {
             label: "GPU memory used",
-            value: format!("{:.2}", m.vram_used_avg / GIB),
+            value: m
+                .vram_used_avg
+                .map_or_else(|| "unknown".to_owned(), |v| format!("{:.2}", v / GIB)),
             of: format!("of {:.1} GiB", total as f64 / GIB),
-            average: pct(m.vram_used_avg, total as f64),
+            average: m.vram_used_avg.map_or(0.0, |v| pct(v, total as f64)),
             peak: pct(m.vram_used_max as f64, total as f64),
             detail,
         });
@@ -753,7 +756,7 @@ pub fn render(store: &Store, report: &Report) -> Result<String, String> {
         thread_id: root.thread_id.clone().unwrap_or_default(),
         style: style(),
         script: if timeline.is_some() {
-            format!("<script>{UPLOT_JS}</script><script>{PAGE_JS}</script>")
+            format!("<script>{UPLOT_JS}</script><script>{GAP_JS}</script><script>{PAGE_JS}</script>")
         } else {
             String::new()
         },
@@ -772,6 +775,37 @@ mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn never_parses_page_strings_as_markup() {
+        // Chart labels carry thread titles; the script builds elements and sets text instead.
+        for sink in ["innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"] {
+            assert!(!PAGE_JS.contains(sink), "assets/report.js uses {sink}");
+        }
+    }
+
+    #[test]
+    fn keeps_the_time_axis_increasing_at_any_width() {
+        // Plot widths and idle-cut counts, including a 360 px plot with six spans, where capping each cut alone gave
+        // a negative gap.
+        let check = r#"
+            for (const w of [40, 120, 276, 360, 640, 1600]) for (const n of [1, 2, 5, 12, 40]) for (const a of [0, 6000, 3.6e6]) {
+              const g = srGapUnits(a, n, w), cut = (w * g) / (a + n * g);
+              if (!(g > 0 && isFinite(g) && (a === 0 || n * cut <= w * 0.5 + 1e-9))) throw new Error(`w=${w} n=${n} active=${a}: gapU=${g}`);
+            }
+            if (srGapUnits(6000, 0, 360) !== 0) throw new Error("no cuts, no gap units");
+        "#;
+        let script = format!("{GAP_JS}\n{check}");
+        let output = match std::process::Command::new("node").args(["-e", &script]).output() {
+            Ok(output) => output,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("skipped: node is not on PATH");
+                return;
+            }
+            Err(e) => panic!("running node: {e}"),
+        };
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     }
 
     #[test]

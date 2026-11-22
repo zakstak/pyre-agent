@@ -65,9 +65,10 @@ database unless `--db` names another.
 [askama](https://docs.rs/askama) template (`templates/report.html`) renders it
 from a view model in `src/page.rs`. The charts are drawn by
 [uPlot](https://github.com/leeoniya/uPlot) 1.6.32, vendored in `vendor/uplot/`,
-with `assets/report.js` from per-sample data that `src/timeline.rs` embeds as
-JSON. All charts share one time axis that cuts each idle stretch between scopes
-to a fixed width. The cursor is synced across charts, dragging zooms in, and a
+with `assets/report.js` and `assets/gap.js` from per-sample data that
+`src/timeline.rs` embeds as JSON. All charts share one time axis that cuts each
+idle stretch between scopes to a fixed width, with all cuts together at most
+half the plot. The cursor is synced across charts, dragging zooms in, and a
 button overlays the whole machine. The page compiles in the
 [internal visual style](../../skills/internal-visual-style/SKILL.md) tokens,
 components, and Atkinson Hyperlegible fonts, and follows the system's light or

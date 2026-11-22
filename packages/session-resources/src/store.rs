@@ -572,11 +572,16 @@ impl Store {
             .collect()
     }
 
-    /// Threads with recorded scopes, most recent first.
+    /// Threads with recorded scopes, most recent first: scopes they own, and shared scopes their commands were seen
+    /// in, such as Codex's app-server. Only owned scopes count toward a thread's totals.
     pub fn recent_threads(&self, limit: usize) -> rusqlite::Result<Vec<RecentThread>> {
         let mut stmt = self.conn.prepare(
-            "SELECT thread_id, max(t3_home), min(first_seen_ms), max(last_seen_ms) FROM units
-             WHERE thread_id IS NOT NULL GROUP BY thread_id ORDER BY max(last_seen_ms) DESC LIMIT ?1",
+            "SELECT thread_id, max(t3_home), min(first_seen_ms), max(last_seen_ms) FROM (
+               SELECT thread_id, t3_home, first_seen_ms, last_seen_ms FROM units WHERE thread_id IS NOT NULL
+               UNION ALL
+               SELECT t.thread_id, u.t3_home, t.first_seen_ms, t.last_seen_ms
+               FROM unit_threads t JOIN units u ON u.unit_id = t.unit_id WHERE u.shared = 1
+             ) GROUP BY thread_id ORDER BY max(last_seen_ms) DESC LIMIT ?1",
         )?;
         stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |r| {
             Ok(RecentThread {
