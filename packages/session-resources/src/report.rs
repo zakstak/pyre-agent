@@ -569,7 +569,8 @@ pub struct Baseline {
     pub busy_cores_peak: f64,
     pub mem_used_avg: f64,
     pub mem_used_max: u64,
-    pub vram_used_avg: f64,
+    /// `None` when no reading in the window had GPU memory.
+    pub vram_used_avg: Option<f64>,
     pub vram_used_max: u64,
     pub gpu_util_avg: Option<f64>,
     pub gpu_power_w_avg: Option<f64>,
@@ -704,8 +705,9 @@ pub fn baseline(store: &Store, window: Window, task: &[Unit]) -> rusqlite::Resul
     };
     let mut first = i64::MAX;
     let mut last = i64::MIN;
-    let mut mem_ms = 0.0;
-    let mut vram_ms = 0.0;
+    // Each average is over the time its readings cover; downtime past `GAP_CAP_MS` is not zero usage.
+    let (mut mem_ms, mut mem_dt) = (0.0, 0.0);
+    let (mut vram_ms, mut vram_dt) = (0.0, 0.0);
     let mut util = (0.0, 0);
     let mut power = (0.0, 0);
     for unit in &machines {
@@ -724,7 +726,11 @@ pub fn baseline(store: &Store, window: Window, task: &[Unit]) -> rusqlite::Resul
             if index > 0 {
                 let dt = (point.ts_ms - points[index - 1].ts_ms).clamp(0, GAP_CAP_MS) as f64;
                 mem_ms += point.resident_avg * dt;
-                vram_ms += point.vram_avg.unwrap_or(0.0) * dt;
+                mem_dt += dt;
+                if let Some(vram) = point.vram_avg {
+                    vram_ms += vram * dt;
+                    vram_dt += dt;
+                }
             }
         }
     }
@@ -740,8 +746,8 @@ pub fn baseline(store: &Store, window: Window, task: &[Unit]) -> rusqlite::Resul
     };
     base.machine_cpu_usec = sum_cpu(store, &machines, span)?;
     base.busy_cores_avg = base.machine_cpu_usec as f64 / 1000.0 / wall;
-    base.mem_used_avg = mem_ms / wall;
-    base.vram_used_avg = vram_ms / wall;
+    base.mem_used_avg = if mem_dt > 0.0 { mem_ms / mem_dt } else { 0.0 };
+    base.vram_used_avg = (vram_dt > 0.0).then(|| vram_ms / vram_dt);
     let bucket = ((wall / 300.0) as i64).max(2_000);
     base.busy_cores_peak = series(store, &machines, span, bucket)?
         .iter()
@@ -943,6 +949,8 @@ pub struct ThreadSummary {
     pub first_ms: i64,
     pub last_ms: i64,
     pub usage: Option<Usage>,
+    /// The thread ran only in shared scopes, whose cost is not attributed to it.
+    pub shared_only: bool,
 }
 
 pub fn recent(store: &Store, limit: usize) -> rusqlite::Result<Vec<ThreadSummary>> {
@@ -958,6 +966,7 @@ pub fn recent(store: &Store, limit: usize) -> rusqlite::Result<Vec<ThreadSummary
         out.push(ThreadSummary {
             title: t3.as_ref().and_then(|t| t.thread(&thread_id)).and_then(|i| i.title),
             usage: usage(store, &units, Window::ALL)?,
+            shared_only: units.is_empty(),
             thread_id,
             first_ms: row.first_seen_ms,
             last_ms: row.last_seen_ms,
@@ -1332,7 +1341,7 @@ pub fn render_text(report: &Report) -> String {
         if m.vram_total.is_some() {
             out.push_str(&format!(
                 "  vram avg {} max {}",
-                bytes(m.vram_used_avg),
+                m.vram_used_avg.map_or_else(|| "unknown".to_owned(), bytes),
                 bytes(m.vram_used_max as f64)
             ));
         }
@@ -1413,8 +1422,13 @@ pub fn render_recent(rows: &[ThreadSummary]) -> String {
                 row.thread_id,
             )),
             None => out.push_str(&format!(
-                "{}  {title}  no samples\n",
-                crate::parse::ms_to_iso_utc(row.last_ms)
+                "{}  {title}  {}\n",
+                crate::parse::ms_to_iso_utc(row.last_ms),
+                if row.shared_only {
+                    "shared scopes only, cost not attributable"
+                } else {
+                    "no samples"
+                }
             )),
         }
     }

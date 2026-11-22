@@ -162,7 +162,12 @@
         "key" +
         (s.dash ? " dash" : s.color ? (s.soft ? " soft" : "") : " line");
       k.style.setProperty("--k", `var(--${s.color || "sr-ctx"})`);
-      k.innerHTML = `<i></i>${s.label} <b></b>`;
+      // Labels include thread titles, so they are text, never markup.
+      k.append(
+        document.createElement("i"),
+        document.createTextNode(s.label + " "),
+        document.createElement("b"),
+      );
       s.key = k;
       k.hidden = !s.color && !machine;
     }
@@ -382,10 +387,7 @@
   }
   // The gap keeps a readable width at any page width; it is set before each resize.
   function fit() {
-    const w = $(".plot").clientWidth - gutter(),
-      n = S.length - 1,
-      px = Math.min(88, w * 0.22);
-    gapU = n ? (active * px) / (w - n * px) : 0;
+    gapU = srGapUnits(active, S.length - 1, $(".plot").clientWidth - gutter());
   }
   // Lanes are HTML placed from the first plot's scale, so labels are text and follow zoom.
   function lanes() {

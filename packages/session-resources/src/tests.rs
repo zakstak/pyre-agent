@@ -427,3 +427,179 @@ fn does_not_interpolate_across_a_short_outage() {
     };
     assert!(report::usage(&store, &units, inside).unwrap().is_none());
 }
+
+const GIB: u64 = 1 << 30;
+
+/// A scope recorded directly in the store, with readings at `times` of 1 s CPU per second and `mem` bytes.
+fn seeded_unit(store: &Store, cgroup_id: u64, kind: crate::host::UnitKind, times: &[i64], mem: u64) -> i64 {
+    let unit = store
+        .ensure_unit(
+            "boot-1",
+            cgroup_id,
+            kind,
+            "/x",
+            "x",
+            Some("codex"),
+            Some(times[0]),
+            times[0],
+        )
+        .unwrap();
+    for ts in times {
+        let row = crate::store::SampleRow {
+            cpu_usec: Some((ts - times[0]).unsigned_abs() * 1000),
+            mem_current: Some(mem),
+            ..Default::default()
+        };
+        store.insert_sample(unit, *ts, &row).unwrap();
+    }
+    unit
+}
+
+#[test]
+fn charts_delegated_threads_measured_only_below_a_shared_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("t3");
+    let home_text = home.to_string_lossy().into_owned();
+    let path = crate::t3::state_db(&home);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    Connection::open(path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, title TEXT, default_provider TEXT,
+               provider_instance_id TEXT);
+             INSERT INTO orchestration_v2_projection_threads VALUES ('mid-thread', 'Codex review', 'codex', 'codex');
+             CREATE TABLE orchestration_v2_projection_subagents (subagent_id TEXT, thread_id TEXT, parent_node_id TEXT,
+               child_thread_id TEXT, origin TEXT, provider TEXT, status TEXT, started_at TEXT, completed_at TEXT,
+               payload_json TEXT);
+             INSERT INTO orchestration_v2_projection_subagents VALUES ('s1', 'root-thread', 'run', 'mid-thread',
+               'app_owned', 'codex', 'completed', NULL, NULL, '{}');
+             INSERT INTO orchestration_v2_projection_subagents VALUES ('s2', 'mid-thread', 'run', 'leaf-thread',
+               'app_owned', 'claude', 'completed', NULL, NULL, '{}');
+             CREATE TABLE orchestration_v2_projection_runs (thread_id TEXT, ordinal INTEGER, status TEXT,
+               requested_at TEXT, completed_at TEXT, payload_json TEXT);",
+        )
+        .unwrap();
+    let store = Store::open(&dir.path().join("samples.sqlite")).unwrap();
+    let base = 1_800_000_000_000_i64;
+    // The delegated thread ran only in the shared Codex scope; the thread it delegated to has a scope of its own.
+    let shared = seeded_unit(&store, 1, crate::host::UnitKind::Agent, &[base, base + 2_000], 80 << 20);
+    store.set_identity(shared, None, true, Some(&home_text)).unwrap();
+    store.saw_threads(shared, &["mid-thread".to_owned()], base).unwrap();
+    let leaf = seeded_unit(
+        &store,
+        2,
+        crate::host::UnitKind::Agent,
+        &[base, base + 2_000, base + 4_000],
+        100 << 20,
+    );
+    store
+        .set_identity(leaf, Some("leaf-thread"), false, Some(&home_text))
+        .unwrap();
+
+    let t3 = T3::open(&home).unwrap();
+    let built = report::report(&store, Some(&t3), "root-thread", Window::ALL).unwrap();
+    assert_eq!(built.root.children[0].measured.as_ref().map(|m| m.cpu_usec), None);
+    assert_eq!(built.total.cpu_usec, 4_000_000);
+    let timeline = crate::timeline::Timeline::build(&store, &built)
+        .unwrap()
+        .expect("charts");
+    let cpu = timeline.charts.iter().find(|c| c.id == "cpu").unwrap();
+    let series = cpu
+        .series
+        .iter()
+        .find(|s| s.label == "Codex review")
+        .expect("a series for the delegated thread");
+    assert!(
+        series.data.iter().flatten().any(|v| *v > 0.0),
+        "its descendant's CPU is charted"
+    );
+}
+
+#[test]
+fn lists_threads_seen_only_in_shared_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("t3").to_string_lossy().into_owned();
+    let store = Store::open(&dir.path().join("samples.sqlite")).unwrap();
+    let base = 1_800_000_000_000_i64;
+    let owned = seeded_unit(
+        &store,
+        1,
+        crate::host::UnitKind::Agent,
+        &[base, base + 2_000],
+        100 << 20,
+    );
+    store
+        .set_identity(owned, Some("root-thread"), false, Some(&home))
+        .unwrap();
+    let shared = seeded_unit(
+        &store,
+        2,
+        crate::host::UnitKind::Agent,
+        &[base, base + 60_000],
+        80 << 20,
+    );
+    store.set_identity(shared, None, true, Some(&home)).unwrap();
+    store
+        .saw_threads(shared, &["codex-thread".to_owned()], base + 10_000)
+        .unwrap();
+    store
+        .saw_threads(shared, &["codex-thread".to_owned()], base + 60_000)
+        .unwrap();
+
+    let rows = report::recent(&store, 20).unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r.thread_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["codex-thread", "root-thread"],
+        "newest first, shared-only threads included"
+    );
+    let codex = &rows[0];
+    assert_eq!((codex.first_ms, codex.last_ms), (base + 10_000, base + 60_000));
+    assert!(
+        codex.usage.is_none() && codex.shared_only,
+        "the shared scope's cost is not the thread's"
+    );
+    assert_eq!(rows[1].usage.as_ref().map(|u| u.cpu_usec), Some(2_000_000));
+    assert!(report::render_recent(&rows).contains("shared scopes only"));
+    assert_eq!(report::recent(&store, 1).unwrap()[0].thread_id, "codex-thread");
+}
+
+#[test]
+fn averages_machine_memory_over_sampled_time_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("samples.sqlite")).unwrap();
+    let base = 1_800_000_000_000_i64;
+    // 1 GiB at every reading, with an hour of sampler downtime between the second and third.
+    let times = [base, base + 2_000, base + 3_602_000];
+    let machine = seeded_unit(&store, 0, crate::host::UnitKind::Machine, &times, GIB);
+    let window = Window {
+        from_ms: base,
+        to_ms: base + 3_602_000,
+    };
+    let base_line = report::baseline(&store, window, &[]).unwrap().unwrap();
+    assert!(
+        (base_line.mem_used_avg - GIB as f64).abs() < 1.0,
+        "{}",
+        base_line.mem_used_avg
+    );
+    assert_eq!(base_line.vram_used_avg, None, "no GPU readings is unknown, not zero");
+    let json = serde_json::to_value(&base_line).unwrap();
+    assert!(json["vram_used_avg"].is_null());
+
+    // GPU memory known only for the first interval averages over that interval alone.
+    store
+        .insert_sample(
+            machine,
+            base + 2_000,
+            &crate::store::SampleRow {
+                cpu_usec: Some(2_000_000),
+                mem_current: Some(GIB),
+                vram: Some(2 * GIB),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let base_line = report::baseline(&store, window, &[]).unwrap().unwrap();
+    assert_eq!(base_line.vram_used_avg, Some(2.0 * GIB as f64));
+    assert!((base_line.mem_used_avg - GIB as f64).abs() < 1.0);
+}
