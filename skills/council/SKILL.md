@@ -4,7 +4,7 @@ description:
   Use when the user says 'council' to request three delegates from different
   providers for help with their task.
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # Council
@@ -26,7 +26,7 @@ Bring in three delegates to help with the user's request, usually for review or
 feedback. Use one strong model from each of three different providers, at high
 reasoning effort. If the user's instructions name council members, use those.
 Otherwise pick the latest flagship model from each provider, for example Claude
-Opus, GPT Sol, and Gemini Pro.
+Opus 5.5, GPT Sol 6.2, and Gemini Neon.
 
 In T3 Code, call `orchestrator_capabilities` once before the first delegation.
 Resolve all three members and their supported high-effort options before

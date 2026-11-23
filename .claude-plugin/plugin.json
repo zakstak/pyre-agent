@@ -1,6 +1,6 @@
 {
   "name": "pyre-agent",
-  "version": "4.18.1",
+  "version": "4.18.2",
   "description": "Reusable engineering skills for Codex, Claude Code, and Antigravity.",
   "author": {
     "name": "Zak"
