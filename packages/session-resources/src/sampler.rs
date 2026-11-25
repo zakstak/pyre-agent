@@ -1,12 +1,14 @@
 //! The sampling loop. Each tick reads every tracked cgroup, the machine totals, NVIDIA memory, and the sampler's own
-//! cost. Writes collect in one open transaction that commits every `FLUSH_EVERY_MS`, on shutdown, and before rollups.
+//! cost. It hands every write to the `writer` thread, and never waits on the database after startup: unit ids are
+//! assigned here, from the units recorded at startup.
 //!
 //! inotify on T3's slices catches a scope as it appears, and on each scope's `cgroup.events` catches its last
 //! process exiting, so short scopes get a first and a final reading between ticks.
 
 use crate::gpu::{GpuReading, Nvml};
 use crate::host::{self, Roots, UnitKind};
-use crate::store::{FLUSH_EVERY_MS, SampleRow, Store, TickRow};
+use crate::store::{self, IdentityState, SampleRow, Store, TickRow};
+use crate::writer::{Health, Write, Writer};
 use std::collections::{HashMap, HashSet};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -24,9 +26,6 @@ const FAST_TICKS_BEFORE_RESTORE: u32 = 30;
 const IDENTITY_ATTEMPTS: u32 = 30;
 /// After that, a scope with no single owner is read every this many samples, to record threads it serves later.
 const SHARED_RESCAN_EVERY: u32 = 15;
-/// Ticks in a row that may fail to write before the sampler exits, so systemd restarts it.
-const MAX_FAILED_TICKS: u32 = 3;
-const ROLLUP_EVERY_MS: i64 = 3_600_000;
 
 pub fn now_ms() -> i64 {
     SystemTime::now()
@@ -44,6 +43,29 @@ struct Tracked {
     /// reparented after it exited, and never decide who the scope works for.
     leader: Option<(u32, u64)>,
     identity_checks: u32,
+}
+
+/// A unit recorded in this boot, kept after its cgroup stops being tracked so the same cgroup seen again reuses it.
+#[derive(Debug, Clone, Copy)]
+struct Known {
+    unit_id: i64,
+    class: Class,
+    leader: Option<(u32, u64)>,
+}
+
+impl Known {
+    fn recorded(unit_id: i64, identity: &IdentityState) -> Self {
+        let class = match (&identity.owner, identity.shared) {
+            (Some(_), _) => Class::Owned,
+            (None, true) => Class::Shared,
+            (None, false) => Class::Unknown,
+        };
+        Self {
+            unit_id,
+            class,
+            leader: identity.leader,
+        }
+    }
 }
 
 /// Who an agent scope works for.
@@ -66,25 +88,28 @@ pub struct Options {
 
 pub struct Sampler {
     roots: Roots,
-    store: Store,
+    db: PathBuf,
+    writer: Writer,
     nvml: Option<Nvml>,
     boot_id: String,
     machine_unit: i64,
     tracked: HashMap<PathBuf, Tracked>,
+    /// Units of this boot by cgroup id, tracked or not.
+    known: HashMap<u64, Known>,
+    next_unit_id: i64,
     base_interval_ms: i64,
     interval_ms: i64,
     slow_ticks: u32,
     fast_ticks: u32,
     last_tick_ms: i64,
-    last_flush: Instant,
-    /// Work done outside a tick (commits, event samples, watch refreshes, rollups), added to the next tick's recorded
-    /// duration so its cost counts toward health and backoff.
+    /// Work done outside a tick (event samples, watch refreshes, discovery), added to the next tick's recorded duration
+    /// so its cost counts toward health and backoff.
     carried_us: i64,
-    rolled_back: bool,
     vram_total_recorded: Option<u64>,
 }
 
 impl Sampler {
+    /// Open the database and record the startup state directly, then hand the database to the writer thread.
     pub fn new(options: &Options) -> Result<Self, String> {
         let store = Store::open(&options.db).map_err(|e| format!("cannot open {}: {e}", options.db.display()))?;
         let nvml = if options.gpu {
@@ -132,25 +157,35 @@ impl Sampler {
                     .map_err(|e| e.to_string())?;
             }
         }
+        let known = store
+            .units_of_boot(&boot_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|unit| (unit.cgroup_id, Known::recorded(unit.unit_id, &unit.identity)))
+            .collect();
+        let next_unit_id = store.max_unit_id().map_err(|e| e.to_string())? + 1;
+        let own_cgroup = host::own_service_cgroup(&roots);
+        let writer = Writer::spawn(store, own_cgroup.clone())?;
         let mut sampler = Self {
             roots,
-            store,
+            db: options.db.clone(),
+            writer,
             nvml,
             boot_id,
             machine_unit,
             tracked: HashMap::new(),
+            known,
+            next_unit_id,
             base_interval_ms: options.interval_ms,
             interval_ms: options.interval_ms,
             slow_ticks: 0,
             fast_ticks: 0,
             last_tick_ms: now,
-            last_flush: Instant::now(),
             carried_us: 0,
-            rolled_back: false,
             vram_total_recorded: None,
         };
-        if let Some(dir) = host::own_service_cgroup(&sampler.roots) {
-            sampler.track(&dir, UnitKind::Sampler, host::SERVICE_NAME, None, now)?;
+        if let Some(dir) = own_cgroup {
+            sampler.track(&dir, UnitKind::Sampler, host::SERVICE_NAME, None, now);
         }
         Ok(sampler)
     }
@@ -159,48 +194,49 @@ impl Sampler {
         self.interval_ms
     }
 
-    fn track(
-        &mut self,
-        dir: &Path,
-        kind: UnitKind,
-        name: &str,
-        provider: Option<&str>,
-        now: i64,
-    ) -> Result<bool, String> {
+    /// Start tracking a cgroup. A cgroup recorded earlier in this boot, by this run or one before a restart, keeps its
+    /// unit, pinned leader, and classification. Returns whether it was newly tracked.
+    fn track(&mut self, dir: &Path, kind: UnitKind, name: &str, provider: Option<&str>, now: i64) -> bool {
         if self.tracked.contains_key(dir) {
-            return Ok(false);
+            return false;
         }
         let Ok(cgroup_id) = host::cgroup_id(dir) else {
-            return Ok(false);
+            return false;
         };
-        let unit_id = self
-            .store
-            .ensure_unit(
-                &self.boot_id,
-                cgroup_id,
-                kind,
-                &dir.to_string_lossy(),
-                name,
-                provider,
-                host::cgroup_created_ms(dir),
-                now,
-            )
-            .map_err(|e| e.to_string())?;
-        // A cgroup this sampler saw before a restart keeps its pinned leader and classification.
-        let (class, leader, identity_checks) = if kind == UnitKind::Agent {
-            let state = self.store.identity_state(unit_id).map_err(|e| e.to_string())?;
-            match (state.owner, state.shared) {
-                (Some(_), _) => (Class::Owned, state.leader, 0),
-                (None, true) => (Class::Shared, state.leader, IDENTITY_ATTEMPTS),
-                (None, false) => (Class::Unknown, state.leader, 0),
+        let known = match self.known.get(&cgroup_id) {
+            Some(known) => *known,
+            None => {
+                let unit_id = self.next_unit_id;
+                self.next_unit_id += 1;
+                self.writer.push(Write::Unit {
+                    unit_id,
+                    boot_id: self.boot_id.clone(),
+                    cgroup_id,
+                    kind,
+                    path: dir.to_string_lossy().into_owned(),
+                    name: name.to_owned(),
+                    provider: provider.map(str::to_owned),
+                    created_ms: host::cgroup_created_ms(dir),
+                    seen_ms: now,
+                });
+                let known = Known {
+                    unit_id,
+                    class: Class::Unknown,
+                    leader: None,
+                };
+                self.known.insert(cgroup_id, known);
+                known
             }
-        } else {
-            (Class::Owned, None, 0)
+        };
+        let (class, leader, identity_checks) = match (kind, known.class) {
+            (UnitKind::Agent, Class::Shared) => (Class::Shared, known.leader, IDENTITY_ATTEMPTS),
+            (UnitKind::Agent, class) => (class, known.leader, 0),
+            _ => (Class::Owned, None, 0),
         };
         self.tracked.insert(
             dir.to_owned(),
             Tracked {
-                unit_id,
+                unit_id: known.unit_id,
                 cgroup_id,
                 kind,
                 class,
@@ -208,12 +244,30 @@ impl Sampler {
                 identity_checks,
             },
         );
-        Ok(true)
+        true
+    }
+
+    /// Stop tracking a cgroup and record when it went, keeping what was learned about it.
+    fn untrack(&mut self, dir: &Path, ts: i64) {
+        if let Some(gone) = self.tracked.remove(dir) {
+            self.known.insert(
+                gone.cgroup_id,
+                Known {
+                    unit_id: gone.unit_id,
+                    class: gone.class,
+                    leader: gone.leader,
+                },
+            );
+            self.writer.push(Write::Gone {
+                unit_id: gone.unit_id,
+                ts_ms: ts,
+            });
+        }
     }
 
     /// Find new and vanished scopes. A path that now holds a different cgroup counts as both. Returns the newly
     /// tracked directories.
-    pub fn discover(&mut self, now: i64) -> Result<Vec<PathBuf>, String> {
+    pub fn discover(&mut self, now: i64) -> Vec<PathBuf> {
         let found = host::discover(&self.roots);
         let present: HashSet<&Path> = found.iter().map(|f| f.dir.as_path()).collect();
         let vanished: Vec<PathBuf> = self
@@ -226,17 +280,15 @@ impl Sampler {
             .map(|(dir, _)| dir.clone())
             .collect();
         for dir in vanished {
-            if let Some(gone) = self.tracked.remove(&dir) {
-                self.store.mark_gone(gone.unit_id, now).map_err(|e| e.to_string())?;
-            }
+            self.untrack(&dir, now);
         }
         let mut added = Vec::new();
         for unit in &found {
-            if self.track(&unit.dir, unit.kind, &unit.name, unit.provider.as_deref(), now)? {
+            if self.track(&unit.dir, unit.kind, &unit.name, unit.provider.as_deref(), now) {
                 added.push(unit.dir.clone());
             }
         }
-        Ok(added)
+        added
     }
 
     fn gpu_reading(&self) -> Option<GpuReading> {
@@ -261,25 +313,20 @@ impl Sampler {
         Some(by_unit)
     }
 
-    /// Read one tracked cgroup and store the sample. A group that has vanished is marked gone.
-    fn sample_unit(&mut self, dir: &Path, ts: i64, vram: Option<u64>) -> Result<bool, String> {
+    /// Read one tracked cgroup and record the sample. A group that has vanished is marked gone.
+    fn sample_unit(&mut self, dir: &Path, ts: i64, vram: Option<u64>) {
         let Some(tracked) = self.tracked.get_mut(dir) else {
-            return Ok(false);
+            return;
         };
-        let reading = match host::read_cgroup(dir) {
-            Ok(reading) => reading,
-            Err(_) => {
-                let unit_id = tracked.unit_id;
-                self.tracked.remove(dir);
-                self.store.mark_gone(unit_id, ts).map_err(|e| e.to_string())?;
-                return Ok(false);
-            }
+        let Ok(reading) = host::read_cgroup(dir) else {
+            self.untrack(dir, ts);
+            return;
         };
         if tracked.class != Class::Owned {
             tracked.identity_checks += 1;
             let checks = tracked.identity_checks;
             if checks <= IDENTITY_ATTEMPTS || checks.is_multiple_of(SHARED_RESCAN_EVERY) {
-                identify(&self.store, &self.roots, dir, tracked, ts).map_err(|e| e.to_string())?;
+                identify(&self.writer, &self.roots, dir, tracked, ts);
             }
         }
         let row = SampleRow {
@@ -292,34 +339,24 @@ impl Sampler {
             gpu_util: None,
             gpu_power_mw: None,
         };
-        self.store
-            .insert_sample(tracked.unit_id, ts, &row)
-            .map_err(|e| e.to_string())?;
-        Ok(true)
+        self.writer.push(Write::Sample {
+            unit_id: tracked.unit_id,
+            ts_ms: ts,
+            row,
+        });
     }
 
     /// Sample specific directories now, outside the timer: new scopes and scopes whose last process just exited.
-    pub fn sample_now(&mut self, dirs: &[PathBuf]) -> Result<(), String> {
+    pub fn sample_now(&mut self, dirs: &[PathBuf]) {
         if dirs.is_empty() {
-            return Ok(());
+            return;
         }
         let started = Instant::now();
         let ts = now_ms().max(self.last_tick_ms + 1);
-        self.store.ensure_batch().map_err(|e| e.to_string())?;
-        let result = dirs
-            .iter()
-            .try_for_each(|dir| self.sample_unit(dir, ts, None).map(|_| ()));
-        self.carry(started);
-        self.note_lost_batch(&result);
-        result
-    }
-
-    /// After a failed write, check whether SQLite ended the batch. Its rollback can discard unit rows this sampler
-    /// still tracks, so the sampler must restart rather than write under those ids.
-    fn note_lost_batch(&mut self, result: &Result<(), String>) {
-        if result.is_err() && !self.store.batch_open() {
-            self.rolled_back = true;
+        for dir in dirs {
+            self.sample_unit(dir, ts, None);
         }
+        self.carry(started);
     }
 
     /// Count work done outside a tick toward the next tick's duration.
@@ -327,69 +364,47 @@ impl Sampler {
         self.carried_us += i64::try_from(started.elapsed().as_micros()).unwrap_or(i64::MAX);
     }
 
-    /// Commit everything written so far. A failed commit rolls the batch back, which can discard unit rows this
-    /// sampler still tracks, so it is marked for a restart with fresh state.
-    pub fn flush(&mut self) -> Result<(), String> {
-        let started = Instant::now();
-        let result = self.store.flush().map_err(|e| e.to_string());
-        self.carry(started);
-        self.last_flush = Instant::now();
-        if result.is_err() {
-            self.rolled_back = true;
-        }
-        result
+    /// Whether the writer is keeping up with what this sampler records.
+    pub fn writer_health(&self) -> Health {
+        self.writer.health()
     }
 
-    /// Whether a batch was rolled back, so tracked unit ids may no longer exist.
-    pub fn rolled_back(&self) -> bool {
-        self.rolled_back
+    /// Commit everything recorded and stop the writer.
+    pub fn finish(&mut self) -> Result<(), String> {
+        self.writer.finish()
     }
 
     /// One timed sample of everything. `lag_ms` is how late the tick started.
-    pub fn tick(&mut self, ts: i64, lag_ms: i64) -> Result<(), String> {
-        self.store.ensure_batch().map_err(|e| e.to_string())?;
-        let result = self.tick_and_record(ts, lag_ms);
-        self.note_lost_batch(&result);
-        result
-    }
-
-    fn tick_and_record(&mut self, ts: i64, lag_ms: i64) -> Result<(), String> {
+    pub fn tick(&mut self, ts: i64, lag_ms: i64) {
         let started = Instant::now();
-        self.tick_inner(ts)?;
+        self.tick_inner(ts);
         self.last_tick_ms = ts;
         let duration_us =
             i64::try_from(started.elapsed().as_micros()).unwrap_or(i64::MAX) + std::mem::take(&mut self.carried_us);
         let me = host::read_self(&self.roots);
-        // Only a tick that sampled everything is recorded, so a sampler that keeps failing looks stale to `status`.
-        self.store
-            .insert_tick(&TickRow {
-                ts_ms: ts,
-                interval_ms: self.interval_ms,
-                lag_ms,
-                duration_us,
-                self_cpu_usec: me.cpu_usec,
-                self_rss: me.rss,
-                self_write_bytes: me.write_bytes,
-                db_bytes: self.store.disk_bytes(),
-                units: self.tracked.len(),
-            })
-            .map_err(|e| e.to_string())?;
-        if self.last_flush.elapsed() >= Duration::from_millis(FLUSH_EVERY_MS.unsigned_abs()) {
-            self.flush()?;
-        }
+        self.writer.push(Write::Tick(TickRow {
+            ts_ms: ts,
+            interval_ms: self.interval_ms,
+            lag_ms,
+            duration_us,
+            self_cpu_usec: me.cpu_usec,
+            self_rss: me.rss,
+            self_write_bytes: me.write_bytes,
+            db_bytes: store::disk_bytes(&self.db),
+            units: self.tracked.len(),
+        }));
         self.adapt_interval(duration_us);
-        Ok(())
     }
 
-    fn tick_inner(&mut self, ts: i64) -> Result<(), String> {
-        self.discover(ts)?;
+    fn tick_inner(&mut self, ts: i64) {
+        self.discover(ts);
         let gpu = self.gpu_reading();
         let vram = gpu.as_ref().and_then(|g| self.vram_by_unit(g));
         let dirs: Vec<(PathBuf, i64)> = self.tracked.iter().map(|(d, t)| (d.clone(), t.unit_id)).collect();
         for (dir, unit_id) in dirs {
             // Zero only when NVML listed processes and none of this unit's used GPU memory.
             let unit_vram = vram.as_ref().and_then(|v| v.get(&unit_id).copied().unwrap_or(Some(0)));
-            self.sample_unit(&dir, ts, unit_vram)?;
+            self.sample_unit(&dir, ts, unit_vram);
         }
         if let Ok(machine) = host::read_machine(&self.roots) {
             let row = SampleRow {
@@ -402,19 +417,21 @@ impl Sampler {
                 gpu_util: gpu.as_ref().and_then(|g| g.util_percent),
                 gpu_power_mw: gpu.as_ref().and_then(|g| g.power_mw),
             };
-            self.store
-                .insert_sample(self.machine_unit, ts, &row)
-                .map_err(|e| e.to_string())?;
+            self.writer.push(Write::Sample {
+                unit_id: self.machine_unit,
+                ts_ms: ts,
+                row,
+            });
             if let Some(g) = &gpu
                 && self.vram_total_recorded != Some(g.vram_total)
             {
-                self.store
-                    .set_meta("vram_total", &g.vram_total.to_string())
-                    .map_err(|e| e.to_string())?;
+                self.writer.push(Write::Meta {
+                    key: "vram_total",
+                    value: g.vram_total.to_string(),
+                });
                 self.vram_total_recorded = Some(g.vram_total);
             }
         }
-        Ok(())
     }
 
     /// Back off when ticks get expensive relative to the interval, and return to the configured interval once they
@@ -443,29 +460,13 @@ impl Sampler {
             eprintln!("session-resources: sampling every {} ms again", self.interval_ms);
         }
     }
-
-    pub fn roll_up(&mut self, now: i64) -> Result<(), String> {
-        self.flush()?;
-        let started = Instant::now();
-        let result = self.store.roll_up(now).map(|_| ()).map_err(|e| e.to_string());
-        self.carry(started);
-        result
-    }
-}
-
-impl Drop for Sampler {
-    fn drop(&mut self) {
-        if let Err(error) = self.flush() {
-            eprintln!("session-resources: final commit failed: {error}");
-        }
-    }
 }
 
 /// Read an agent scope's identity and record it. The pinned leader decides: a thread in its environment makes the
 /// scope that thread's, and none makes it shared. Within the first `IDENTITY_ATTEMPTS` checks a shared scope can still
 /// become owned, because the leader may not have exec'd into the provider yet. After that, and once the pinned leader
 /// is gone, the classification stands.
-fn identify(store: &Store, roots: &Roots, dir: &Path, tracked: &mut Tracked, ts: i64) -> rusqlite::Result<()> {
+fn identify(writer: &Writer, roots: &Roots, dir: &Path, tracked: &mut Tracked, ts: i64) {
     let identity = host::agent_identity(roots, dir);
     if tracked.leader.is_none() {
         tracked.leader = identity
@@ -474,7 +475,11 @@ fn identify(store: &Store, roots: &Roots, dir: &Path, tracked: &mut Tracked, ts:
             .min_by_key(|l| (l.start, l.pid))
             .map(|l| (l.pid, l.start));
         if let Some((pid, start)) = tracked.leader {
-            store.set_leader(tracked.unit_id, pid, start)?;
+            writer.push(Write::Leader {
+                unit_id: tracked.unit_id,
+                pid,
+                start,
+            });
         }
     }
     let pinned = tracked
@@ -485,19 +490,32 @@ fn identify(store: &Store, roots: &Roots, dir: &Path, tracked: &mut Tracked, ts:
         match &leader.thread {
             Some(owner) if tracked.class == Class::Unknown || tracked.identity_checks <= IDENTITY_ATTEMPTS => {
                 tracked.class = Class::Owned;
-                store.set_identity(tracked.unit_id, Some(owner), false, home)?;
+                writer.push(Write::Identity {
+                    unit_id: tracked.unit_id,
+                    owner: Some(owner.clone()),
+                    shared: false,
+                    t3_home: home.map(str::to_owned),
+                });
             }
             None if tracked.class == Class::Unknown => {
                 tracked.class = Class::Shared;
-                store.set_identity(tracked.unit_id, None, true, home)?;
+                writer.push(Write::Identity {
+                    unit_id: tracked.unit_id,
+                    owner: None,
+                    shared: true,
+                    t3_home: home.map(str::to_owned),
+                });
             }
             _ => {}
         }
     }
     if tracked.class == Class::Shared {
-        store.saw_threads(tracked.unit_id, &identity.threads, ts)?;
+        writer.push(Write::Threads {
+            unit_id: tracked.unit_id,
+            threads: identity.threads,
+            ts_ms: ts,
+        });
     }
-    Ok(())
 }
 
 /// Set by SIGTERM or SIGINT; the loop commits and exits.
@@ -668,19 +686,15 @@ pub fn run(options: &Options) -> Result<(), String> {
         }
         sampler.carry(started);
     };
-    sampler.discover(now_ms())?;
+    sampler.discover(now_ms());
     refresh_watches(&mut watcher, &mut sampler);
     sd_notify("READY=1");
     let mut next = Instant::now();
-    let mut last_rollup = 0;
-    let mut failed_ticks = 0;
+    let mut stuck_reported = false;
     loop {
-        if sampler.rolled_back() {
-            return Err("a write failed and the batch was rolled back; exiting to restart with fresh state".to_owned());
-        }
         if STOP.load(Ordering::Relaxed) {
             sd_notify("STOPPING=1");
-            return sampler.flush();
+            return sampler.finish();
         }
         let wait = next.saturating_duration_since(Instant::now());
         let changes = match &mut watcher {
@@ -695,43 +709,43 @@ pub fn run(options: &Options) -> Result<(), String> {
             let started = Instant::now();
             let added = sampler.discover(now_ms());
             sampler.carry(started);
-            immediate.extend(added?);
+            immediate.extend(added);
             refresh_watches(&mut watcher, &mut sampler);
         }
-        sampler.sample_now(&immediate)?;
+        sampler.sample_now(&immediate);
         let now = Instant::now();
         if now >= next {
             let lag = i64::try_from(now.duration_since(next).as_millis()).unwrap_or(i64::MAX);
-            let ts = now_ms();
-            // A tick that cannot write withholds the watchdog ping, and a few in a row end the process, so systemd
-            // restarts it rather than leaving a sampler that looks alive and records nothing.
-            match sampler.tick(ts, lag) {
-                Ok(()) => {
-                    failed_ticks = 0;
+            sampler.tick(now_ms(), lag);
+            // The ping says the sampler is sampling and its writer is getting the samples to disk. A slow commit
+            // delays the writer without stopping the ping; a writer stuck past its limit withholds it, so systemd
+            // restarts a sampler that looks alive and records nothing. A failed commit rolled back unit rows this
+            // sampler tracks, so it exits to restart with fresh state.
+            match sampler.writer_health() {
+                Health::Ok => {
+                    stuck_reported = false;
                     sd_notify("WATCHDOG=1");
                 }
-                Err(error) => {
-                    eprintln!("session-resources: tick failed: {error}");
-                    failed_ticks += 1;
-                    if failed_ticks >= MAX_FAILED_TICKS {
-                        return Err(format!("{failed_ticks} ticks in a row failed; last: {error}"));
+                Health::Stuck(busy) => {
+                    if !stuck_reported {
+                        eprintln!(
+                            "session-resources: the writer has been stuck for {} s; withholding the watchdog ping",
+                            busy.as_secs()
+                        );
+                        stuck_reported = true;
                     }
+                }
+                Health::Failed(error) => {
+                    return Err(format!(
+                        "the writer failed: {error}; exiting to restart with fresh state"
+                    ));
                 }
             }
             refresh_watches(&mut watcher, &mut sampler);
-            if sampler.rolled_back() {
-                continue;
-            }
             let interval = Duration::from_millis(u64::try_from(sampler.interval_ms()).unwrap_or(2000));
             next += interval;
             if next <= Instant::now() {
                 next = Instant::now() + interval;
-            }
-            if ts - last_rollup >= ROLLUP_EVERY_MS {
-                if let Err(error) = sampler.roll_up(ts) {
-                    eprintln!("session-resources: rollup failed: {error}");
-                }
-                last_rollup = ts;
             }
         }
     }

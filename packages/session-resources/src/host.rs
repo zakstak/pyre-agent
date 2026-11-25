@@ -349,3 +349,21 @@ pub fn read_self(roots: &Roots) -> SelfReading {
         write_bytes: read_optional(&self_dir, "io").and_then(|t| parse::io_write_bytes(&t)),
     }
 }
+
+/// How long a cgroup's tasks have waited on each resource since it was created, in microseconds, from its pressure
+/// files. A file the kernel does not provide reads as `None`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Pressure {
+    pub cpu: Option<u64>,
+    pub memory: Option<u64>,
+    pub io: Option<u64>,
+}
+
+pub fn read_pressure(dir: &Path) -> Pressure {
+    let total = |file| read_optional(dir, file).and_then(|t| parse::pressure_some_total(&t));
+    Pressure {
+        cpu: total("cpu.pressure"),
+        memory: total("memory.pressure"),
+        io: total("io.pressure"),
+    }
+}

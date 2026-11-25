@@ -5,7 +5,7 @@ description:
   in CPU, memory, or GPU memory, for a machine baseline, or to install, check,
   or remove the session resource sampler on Linux."
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Session resources
@@ -151,9 +151,13 @@ The service unit sets the hard limits:
 
 If ticks take more than a quarter of the interval three times in a row, the
 sampler doubles its interval, up to 10 seconds. It returns to the configured
-interval once ticks are cheap again. Ticks that cannot write to the database
-stop the watchdog pings, and three in a row end the process so systemd restarts
-it.
+interval once ticks are cheap again.
+
+A separate thread commits to the database, so a slow commit doesn't delay
+sampling. A commit stuck for 10 minutes stops the watchdog pings, and a failed
+commit ends the process, so systemd restarts it. The journal records any commit
+that takes over 5 seconds, with how long the service waited on CPU, memory, and
+IO meanwhile.
 
 Late ticks under heavy load are expected, because the sampler yields to
 everything else. CPU totals stay exact, and only the time resolution drops.

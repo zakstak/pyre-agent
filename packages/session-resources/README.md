@@ -139,19 +139,36 @@ Measured on a 16-core workstation with an NVIDIA GPU and seven tracked cgroups:
   seven days take about 0.15 MB per cgroup-day.
 - The sampler writes about 80 MB a day to disk.
 
-Writes collect in one open transaction that commits every 30 seconds, on
-`SIGTERM`, and before rollups. Committing every tick wrote about 11 times as
-much, because each commit rewrites whole 4 KiB pages. Reports and `status` see
-data up to 30 seconds old, and a crash loses at most that much.
+The sampling loop never waits on the database. It queues every write in memory
+for a writer thread, which commits the queue in one transaction every 30 seconds
+and on `SIGTERM`, and runs the hourly rollup. Committing every tick wrote about
+11 times as much, because each commit rewrites whole 4 KiB pages. Reports and
+`status` see data up to 30 seconds old, and a crash loses what was not yet
+committed.
+
+A commit can take tens of seconds when the host is short of memory, CPU, or IO,
+for example during a large backup. The loop keeps sampling meanwhile. If the
+queue reaches 50,000 writes, new samples and ticks are dropped. Unit records are
+kept, because later samples refer to them. A commit or rollup that takes over 5
+seconds is logged to the journal, with how long the service waited on CPU,
+memory, and IO meanwhile.
 
 The systemd unit is the hard limit: idle CPU weight, `Nice=19`, a 10% CPU quota,
 idle IO, `MemoryMax=128M` (file cache counts against it), and a 30-second
 watchdog. `status` flags the sampler well before those limits. The thresholds
 are constants in `src/report.rs`. The sampler also doubles its interval when
 ticks take over a quarter of it, up to 10 seconds, a third of the watchdog
-timeout. A tick's recorded duration includes commits, event samples, watch
-refreshes, and rollups since the previous tick. A tick that cannot write sends
-no watchdog ping, and three in a row end the process so systemd restarts it.
+timeout. A tick's recorded duration includes event samples, watch refreshes, and
+discovery since the previous tick, but not commits.
+
+The loop sends the watchdog ping after each tick while the writer keeps up. A
+writer stuck on one commit or rollup for 10 minutes withholds the ping, so
+systemd restarts the sampler. A failed commit ends the process at once, because
+its rollback can discard unit rows the sampler still tracks.
+
+The rollup first runs an hour after start. It reads each unit's old samples
+through the table's key, so an hour's run reads about an hour of samples, not
+the whole database.
 
 ## Check
 
