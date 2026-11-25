@@ -127,6 +127,17 @@ pub fn io_write_bytes(text: &str) -> Option<u64> {
 }
 
 /// The unified-hierarchy path from /proc/<pid>/cgroup: the `0::` line.
+/// Total stall time in microseconds from the `some` line of a pressure file such as `cpu.pressure`: how long at least
+/// one task in the group waited on that resource.
+pub fn pressure_some_total(text: &str) -> Option<u64> {
+    text.lines()
+        .find_map(|line| line.strip_prefix("some "))?
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("total="))?
+        .parse()
+        .ok()
+}
+
 pub fn proc_cgroup_path(text: &str) -> Option<&str> {
     text.lines().find_map(|line| line.strip_prefix("0::"))
 }
@@ -241,6 +252,14 @@ mod tests {
             proc_cgroup_path("0::/user.slice/a.scope\n"),
             Some("/user.slice/a.scope")
         );
+    }
+
+    #[test]
+    fn reads_pressure() {
+        let text =
+            "some avg10=0.00 avg60=1.50 avg300=0.00 total=147808\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=9\n";
+        assert_eq!(pressure_some_total(text), Some(147_808));
+        assert_eq!(pressure_some_total("full avg10=0.00 total=9\n"), None);
     }
 
     #[test]

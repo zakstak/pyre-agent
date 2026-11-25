@@ -9,11 +9,25 @@ use std::path::{Path, PathBuf};
 
 /// Samples older than this are folded into one-minute rows.
 pub const FULL_RESOLUTION_MS: i64 = 7 * 24 * 3_600_000;
-/// How long the sampler holds writes in one open transaction before committing. Every commit writes each changed
-/// 4 KiB page to the write-ahead log and later again to the database; batching 15 ticks writes each page once instead of
-/// 15 times. Readers see data up to this much behind, and a crash loses at most this much.
+/// How long the writer collects the sampler's writes before committing them in one transaction. Every commit writes each
+/// changed 4 KiB page to the write-ahead log and later again to the database; batching 15 ticks writes each page once
+/// instead of 15 times. Readers see data up to this much behind, longer while a commit is slow, and a crash loses what
+/// was not yet committed.
 pub const FLUSH_EVERY_MS: i64 = 30_000;
 const MINUTE_MS: i64 = 60_000;
+
+/// One unit's full-resolution samples before a cutoff, folded into one-minute rows. Parameters: unit id, cutoff.
+const FOLD_OLD_SAMPLES: &str = "INSERT OR REPLACE INTO samples_1m
+   (unit_id, ts_ms, n, first_ts_ms, last_ts_ms, cpu_usec_first, cpu_usec, mem_current_avg,
+    mem_current_max, mem_peak, resident_avg, resident_max, pids_max,
+    vram_avg, vram_max, gpu_util_avg, gpu_power_mw_avg)
+ SELECT unit_id, (ts_ms / 60000) * 60000, count(*), min(ts_ms), max(ts_ms), min(cpu_usec),
+        max(cpu_usec), avg(mem_current), max(mem_current), max(mem_peak),
+        avg(mem_current - coalesce(mem_file, 0)), max(mem_current - coalesce(mem_file, 0)), max(pids),
+        avg(vram), max(vram), avg(gpu_util), avg(gpu_power_mw)
+ FROM samples WHERE unit_id = ?1 AND ts_ms < ?2 GROUP BY 1, 2";
+/// The samples `FOLD_OLD_SAMPLES` folded. Parameters: unit id, cutoff.
+const PRUNE_OLD_SAMPLES: &str = "DELETE FROM samples WHERE unit_id = ?1 AND ts_ms < ?2";
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -102,6 +116,14 @@ pub fn default_db_path() -> PathBuf {
     state.join("session-resources/samples.sqlite")
 }
 
+/// Bytes on disk for a database and its write-ahead log.
+pub fn disk_bytes(path: &Path) -> u64 {
+    let size = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    size(path) + size(Path::new(&wal))
+}
+
 pub fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -180,6 +202,14 @@ pub struct IdentityState {
     pub leader: Option<(u32, u64)>,
 }
 
+/// A unit recorded for the current boot, for a restarted sampler to reuse.
+#[derive(Debug, Clone)]
+pub struct BootUnit {
+    pub cgroup_id: u64,
+    pub unit_id: i64,
+    pub identity: IdentityState,
+}
+
 /// An open unit as recorded, for reconciling with live cgroups at startup.
 #[derive(Debug, Clone)]
 pub struct OpenUnit {
@@ -211,7 +241,6 @@ pub struct Point {
 
 pub struct Store {
     conn: Connection,
-    path: PathBuf,
 }
 
 /// The database layout version, in SQLite's `user_version`. A file with another version is refused rather than
@@ -249,10 +278,7 @@ impl Store {
         conn.execute_batch(SCHEMA)
             .and_then(|()| conn.pragma_update(None, "user_version", SCHEMA_VERSION))
             .map_err(|e| e.to_string())?;
-        Ok(Self {
-            conn,
-            path: path.to_owned(),
-        })
+        Ok(Self { conn })
     }
 
     /// Open an existing database for reports, without creating or migrating anything.
@@ -262,18 +288,7 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        Ok(Self {
-            conn,
-            path: path.to_owned(),
-        })
-    }
-
-    /// Bytes on disk for the database and its write-ahead log.
-    pub fn disk_bytes(&self) -> u64 {
-        let size = |p: PathBuf| std::fs::metadata(p).map_or(0, |m| m.len());
-        let mut wal = self.path.clone().into_os_string();
-        wal.push("-wal");
-        size(self.path.clone()) + size(PathBuf::from(wal))
+        Ok(Self { conn })
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> rusqlite::Result<()> {
@@ -290,28 +305,16 @@ impl Store {
             .optional()
     }
 
-    /// Open the batch transaction if none is open. Writes collect in it until `flush`. Whether one is open is read from
-    /// SQLite, so a failed commit or rollback cannot leave this out of step.
-    pub fn ensure_batch(&self) -> rusqlite::Result<()> {
-        if self.conn.is_autocommit() {
-            self.conn.execute_batch("BEGIN")?;
-        }
-        Ok(())
-    }
-
-    /// Commit the batch transaction, if one is open. A failed commit rolls back, dropping the batch, so the next batch
-    /// starts clean.
-    pub fn flush(&self) -> rusqlite::Result<()> {
-        if self.conn.is_autocommit() {
-            return Ok(());
-        }
-        self.conn.execute_batch("COMMIT").inspect_err(|_| self.rollback())
-    }
-
-    fn rollback(&self) {
-        if !self.conn.is_autocommit() {
-            let _ = self.conn.execute_batch("ROLLBACK");
-        }
+    /// Run `work` in one transaction: commit when it succeeds, roll back when it or the commit fails.
+    pub fn in_transaction<T>(&self, work: impl FnOnce(&Self) -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+        self.conn.execute_batch("BEGIN")?;
+        work(self)
+            .and_then(|value| self.conn.execute_batch("COMMIT").map(|()| value))
+            .inspect_err(|_| {
+                if !self.conn.is_autocommit() {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                }
+            })
     }
 
     /// The unit id for a cgroup, inserting it on first sight. A recreated cgroup has a new kernel id, so it is a new
@@ -348,6 +351,72 @@ impl Store {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Insert a unit under an id the caller assigned. The sampler assigns ids itself, so it never waits on the database
+    /// to learn one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_unit(
+        &self,
+        unit_id: i64,
+        boot_id: &str,
+        cgroup_id: u64,
+        kind: UnitKind,
+        path: &str,
+        name: &str,
+        provider: Option<&str>,
+        created_ms: Option<i64>,
+        now_ms: i64,
+    ) -> rusqlite::Result<()> {
+        let cgroup_id = i64::try_from(cgroup_id).unwrap_or(i64::MAX);
+        self.conn.execute(
+            "INSERT INTO units
+               (unit_id, boot_id, cgroup_id, kind, path, name, provider, created_ms, first_seen_ms, last_seen_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            params![
+                unit_id,
+                boot_id,
+                cgroup_id,
+                kind.as_str(),
+                path,
+                name,
+                provider,
+                created_ms,
+                now_ms
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Every unit recorded for one boot, by cgroup id, with its recorded identity. A restarted sampler reuses these
+    /// rather than recording a live cgroup twice.
+    pub fn units_of_boot(&self, boot_id: &str) -> rusqlite::Result<Vec<BootUnit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT cgroup_id, unit_id, thread_id, shared, leader_pid, leader_start FROM units WHERE boot_id = ?1",
+        )?;
+        stmt.query_map([boot_id], |r| {
+            let pid: Option<i64> = r.get(4)?;
+            let start: Option<i64> = r.get(5)?;
+            let leader = pid
+                .zip(start)
+                .and_then(|(p, s)| Some((u32::try_from(p).ok()?, u64::try_from(s).ok()?)));
+            Ok(BootUnit {
+                cgroup_id: u64::try_from(r.get::<_, i64>(0)?).unwrap_or(0),
+                unit_id: r.get(1)?,
+                identity: IdentityState {
+                    owner: r.get(2)?,
+                    shared: r.get::<_, i64>(3)? != 0,
+                    leader,
+                },
+            })
+        })?
+        .collect()
+    }
+
+    /// The highest unit id in use, or 0 for an empty database.
+    pub fn max_unit_id(&self) -> rusqlite::Result<i64> {
+        self.conn
+            .query_row("SELECT coalesce(max(unit_id), 0) FROM units", [], |r| r.get(0))
+    }
+
     /// Record who a scope works for: one thread that owns it, or none for a shared scope.
     pub fn set_identity(
         &self,
@@ -361,31 +430,6 @@ impl Store {
             params![unit_id, owner, shared, t3_home],
         )?;
         Ok(())
-    }
-
-    /// Whether a batch transaction is open. A failed write can make SQLite roll the batch back on its own.
-    pub fn batch_open(&self) -> bool {
-        !self.conn.is_autocommit()
-    }
-
-    /// What is recorded about a unit's identity.
-    pub fn identity_state(&self, unit_id: i64) -> rusqlite::Result<IdentityState> {
-        self.conn.query_row(
-            "SELECT thread_id, shared, leader_pid, leader_start FROM units WHERE unit_id = ?1",
-            [unit_id],
-            |r| {
-                let pid: Option<i64> = r.get(2)?;
-                let start: Option<i64> = r.get(3)?;
-                let leader = pid
-                    .zip(start)
-                    .and_then(|(p, s)| Some((u32::try_from(p).ok()?, u64::try_from(s).ok()?)));
-                Ok(IdentityState {
-                    owner: r.get(0)?,
-                    shared: r.get::<_, i64>(1)? != 0,
-                    leader,
-                })
-            },
-        )
     }
 
     pub fn set_leader(&self, unit_id: i64, pid: u32, start: u64) -> rusqlite::Result<()> {
@@ -480,30 +524,28 @@ impl Store {
 
     /// Fold full-resolution samples older than `now - FULL_RESOLUTION_MS` into one-minute rows, and drop ticks older
     /// than that. The cutoff falls on a minute boundary, so no minute is split between the two tables. Each row keeps
-    /// its first and last sample's time and CPU counter. Commits the open batch first, and rolls back on failure.
+    /// its first and last sample's time and CPU counter. One transaction: it rolls back on failure.
+    ///
+    /// The samples table is keyed by unit, then time, so each unit's old samples are found through the key. A single
+    /// statement over all units would read every sample in the database each hour.
     pub fn roll_up(&self, now_ms: i64) -> rusqlite::Result<usize> {
         let cutoff = (now_ms - FULL_RESOLUTION_MS).div_euclid(MINUTE_MS) * MINUTE_MS;
-        self.flush()?;
-        self.conn.execute_batch("BEGIN")?;
-        let work = || -> rusqlite::Result<usize> {
-            let folded = self.conn.execute(
-                "INSERT OR REPLACE INTO samples_1m
-                   (unit_id, ts_ms, n, first_ts_ms, last_ts_ms, cpu_usec_first, cpu_usec, mem_current_avg,
-                    mem_current_max, mem_peak, resident_avg, resident_max, pids_max,
-                    vram_avg, vram_max, gpu_util_avg, gpu_power_mw_avg)
-                 SELECT unit_id, (ts_ms / 60000) * 60000, count(*), min(ts_ms), max(ts_ms), min(cpu_usec),
-                        max(cpu_usec), avg(mem_current), max(mem_current), max(mem_peak),
-                        avg(mem_current - coalesce(mem_file, 0)), max(mem_current - coalesce(mem_file, 0)), max(pids),
-                        avg(vram), max(vram), avg(gpu_util), avg(gpu_power_mw)
-                 FROM samples WHERE ts_ms < ?1 GROUP BY 1, 2",
-                [cutoff],
-            )?;
-            self.conn.execute("DELETE FROM samples WHERE ts_ms < ?1", [cutoff])?;
-            self.conn.execute("DELETE FROM ticks WHERE ts_ms < ?1", [cutoff])?;
-            self.conn.execute_batch("COMMIT")?;
+        self.in_transaction(|store| {
+            let units: Vec<i64> = store
+                .conn
+                .prepare("SELECT unit_id FROM units")?
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut fold = store.conn.prepare(FOLD_OLD_SAMPLES)?;
+            let mut prune = store.conn.prepare(PRUNE_OLD_SAMPLES)?;
+            let mut folded = 0;
+            for unit in units {
+                folded += fold.execute(params![unit, cutoff])?;
+                prune.execute(params![unit, cutoff])?;
+            }
+            store.conn.execute("DELETE FROM ticks WHERE ts_ms < ?1", [cutoff])?;
             Ok(folded)
-        };
-        work().inspect_err(|_| self.rollback())
+        })
     }
 
     fn unit_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Unit> {
@@ -717,6 +759,27 @@ mod tests {
             mem_peak: Some(mem),
             mem_file: Some(mem / 4),
             ..SampleRow::default()
+        }
+    }
+
+    #[test]
+    fn rolls_up_through_the_samples_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("s.sqlite")).unwrap();
+        for statement in [FOLD_OLD_SAMPLES, PRUNE_OLD_SAMPLES] {
+            let plan: Vec<String> = store
+                .conn
+                .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))
+                .unwrap()
+                .query_map(params![1, 5], |r| r.get(3))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert!(
+                plan.iter()
+                    .any(|step| step.contains("PRIMARY KEY (unit_id=? AND ts_ms<?)")),
+                "{statement}: {plan:?}"
+            );
         }
     }
 

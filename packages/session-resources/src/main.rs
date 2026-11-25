@@ -12,6 +12,7 @@ mod t3;
 #[cfg(test)]
 mod tests;
 mod timeline;
+mod writer;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

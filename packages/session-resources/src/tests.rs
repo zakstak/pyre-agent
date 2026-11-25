@@ -144,7 +144,7 @@ fn samples_and_reports_a_task_tree() {
         scope_files(&root_scope, step * 2_000_000, (100 + step * 10) << 20, 100);
         scope_files(&child_scope, step * 1_000_000, 50 << 20, 200);
         machine_files(&f.roots.proc, step * 400); // 4 s of busy time per interval at 100 ticks/s
-        sampler.tick(base + step as i64 * 2000, 0).unwrap();
+        sampler.tick(base + step as i64 * 2000, 0);
     }
     drop(sampler);
 
@@ -212,9 +212,9 @@ fn marks_vanished_scopes_gone() {
     })
     .unwrap();
     let base = now_ms() + 1_000;
-    sampler.tick(base, 0).unwrap();
+    sampler.tick(base, 0);
     fs::remove_dir_all(agents_dir(&f.roots).join("t3code-claude-0000000b.scope")).unwrap();
-    sampler.tick(base + 2000, 0).unwrap();
+    sampler.tick(base + 2000, 0);
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
     let child = store.units_for_thread("child-thread").unwrap();
@@ -246,7 +246,7 @@ fn keeps_shared_scopes_out_of_thread_totals() {
         scope_files(&shared, step * 5_000_000, 80 << 20, 300);
         write(&shared.join("cgroup.procs"), "300\n301\n302\n");
         machine_files(&f.roots.proc, step * 400);
-        sampler.tick(base + step as i64 * 2000, 0).unwrap();
+        sampler.tick(base + step as i64 * 2000, 0);
     }
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
@@ -279,10 +279,10 @@ fn interpolates_turns_between_ticks_and_across_rollups() {
     let minute = (now_ms() - crate::store::FULL_RESOLUTION_MS - 3_600_000) / 60_000 * 60_000;
     for step in 0..3_i64 {
         scope_files(&root_scope, (10 + step as u64 * 2) * 1_000_000, 100 << 20, 100);
-        sampler.tick(minute + 10_000 + step * 2000, 0).unwrap();
+        sampler.tick(minute + 10_000 + step * 2000, 0);
     }
-    sampler.roll_up(now_ms()).unwrap();
     drop(sampler);
+    Store::open(&f.db).unwrap().roll_up(now_ms()).unwrap();
     let store = Store::open_read_only(&f.db).unwrap();
     let units = store.units_for_thread("root-thread").unwrap();
     // A turn from 11 s to 13 s lies between readings and inside a folded minute.
@@ -315,7 +315,7 @@ fn spreads_cpu_over_the_buckets_an_interval_covers() {
     // One core for 30 s between two readings.
     for (step, cpu) in [(0_i64, 0_u64), (30_000, 30_000_000)] {
         scope_files(&root_scope, cpu, 100 << 20, 100);
-        sampler.tick(base + step, 0).unwrap();
+        sampler.tick(base + step, 0);
     }
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
@@ -323,6 +323,68 @@ fn spreads_cpu_over_the_buckets_an_interval_covers() {
     let buckets = report::series(&store, &units, Window::ALL, 2_000).unwrap();
     let peak = buckets.iter().map(|b| b.cores).fold(0.0, f64::max);
     assert!((peak - 1.0).abs() < 1e-9, "peak {peak}");
+}
+
+#[test]
+fn reuses_a_unit_when_a_scope_is_seen_again() {
+    let f = fake();
+    let root_scope = agents_dir(&f.roots).join("t3code-claude-0000000a.scope");
+    let mut sampler = Sampler::new(&Options {
+        roots: f.roots.clone(),
+        db: f.db.clone(),
+        interval_ms: 2000,
+        gpu: false,
+    })
+    .unwrap();
+    let base = now_ms() + 1_000;
+    sampler.tick(base, 0);
+    // One unreadable sample drops the scope, and the next tick finds it again under the same cgroup id. Recording it a
+    // second time would break the database's one-unit-per-cgroup rule and fail the whole commit.
+    fs::remove_file(root_scope.join("cpu.stat")).unwrap();
+    sampler.tick(base + 2000, 0);
+    scope_files(&root_scope, 1_000_000, 100 << 20, 100);
+    sampler.tick(base + 4000, 0);
+    sampler.finish().unwrap();
+    drop(sampler);
+    let store = Store::open_read_only(&f.db).unwrap();
+    let units = store.units_for_thread("root-thread").unwrap();
+    assert_eq!(units.len(), 1, "{units:?}");
+    let points = store.points(units[0].unit_id, base, base + 4000).unwrap();
+    assert_eq!(points.iter().map(|p| p.ts_ms).collect::<Vec<_>>(), [base, base + 4000]);
+}
+
+#[test]
+fn keeps_sampling_while_the_database_is_locked() {
+    let f = fake();
+    let mut sampler = Sampler::new(&Options {
+        roots: f.roots.clone(),
+        db: f.db.clone(),
+        interval_ms: 2000,
+        gpu: false,
+    })
+    .unwrap();
+    // Another connection holds the write lock, as a slow commit or checkpoint would.
+    let blocker = Connection::open(&f.db).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let base = now_ms() + 1_000;
+    let started = std::time::Instant::now();
+    for step in 0..5 {
+        sampler.tick(base + step * 2000, 0);
+    }
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "ticks waited on the database"
+    );
+    assert!(matches!(sampler.writer_health(), crate::writer::Health::Ok));
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        blocker.execute_batch("COMMIT").unwrap();
+    });
+    sampler.finish().unwrap();
+    release.join().unwrap();
+    drop(sampler);
+    let store = Store::open_read_only(&f.db).unwrap();
+    assert_eq!(store.ticks(base, base + 8000).unwrap().len(), 5);
 }
 
 #[test]
@@ -341,7 +403,7 @@ fn keeps_a_shared_scope_shared_after_its_leader_exits() {
     write(&shared.join("cgroup.procs"), "300\n301\n");
     process(&f.roots.proc, 300, 1, "HOME=/h\0");
     process(&f.roots.proc, 301, 300, "T3CODE_THREAD_ID=codex-thread\0");
-    sampler.tick(base, 0).unwrap();
+    sampler.tick(base, 0);
     // The app-server exits and the sampler restarts; its command is reparented outside the scope and now looks like a
     // leader. The pin and classification come back from the database.
     drop(sampler);
@@ -355,7 +417,7 @@ fn keeps_a_shared_scope_shared_after_its_leader_exits() {
     for step in 1..40 {
         scope_files(&shared, 1_000_000, 80 << 20, 301);
         process(&f.roots.proc, 301, 1, "T3CODE_THREAD_ID=codex-thread\0");
-        sampler.tick(base + step * 2000, 0).unwrap();
+        sampler.tick(base + step * 2000, 0);
     }
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
@@ -381,7 +443,7 @@ fn leaves_turns_inside_sampler_downtime_unmeasured() {
     // Two readings, five minutes of downtime, two more: 1 s of CPU per second throughout.
     for offset in [0_i64, 2_000, 300_000, 302_000] {
         scope_files(&root_scope, offset.unsigned_abs() * 1000, 100 << 20, 100);
-        sampler.tick(base + offset, 0).unwrap();
+        sampler.tick(base + offset, 0);
     }
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
@@ -416,7 +478,7 @@ fn does_not_interpolate_across_a_short_outage() {
     // Ticks every 2 s with an 8 s outage between 2 s and 10 s.
     for offset in [0_i64, 2_000, 10_000, 12_000] {
         scope_files(&root_scope, offset.unsigned_abs() * 1000, 100 << 20, 100);
-        sampler.tick(base + offset, 0).unwrap();
+        sampler.tick(base + offset, 0);
     }
     drop(sampler);
     let store = Store::open_read_only(&f.db).unwrap();
