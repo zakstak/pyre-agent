@@ -363,7 +363,8 @@ fn keeps_sampling_while_the_database_is_locked() {
         gpu: false,
     })
     .unwrap();
-    // Another connection holds the write lock, as a slow commit or checkpoint would.
+    // Another connection holds the write lock, as a slow commit or checkpoint would. Ticks only queue writes, so they
+    // finish anyway; the final commit then waits for the lock and lands every queued tick.
     let blocker = Connection::open(&f.db).unwrap();
     blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
     let base = now_ms() + 1_000;
