@@ -1,6 +1,6 @@
 [package]
 name = "session-resources"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 rust-version = "1.89"
 description = "Passive CPU, memory, and GPU memory accounting for T3 Code agent sessions."
@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 askama = "0.16.1"
-clap = { version = "4.6.9", features = ["derive"] }
+clap = { version = "4.6.10", features = ["derive"] }
 libc = "0.2.191"
 libloading = "0.9.1"
 rusqlite = { version = "0.43.0", features = ["bundled"] }
