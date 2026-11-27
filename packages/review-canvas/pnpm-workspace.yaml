@@ -1,8 +1,6 @@
 allowBuilds:
   # Its postinstall only shortens the launcher; the plain launcher works without running it.
   tsc-rs: false
-minimumReleaseAgeExclude:
-  - effect@4.0.4
 packageExtensions:
   # Used only by its Redis module, which this package never loads.
   "@effect/platform-node":
